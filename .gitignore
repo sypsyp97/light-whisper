@@ -159,3 +159,5 @@ temp/
 .gyprc
 
 python
+
+.claude/
