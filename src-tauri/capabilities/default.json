@@ -1,0 +1,22 @@
+{
+  "identifier": "default",
+  "description": "轻语 Whisper 应用的默认权限配置",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-minimize",
+    "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+    "clipboard-manager:default",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "log:default"
+  ]
+}

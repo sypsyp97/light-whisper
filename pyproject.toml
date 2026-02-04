@@ -1,0 +1,24 @@
+[project]
+name = "ququ"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "funasr>=1.2.7",
+    "huggingface-hub>=0.24.0",
+    "librosa>=0.11.0",
+    "numpy<2",
+    "torch>=2.4.0",
+    "torchaudio>=2.4.0",
+    "transformers>=4.45.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu124" }]
+torchaudio = [{ index = "pytorch-cu124" }]
