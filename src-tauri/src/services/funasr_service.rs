@@ -263,8 +263,8 @@ where
 /// 查找可用的 Python 解释器
 ///
 /// 按以下优先级搜索 Python：
-/// 1. 应用内嵌的 Python（resources/python/python.exe）
-/// 2. 项目虚拟环境中的 Python（.venv/Scripts/python.exe 或 .venv/bin/python）
+/// 1. 固定路径（C:\Users\sun\Downloads\ququ\.venv）
+/// 2. 项目虚拟环境中的 Python（.venv/Scripts/python.exe）
 /// 3. 系统 PATH 中的 python / python3
 ///
 /// # 返回值
@@ -277,33 +277,21 @@ where
 /// - `Err(error)` 表示操作失败
 /// `?` 操作符是一个语法糖：如果 Result 是 Err，自动返回错误；如果是 Ok，取出值继续执行。
 pub async fn find_python() -> Result<String, AppError> {
-    // ---- 策略1：检查应用内嵌的 Python ----
-    // 有些应用会自带 Python 环境，避免依赖用户系统安装
-    let embedded_python = if cfg!(target_os = "windows") {
-        PathBuf::from("resources").join("python").join("python.exe")
-    } else {
-        PathBuf::from("resources").join("python").join("bin").join("python3")
-    };
-
-    if embedded_python.exists() {
-        log::info!("找到内嵌 Python: {:?}", embedded_python);
-        return Ok(embedded_python.to_string_lossy().to_string());
+    // ---- 策略1：固定路径（自用打包版）----
+    let fixed_python = PathBuf::from(r"C:\Users\sun\Downloads\ququ\.venv\Scripts\python.exe");
+    if fixed_python.exists() {
+        log::info!("找到固定路径 Python: {:?}", fixed_python);
+        return Ok(fixed_python.to_string_lossy().to_string());
     }
 
-    // ---- 策略2：检查项目 .venv 虚拟环境（uv 创建的）----
-    // 搜索多个可能的位置：当前目录、上级目录（开发模式下 cwd 可能是 src-tauri/）
+    // ---- 策略2：检查项目 .venv 虚拟环境（开发模式）----
     let venv_candidates: Vec<PathBuf> = {
         let mut candidates = Vec::new();
-        // 当前目录
         candidates.push(PathBuf::from(".venv"));
-        // 上级目录（开发模式下 Tauri 的 cwd 是 src-tauri/）
         candidates.push(PathBuf::from("..").join(".venv"));
-        // 从 exe 所在路径推断（打包后 exe 在 target/debug/ 或 target/release/ 下）
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
-                // exe 在 src-tauri/target/debug/ 下时，项目根在 ../../..
                 candidates.push(exe_dir.join("..").join("..").join("..").join(".venv"));
-                // exe 在 src-tauri/target/release/ 下时同理
                 candidates.push(exe_dir.join("..").join("..").join("..").join("..").join(".venv"));
             }
         }
