@@ -1,172 +1,123 @@
-import {
-  ArrowLeft,
-  Mic,
-  Accessibility,
-  Sun,
-  Moon,
-  Monitor,
-} from "lucide-react";
-
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/useTheme";
 import { useWindowDrag } from "@/hooks/useWindowDrag";
 
-/* ── Settings page (inside 400x500 main window, decorations:false) ── */
+const PADDING = 24;
+
+const testBtnStyle: React.CSSProperties = {
+  padding: "8px 16px",
+  borderRadius: 4,
+  fontSize: 12,
+  fontWeight: 500,
+  background: "var(--color-bg-secondary)",
+  color: "var(--color-text-secondary)",
+  border: "1px solid var(--color-border-subtle)",
+  cursor: "pointer",
+  transition: "all 0.15s ease",
+};
+
 export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const { isDark, theme, setTheme } = useTheme();
   const { startDrag } = useWindowDrag();
 
-  return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden select-none text-[var(--color-text-primary)]">
+  const themeOptions = [
+    { mode: "light" as const, icon: Sun, label: "浅色" },
+    { mode: "dark" as const, icon: Moon, label: "深色" },
+    { mode: "system" as const, icon: Monitor, label: "跟随系统" },
+  ];
 
-      {/* ═══ Title bar — 32px, same as main page ═══ */}
-      <header
-        className="relative z-20 flex items-center justify-between px-3 h-8 shrink-0 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-overlay)] backdrop-blur-sm"
-        onMouseDown={startDrag}
-      >
-        <div className="flex items-center gap-1.5" onMouseDown={(e) => e.stopPropagation()}>
-          <button
-            onClick={() => onNavigate("main")}
-            className="p-1 rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-muted)] transition-colors"
-            title="返回"
-          >
-            <ArrowLeft size={12} strokeWidth={1.8} />
+  return (
+    <div style={{ height: "100vh", width: "100vw", display: "flex", flexDirection: "column", overflow: "hidden", userSelect: "none", color: "var(--color-text-primary)" }}>
+
+      {/* Title bar */}
+      <header onMouseDown={startDrag} style={{ display: "flex", alignItems: "center", padding: `0 ${PADDING - 8}px`, height: 36, flexShrink: 0, borderBottom: "1px solid var(--color-border-subtle)", background: "var(--color-bg-overlay)", backdropFilter: "blur(8px)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }} onMouseDown={e => e.stopPropagation()}>
+          <button onClick={() => onNavigate("main")} style={{ padding: 8, borderRadius: 4, border: "none", background: "transparent", color: "var(--color-text-tertiary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <ArrowLeft size={14} strokeWidth={1.5} />
           </button>
-          <span
-            className="text-[12px] font-semibold tracking-[0.02em] text-[var(--color-text-primary)]"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            设置
-          </span>
+          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.01em", fontFamily: "var(--font-display)" }}>设置</span>
         </div>
       </header>
 
-      {/* ═══ Scrollable content ═══ */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4">
-        <div className="space-y-5">
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: `20px ${PADDING}px 16px` }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-          {/* ── ASR Engine ── */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Mic size={14} className="text-[var(--color-accent)]" />
-              <h2 className="text-[14px] font-semibold text-[var(--color-text-primary)]">识别模型</h2>
+          {/* Appearance */}
+          <section>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              {isDark ? <Moon size={15} style={{ color: "var(--color-accent)" }} /> : <Sun size={15} style={{ color: "var(--color-accent)" }} />}
+              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>外观</h2>
             </div>
-
-            <div className="rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] p-3">
-              <div className="text-[12px] font-semibold text-[var(--color-text-primary)]">
-                Paraformer（固定）
-              </div>
-              <p className="text-[11px] leading-[1.5] text-[var(--color-text-tertiary)] mt-1">
-                官方推荐的离线识别模型，内置 VAD 与标点恢复。
-              </p>
-            </div>
-            <p className="text-[11px] leading-[1.5] text-[var(--color-text-tertiary)]">
-              识别引擎已固定为 Paraformer，不再提供切换选项。
-            </p>
-          </section>
-
-          <hr className="divider" />
-
-          {/* ── Appearance ── */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              {isDark ? <Moon size={14} className="text-[var(--color-accent)]" /> : <Sun size={14} className="text-[var(--color-accent)]" />}
-              <h2 className="text-[14px] font-semibold text-[var(--color-text-primary)]">外观</h2>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              {([
-                { mode: "light" as const, icon: Sun, label: "浅色" },
-                { mode: "dark" as const, icon: Moon, label: "深色" },
-                { mode: "system" as const, icon: Monitor, label: "跟随系统" },
-              ]).map(({ mode, icon: Icon, label }) => (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+              {themeOptions.map(({ mode, icon: Icon, label }) => (
                 <button
                   key={mode}
                   onClick={() => setTheme(mode)}
-                  className={cn(
-                    "flex flex-col items-center gap-1.5 py-3 rounded-lg border transition-all",
-                    theme === mode
-                      ? "bg-[var(--color-accent-subtle)] border-[var(--color-border-accent)] text-[var(--color-accent)]"
-                      : "bg-[var(--color-bg-elevated)] border-[var(--color-border-subtle)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-                  )}
+                  style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                    padding: "14px 12px", borderRadius: 6,
+                    border: `1px solid ${theme === mode ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
+                    background: theme === mode ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
+                    color: theme === mode ? "var(--color-accent)" : "var(--color-text-tertiary)",
+                    cursor: "pointer", transition: "all 0.15s ease",
+                  }}
                 >
-                  <Icon size={18} strokeWidth={1.5} />
-                  <span className="text-[11px] font-medium">{label}</span>
+                  <Icon size={20} strokeWidth={1.5} />
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{label}</span>
                 </button>
               ))}
             </div>
           </section>
 
-          <hr className="divider" />
+          <div style={{ height: 1, background: "var(--color-border-subtle)" }} />
 
-          {/* ── Permissions ── */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Accessibility size={14} className="text-[var(--color-accent)]" />
-              <h2 className="text-[14px] font-semibold text-[var(--color-text-primary)]">权限</h2>
+          {/* Permissions */}
+          <section>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Accessibility size={15} style={{ color: "var(--color-accent)" }} />
+              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>权限</h2>
             </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between py-1">
-                <div className="flex items-center gap-2.5">
-                  <Mic size={13} className="text-[var(--color-text-tertiary)]" />
-                  <span className="text-[13px] text-[var(--color-text-secondary)]">麦克风</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Mic size={14} style={{ color: "var(--color-text-tertiary)" }} />
+                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>麦克风</span>
                 </div>
-                <button
-                  onClick={async () => {
-                    try {
-                      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                      stream.getTracks().forEach((t) => t.stop());
-                      toast.success("麦克风权限正常");
-                    } catch { toast.error("麦克风权限未授予"); }
-                  }}
-                  className="px-3 py-1 rounded text-[11px] font-medium bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] hover:bg-[var(--color-accent-subtle)] hover:text-[var(--color-accent)] transition-colors"
-                >
-                  测试
-                </button>
+                <button onClick={async () => {
+                  try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    stream.getTracks().forEach(t => t.stop());
+                    toast.success("麦克风权限正常");
+                  } catch { toast.error("麦克风权限未授予"); }
+                }} style={testBtnStyle}>测试</button>
               </div>
-              <div className="flex items-center justify-between py-1">
-                <div className="flex items-center gap-2.5">
-                  <Accessibility size={13} className="text-[var(--color-text-tertiary)]" />
-                  <span className="text-[13px] text-[var(--color-text-secondary)]">辅助功能 / 粘贴</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Accessibility size={14} style={{ color: "var(--color-text-tertiary)" }} />
+                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>辅助功能 / 粘贴</span>
                 </div>
-                <button
-                  onClick={async () => {
-                    try {
-                      const { pasteText } = await import("@/api/clipboard");
-                      await pasteText("测试粘贴");
-                      toast.success("粘贴功能正常");
-                    } catch { toast.error("粘贴功能异常"); }
-                  }}
-                  className="px-3 py-1 rounded text-[11px] font-medium bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] hover:bg-[var(--color-accent-subtle)] hover:text-[var(--color-accent)] transition-colors"
-                >
-                  测试
-                </button>
+                <button onClick={async () => {
+                  try {
+                    const { pasteText } = await import("@/api/clipboard");
+                    await pasteText("测试粘贴");
+                    toast.success("粘贴功能正常");
+                  } catch { toast.error("粘贴功能异常"); }
+                }} style={testBtnStyle}>测试</button>
               </div>
-            </div>
-          </section>
-
-          <hr className="divider" />
-
-          {/* ── About ── */}
-          <section className="space-y-2.5 pb-4">
-            <p className="text-[14px] font-semibold text-[var(--color-text-primary)]" style={{ fontFamily: "var(--font-display)" }}>
-              轻语 Whisper
-              <span className="text-[11px] font-normal text-[var(--color-text-tertiary)] ml-2" style={{ fontFamily: "var(--font-sans)" }}>
-                v0.1.0
-              </span>
-            </p>
-            <p className="text-[12px] leading-[1.6] text-[var(--color-text-secondary)]">
-              本地语音转文字工具，基于 FunASR 离线语音识别引擎。
-            </p>
-            <div className="flex flex-wrap gap-2 pt-0.5">
-              {["离线识别", "全局热键", "隐私优先"].map((tag) => (
-                <span key={tag} className="chip">{tag}</span>
-              ))}
             </div>
           </section>
         </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ flexShrink: 0, padding: `14px ${PADDING}px`, borderTop: "1px solid var(--color-border-subtle)", textAlign: "center" }}>
+        <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", margin: 0 }}>
+          轻语 Whisper <span style={{ marginLeft: 4, fontSize: 11 }}>v0.1.0</span>
+          <span style={{ margin: "0 6px" }}>·</span>
+          本地语音转文字
+        </p>
       </div>
     </div>
   );
