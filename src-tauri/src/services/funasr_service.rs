@@ -263,28 +263,14 @@ where
 /// 查找可用的 Python 解释器
 ///
 /// 按以下优先级搜索 Python：
-/// 1. 固定路径（C:\Users\sun\Downloads\ququ\.venv）
-/// 2. 项目虚拟环境中的 Python（.venv/Scripts/python.exe）
-/// 3. 系统 PATH 中的 python / python3
+/// 1. 项目虚拟环境中的 Python（.venv/Scripts/python.exe）
+/// 2. 系统 PATH 中的 python / python3
 ///
 /// # 返回值
 /// - `Ok(String)`：找到的 Python 可执行文件路径
 /// - `Err(AppError)`：没有找到任何可用的 Python
-///
-/// # Rust 知识点：Result 和 ? 操作符
-/// `Result<T, E>` 是 Rust 中处理错误的核心类型：
-/// - `Ok(value)` 表示操作成功
-/// - `Err(error)` 表示操作失败
-/// `?` 操作符是一个语法糖：如果 Result 是 Err，自动返回错误；如果是 Ok，取出值继续执行。
 pub async fn find_python() -> Result<String, AppError> {
-    // ---- 策略1：固定路径（自用打包版）----
-    let fixed_python = PathBuf::from(r"C:\Users\sun\Downloads\ququ\.venv\Scripts\python.exe");
-    if fixed_python.exists() {
-        log::info!("找到固定路径 Python: {:?}", fixed_python);
-        return Ok(fixed_python.to_string_lossy().to_string());
-    }
-
-    // ---- 策略2：检查项目 .venv 虚拟环境（开发模式）----
+    // ---- 策略1：检查项目 .venv 虚拟环境 ----
     let venv_candidates: Vec<PathBuf> = {
         let mut candidates = Vec::new();
         candidates.push(PathBuf::from(".venv"));
@@ -318,7 +304,7 @@ pub async fn find_python() -> Result<String, AppError> {
         }
     }
 
-    // ---- 策略3：在系统 PATH 中搜索 ----
+    // ---- 策略2：在系统 PATH 中搜索 ----
     // 尝试多个可能的 Python 命令名
     let python_names = if cfg!(target_os = "windows") {
         vec!["python.exe", "python3.exe", "python"]
