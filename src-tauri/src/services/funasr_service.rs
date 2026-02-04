@@ -572,7 +572,7 @@ pub async fn transcribe(
     // 而文件路径是一个简单的字符串，通过 JSON 传递很方便。
     let temp_dir = std::env::temp_dir();
     let temp_file = temp_dir.join(format!(
-        "ququ_audio_{}.wav",
+        "light_whisper_audio_{}.wav",
         // 使用时间戳作为文件名的一部分，避免文件名冲突
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

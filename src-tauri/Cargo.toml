@@ -1,12 +1,12 @@
 [package]
-name = "ququ"
+name = "light-whisper"
 version = "1.0.0"
-description = "蛐蛐 - 基于FunASR的中文语音转文字应用"
+description = "轻语 - 基于FunASR的中文语音转文字应用"
 authors = ["sun"]
 edition = "2021"
 
 [lib]
-name = "ququ_lib"
+name = "light_whisper_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

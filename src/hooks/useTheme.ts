@@ -9,7 +9,7 @@ interface UseThemeReturn {
   toggleTheme: () => void;
 }
 
-const STORAGE_KEY = "ququ-theme";
+const STORAGE_KEY = "light-whisper-theme";
 
 function getSystemPrefersDark(): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;

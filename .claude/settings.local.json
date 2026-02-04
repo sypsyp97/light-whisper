@@ -23,7 +23,9 @@
       "Bash(cargo update:*)",
       "Bash(git commit:*)",
       "Bash(pnpm add:*)",
-      "Bash(pnpm tauri build:*)"
+      "Bash(pnpm tauri build:*)",
+      "Bash(cargo clean:*)",
+      "Bash(rd:*)"
     ]
   }
 }

@@ -4,15 +4,15 @@
 //! 所有路径都基于操作系统的标准目录，确保跨平台兼容。
 //!
 //! # 路径说明
-//! - Windows: `C:\Users\用户名\AppData\Roaming\com.ququ.app\`
-//! - macOS: `~/Library/Application Support/com.ququ.app/`
-//! - Linux: `~/.local/share/com.ququ.app/`
+//! - Windows: `C:\Users\用户名\AppData\Roaming\com.light-whisper.app\`
+//! - macOS: `~/Library/Application Support/com.light-whisper.app/`
+//! - Linux: `~/.local/share/com.light-whisper.app/`
 
 use std::path::PathBuf;
 
 /// 应用的唯一标识符，用于确定数据存储目录
 /// `const` 定义的是编译时常量，类似于其他语言中的 `final` 或 `readonly`
-const APP_IDENTIFIER: &str = "com.ququ.app";
+const APP_IDENTIFIER: &str = "com.light-whisper.app";
 
 /// 获取应用的数据目录
 ///
@@ -29,8 +29,8 @@ pub fn get_data_dir() -> PathBuf {
     //   - None 表示获取失败
     // `.unwrap_or_else(|| ...)` 的意思是：如果是 None，就用后面的默认值
     let base = dirs::data_dir().unwrap_or_else(|| {
-        // 如果获取系统数据目录失败，就用当前目录下的 .ququ 文件夹
-        PathBuf::from(".ququ")
+        // 如果获取系统数据目录失败，就用当前目录下的 .light-whisper 文件夹
+        PathBuf::from(".light-whisper")
     });
 
     let app_dir = base.join(APP_IDENTIFIER);
