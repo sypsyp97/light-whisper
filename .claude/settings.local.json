@@ -21,7 +21,9 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\ninit\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(pnpm install:*)",
       "Bash(cargo update:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm tauri build:*)"
     ]
   }
 }

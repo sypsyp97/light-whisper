@@ -1,7 +1,9 @@
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useWindowDrag } from "@/hooks/useWindowDrag";
+import { enableAutostart, disableAutostart, isAutostartEnabled } from "@/api/autostart";
 
 const PADDING = 24;
 
@@ -20,6 +22,34 @@ const testBtnStyle: React.CSSProperties = {
 export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const { isDark, theme, setTheme } = useTheme();
   const { startDrag } = useWindowDrag();
+  const [autostart, setAutostart] = useState(false);
+  const [autostartLoading, setAutostartLoading] = useState(true);
+
+  useEffect(() => {
+    isAutostartEnabled().then(enabled => {
+      setAutostart(enabled);
+      setAutostartLoading(false);
+    }).catch(() => setAutostartLoading(false));
+  }, []);
+
+  const handleAutostartToggle = async () => {
+    setAutostartLoading(true);
+    try {
+      if (autostart) {
+        await disableAutostart();
+        setAutostart(false);
+        toast.success("已关闭开机自启动");
+      } else {
+        await enableAutostart();
+        setAutostart(true);
+        toast.success("已开启开机自启动");
+      }
+    } catch {
+      toast.error("设置失败");
+    } finally {
+      setAutostartLoading(false);
+    }
+  };
 
   const themeOptions = [
     { mode: "light" as const, icon: Sun, label: "浅色" },
@@ -106,6 +136,37 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   } catch { toast.error("粘贴功能异常"); }
                 }} style={testBtnStyle}>测试</button>
               </div>
+            </div>
+          </section>
+
+          <div style={{ height: 1, background: "var(--color-border-subtle)" }} />
+
+          {/* Startup */}
+          <section>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Power size={15} style={{ color: "var(--color-accent)" }} />
+              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>启动</h2>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>开机自启动</span>
+              <button
+                onClick={handleAutostartToggle}
+                disabled={autostartLoading}
+                style={{
+                  width: 44, height: 24, borderRadius: 12, border: "none", padding: 2,
+                  background: autostart ? "var(--color-accent)" : "var(--color-bg-tertiary)",
+                  cursor: autostartLoading ? "wait" : "pointer",
+                  transition: "background 0.2s ease",
+                  opacity: autostartLoading ? 0.6 : 1,
+                }}
+              >
+                <div style={{
+                  width: 20, height: 20, borderRadius: "50%",
+                  background: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  transform: autostart ? "translateX(20px)" : "translateX(0)",
+                  transition: "transform 0.2s ease",
+                }} />
+              </button>
             </div>
           </section>
         </div>

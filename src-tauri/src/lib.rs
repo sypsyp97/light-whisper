@@ -71,6 +71,12 @@ pub fn run() {
         // 剪贴板插件：读写系统剪贴板
         .plugin(tauri_plugin_clipboard_manager::init())
 
+        // 开机自启动插件
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--minimized"]),  // 启动时最小化
+        ))
+
         // 日志插件：应用日志记录
         // 只输出到控制台（Stdout），避免重复
         .plugin(

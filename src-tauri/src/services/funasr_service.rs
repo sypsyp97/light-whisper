@@ -433,16 +433,9 @@ pub async fn start_server(
     }
 
     // 构建子进程命令
-    //
-    // `Stdio::piped()` 意味着我们要通过管道与子进程通信：
-    // - stdin：我们向子进程发送命令
-    // - stdout：子进程向我们返回结果
-    // - stderr：子进程的错误输出（用于调试）
-    //
-    // 模型从 HuggingFace 下载，使用 HF 默认缓存目录 (~/.cache/huggingface/hub/)
     let data_dir = paths::strip_win_prefix(&paths::get_data_dir());
-    let mut child = Command::new(&python_path)
-        .arg("-u") // -u 表示无缓冲输出，确保 print 立即可见
+    let mut cmd = Command::new(&python_path);
+    cmd.arg("-u")
         .arg(&server_script_str)
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
@@ -450,12 +443,17 @@ pub async fn start_server(
         .env("ELECTRON_USER_DATA", &data_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        // stderr 使用 inherit 而非 piped：
-        // FunASR 模型加载时会输出大量日志到 stderr，如果 stderr 是 piped
-        // 但 Rust 端不读取，缓冲区（~64KB）满后 Python 进程会阻塞（管道死锁）。
-        // 使用 inherit 让 stderr 直接输出到控制台，避免死锁。
-        .stderr(std::process::Stdio::inherit())
-        .spawn() // 启动子进程
+        .stderr(std::process::Stdio::null()); // 丢弃 stderr，避免弹出控制台
+
+    // Windows 上隐藏控制台窗口
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = cmd.spawn()
         .map_err(|e| AppError::FunASR(format!("启动 FunASR 进程失败: {}", e)))?;
 
     log::info!("FunASR 子进程已启动，等待初始化...");
