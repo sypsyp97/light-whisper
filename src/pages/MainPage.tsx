@@ -54,8 +54,8 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
           轻语 Whisper
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 2 }} onMouseDown={e => e.stopPropagation()}>
-          <button onClick={() => import("@tauri-apps/api/window").then(m => m.getCurrentWindow().minimize())} style={iconBtnStyle}><Minus size={12} strokeWidth={1.5} /></button>
-          <button onClick={() => hideMainWindow()} style={iconBtnStyle}><X size={12} strokeWidth={1.5} /></button>
+          <button aria-label="最小化" onClick={() => import("@tauri-apps/api/window").then(m => m.getCurrentWindow().minimize())} style={iconBtnStyle}><Minus size={12} strokeWidth={1.5} /></button>
+          <button aria-label="关闭" onClick={() => hideMainWindow()} style={iconBtnStyle}><X size={12} strokeWidth={1.5} /></button>
         </div>
       </header>
 
@@ -154,7 +154,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
             <div style={{ borderRadius: 8, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", boxShadow: "var(--shadow-xs)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid var(--color-border-subtle)" }}>
                 <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>识别结果</span>
-                <button onClick={() => handleCopy(transcriptionResult, "original")} style={{ ...iconBtnStyle, padding: 6 }}>
+                <button aria-label="复制" onClick={() => handleCopy(transcriptionResult, "original")} style={{ ...iconBtnStyle, padding: 6 }}>
                   {copiedId === "original" ? <Check size={12} /> : <Copy size={12} strokeWidth={1.5} />}
                 </button>
               </div>
@@ -179,7 +179,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
 
       {/* Bottom toolbar */}
       <div style={{ flexShrink: 0, height: 44, display: "flex", alignItems: "center", padding: `0 ${PADDING - 12}px`, borderTop: "1px solid var(--color-border-subtle)" }}>
-        <button onClick={() => onNavigate("settings")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 6, border: "none", background: "transparent", fontSize: 12, color: "var(--color-text-tertiary)", cursor: "pointer" }}>
+        <button aria-label="设置" onClick={() => onNavigate("settings")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 6, border: "none", background: "transparent", fontSize: 12, color: "var(--color-text-tertiary)", cursor: "pointer" }}>
           <Settings size={14} strokeWidth={1.5} /> 设置
         </button>
       </div>

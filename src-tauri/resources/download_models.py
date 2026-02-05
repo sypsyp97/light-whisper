@@ -38,13 +38,14 @@ def _emit(model_type, stage, percent, error=None, message=None):
             _completed_count += 1
 
         overall = sum(_progress.values()) / _total_count if _total_count else 0
+        completed_snapshot = _completed_count
 
     status = {
         "stage": stage,
         "model": model_type,
         "progress": percent,
         "overall_progress": round(overall, 1),
-        "completed": _completed_count,
+        "completed": completed_snapshot,
         "total": _total_count,
     }
     if error:
@@ -154,10 +155,15 @@ def download_model(model_config):
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
 
-    # 每 2 秒发一次心跳，让 UI 知道还活着
+    # 每 2 秒发一次心跳，让 UI 知道还活着（最长等待 10 分钟）
     tick = 0
+    max_ticks = 300  # 300 * 2s = 600s = 10 min
     while not done_event.wait(timeout=2.0):
         tick += 1
+        if tick > max_ticks:
+            _emit(model_type, "error", 0, "下载超时（超过10分钟）",
+                  message=f"{model_name} 下载超时")
+            return {"success": False, "model": model_type, "error": "下载超时（超过10分钟）"}
         fake_pct = min(95, tick * 5)
         _emit(model_type, "downloading", fake_pct,
               message=f"{model_name} 下载中...")

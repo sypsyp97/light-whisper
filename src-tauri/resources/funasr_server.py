@@ -21,13 +21,15 @@ import tempfile
 # 获取日志文件路径
 def get_log_path():
     # 尝试从环境变量获取用户数据目录
-    if "QUQU_DATA_DIR" in os.environ:
+    if "LIGHT_WHISPER_DATA_DIR" in os.environ:
+        log_dir = os.path.join(os.environ["LIGHT_WHISPER_DATA_DIR"], "logs")
+    elif "QUQU_DATA_DIR" in os.environ:
         log_dir = os.path.join(os.environ["QUQU_DATA_DIR"], "logs")
     elif "ELECTRON_USER_DATA" in os.environ:
         log_dir = os.path.join(os.environ["ELECTRON_USER_DATA"], "logs")
     else:
         # 回退到临时目录
-        log_dir = os.path.join(tempfile.gettempdir(), "ququ_logs")
+        log_dir = os.path.join(tempfile.gettempdir(), "light_whisper_logs")
 
     # 确保日志目录存在
     os.makedirs(log_dir, exist_ok=True)
@@ -279,9 +281,14 @@ class FunASRServer:
             duration = self._get_audio_duration(audio_path)
             logger.info(f"音频时长: {duration:.2f}秒")
 
+            # 音频过短时 VAD 检测不到语音，会导致空张量索引错误
+            if 0 < duration < 0.5:
+                logger.warning(f"音频过短 ({duration:.2f}秒)，跳过转录")
+                return {"success": True, "text": "", "duration": duration}
+
             # 设置默认选项
             default_options = {
-                "batch_size_s": 300,
+                "batch_size_s": 60,
                 "hotword": "",
             }
 
@@ -290,7 +297,8 @@ class FunASRServer:
 
             # 执行ASR识别（官方推荐：AutoModel 内部集成 VAD + PUNC）
             asr_start = time.time()
-            with suppress_stdout():
+            import torch
+            with suppress_stdout(), torch.inference_mode():
                 asr_result = self.asr_model.generate(
                     input=audio_path,
                     batch_size_s=default_options["batch_size_s"],
@@ -328,13 +336,22 @@ class FunASRServer:
                 "model_type": "pytorch",  # 标识使用的是pytorch版本
             }
 
-            # 生产环境：每10次转录后进行内存清理
-            if self.transcription_count % 10 == 0:
+            # 生产环境：每5次转录或音频超长时进行内存清理
+            if self.transcription_count % 5 == 0 or duration > 120:
                 self._cleanup_memory()
                 logger.info(f"已完成 {self.transcription_count} 次转录，执行内存清理")
 
             return result
 
+        except (IndexError, RuntimeError) as e:
+            err_str = str(e)
+            if "index" in err_str and "out of bounds" in err_str or "size 0" in err_str:
+                logger.warning(f"音频中未检测到有效语音: {err_str}")
+                return {"success": True, "text": "", "duration": duration if 'duration' in dir() else 0.0}
+            error_msg = f"音频转录失败: {err_str}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            return {"success": False, "error": error_msg, "type": "transcription_error"}
         except Exception as e:
             error_msg = f"音频转录失败: {str(e)}"
             logger.error(error_msg)
@@ -349,7 +366,7 @@ class FunASRServer:
             duration = librosa.get_duration(filename=audio_path)
             self.total_audio_duration += duration  # 累计音频时长
             return duration
-        except:
+        except Exception:
             return 0.0
 
     def _cleanup_memory(self):
@@ -358,6 +375,9 @@ class FunASRServer:
             import gc
 
             gc.collect()
+            if self.device == "cuda":
+                import torch
+                torch.cuda.empty_cache()
             logger.info("内存清理完成")
         except Exception as e:
             logger.warning(f"内存清理失败: {str(e)}")

@@ -1,18 +1,19 @@
 import { createContext, useContext, useCallback, type ReactNode } from "react";
 import { useRecording } from "@/hooks/useRecording";
-import { useModelStatus } from "@/hooks/useModelStatus";
+import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
+import type { TranscriptionResult } from "@/types";
 
 interface RecordingContextValue {
   // recording
   isRecording: boolean;
   isProcessing: boolean;
   startRecording: () => Promise<void>;
-  stopRecording: () => Promise<any>;
+  stopRecording: () => Promise<TranscriptionResult | null>;
   recordingError: string | null;
   transcriptionResult: string | null;
   // model
-  stage: string;
+  stage: ModelStage;
   isReady: boolean;
   device: string | null;
   gpuName: string | null;

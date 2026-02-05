@@ -241,6 +241,17 @@ export function useRecording(): UseRecordingReturn {
 
           // Convert WebM to WAV (16 kHz mono PCM)
           const wavBuffer = await convertToWav(blob);
+
+          // 检查音频时长：WAV header 44 bytes, 16kHz 16-bit mono = 32000 bytes/s
+          const audioDurationSec = (wavBuffer.byteLength - 44) / 32000;
+          if (audioDurationSec < 0.5) {
+            setError("录音时间过短，请至少录制 0.5 秒");
+            setIsProcessing(false);
+            cleanup();
+            resolve(null);
+            return;
+          }
+
           const audioData = Array.from(new Uint8Array(wavBuffer));
 
           // Send to FunASR backend

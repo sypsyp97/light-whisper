@@ -63,7 +63,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       {/* Title bar */}
       <header onMouseDown={startDrag} style={{ display: "flex", alignItems: "center", padding: `0 ${PADDING - 8}px`, height: 36, flexShrink: 0, borderBottom: "1px solid var(--color-border-subtle)", background: "var(--color-bg-overlay)", backdropFilter: "blur(8px)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }} onMouseDown={e => e.stopPropagation()}>
-          <button onClick={() => onNavigate("main")} style={{ padding: 8, borderRadius: 4, border: "none", background: "transparent", color: "var(--color-text-tertiary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <button aria-label="返回" onClick={() => onNavigate("main")} style={{ padding: 8, borderRadius: 4, border: "none", background: "transparent", color: "var(--color-text-tertiary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <ArrowLeft size={14} strokeWidth={1.5} />
           </button>
           <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.01em", fontFamily: "var(--font-display)" }}>设置</span>

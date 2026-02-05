@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { registerF2Hotkey, unregisterF2Hotkey } from "../api/hotkey";
 
@@ -28,6 +28,8 @@ interface UseHotkeyReturn {
 export function useHotkey(onTrigger?: () => void): UseHotkeyReturn {
   const [registered, setRegistered] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const onTriggerRef = useRef(onTrigger);
+  onTriggerRef.current = onTrigger;
 
   const register = useCallback(async () => {
     try {
@@ -66,7 +68,7 @@ export function useHotkey(onTrigger?: () => void): UseHotkeyReturn {
 
     const setup = async () => {
       unlisten = await listen("toggle-recording", () => {
-        onTrigger?.();
+        onTriggerRef.current?.();
       });
     };
 
@@ -75,7 +77,7 @@ export function useHotkey(onTrigger?: () => void): UseHotkeyReturn {
     return () => {
       unlisten?.();
     };
-  }, [onTrigger]);
+  }, []);
 
   return {
     registered,

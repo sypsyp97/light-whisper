@@ -195,7 +195,7 @@ impl Drop for StartingFlagGuard {
 }
 
 const SERVER_INIT_TIMEOUT_SECS: u64 = 120;
-const SERVER_RESPONSE_TIMEOUT_SECS: u64 = 180;
+const SERVER_RESPONSE_TIMEOUT_SECS: u64 = 60;
 
 async fn read_json_response<T, R>(
     reader: &mut R,
@@ -291,7 +291,7 @@ pub async fn find_python() -> Result<String, AppError> {
             venv_dir.join("bin").join("python")
         };
 
-        if venv_python.exists() {
+        if tokio::fs::try_exists(&venv_python).await.unwrap_or(false) {
             // 规范化路径（消除 .. 等）
             let canonical = std::fs::canonicalize(&venv_python)
                 .unwrap_or_else(|_| venv_python.clone());
@@ -425,6 +425,7 @@ pub async fn start_server(
         .arg(&server_script_str)
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
+        .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
         .env("QUQU_DATA_DIR", &data_dir)
         .env("ELECTRON_USER_DATA", &data_dir)
         .stdin(std::process::Stdio::piped())
@@ -434,7 +435,6 @@ pub async fn start_server(
     // Windows 上隐藏控制台窗口
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
@@ -823,7 +823,9 @@ pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
             _ => {
                 // 超时或出错，强制杀死进程
                 log::warn!("FunASR 进程未响应退出命令，强制终止...");
-                let _ = child_process.child.kill().await;
+                if let Err(e) = child_process.child.kill().await {
+                    log::warn!("强制终止 FunASR 进程失败: {}", e);
+                }
             }
         }
     }

@@ -85,11 +85,15 @@ pub async fn paste_text(
             keybd_event, KEYEVENTF_KEYUP, VK_CONTROL, VK_V,
         };
 
+        // SAFETY: keybd_event is a well-documented Win32 API for synthesizing
+        // keystrokes. No memory safety concerns; the only risk is sending
+        // unintended input, which is the intended behavior here (simulating Ctrl+V).
         unsafe {
             keybd_event(VK_CONTROL as u8, 0, 0, 0);
             keybd_event(VK_V as u8, 0, 0, 0);
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        // SAFETY: same as above — releasing the previously pressed keys.
         unsafe {
             keybd_event(VK_V as u8, 0, KEYEVENTF_KEYUP, 0);
             keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
