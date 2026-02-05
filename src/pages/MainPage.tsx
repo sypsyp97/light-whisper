@@ -1,24 +1,15 @@
 import { useState } from "react";
 import { Settings, Minus, X, Copy, Download, Cpu, Loader2, Check } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { useRecordingContext } from "@/contexts/RecordingContext";
-import { useWindowDrag } from "@/hooks/useWindowDrag";
 import { copyToClipboard } from "@/api/clipboard";
 import { hideMainWindow } from "@/api/window";
+import TitleBar from "@/components/TitleBar";
 
 const PADDING = 24;
-
-const iconBtnStyle: React.CSSProperties = {
-  padding: 8,
-  borderRadius: 4,
-  border: "none",
-  background: "transparent",
-  color: "var(--color-text-tertiary)",
-  cursor: "pointer",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-};
+const EQ_BAR_COUNT = 5;
+const EQ_BAR_DELAY_STEP = 0.12; // seconds between each bar's animation
 
 export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const {
@@ -29,7 +20,6 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
     downloadModels: triggerDownload, cancelDownload, retryModel,
   } = useRecordingContext();
 
-  const { startDrag } = useWindowDrag();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const handleCopy = async (text: string, id: string) => {
@@ -44,20 +34,24 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
   };
 
   const isIdle = !isRecording && !isProcessing;
+  const recordBtnLabel = isRecording ? "停止录音" : isProcessing ? "识别中" : "开始录音";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", width: "100vw", userSelect: "none", overflow: "hidden", color: "var(--color-text-primary)" }}>
 
-      {/* Title bar */}
-      <header onMouseDown={startDrag} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: `0 ${PADDING - 8}px`, height: 36, flexShrink: 0, borderBottom: "1px solid var(--color-border-subtle)", background: "var(--color-bg-overlay)", backdropFilter: "blur(8px)" }}>
-        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.01em", fontFamily: "var(--font-display)", marginLeft: 8 }}>
-          轻语 Whisper
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }} onMouseDown={e => e.stopPropagation()}>
-          <button aria-label="最小化" onClick={() => import("@tauri-apps/api/window").then(m => m.getCurrentWindow().minimize())} style={iconBtnStyle}><Minus size={12} strokeWidth={1.5} /></button>
-          <button aria-label="关闭" onClick={() => hideMainWindow()} style={iconBtnStyle}><X size={12} strokeWidth={1.5} /></button>
-        </div>
-      </header>
+      <TitleBar
+        title="轻语 Whisper"
+        rightActions={
+          <>
+            <button aria-label="最小化" className="icon-btn" onClick={() => getCurrentWindow().minimize()}>
+              <Minus size={12} strokeWidth={1.5} />
+            </button>
+            <button aria-label="关闭" className="icon-btn" onClick={() => hideMainWindow()}>
+              <X size={12} strokeWidth={1.5} />
+            </button>
+          </>
+        }
+      />
 
       {/* Recording zone */}
       <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", padding: `28px ${PADDING}px 20px`, gap: 16 }}>
@@ -77,23 +71,24 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
         </div>
 
         <button
+          className="record-btn"
+          aria-label={recordBtnLabel}
+          aria-pressed={isRecording}
           disabled={!isReady || isProcessing}
           onClick={() => { if (!isReady) return; isRecording ? stopRecording() : startRecording(); }}
           style={{
-            width: 64, height: 64, borderRadius: "50%",
-            display: "flex", alignItems: "center", justifyContent: "center",
             border: isRecording ? "none" : "1px solid var(--color-border)",
             background: isRecording ? "var(--color-accent)" : isProcessing ? "var(--color-bg-tertiary)" : "var(--color-bg-elevated)",
             color: isRecording ? "white" : isProcessing ? "var(--color-text-tertiary)" : "var(--color-accent)",
             boxShadow: isRecording ? "0 0 0 4px rgba(193, 95, 60, 0.12), var(--shadow-lg)" : "var(--shadow-md)",
             cursor: !isReady ? "not-allowed" : isProcessing ? "wait" : "pointer",
-            opacity: !isReady ? 0.4 : 1, transition: "all 0.3s ease",
+            opacity: !isReady ? 0.4 : 1,
           }}
         >
           {isRecording && (
             <div style={{ display: "flex", alignItems: "center", gap: 2.5 }}>
-              {[0, 1, 2, 3, 4].map(i => (
-                <span key={i} style={{ width: 2, height: 12, borderRadius: 1, background: "white", animation: "eq 0.9s ease-in-out infinite alternate", animationDelay: `${i * 0.12}s` }} />
+              {Array.from({ length: EQ_BAR_COUNT }, (_, i) => (
+                <span key={i} className="eq-bar" style={{ animationDelay: `${i * EQ_BAR_DELAY_STEP}s` }} />
               ))}
             </div>
           )}
@@ -108,7 +103,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
           {!isReady && isIdle && <Loader2 size={18} className="animate-spin" strokeWidth={1.5} />}
         </button>
 
-        <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--color-text-tertiary)", textAlign: "center" }}>
+        <p aria-live="polite" style={{ fontSize: 12, lineHeight: 1.6, color: "var(--color-text-tertiary)", textAlign: "center" }}>
           {isRecording ? "正在聆听..." : isProcessing ? "识别中..." : isReady ? "点击开始录音"
             : stage === "downloading" ? (downloadProgress > 1 ? `模型下载中 ${Math.round(downloadProgress ?? 0)}%` : downloadMessage ?? "模型下载准备中...")
             : stage === "need_download" ? "需要下载模型" : stage === "loading" ? "模型加载中..." : "准备中..."}
@@ -122,17 +117,23 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
         {stage === "need_download" && isDownloading && (
           <div style={{ marginTop: 4, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, fontSize: 11, color: "var(--color-text-tertiary)" }}>
             <span>另一个模型正在下载中</span>
-            <button onClick={() => cancelDownload()} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 4, border: "1px solid var(--color-border-subtle)", background: "transparent", color: "var(--color-text-tertiary)", cursor: "pointer" }}>取消下载</button>
+            <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
           </div>
         )}
         {stage === "downloading" && (
           <div style={{ width: "100%", maxWidth: 200, marginTop: 4, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-            <div style={{ width: "100%", borderRadius: 4, height: 4, background: "var(--color-border)", overflow: "hidden" }}>
+            <div
+              role="progressbar"
+              aria-valuenow={downloadProgress > 1 ? Math.round(downloadProgress) : undefined}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              style={{ width: "100%", borderRadius: 4, height: 4, background: "var(--color-border)", overflow: "hidden" }}
+            >
               {downloadProgress > 1
                 ? <div style={{ height: "100%", background: "var(--color-accent)", borderRadius: 4, transition: "width 0.5s ease", width: `${downloadProgress ?? 0}%` }} />
-                : <div style={{ height: "100%", width: "50%", background: "var(--color-accent)", borderRadius: 4, animation: "downloadPulse 1.2s ease-in-out infinite" }} />}
+                : <div className="download-pulse-bar" />}
             </div>
-            <button onClick={() => cancelDownload()} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 4, border: "1px solid var(--color-border-subtle)", background: "transparent", color: "var(--color-text-tertiary)", cursor: "pointer" }}>取消下载</button>
+            <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
           </div>
         )}
       </div>
@@ -154,7 +155,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
             <div style={{ borderRadius: 8, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", boxShadow: "var(--shadow-xs)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid var(--color-border-subtle)" }}>
                 <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>识别结果</span>
-                <button aria-label="复制" onClick={() => handleCopy(transcriptionResult, "original")} style={{ ...iconBtnStyle, padding: 6 }}>
+                <button aria-label="复制" className="icon-btn" style={{ padding: 6 }} onClick={() => handleCopy(transcriptionResult, "original")}>
                   {copiedId === "original" ? <Check size={12} /> : <Copy size={12} strokeWidth={1.5} />}
                 </button>
               </div>
@@ -179,15 +180,10 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
 
       {/* Bottom toolbar */}
       <div style={{ flexShrink: 0, height: 44, display: "flex", alignItems: "center", padding: `0 ${PADDING - 12}px`, borderTop: "1px solid var(--color-border-subtle)" }}>
-        <button aria-label="设置" onClick={() => onNavigate("settings")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 6, border: "none", background: "transparent", fontSize: 12, color: "var(--color-text-tertiary)", cursor: "pointer" }}>
+        <button aria-label="设置" className="btn-ghost" onClick={() => onNavigate("settings")}>
           <Settings size={14} strokeWidth={1.5} /> 设置
         </button>
       </div>
-
-      <style>{`
-        @keyframes eq { 0% { height: 3px; } 100% { height: 12px; } }
-        @keyframes downloadPulse { 0% { transform: translateX(-60%); } 100% { transform: translateX(120%); } }
-      `}</style>
     </div>
   );
 }

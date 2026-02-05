@@ -22,6 +22,10 @@ function resolveIsDark(mode: ThemeMode): boolean {
 
 function applyThemeToDOM(isDark: boolean): void {
   const root = document.documentElement;
+
+  // Suppress all transitions during theme switch to prevent color flash
+  root.classList.add("no-transition");
+
   if (isDark) {
     root.classList.add("dark");
     root.setAttribute("data-theme", "dark");
@@ -29,6 +33,10 @@ function applyThemeToDOM(isDark: boolean): void {
     root.classList.remove("dark");
     root.setAttribute("data-theme", "light");
   }
+
+  // Force reflow, then re-enable transitions
+  root.offsetHeight;
+  root.classList.remove("no-transition");
 }
 
 /**

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
-import { transcribeAudio } from "../api/funasr";
-import { pasteText } from "../api/clipboard";
-import type { TranscriptionResult } from "../types";
+import { transcribeAudio } from "@/api/funasr";
+import { pasteText } from "@/api/clipboard";
+import type { TranscriptionResult } from "@/types";
 
 interface UseRecordingReturn {
   isRecording: boolean;
