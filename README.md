@@ -354,6 +354,15 @@ F2 是全局快捷键，如果被其他程序占用（如某些游戏或工具�
 </details>
 
 <details>
+<summary><b>转写结果输入到光标位置时部分字符变成句号或乱码</b></summary>
+
+这是因为应用使用 Win32 `SendInput` API 以 `KEYEVENTF_UNICODE` 模式逐字符模拟键盘输入，**当系统开启中文输入法（IME）时，IME 可能拦截并错误处理这些合成的 Unicode 键盘事件**，导致某些中文字符（如"我"、"你"）被转换为其他字符（如"。"）。
+
+**解决方法**：在使用语音转写时，将输入法切换到**英文模式**（按 `Shift` 或 `Ctrl+Space` 切换），即可避免此问题。
+
+</details>
+
+<details>
 <summary><b>首次编译 Rust 很慢</b></summary>
 
 首次 `pnpm tauri dev` 需要编译所有 Rust 依赖（约 3-10 分钟），这是正常的。后续启动只会增量编译改动部分，速度很快。
