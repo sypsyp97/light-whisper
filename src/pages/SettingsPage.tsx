@@ -5,7 +5,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { enableAutostart, disableAutostart, isAutostartEnabled } from "@/api/autostart";
 import TitleBar from "@/components/TitleBar";
 
-const PADDING = 24;
+const PADDING = 16;
 
 const themeOptions = [
   { mode: "light" as const, icon: Sun, label: "浅色" },
@@ -56,7 +56,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       <TitleBar
         title="设置"
         leftAction={
-          <button aria-label="返回" className="icon-btn" onClick={() => onNavigate("main")}>
+          <button aria-label="返回" className="icon-btn plain" onClick={() => onNavigate("main")}>
             <ArrowLeft size={14} strokeWidth={1.5} />
           </button>
         }
@@ -64,7 +64,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: `20px ${PADDING}px 16px` }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
           {/* Appearance */}
           <section>
@@ -82,7 +82,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   onClick={() => setTheme(mode)}
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-                    padding: "14px 12px", borderRadius: 6,
+                    padding: "10px 10px", borderRadius: 6,
                     border: `1px solid ${theme === mode ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
                     background: theme === mode ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
                     color: theme === mode ? "var(--color-accent)" : "var(--color-text-tertiary)",
@@ -120,7 +120,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   }}
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-                    padding: "14px 12px", borderRadius: 6,
+                    padding: "10px 10px", borderRadius: 6,
                     border: `1px solid ${inputMethod === key ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
                     background: inputMethod === key ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
                     color: inputMethod === key ? "var(--color-accent)" : "var(--color-text-tertiary)",
@@ -201,7 +201,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       </div>
 
       {/* Footer */}
-      <div style={{ flexShrink: 0, padding: `14px ${PADDING}px`, borderTop: "1px solid var(--color-border-subtle)", textAlign: "center" }}>
+      <div style={{ flexShrink: 0, padding: `10px ${PADDING}px`, borderTop: "1px solid var(--color-border-subtle)", textAlign: "center" }}>
         <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", margin: 0 }}>
           轻语 Whisper <span style={{ marginLeft: 4, fontSize: 11 }}>v1.0.0</span>
           <span style={{ margin: "0 6px" }}>·</span>

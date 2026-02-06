@@ -361,7 +361,7 @@ body {
 
 .eq-bar {
   width: 2px;
-  height: 12px;
+  height: 10px;
   border-radius: 1px;
   background: white;
   transform-origin: center bottom;
@@ -623,6 +623,10 @@ body {
   background: var(--color-accent-muted);
 }
 
+.icon-btn.plain:hover {
+  background: transparent;
+}
+
 .icon-btn:active {
   transform: scale(0.85);
   transition-duration: 50ms;
@@ -655,7 +659,7 @@ body {
 .title-bar {
   display: flex;
   align-items: center;
-  height: 36px;
+  height: 32px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-overlay);
@@ -664,8 +668,8 @@ body {
 
 /* Recording button — circular mic button with microinteractions */
 .record-btn {
-  width: 64px;
-  height: 64px;
+  width: 50px;
+  height: 50px;
   border-radius: 50%;
   display: flex;
   align-items: center;

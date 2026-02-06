@@ -7,7 +7,7 @@ import { copyToClipboard } from "@/api/clipboard";
 import { hideMainWindow } from "@/api/window";
 import TitleBar from "@/components/TitleBar";
 
-const PADDING = 24;
+const PADDING = 16;
 const EQ_BAR_COUNT = 5;
 const EQ_BAR_DELAY_STEP = 0.12; // seconds between each bar's animation
 
@@ -41,6 +41,11 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
 
       <TitleBar
         title="轻语 Whisper"
+        leftAction={
+          <button aria-label="设置" className="icon-btn plain" onClick={() => onNavigate("settings")}>
+            <Settings size={13} strokeWidth={1.5} />
+          </button>
+        }
         rightActions={
           <>
             <button aria-label="最小化" className="icon-btn" onClick={() => getCurrentWindow().minimize()}>
@@ -54,7 +59,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
       />
 
       {/* Recording zone */}
-      <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", padding: `28px ${PADDING}px 20px`, gap: 16 }}>
+      <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", padding: `16px ${PADDING}px 12px`, gap: 10 }}>
         <div style={{ minHeight: 20 }}>
           {isReady && device && (
             <span className="chip">
@@ -93,7 +98,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
             </div>
           )}
           {isIdle && isReady && (
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
               <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
               <line x1="12" x2="12" y1="19" y2="22" />
@@ -103,7 +108,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
           {!isReady && isIdle && <Loader2 size={18} className="animate-spin" strokeWidth={1.5} />}
         </button>
 
-        <p aria-live="polite" style={{ fontSize: 12, lineHeight: 1.6, color: "var(--color-text-tertiary)", textAlign: "center" }}>
+        <p aria-live="polite" style={{ fontSize: 11, lineHeight: 1.6, color: "var(--color-text-tertiary)", textAlign: "center" }}>
           {isRecording ? "正在聆听..." : isProcessing ? "识别中..." : isReady ? "点击开始录音"
             : stage === "downloading" ? (downloadProgress > 1 ? `模型下载中 ${Math.round(downloadProgress ?? 0)}%` : downloadMessage ?? "模型下载准备中...")
             : stage === "need_download" ? "需要下载模型" : stage === "loading" ? "模型加载中..." : "准备中..."}
@@ -121,7 +126,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
           </div>
         )}
         {stage === "downloading" && (
-          <div style={{ width: "100%", maxWidth: 200, marginTop: 4, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+          <div style={{ width: "100%", maxWidth: 180, marginTop: 4, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
             <div
               role="progressbar"
               aria-valuenow={downloadProgress > 1 ? Math.round(downloadProgress) : undefined}
@@ -140,8 +145,8 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
 
       {/* Error */}
       {(recordingError || modelError) && (
-        <div style={{ margin: `0 ${PADDING}px 12px`, flexShrink: 0 }}>
-          <div style={{ borderRadius: 6, padding: 14, background: "var(--color-error-bg)", border: "1px solid rgba(192, 57, 43, 0.15)" }}>
+        <div style={{ margin: `0 ${PADDING}px 8px`, flexShrink: 0 }}>
+          <div style={{ borderRadius: 6, padding: 10, background: "var(--color-error-bg)", border: "1px solid rgba(192, 57, 43, 0.15)" }}>
             <p style={{ fontSize: 12, color: "var(--color-error)", lineHeight: 1.6 }}>{recordingError || modelError}</p>
             {stage === "error" && <button onClick={retryModel} style={{ marginTop: 8, fontSize: 11, fontWeight: 500, color: "var(--color-error)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>重试</button>}
           </div>
@@ -153,37 +158,26 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
         {transcriptionResult && (
           <div style={{ marginBottom: 12 }} className="animate-fade-in">
             <div style={{ borderRadius: 8, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", boxShadow: "var(--shadow-xs)" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid var(--color-border-subtle)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid var(--color-border-subtle)" }}>
                 <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>识别结果</span>
                 <button aria-label="复制" className="icon-btn" style={{ padding: 6 }} onClick={() => handleCopy(transcriptionResult, "original")}>
                   {copiedId === "original" ? <Check size={12} /> : <Copy size={12} strokeWidth={1.5} />}
                 </button>
               </div>
-              <p style={{ padding: "12px 14px", fontSize: 13, lineHeight: 1.8, color: "var(--color-text-secondary)" }}>{transcriptionResult}</p>
+              <p style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.8, color: "var(--color-text-secondary)" }}>{transcriptionResult}</p>
             </div>
           </div>
         )}
         {isProcessing && !transcriptionResult && (
           <div className="animate-fade-in">
-            <div style={{ borderRadius: 8, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)" }}>
+            <div style={{ borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)" }}>
               <Loader2 size={14} className="animate-spin" style={{ color: "var(--color-text-tertiary)" }} />
               <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>正在识别语音...</span>
             </div>
           </div>
         )}
-        {!isProcessing && !transcriptionResult && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 0" }}>
-            <p style={{ fontSize: 13, color: "var(--color-text-tertiary)" }}>转录结果将显示在这里</p>
-          </div>
-        )}
       </div>
 
-      {/* Bottom toolbar */}
-      <div style={{ flexShrink: 0, height: 44, display: "flex", alignItems: "center", padding: `0 ${PADDING - 12}px`, borderTop: "1px solid var(--color-border-subtle)" }}>
-        <button aria-label="设置" className="btn-ghost" onClick={() => onNavigate("settings")}>
-          <Settings size={14} strokeWidth={1.5} /> 设置
-        </button>
-      </div>
     </div>
   );
 }

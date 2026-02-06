@@ -1,6 +1,6 @@
 import { useWindowDrag } from "@/hooks/useWindowDrag";
 
-const PADDING = 24;
+const PADDING = 16;
 
 interface TitleBarProps {
   title: string;
