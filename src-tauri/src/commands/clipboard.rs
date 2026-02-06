@@ -1,12 +1,8 @@
-//! 剪贴板命令模块
+//! 剪贴板与文本输入命令模块
 //!
-//! 提供文本复制和粘贴功能。
-//! 复制功能使用 tauri-plugin-clipboard-manager 插件，
-//! 粘贴功能通过模拟键盘快捷键实现。
-//!
-//! # 为什么需要模拟粘贴？
-//! 在某些场景下，用户希望转写结果能直接"打"到当前活动的输入框中。
-//! 实现方式是：先把文本写入剪贴板，然后模拟按下 Ctrl+V（或 Cmd+V）。
+//! 提供文本复制和直接输入功能。
+//! - 复制功能：使用 tauri-plugin-clipboard-manager 插件写入剪贴板
+//! - 输入功能：通过平台原生 API 直接模拟键盘输入 Unicode 字符，不占用剪贴板
 
 use crate::utils::AppError;
 
@@ -39,88 +35,97 @@ pub async fn copy_to_clipboard(
     Ok("已复制到剪贴板".to_string())
 }
 
-/// 粘贴文本（写入剪贴板并模拟 Ctrl+V）
+/// 输入文本到当前活动窗口（不覆盖剪贴板）
 ///
-/// 这个功能的使用场景是：用户完成语音转写后，
-/// 希望直接把结果输入到当前焦点所在的文本框中。
+/// 通过模拟键盘输入将文本直接打到当前焦点所在的文本框中，
+/// 不会覆盖用户的剪贴板内容。
 ///
-/// # 实现步骤
-/// 1. 先将文本写入系统剪贴板
-/// 2. 等待一小段时间确保剪贴板更新
-/// 3. 使用平台特定的方式模拟 Ctrl+V 快捷键
-///
-/// # 平台差异
-/// - Windows：使用 PowerShell 调用 SendKeys
-/// - macOS：使用 osascript 模拟 Cmd+V
-/// - Linux：使用 xdotool 模拟按键
+/// # 平台实现
+/// - Windows：使用 Win32 SendInput API 发送 Unicode 字符
+/// - macOS：使用 osascript keystroke 模拟按键输入
+/// - Linux：使用 xdotool type 模拟键盘输入
 ///
 /// # 注意事项
-/// 模拟按键可能被某些安全软件拦截。
+/// 模拟输入可能被某些安全软件拦截。
 #[tauri::command]
-pub async fn paste_text(
-    app_handle: tauri::AppHandle,
-    text: String,
-) -> Result<String, AppError> {
-    use tauri_plugin_clipboard_manager::ClipboardExt;
-
-    // 第一步：写入剪贴板
-    app_handle
-        .clipboard()
-        .write_text(&text)
-        .map_err(|e| AppError::Other(format!("写入剪贴板失败: {}", e)))?;
-
-    // 第二步：等待剪贴板更新（缩短等待时间以降低粘贴延迟）
-    tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
-
-    // 第三步：模拟粘贴快捷键
-    //
-    // `cfg!(target_os = "xxx")` 是编译时条件判断，
-    // 只有对应平台的代码会被编译进最终程序。
-    //
-    // 但这里我们用运行时判断（因为代码量不大）：
+pub async fn paste_text(text: String) -> Result<String, AppError> {
     #[cfg(target_os = "windows")]
     {
-        // Windows：直接调用 Win32 API 模拟 Ctrl+V（避免启动 PowerShell）
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-            keybd_event, KEYEVENTF_KEYUP, VK_CONTROL, VK_V,
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+            KEYEVENTF_UNICODE, KEYEVENTF_KEYUP,
         };
 
-        // SAFETY: keybd_event is a well-documented Win32 API for synthesizing
-        // keystrokes. No memory safety concerns; the only risk is sending
-        // unintended input, which is the intended behavior here (simulating Ctrl+V).
-        unsafe {
-            keybd_event(VK_CONTROL as u8, 0, 0, 0);
-            keybd_event(VK_V as u8, 0, 0, 0);
+        let mut inputs: Vec<INPUT> = Vec::new();
+
+        for code_unit in text.encode_utf16() {
+            // Key down
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: 0,
+                        wScan: code_unit,
+                        dwFlags: KEYEVENTF_UNICODE,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            });
+            // Key up
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: 0,
+                        wScan: code_unit,
+                        dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            });
         }
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-        // SAFETY: same as above — releasing the previously pressed keys.
-        unsafe {
-            keybd_event(VK_V as u8, 0, KEYEVENTF_KEYUP, 0);
-            keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
+
+        if !inputs.is_empty() {
+            // SAFETY: SendInput is a well-documented Win32 API for synthesizing input.
+            // We pass a correctly-sized array of INPUT structs with valid KEYBDINPUT data.
+            let sent = unsafe {
+                SendInput(
+                    inputs.len() as u32,
+                    inputs.as_ptr(),
+                    std::mem::size_of::<INPUT>() as i32,
+                )
+            };
+            if sent == 0 {
+                return Err(AppError::Other("SendInput 调用失败".to_string()));
+            }
         }
     }
 
     #[cfg(target_os = "macos")]
     {
-        // macOS：使用 AppleScript 模拟 Cmd+V
+        // macOS：使用 AppleScript keystroke 直接输入文本（不经过剪贴板）
+        let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(
+            "tell application \"System Events\" to keystroke \"{}\"",
+            escaped
+        );
         let _ = tokio::process::Command::new("osascript")
-            .args([
-                "-e",
-                "tell application \"System Events\" to keystroke \"v\" using command down",
-            ])
+            .args(["-e", &script])
             .output()
             .await;
     }
 
     #[cfg(target_os = "linux")]
     {
-        // Linux：使用 xdotool 模拟 Ctrl+V
+        // Linux：使用 xdotool type 直接输入文本（不经过剪贴板）
         let _ = tokio::process::Command::new("xdotool")
-            .args(["key", "ctrl+v"])
+            .args(["type", "--clearmodifiers", "--delay", "0", &text])
             .output()
             .await;
     }
 
-    log::info!("已粘贴 {} 个字符", text.len());
-    Ok("已粘贴".to_string())
+    log::info!("已输入 {} 个字符", text.len());
+    Ok("已输入".to_string())
 }
