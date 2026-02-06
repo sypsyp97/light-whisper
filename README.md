@@ -20,10 +20,12 @@
 
 ## 功能特点
 
-- **F2 一键转写** — 按住录音，松开自动转写，结果直接输入到当前活动窗口（不占用剪贴板）
+- **F2 一键转写** — 按住录音，松开自动转写，结果直接输入到当前活动窗口
 - **完全离线** — 基于阿里 FunASR Paraformer 模型，数据不出本机
 - **GPU 加速** — 自动检测 NVIDIA GPU 并启用 CUDA 加速，无 GPU 则回退 CPU
+- **双输入模式** — 支持 SendInput 直接输入（不占用剪贴板）和剪贴板粘贴（兼容中文输入法）两种模式
 - **悬浮窗设计** — 无边框透明窗口，始终置顶，最小化到系统托盘
+- **开机自启动** — 可在设置中开启，开机后自动运行
 
 ---
 
@@ -203,6 +205,14 @@ pnpm tauri dev
 | **系统托盘图标** | 右键菜单（显示/隐藏/退出），双击切换显示 |
 | **齿轮图标** | 打开设置页面 |
 
+### 设置选项
+
+| 选项 | 说明 |
+|------|------|
+| **主题** | 浅色 / 深色 / 跟随系统 |
+| **输入方式** | 直接输入（SendInput，不占用剪贴板）或 剪贴板粘贴（兼容中文输入法） |
+| **开机自启动** | 开启后系统启动时自动运行 |
+
 ### 状态指示
 
 | 状态 | 含义 |
@@ -231,19 +241,25 @@ light-whisper/
 ├── src/                        # 前端 (React + TypeScript)
 │   ├── api/                    # Tauri API 封装层
 │   │   ├── funasr.ts           #   FunASR 服务调用
-│   │   ├── clipboard.ts        #   剪贴板操作
+│   │   ├── clipboard.ts        #   剪贴板 / 文本输入
 │   │   ├── hotkey.ts           #   快捷键注册
-│   │   └── window.ts           #   窗口控制
+│   │   ├── window.ts           #   窗口控制
+│   │   └── autostart.ts        #   开机自启动
 │   ├── pages/                  # 页面组件
 │   │   ├── MainPage.tsx        #   主界面（录音+转写）
 │   │   └── SettingsPage.tsx    #   设置页面
+│   ├── components/             # 通用组件
+│   │   └── TitleBar.tsx        #   标题栏（窗口拖动、操作按钮）
 │   ├── hooks/                  # React Hooks
 │   │   ├── useRecording.ts     #   WebAudio 录音逻辑
 │   │   ├── useModelStatus.ts   #   模型状态事件监听
 │   │   ├── useHotkey.ts        #   F2 快捷键处理
-│   │   └── useTheme.ts         #   主题切换
+│   │   ├── useTheme.ts         #   主题切换
+│   │   └── useWindowDrag.ts    #   无边框窗口拖动
 │   ├── contexts/
 │   │   └── RecordingContext.tsx #   全局录音状态管理
+│   ├── types/
+│   │   └── index.ts            #   TypeScript 类型定义
 │   └── main.tsx                # React 入口
 │
 ├── src-tauri/                  # 后端 (Rust + Tauri 2)
@@ -251,8 +267,9 @@ light-whisper/
 │   │   ├── lib.rs              #   应用入口、插件注册、托盘设置
 │   │   ├── commands/           #   Tauri 命令（前端可调用）
 │   │   │   ├── funasr.rs       #     启动/停止/转写/状态查询
-│   │   │   ├── clipboard.rs    #     复制/直接输入（SendInput）
-│   │   │   └── hotkey.rs       #     快捷键注册
+│   │   │   ├── clipboard.rs    #     复制/输入（SendInput / 剪贴板粘贴）
+│   │   │   ├── hotkey.rs       #     快捷键注册
+│   │   │   └── window.rs       #     窗口控制
 │   │   ├── services/
 │   │   │   └── funasr_service.rs  # Python 子进程管理、JSON IPC
 │   │   ├── state/
@@ -356,9 +373,11 @@ F2 是全局快捷键，如果被其他程序占用（如某些游戏或工具�
 <details>
 <summary><b>转写结果输入到光标位置时部分字符变成句号或乱码</b></summary>
 
-这是因为应用使用 Win32 `SendInput` API 以 `KEYEVENTF_UNICODE` 模式逐字符模拟键盘输入，**当系统开启中文输入法（IME）时，IME 可能拦截并错误处理这些合成的 Unicode 键盘事件**，导致某些中文字符（如"我"、"你"）被转换为其他字符（如"。"）。
+这是因为默认的"直接输入"模式使用 Win32 `SendInput` API 以 `KEYEVENTF_UNICODE` 模式逐字符模拟键盘输入，**当系统开启中文输入法（IME）时，IME 可能拦截并错误处理这些合成的 Unicode 键盘事件**，导致某些中文字符（如"我"、"你"）被转换为其他字符（如"。"）。
 
-**解决方法**：在使用语音转写时，将输入法切换到**英文模式**（按 `Shift` 或 `Ctrl+Space` 切换），即可避免此问题。
+**解决方法**（任选其一）：
+1. **推荐**：打开设置页面，将输入方式切换为**「剪贴板粘贴」**模式，该模式通过剪贴板 + Ctrl+V 粘贴，完全兼容中文输入法
+2. 在使用语音转写时，将输入法切换到**英文模式**（按 `Shift` 或 `Ctrl+Space` 切换）
 
 </details>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { enableAutostart, disableAutostart, isAutostartEnabled } from "@/api/autostart";
@@ -17,6 +17,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const { isDark, theme, setTheme } = useTheme();
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);
+  const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(
+    () => (localStorage.getItem("light-whisper-input-method") as "sendInput" | "clipboard") || "sendInput"
+  );
 
   useEffect(() => {
     isAutostartEnabled().then(enabled => {
@@ -95,6 +98,45 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
 
           <div className="divider" />
 
+          {/* Input Method */}
+          <section>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Keyboard size={15} style={{ color: "var(--color-accent)" }} />
+              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>输入</h2>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+              {([
+                { key: "sendInput" as const, icon: Keyboard, label: "直接输入", desc: "不占用剪贴板" },
+                { key: "clipboard" as const, icon: ClipboardPaste, label: "剪贴板粘贴", desc: "兼容中文输入法" },
+              ]).map(({ key, icon: Icon, label, desc }) => (
+                <button
+                  key={key}
+                  className="theme-btn"
+                  aria-label={label}
+                  aria-pressed={inputMethod === key}
+                  onClick={() => {
+                    setInputMethod(key);
+                    localStorage.setItem("light-whisper-input-method", key);
+                  }}
+                  style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                    padding: "14px 12px", borderRadius: 6,
+                    border: `1px solid ${inputMethod === key ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
+                    background: inputMethod === key ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
+                    color: inputMethod === key ? "var(--color-accent)" : "var(--color-text-tertiary)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Icon size={20} strokeWidth={1.5} />
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{label}</span>
+                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{desc}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div className="divider" />
+
           {/* Permissions */}
           <section>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -123,7 +165,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 <button className="test-btn" onClick={async () => {
                   try {
                     const { pasteText } = await import("@/api/clipboard");
-                    await pasteText("测试粘贴");
+                    await pasteText("测试粘贴", inputMethod);
                     toast.success("粘贴功能正常");
                   } catch { toast.error("粘贴功能异常"); }
                 }}>测试</button>

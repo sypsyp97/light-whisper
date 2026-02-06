@@ -272,7 +272,8 @@ export function useRecording(): UseRecordingReturn {
           // Auto-paste: write to clipboard and simulate Ctrl+V
           if (result.text) {
             try {
-              await pasteText(result.text);
+              const inputMethod = localStorage.getItem("light-whisper-input-method") as "sendInput" | "clipboard" | null;
+              await pasteText(result.text, inputMethod ?? "sendInput");
             } catch (pasteErr) {
               console.warn("Auto-paste failed:", pasteErr);
             }

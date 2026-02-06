@@ -35,20 +35,29 @@ pub async fn copy_to_clipboard(
     Ok("已复制到剪贴板".to_string())
 }
 
-/// 输入文本到当前活动窗口（不覆盖剪贴板）
+/// 输入文本到当前活动窗口
 ///
-/// 通过模拟键盘输入将文本直接打到当前焦点所在的文本框中，
-/// 不会覆盖用户的剪贴板内容。
+/// 通过模拟键盘输入将文本直接打到当前焦点所在的文本框中。
+///
+/// # 参数
+/// - `text`：要输入的文本内容
+/// - `method`：输入方式（可选）
+///   - `None` 或 `"sendInput"`：使用 SendInput 逐字符模拟 Unicode 输入，不占用剪贴板
+///   - `"clipboard"`：先写入剪贴板，再模拟 Ctrl+V 粘贴
 ///
 /// # 平台实现
-/// - Windows：使用 Win32 SendInput API 发送 Unicode 字符
+/// - Windows：使用 Win32 SendInput API 发送 Unicode 字符或模拟 Ctrl+V
 /// - macOS：使用 osascript keystroke 模拟按键输入
 /// - Linux：使用 xdotool type 模拟键盘输入
 ///
 /// # 注意事项
 /// 模拟输入可能被某些安全软件拦截。
 #[tauri::command]
-pub async fn paste_text(text: String) -> Result<String, AppError> {
+pub async fn paste_text(
+    app_handle: tauri::AppHandle,
+    text: String,
+    method: Option<String>,
+) -> Result<String, AppError> {
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -56,38 +65,78 @@ pub async fn paste_text(text: String) -> Result<String, AppError> {
             KEYEVENTF_UNICODE, KEYEVENTF_KEYUP,
         };
 
-        let mut inputs: Vec<INPUT> = Vec::new();
+        let use_clipboard = method.as_deref() == Some("clipboard");
 
-        for code_unit in text.encode_utf16() {
-            // Key down
-            inputs.push(INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: 0,
-                        wScan: code_unit,
-                        dwFlags: KEYEVENTF_UNICODE,
-                        time: 0,
-                        dwExtraInfo: 0,
+        if use_clipboard {
+            // 剪贴板模式：写入剪贴板后模拟 Ctrl+V 粘贴
+            use tauri_plugin_clipboard_manager::ClipboardExt;
+
+            app_handle
+                .clipboard()
+                .write_text(&text)
+                .map_err(|e| AppError::Other(format!("写入剪贴板失败: {}", e)))?;
+
+            // 等待剪贴板就绪
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+            const VK_CONTROL: u16 = 0x11;
+            const VK_V: u16 = 0x56;
+
+            let inputs = [
+                // Ctrl down
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_CONTROL,
+                            wScan: 0,
+                            dwFlags: 0,
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
                     },
                 },
-            });
-            // Key up
-            inputs.push(INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: 0,
-                        wScan: code_unit,
-                        dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                        time: 0,
-                        dwExtraInfo: 0,
+                // V down
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_V,
+                            wScan: 0,
+                            dwFlags: 0,
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
                     },
                 },
-            });
-        }
+                // V up
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_V,
+                            wScan: 0,
+                            dwFlags: KEYEVENTF_KEYUP,
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
+                    },
+                },
+                // Ctrl up
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_CONTROL,
+                            wScan: 0,
+                            dwFlags: KEYEVENTF_KEYUP,
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
+                    },
+                },
+            ];
 
-        if !inputs.is_empty() {
             // SAFETY: SendInput is a well-documented Win32 API for synthesizing input.
             // We pass a correctly-sized array of INPUT structs with valid KEYBDINPUT data.
             let sent = unsafe {
@@ -99,6 +148,53 @@ pub async fn paste_text(text: String) -> Result<String, AppError> {
             };
             if sent == 0 {
                 return Err(AppError::Other("SendInput 调用失败".to_string()));
+            }
+        } else {
+            // SendInput 模式：逐字符发送 Unicode 输入，不占用剪贴板
+            let mut inputs: Vec<INPUT> = Vec::new();
+
+            for code_unit in text.encode_utf16() {
+                // Key down
+                inputs.push(INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: 0,
+                            wScan: code_unit,
+                            dwFlags: KEYEVENTF_UNICODE,
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
+                    },
+                });
+                // Key up
+                inputs.push(INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: 0,
+                            wScan: code_unit,
+                            dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
+                    },
+                });
+            }
+
+            if !inputs.is_empty() {
+                // SAFETY: SendInput is a well-documented Win32 API for synthesizing input.
+                // We pass a correctly-sized array of INPUT structs with valid KEYBDINPUT data.
+                let sent = unsafe {
+                    SendInput(
+                        inputs.len() as u32,
+                        inputs.as_ptr(),
+                        std::mem::size_of::<INPUT>() as i32,
+                    )
+                };
+                if sent == 0 {
+                    return Err(AppError::Other("SendInput 调用失败".to_string()));
+                }
             }
         }
     }
