@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Settings, Minus, X, Copy, Download, Cpu, Loader2, Check } from "lucide-react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import { copyToClipboard } from "@/api/clipboard";
@@ -11,7 +10,10 @@ const PADDING = 16;
 const EQ_BAR_COUNT = 5;
 const EQ_BAR_DELAY_STEP = 0.12; // seconds between each bar's animation
 
-export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
+export default function MainPage({ onNavigate, onExitWindow }: {
+  onNavigate: (v: "main" | "settings") => void;
+  onExitWindow: (action: () => Promise<void>) => Promise<void>;
+}) {
   const {
     isRecording, isProcessing, startRecording, stopRecording,
     recordingError, transcriptionResult, stage, isReady,
@@ -21,6 +23,18 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
   } = useRecordingContext();
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  const prevRecording = useRef(isRecording);
+
+  // Reset error dismissed when error changes
+  useEffect(() => {
+    setErrorDismissed(false);
+  }, [recordingError, modelError]);
+
+  // Trigger record-enter animation on recording state change
+  useEffect(() => {
+    prevRecording.current = isRecording;
+  }, [isRecording]);
 
   const handleCopy = async (text: string, id: string) => {
     try {
@@ -48,10 +62,10 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
         }
         rightActions={
           <>
-            <button aria-label="最小化" className="icon-btn" onClick={() => getCurrentWindow().minimize()}>
+            <button aria-label="最小化" className="icon-btn" onClick={() => onExitWindow(async () => { await hideMainWindow(); })}>
               <Minus size={12} strokeWidth={1.5} />
             </button>
-            <button aria-label="关闭" className="icon-btn" onClick={() => hideMainWindow()}>
+            <button aria-label="关闭" className="icon-btn" onClick={() => onExitWindow(async () => { await hideMainWindow(); })}>
               <X size={12} strokeWidth={1.5} />
             </button>
           </>
@@ -62,51 +76,62 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
       <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", padding: `16px ${PADDING}px 12px`, gap: 10 }}>
         <div style={{ minHeight: 20 }}>
           {isReady && device && (
-            <span className="chip">
+            <span className="chip animate-success">
               <Cpu size={10} strokeWidth={1.8} />
               {device === "cuda" || device === "gpu" ? (gpuName || "GPU") : "CPU"}
             </span>
           )}
           {!isReady && stage !== "need_download" && (
-            <span className="chip">
+            <span className="chip animate-fade-in">
               <Loader2 size={10} className="animate-spin" />
               {stage === "downloading" ? "下载中" : stage === "loading" ? "加载中" : "准备中"}
             </span>
           )}
         </div>
 
-        <button
-          className="record-btn"
-          aria-label={recordBtnLabel}
-          aria-pressed={isRecording}
-          disabled={!isReady || isProcessing}
-          onClick={() => { if (!isReady) return; isRecording ? stopRecording() : startRecording(); }}
-          style={{
-            border: isRecording ? "none" : "1px solid var(--color-border)",
-            background: isRecording ? "var(--color-accent)" : isProcessing ? "var(--color-bg-tertiary)" : "var(--color-bg-elevated)",
-            color: isRecording ? "white" : isProcessing ? "var(--color-text-tertiary)" : "var(--color-accent)",
-            boxShadow: isRecording ? "0 0 0 4px rgba(193, 95, 60, 0.12), var(--shadow-lg)" : "var(--shadow-md)",
-            cursor: !isReady ? "not-allowed" : isProcessing ? "wait" : "pointer",
-            opacity: !isReady ? 0.4 : 1,
-          }}
-        >
+        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {isRecording && (
-            <div style={{ display: "flex", alignItems: "center", gap: 2.5 }}>
-              {Array.from({ length: EQ_BAR_COUNT }, (_, i) => (
-                <span key={i} className="eq-bar" style={{ animationDelay: `${i * EQ_BAR_DELAY_STEP}s` }} />
-              ))}
-            </div>
+            <span style={{
+              position: "absolute", width: 50, height: 50, borderRadius: "50%",
+              border: "2px solid var(--color-accent)",
+              animation: "recording-pulse 1.8s ease-out infinite",
+              pointerEvents: "none",
+            }} />
           )}
-          {isIdle && isReady && (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" x2="12" y1="19" y2="22" />
-            </svg>
-          )}
-          {isProcessing && <Loader2 size={20} className="animate-spin" strokeWidth={1.5} />}
-          {!isReady && isIdle && <Loader2 size={18} className="animate-spin" strokeWidth={1.5} />}
-        </button>
+          <button
+            key={isRecording ? "recording" : isProcessing ? "processing" : "idle"}
+            className={`record-btn${isRecording !== prevRecording.current ? " animate-record-enter" : ""}`}
+            aria-label={recordBtnLabel}
+            aria-pressed={isRecording}
+            disabled={!isReady || isProcessing}
+            onClick={() => { if (!isReady) return; isRecording ? stopRecording() : startRecording(); }}
+            style={{
+              border: isRecording ? "none" : "1px solid var(--color-border)",
+              background: isRecording ? "var(--color-accent)" : isProcessing ? "var(--color-bg-tertiary)" : "var(--color-bg-elevated)",
+              color: isRecording ? "white" : isProcessing ? "var(--color-text-tertiary)" : "var(--color-accent)",
+              boxShadow: isRecording ? "0 0 0 4px rgba(193, 95, 60, 0.12), var(--shadow-lg)" : "var(--shadow-md)",
+              cursor: !isReady ? "not-allowed" : isProcessing ? "wait" : "pointer",
+              opacity: !isReady ? 0.4 : 1,
+            }}
+          >
+            {isRecording && (
+              <div style={{ display: "flex", alignItems: "center", gap: 2.5 }}>
+                {Array.from({ length: EQ_BAR_COUNT }, (_, i) => (
+                  <span key={i} className="eq-bar" style={{ animationDelay: `${i * EQ_BAR_DELAY_STEP}s` }} />
+                ))}
+              </div>
+            )}
+            {isIdle && isReady && (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" x2="12" y1="19" y2="22" />
+              </svg>
+            )}
+            {isProcessing && <Loader2 size={20} className="animate-spin" strokeWidth={1.5} />}
+            {!isReady && isIdle && <Loader2 size={18} className="animate-spin" strokeWidth={1.5} />}
+          </button>
+        </div>
 
         <p aria-live="polite" style={{ fontSize: 11, lineHeight: 1.6, color: "var(--color-text-tertiary)", textAlign: "center" }}>
           {isRecording ? "正在聆听..." : isProcessing ? "识别中..." : isReady ? "点击开始录音"
@@ -135,7 +160,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
               style={{ width: "100%", borderRadius: 4, height: 4, background: "var(--color-border)", overflow: "hidden" }}
             >
               {downloadProgress > 1
-                ? <div style={{ height: "100%", background: "var(--color-accent)", borderRadius: 4, transition: "width 0.5s ease", width: `${downloadProgress ?? 0}%` }} />
+                ? <div style={{ height: "100%", background: downloadProgress >= 100 ? "var(--color-success)" : "var(--color-accent)", borderRadius: 4, transition: "width 0.5s ease, background 0.3s ease", width: `${downloadProgress ?? 0}%` }} />
                 : <div className="download-pulse-bar" />}
             </div>
             <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
@@ -144,10 +169,15 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
       </div>
 
       {/* Error */}
-      {(recordingError || modelError) && (
-        <div style={{ margin: `0 ${PADDING}px 8px`, flexShrink: 0 }}>
-          <div style={{ borderRadius: 6, padding: 10, background: "var(--color-error-bg)", border: "1px solid rgba(192, 57, 43, 0.15)" }}>
-            <p style={{ fontSize: 12, color: "var(--color-error)", lineHeight: 1.6 }}>{recordingError || modelError}</p>
+      {(recordingError || modelError) && !errorDismissed && (
+        <div style={{ margin: `0 ${PADDING}px 8px`, flexShrink: 0 }} className="animate-shake">
+          <div style={{ borderRadius: 8, padding: 10, background: "var(--color-error-bg)", border: "1px solid rgba(192, 57, 43, 0.15)", borderLeft: "3px solid var(--color-error)" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+              <p style={{ fontSize: 12, color: "var(--color-error)", lineHeight: 1.6, flex: 1 }}>{recordingError || modelError}</p>
+              <button onClick={() => setErrorDismissed(true)} aria-label="关闭" style={{ flexShrink: 0, padding: 2, background: "none", border: "none", cursor: "pointer", color: "var(--color-error)", opacity: 0.6, lineHeight: 1 }}>
+                <X size={12} />
+              </button>
+            </div>
             {stage === "error" && <button onClick={retryModel} style={{ marginTop: 8, fontSize: 11, fontWeight: 500, color: "var(--color-error)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>重试</button>}
           </div>
         </div>
@@ -156,10 +186,13 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
       {/* Results */}
       <div style={{ flex: 1, overflowY: "auto", padding: `0 ${PADDING}px 12px`, minHeight: 0 }}>
         {transcriptionResult && (
-          <div style={{ marginBottom: 12 }} className="animate-fade-in">
-            <div style={{ borderRadius: 8, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", boxShadow: "var(--shadow-xs)" }}>
+          <div style={{ marginBottom: 12 }} className="animate-slide-up">
+            <div style={{ borderRadius: 8, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", borderLeft: "3px solid var(--color-accent)", boxShadow: "var(--shadow-sm)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid var(--color-border-subtle)" }}>
-                <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>识别结果</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>
+                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--color-accent)", flexShrink: 0 }} />
+                  识别结果
+                </span>
                 <button aria-label="复制" className="icon-btn" style={{ padding: 6 }} onClick={() => handleCopy(transcriptionResult, "original")}>
                   {copiedId === "original" ? <Check size={12} /> : <Copy size={12} strokeWidth={1.5} />}
                 </button>
@@ -170,7 +203,7 @@ export default function MainPage({ onNavigate }: { onNavigate: (v: "main" | "set
         )}
         {isProcessing && !transcriptionResult && (
           <div className="animate-fade-in">
-            <div style={{ borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)" }}>
+            <div className="skeleton-shimmer" style={{ borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)" }}>
               <Loader2 size={14} className="animate-spin" style={{ color: "var(--color-text-tertiary)" }} />
               <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>正在识别语音...</span>
             </div>

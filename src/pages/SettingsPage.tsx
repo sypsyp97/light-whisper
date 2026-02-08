@@ -67,11 +67,11 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       />
 
       {/* Content */}
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: `20px ${PADDING}px 16px` }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: `16px ${PADDING}px 16px` }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
           {/* Appearance */}
-          <section>
+          <section className="settings-card" style={{ animationDelay: "0ms" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               {isDark ? <Moon size={15} style={{ color: "var(--color-accent)" }} /> : <Sun size={15} style={{ color: "var(--color-accent)" }} />}
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>外观</h2>
@@ -100,10 +100,8 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
             </div>
           </section>
 
-          <div className="divider" />
-
           {/* Input Method */}
-          <section>
+          <section className="settings-card" style={{ animationDelay: "50ms" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <Keyboard size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>输入</h2>
@@ -139,10 +137,8 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
             </div>
           </section>
 
-          <div className="divider" />
-
           {/* Permissions */}
-          <section>
+          <section className="settings-card" style={{ animationDelay: "100ms" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <Accessibility size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>权限</h2>
@@ -177,10 +173,8 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
             </div>
           </section>
 
-          <div className="divider" />
-
           {/* Startup */}
-          <section>
+          <section className="settings-card" style={{ animationDelay: "150ms" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <Power size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>启动</h2>
