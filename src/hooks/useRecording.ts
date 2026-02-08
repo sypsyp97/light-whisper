@@ -205,7 +205,7 @@ export function useRecording(): UseRecordingReturn {
       setIsRecording(true);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to start recording";
+        err instanceof Error ? err.message : "启动录音失败";
       setError(message);
       cleanup();
     }
@@ -232,7 +232,7 @@ export function useRecording(): UseRecordingReturn {
           });
 
           if (blob.size === 0) {
-            setError("No audio data recorded");
+            setError("未录制到音频数据");
             setIsProcessing(false);
             cleanup();
             resolve(null);
@@ -258,7 +258,7 @@ export function useRecording(): UseRecordingReturn {
           const result = await transcribeAudio(audioData);
 
           if (!result.success) {
-            setError(result.error || "Transcription failed");
+            setError(result.error || "语音识别失败");
             setIsProcessing(false);
             cleanup();
             resolve(null);
@@ -272,7 +272,10 @@ export function useRecording(): UseRecordingReturn {
           // Auto-paste: write to clipboard and simulate Ctrl+V
           if (result.text) {
             try {
-              const inputMethod = localStorage.getItem("light-whisper-input-method") as "sendInput" | "clipboard" | null;
+              let inputMethod: "sendInput" | "clipboard" | null = null;
+              try {
+                inputMethod = localStorage.getItem("light-whisper-input-method") as "sendInput" | "clipboard" | null;
+              } catch { /* localStorage 不可用 */ }
               await pasteText(result.text, inputMethod ?? "sendInput");
             } catch (pasteErr) {
               console.warn("Auto-paste failed:", pasteErr);
@@ -283,7 +286,7 @@ export function useRecording(): UseRecordingReturn {
           resolve(result);
         } catch (err) {
           const message =
-            err instanceof Error ? err.message : "Processing failed";
+            err instanceof Error ? err.message : "处理失败";
           setError(message);
           setIsProcessing(false);
           cleanup();
@@ -302,7 +305,7 @@ export function useRecording(): UseRecordingReturn {
         }
       } catch (stopErr) {
         const message =
-          stopErr instanceof Error ? stopErr.message : "Failed to stop recording";
+          stopErr instanceof Error ? stopErr.message : "停止录音失败";
         setError(message);
         setIsRecording(false);
         setIsProcessing(false);

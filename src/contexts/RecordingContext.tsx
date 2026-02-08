@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useMemo, type ReactNode } from "react";
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
@@ -61,28 +61,34 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   // F2 hotkey — always mounted at root, never unregistered during navigation
   useHotkey(toggleRecording);
 
+  const contextValue = useMemo<RecordingContextValue>(() => ({
+    isRecording,
+    isProcessing,
+    startRecording,
+    stopRecording,
+    recordingError,
+    transcriptionResult,
+    stage,
+    isReady,
+    device,
+    gpuName,
+    downloadProgress,
+    downloadMessage,
+    isDownloading,
+    modelError,
+    downloadModels,
+    cancelDownload,
+    retryModel,
+  }), [
+    isRecording, isProcessing, startRecording, stopRecording,
+    recordingError, transcriptionResult,
+    stage, isReady, device, gpuName,
+    downloadProgress, downloadMessage, isDownloading,
+    modelError, downloadModels, cancelDownload, retryModel,
+  ]);
+
   return (
-    <RecordingContext.Provider
-      value={{
-        isRecording,
-        isProcessing,
-        startRecording,
-        stopRecording,
-        recordingError,
-        transcriptionResult,
-        stage,
-        isReady,
-        device,
-        gpuName,
-        downloadProgress,
-        downloadMessage,
-        isDownloading,
-        modelError,
-        downloadModels,
-        cancelDownload,
-        retryModel,
-      }}
-    >
+    <RecordingContext.Provider value={contextValue}>
       {children}
     </RecordingContext.Provider>
   );

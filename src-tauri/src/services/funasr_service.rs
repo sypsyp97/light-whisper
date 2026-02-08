@@ -430,7 +430,20 @@ pub async fn start_server(
         .env("ELECTRON_USER_DATA", &data_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null()); // 丢弃 stderr，避免弹出控制台
+        .stderr({
+            // 将 stderr 重定向到日志文件，便于调试 Python 错误
+            let log_path = paths::get_data_dir().join("funasr_stderr.log");
+            match std::fs::File::create(&log_path) {
+                Ok(file) => {
+                    log::info!("Python stderr 重定向到: {}", log_path.display());
+                    std::process::Stdio::from(file)
+                }
+                Err(e) => {
+                    log::warn!("无法创建 stderr 日志文件: {}，丢弃 stderr", e);
+                    std::process::Stdio::null()
+                }
+            }
+        });
 
     // Windows 上隐藏控制台窗口
     #[cfg(target_os = "windows")]

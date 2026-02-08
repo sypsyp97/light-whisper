@@ -17,9 +17,13 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const { isDark, theme, setTheme } = useTheme();
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);
-  const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(
-    () => (localStorage.getItem("light-whisper-input-method") as "sendInput" | "clipboard") || "sendInput"
-  );
+  const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
+    try {
+      return (localStorage.getItem("light-whisper-input-method") as "sendInput" | "clipboard") || "sendInput";
+    } catch {
+      return "sendInput";
+    }
+  });
 
   useEffect(() => {
     isAutostartEnabled().then(enabled => {
@@ -116,7 +120,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   aria-pressed={inputMethod === key}
                   onClick={() => {
                     setInputMethod(key);
-                    localStorage.setItem("light-whisper-input-method", key);
+                    try { localStorage.setItem("light-whisper-input-method", key); } catch { /* localStorage 不可用 */ }
                   }}
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 6,

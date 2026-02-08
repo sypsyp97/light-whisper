@@ -258,7 +258,7 @@ fn setup_system_tray(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::e
     // 使用固定 ID 创建托盘图标，避免重复创建
     // 如果已存在同 ID 的托盘，Tauri 会复用它
     let _tray = TrayIconBuilder::with_id("main-tray")
-        .icon(app_handle.default_window_icon().unwrap().clone())
+        .icon(app_handle.default_window_icon().ok_or("缺少默认窗口图标")?.clone())
         .tooltip("轻语 Whisper - 语音转文字")
         .menu(&menu)
         .on_menu_event(|app, event| {
@@ -291,13 +291,20 @@ fn setup_system_tray(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::e
                     let state = app.state::<AppState>();
                     let funasr_process = state.funasr_process.clone();
 
-                    // 尝试终止子进程（非阻塞）
-                    if let Ok(mut guard) = funasr_process.try_lock() {
-                        if let Some(ref mut process) = *guard {
-                            log::info!("正在停止 FunASR 进程...");
-                            let _ = process.child.start_kill();
+                    // 使用 block_on 等待子进程退出（带超时），确保 Python 进程被正确清理
+                    tauri::async_runtime::block_on(async {
+                        if let Ok(mut guard) = funasr_process.try_lock() {
+                            if let Some(ref mut process) = *guard {
+                                log::info!("正在停止 FunASR 进程...");
+                                let _ = process.child.start_kill();
+                                // 等待最多 3 秒让进程退出
+                                let _ = tokio::time::timeout(
+                                    std::time::Duration::from_secs(3),
+                                    process.child.wait(),
+                                ).await;
+                            }
                         }
-                    }
+                    });
 
                     // 退出应用
                     // `exit(0)` 以状态码 0（正常）退出
