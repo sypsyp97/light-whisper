@@ -203,16 +203,19 @@ uv run python -c "from huggingface_hub import snapshot_download; snapshot_downlo
 > ```
 > 然后再执行上面的下载命令。
 
-### 第 5 步：启动应用
+### 第 5 步：构建并运行
 
 ```bash
-pnpm tauri dev
+pnpm tauri build
 ```
 
-首次编译 Rust 代码需要几分钟，后续启动会快很多。启动后：
-1. 应用窗口出现在屏幕中央（无边框悬浮窗）
-2. 等待状态显示"就绪"（模型加载中时会显示进度）
-3. **按住 F2 说话，松开后自动转写并输入到当前光标位置**
+首次构建需要编译所有 Rust 依赖，耗时约 **5-15 分钟**，请耐心等待。构建完成后：
+
+1. 直接运行 `src-tauri/target/release/light-whisper.exe`
+2. 或在 `src-tauri/target/release/bundle/nsis/` 目录下找到安装包，安装后使用
+3. 应用窗口出现在屏幕中央（无边框悬浮窗）
+4. 等待状态显示"就绪"（模型加载中时会显示进度）
+5. **按住 F2 说话，松开后自动转写并输入到当前光标位置**
 
 ---
 
@@ -241,16 +244,6 @@ pnpm tauri dev
 | `CPU` | 使用 CPU 推理 |
 | `模型加载中...` | 正在初始化模型（首次约 10-30 秒） |
 | `下载中 45%` | 正在下载 ASR 模型 |
-
----
-
-## 构建安装包
-
-```bash
-pnpm tauri build
-```
-
-生成的安装包位于 `src-tauri/target/release/bundle/nsis/`。
 
 ---
 
@@ -405,14 +398,9 @@ F2 是全局快捷键，如果被其他程序占用（如某些游戏或工具�
 </details>
 
 <details>
-<summary><b>首次编译 Rust 很慢</b></summary>
+<summary><b>首次构建很慢</b></summary>
 
-首次 `pnpm tauri dev` 需要编译所有 Rust 依赖（约 3-10 分钟），这是正常的。后续启动只会增量编译改动部分，速度很快。
-
-如果想提前编译：
-```bash
-cd src-tauri && cargo build
-```
+首次 `pnpm tauri build` 需要编译所有 Rust 依赖（约 5-15 分钟），这是正常的。后续构建只会增量编译改动部分，速度很快。
 
 </details>
 
@@ -429,7 +417,6 @@ cd src-tauri && cargo build
 ## 开发命令速查
 
 ```bash
-pnpm tauri dev          # 启动开发模式（前端 + Rust + Python）
 pnpm tauri build        # 构建 Windows 安装包
 pnpm build              # 仅构建前端
 uv sync                 # 同步 Python 依赖
