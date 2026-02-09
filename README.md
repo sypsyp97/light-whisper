@@ -41,8 +41,7 @@
 | [Node.js](https://nodejs.org/) | >= 18 | 前端构建 |
 | [pnpm](https://pnpm.io/) | >= 8 | 前端包管理 |
 | [Rust](https://www.rust-lang.org/tools/install) | >= 1.75 | 后端编译 |
-| [Python](https://www.python.org/downloads/) | 3.11.x | AI 推理服务 |
-| [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python 包管理 |
+| [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python 包管理（自动安装 Python 3.11） |
 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) | 2019+ | Rust/C++ 编译依赖 |
 
 **磁盘空间**：至少预留 **8 GB**（Python 依赖约 5 GB + ASR 模型约 1 GB）。
@@ -104,31 +103,16 @@ pnpm --version    # 应显示 8+
 </details>
 
 <details>
-<summary><b>0.4 安装 Python 3.11</b></summary>
+<summary><b>0.4 安装 uv</b></summary>
 
-> **重要**：请安装 **3.11.x** 版本（FunASR 对 Python 版本有兼容性要求）。
-
-1. 前往 [Python 3.11 下载页](https://www.python.org/downloads/release/python-3119/) 下载安装器
-2. 安装时 **勾选** "Add Python to PATH"
-
-验证：
-```powershell
-python --version   # 应显示 Python 3.11.x
-```
-
-</details>
-
-<details>
-<summary><b>0.5 安装 uv</b></summary>
-
-[uv](https://docs.astral.sh/uv/) 是一个极速的 Python 包管理器：
+[uv](https://docs.astral.sh/uv/) 是一个极速的 Python 包管理器，会根据项目配置**自动下载并安装所需的 Python 版本**（本项目使用 3.11），无需手动安装 Python：
 
 ```powershell
 # PowerShell
 irm https://astral.sh/uv/install.ps1 | iex
 
-# 或使用 pip
-pip install uv
+# 或使用 winget
+winget install astral-sh.uv
 ```
 
 验证：
@@ -147,11 +131,12 @@ uv --version
 node --version      # >= 18
 pnpm --version      # >= 8
 rustc --version     # >= 1.75
-python --version    # 3.11.x
 uv --version        # >= 0.4
 ```
 
 如果某个命令提示"不是内部或外部命令"，说明对应工具未安装或未添加到 PATH，请回到上方对应步骤重新安装。
+
+> **Python 无需单独安装**：`uv sync` 执行时会自动下载并管理 Python 3.11。
 
 </details>
 
@@ -177,6 +162,7 @@ uv sync
 ```
 
 这一步会：
+- 自动下载并安装 Python 3.11（如果系统上没有）
 - 在项目根目录自动创建 `.venv` 虚拟环境
 - 安装 PyTorch（含 CUDA 12.4）、FunASR、transformers 等依赖
 - **耗时较长**（约 5-15 分钟，取决于网速），因为 PyTorch 包体较大
@@ -198,8 +184,8 @@ uv run python -c "from huggingface_hub import snapshot_download; snapshot_downlo
 > - [**fsmn-vad**](https://huggingface.co/funasr/fsmn-vad)（~1.7 MB）— 语音活动检测（VAD），负责切分有效语音片段，跳过静音
 
 > **国内下载慢？** 可以设置 HuggingFace 镜像：
-> ```bash
-> set HF_ENDPOINT=https://hf-mirror.com
+> ```powershell
+> $env:HF_ENDPOINT = "https://hf-mirror.com"
 > ```
 > 然后再执行上面的下载命令。
 
@@ -345,17 +331,13 @@ $env:HF_ENDPOINT = "https://hf-mirror.com"
 <details>
 <summary><b>Python 找不到或版本不对</b></summary>
 
-应用启动时，Rust 后端按以下顺序查找 Python：
-1. **项目根目录的 `.venv/Scripts/python.exe`**（优先）
-2. 系统 PATH 中的 `python.exe` / `python3.exe`
+应用启动时，Rust 后端优先查找项目根目录的 `.venv/Scripts/python.exe`。
 
-**确保 `uv sync` 在项目根目录执行过**，它会自动创建 `.venv` 目录。可以验证：
+**确保 `uv sync` 在项目根目录执行过**，它会自动下载 Python 3.11 并创建 `.venv` 目录。可以验证：
 
 ```powershell
 .venv\Scripts\python.exe --version   # 应显示 Python 3.11.x
 ```
-
-如果使用系统 Python，请确保版本 >= 3.11 且 FunASR 相关依赖已安装。
 
 </details>
 
@@ -397,12 +379,6 @@ F2 是全局快捷键，如果被其他程序占用（如某些游戏或工具�
 
 </details>
 
-<details>
-<summary><b>首次构建很慢</b></summary>
-
-首次 `pnpm tauri build` 需要编译所有 Rust 依赖（约 5-15 分钟），这是正常的。后续构建只会增量编译改动部分，速度很快。
-
-</details>
 
 <details>
 <summary><b>应用日志在哪？</b></summary>
