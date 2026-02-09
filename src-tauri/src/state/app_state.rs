@@ -103,6 +103,13 @@ pub struct FunasrProcess {
     pub stdout: BufReader<ChildStdout>,
 }
 
+impl Drop for FunasrProcess {
+    fn drop(&mut self) {
+        // 确保 Python 子进程在句柄丢弃时被终止，防止孤儿进程
+        let _ = self.child.start_kill();
+    }
+}
+
 impl AppState {
     /// 创建一个新的 AppState 实例
     ///

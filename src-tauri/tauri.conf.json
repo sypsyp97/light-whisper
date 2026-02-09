@@ -27,7 +27,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
     }
   },
   "bundle": {
@@ -41,7 +41,9 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/*"
+      "resources/funasr_server.py",
+      "resources/download_models.py",
+      "resources/hf_cache_utils.py"
     ],
     "windows": {
       "wix": null,

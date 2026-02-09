@@ -44,9 +44,10 @@ use crate::utils::AppError;
 /// - `{"action": "transcribe", "audio_path": "/path/to/file.wav"}`
 /// - `{"action": "exit"}`
 ///
-/// 所以这里不使用 serde 的自动序列化（它会嵌套数据），
-/// 而是手动实现 `to_json()` 方法来生成正确的格式。
-#[derive(Debug)]
+/// 使用 `#[serde(tag = "action")]` 生成带 `action` 字段的扁平 JSON，
+/// `rename_all = "snake_case"` 将变体名转为小写下划线格式。
+#[derive(Debug, Serialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
 pub enum ServerCommand {
     /// 转写音频文件
     Transcribe {
@@ -57,29 +58,6 @@ pub enum ServerCommand {
     Status,
     /// 退出服务器
     Exit,
-}
-
-impl ServerCommand {
-    /// 将命令序列化为 Python 端期望的扁平 JSON 字符串
-    fn to_json(&self) -> Result<String, AppError> {
-        let value = match self {
-            ServerCommand::Transcribe { audio_path } => {
-                serde_json::json!({
-                    "action": "transcribe",
-                    "audio_path": audio_path
-                })
-            }
-            ServerCommand::Status => {
-                serde_json::json!({ "action": "status" })
-            }
-            ServerCommand::Exit => {
-                serde_json::json!({ "action": "exit" })
-            }
-        };
-        serde_json::to_string(&value).map_err(|e| {
-            AppError::FunASR(format!("序列化命令失败: {}", e))
-        })
-    }
 }
 
 /// 语音转写的结果
@@ -679,7 +657,8 @@ async fn send_command_impl(
     command: &ServerCommand,
 ) -> Result<ServerResponse, AppError> {
     // 序列化命令为 Python 端期望的扁平 JSON 格式
-    let command_json = command.to_json()?;
+    let command_json = serde_json::to_string(command)
+        .map_err(|e| AppError::FunASR(format!("序列化命令失败: {}", e)))?;
 
     // 写入命令到 stdin
     // `write_all` 确保所有字节都被写入

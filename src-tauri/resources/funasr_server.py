@@ -43,7 +43,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(log_file_path, encoding="utf-8"),
-        logging.StreamHandler(),  # 同时输出到控制台
+        logging.StreamHandler(sys.stderr),  # 显式输出到 stderr，避免干扰 stdout IPC
     ],
 )
 logger = logging.getLogger(__name__)
@@ -220,6 +220,8 @@ class FunASRServer:
                 return init_result
 
         try:
+            duration = 0.0
+
             # 检查音频文件是否存在
             if not os.path.exists(audio_path):
                 return {"success": False, "error": f"音频文件不存在: {audio_path}", "type": "transcription_error"}
@@ -294,7 +296,7 @@ class FunASRServer:
             err_str = str(e)
             if "index" in err_str and "out of bounds" in err_str or "size 0" in err_str:
                 logger.warning(f"音频中未检测到有效语音: {err_str}")
-                return {"success": True, "text": "", "duration": duration if 'duration' in dir() else 0.0}
+                return {"success": True, "text": "", "duration": duration}
             error_msg = f"音频转录失败: {err_str}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
@@ -306,15 +308,25 @@ class FunASRServer:
             return {"success": False, "error": error_msg, "type": "transcription_error"}
 
     def _get_audio_duration(self, audio_path):
-        """获取音频时长"""
+        """从 WAV header 快速获取音频时长（无需加载完整音频数据）"""
         try:
-            import librosa
-
-            duration = librosa.get_duration(filename=audio_path)
-            self.total_audio_duration += duration  # 累计音频时长
+            import struct
+            with open(audio_path, "rb") as f:
+                # 验证 RIFF/WAVE header
+                riff = f.read(4)
+                if riff != b"RIFF":
+                    raise ValueError("非 WAV 格式")
+                f.seek(28)
+                byte_rate = struct.unpack("<I", f.read(4))[0]
+                f.seek(40)
+                data_size = struct.unpack("<I", f.read(4))[0]
+            if byte_rate <= 0:
+                raise ValueError(f"无效的 byte rate: {byte_rate}")
+            duration = data_size / byte_rate
+            self.total_audio_duration += duration
             return duration
         except Exception as e:
-            logger.warning(f"获取音频时长失败: {e}")
+            logger.warning(f"从 WAV header 获取音频时长失败: {e}")
             return 0.0
 
     def _cleanup_memory(self):

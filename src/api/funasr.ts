@@ -15,13 +15,13 @@ export async function startFunASR(): Promise<string> {
 
 /**
  * Transcribe audio data using FunASR.
- * @param audioData - Raw PCM audio samples as an array of bytes (WAV format).
+ * @param audioBase64 - WAV audio data encoded as a base64 string.
  */
 export async function transcribeAudio(
-  audioData: number[]
+  audioBase64: string
 ): Promise<TranscriptionResult> {
   return invoke<TranscriptionResult>("transcribe_audio", {
-    audioData,
+    audioBase64,
   });
 }
 

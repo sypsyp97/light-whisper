@@ -11,7 +11,7 @@ VAD_REPO_ID = "funasr/fsmn-vad"
 MODEL_REPOS = [ASR_REPO_ID, VAD_REPO_ID]
 
 _WEIGHT_EXTS = (".pt", ".bin", ".safetensors", ".onnx")
-_MIN_WEIGHT_SIZE = 1 * 1024 * 1024  # 1MB
+_MIN_WEIGHT_SIZE = 1_000_000  # 与 Rust 端阈值一致
 
 
 def get_hf_cache_root():

@@ -12,3 +12,6 @@
 
 /// FunASR 语音识别服务
 pub mod funasr_service;
+
+/// 模型下载服务
+pub mod download_service;

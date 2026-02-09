@@ -54,7 +54,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   };
 
   return (
-    <div style={{ height: "100vh", width: "100vw", display: "flex", flexDirection: "column", overflow: "hidden", userSelect: "none", color: "var(--color-text-primary)" }}>
+    <div className="page-root">
 
       <TitleBar
         title="设置"
@@ -66,12 +66,12 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       />
 
       {/* Content */}
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: `16px ${PADDING}px 16px` }}>
+      <div className="settings-content" style={{ padding: `16px ${PADDING}px 16px` }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
           {/* Appearance */}
           <section className="settings-card" style={{ animationDelay: "0ms" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <div className="settings-section-header">
               {isDark ? <Moon size={15} style={{ color: "var(--color-accent)" }} /> : <Sun size={15} style={{ color: "var(--color-accent)" }} />}
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>外观</h2>
             </div>
@@ -101,7 +101,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
 
           {/* Input Method */}
           <section className="settings-card" style={{ animationDelay: "50ms" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <div className="settings-section-header">
               <Keyboard size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>输入</h2>
             </div>
@@ -138,12 +138,12 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
 
           {/* Permissions */}
           <section className="settings-card" style={{ animationDelay: "100ms" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <div className="settings-section-header">
               <Accessibility size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>权限</h2>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div className="settings-row">
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Mic size={14} style={{ color: "var(--color-text-tertiary)" }} />
                   <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>麦克风</span>
@@ -156,7 +156,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   } catch { toast.error("麦克风权限未授予"); }
                 }}>测试</button>
               </div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div className="settings-row">
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Accessibility size={14} style={{ color: "var(--color-text-tertiary)" }} />
                   <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>辅助功能 / 粘贴</span>
@@ -174,11 +174,11 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
 
           {/* Startup */}
           <section className="settings-card" style={{ animationDelay: "150ms" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <div className="settings-section-header">
               <Power size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>启动</h2>
             </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div className="settings-row">
               <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>开机自启动</span>
               <button
                 role="switch"
@@ -198,7 +198,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       </div>
 
       {/* Footer */}
-      <div style={{ flexShrink: 0, padding: `10px ${PADDING}px`, borderTop: "1px solid var(--color-border-subtle)", textAlign: "center" }}>
+      <div className="settings-footer" style={{ padding: `10px ${PADDING}px` }}>
         <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", margin: 0 }}>
           轻语 Whisper <span style={{ marginLeft: 4, fontSize: 11 }}>v1.0.0</span>
           <span style={{ margin: "0 6px" }}>·</span>

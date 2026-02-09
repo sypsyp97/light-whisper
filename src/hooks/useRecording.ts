@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { transcribeAudio } from "@/api/funasr";
 import { pasteText } from "@/api/clipboard";
-import { convertToWav } from "@/lib/audio";
+import { convertToWav, arrayBufferToBase64 } from "@/lib/audio";
 import { INPUT_METHOD_KEY } from "@/lib/constants";
 import type { TranscriptionResult } from "@/types";
 
@@ -96,9 +96,18 @@ export function useRecording(): UseRecordingReturn {
     }
 
     return new Promise<TranscriptionResult | null>((resolve) => {
+      // 超时保护：如果 onstop 在 15 秒内未触发，自动 resolve
+      const safetyTimeout = setTimeout(() => {
+        cleanup();
+        setIsRecording(false);
+        setIsProcessing(false);
+        resolve(null);
+      }, 15000);
+
       const recorder = mediaRecorderRef.current!;
 
       recorder.onstop = async () => {
+        clearTimeout(safetyTimeout);
         setIsRecording(false);
         setIsProcessing(true);
         setError(null);
@@ -129,10 +138,10 @@ export function useRecording(): UseRecordingReturn {
             return;
           }
 
-          const audioData = Array.from(new Uint8Array(wavBuffer));
+          const audioBase64 = arrayBufferToBase64(wavBuffer);
 
           // Send to FunASR backend
-          const result = await transcribeAudio(audioData);
+          const result = await transcribeAudio(audioBase64);
 
           if (!result.success) {
             setError(result.error || "语音识别失败");
@@ -175,12 +184,14 @@ export function useRecording(): UseRecordingReturn {
         if (recorder.state !== "inactive") {
           recorder.stop();
         } else {
+          clearTimeout(safetyTimeout);
           setIsRecording(false);
           setIsProcessing(false);
           cleanup();
           resolve(null);
         }
       } catch (stopErr) {
+        clearTimeout(safetyTimeout);
         const message =
           stopErr instanceof Error ? stopErr.message : "停止录音失败";
         setError(message);

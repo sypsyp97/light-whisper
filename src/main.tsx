@@ -7,6 +7,7 @@ import MainPage from "./pages/MainPage";
 import SettingsPage from "./pages/SettingsPage";
 import { useTheme } from "./hooks/useTheme";
 import "./styles/theme.css";
+import "./styles/pages.css";
 
 type View = "main" | "settings";
 

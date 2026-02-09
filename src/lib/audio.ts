@@ -122,3 +122,13 @@ export async function convertToWav(blob: Blob): Promise<ArrayBuffer> {
     await audioCtx.close();
   }
 }
+
+/** 将 ArrayBuffer 转为 base64 字符串（避免 JSON 序列化大数组） */
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}

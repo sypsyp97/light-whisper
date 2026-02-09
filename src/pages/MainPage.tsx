@@ -50,7 +50,7 @@ export default function MainPage({ onNavigate, onExitWindow }: {
   const recordBtnLabel = isRecording ? "停止录音" : isProcessing ? "识别中" : "开始录音";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", width: "100vw", userSelect: "none", overflow: "hidden", color: "var(--color-text-primary)" }}>
+    <div className="page-root">
 
       <TitleBar
         title="轻语 Whisper"
@@ -72,7 +72,7 @@ export default function MainPage({ onNavigate, onExitWindow }: {
       />
 
       {/* Recording zone */}
-      <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", padding: `16px ${PADDING}px 12px`, gap: 10 }}>
+      <div className="recording-zone" style={{ padding: `16px ${PADDING}px 12px` }}>
         <div style={{ minHeight: 20 }}>
           {isReady && device && (
             <span className="chip animate-success">
@@ -132,7 +132,7 @@ export default function MainPage({ onNavigate, onExitWindow }: {
           </button>
         </div>
 
-        <p aria-live="polite" style={{ fontSize: 11, lineHeight: 1.6, color: "var(--color-text-tertiary)", textAlign: "center" }}>
+        <p aria-live="polite" className="status-text">
           {isRecording ? "正在聆听..." : isProcessing ? "识别中..." : isReady ? "点击开始录音"
             : stage === "downloading" ? (downloadProgress > 1 ? `模型下载中 ${Math.round(downloadProgress ?? 0)}%` : downloadMessage ?? "模型下载准备中...")
             : stage === "need_download" ? "需要下载模型" : stage === "loading" ? "模型加载中..." : "准备中..."}
@@ -150,13 +150,13 @@ export default function MainPage({ onNavigate, onExitWindow }: {
           </div>
         )}
         {stage === "downloading" && (
-          <div style={{ width: "100%", maxWidth: 180, marginTop: 4, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+          <div className="download-progress">
             <div
               role="progressbar"
               aria-valuenow={downloadProgress > 1 ? Math.round(downloadProgress) : undefined}
               aria-valuemin={0}
               aria-valuemax={100}
-              style={{ width: "100%", borderRadius: 4, height: 4, background: "var(--color-border)", overflow: "hidden" }}
+              className="download-progress-track"
             >
               {downloadProgress > 1
                 ? <div style={{ height: "100%", background: downloadProgress >= 100 ? "var(--color-success)" : "var(--color-accent)", borderRadius: 4, transition: "width 0.5s ease, background 0.3s ease", width: `${downloadProgress ?? 0}%` }} />
@@ -170,8 +170,8 @@ export default function MainPage({ onNavigate, onExitWindow }: {
       {/* Error */}
       {(recordingError || modelError) && !errorDismissed && (
         <div style={{ margin: `0 ${PADDING}px 8px`, flexShrink: 0 }} className="animate-shake">
-          <div style={{ borderRadius: 8, padding: 10, background: "var(--color-error-bg)", border: "1px solid rgba(192, 57, 43, 0.15)", borderLeft: "3px solid var(--color-error)" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+          <div className="error-banner">
+            <div className="error-banner-inner">
               <p style={{ fontSize: 12, color: "var(--color-error)", lineHeight: 1.6, flex: 1 }}>{recordingError || modelError}</p>
               <button onClick={() => setErrorDismissed(true)} aria-label="关闭" style={{ flexShrink: 0, padding: 2, background: "none", border: "none", cursor: "pointer", color: "var(--color-error)", opacity: 0.6, lineHeight: 1 }}>
                 <X size={12} />
@@ -183,12 +183,12 @@ export default function MainPage({ onNavigate, onExitWindow }: {
       )}
 
       {/* Results */}
-      <div style={{ flex: 1, overflowY: "auto", padding: `0 ${PADDING}px 12px`, minHeight: 0 }}>
+      <div className="results-area" style={{ padding: `0 ${PADDING}px 12px` }}>
         {transcriptionResult && (
           <div style={{ marginBottom: 12 }} className="animate-slide-up">
-            <div style={{ borderRadius: 8, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", borderLeft: "3px solid var(--color-accent)", boxShadow: "var(--shadow-sm)" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid var(--color-border-subtle)" }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>
+            <div className="result-card">
+              <div className="result-card-header">
+                <span className="result-card-title">
                   <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--color-accent)", flexShrink: 0 }} />
                   识别结果
                 </span>
@@ -196,7 +196,7 @@ export default function MainPage({ onNavigate, onExitWindow }: {
                   {copiedId === "original" ? <Check size={12} /> : <Copy size={12} strokeWidth={1.5} />}
                 </button>
               </div>
-              <p style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.8, color: "var(--color-text-secondary)" }}>{transcriptionResult}</p>
+              <p className="result-card-body">{transcriptionResult}</p>
             </div>
           </div>
         )}

@@ -1,0 +1,147 @@
+/* ============================================================
+   Page-level layout classes
+   Extracted from MainPage.tsx and SettingsPage.tsx inline styles
+   ============================================================ */
+
+/* Shared root container for all pages */
+.page-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  user-select: none;
+  overflow: hidden;
+  color: var(--color-text-primary);
+}
+
+/* ---------- MainPage ---------- */
+
+/* Recording zone — top section with mic button and status */
+.recording-zone {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Status hint text below the record button */
+.status-text {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+/* Scrollable results area */
+.results-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Result card — elevated container for transcription output */
+.result-card {
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-left: 3px solid var(--color-accent);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Result card header — title row with copy button */
+.result-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* Result card title — label with dot indicator */
+.result-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+/* Result card body text */
+.result-card-body {
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--color-text-secondary);
+}
+
+/* Error banner container */
+.error-banner {
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--color-error-bg);
+  border: 1px solid rgba(192, 57, 43, 0.15);
+  border-left: 3px solid var(--color-error);
+}
+
+/* Error banner inner layout */
+.error-banner-inner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Download progress bar container */
+.download-progress {
+  width: 100%;
+  max-width: 180px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Download progress bar track */
+.download-progress-track {
+  width: 100%;
+  border-radius: 4px;
+  height: 4px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+/* ---------- SettingsPage ---------- */
+
+/* Scrollable content area for settings */
+.settings-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Settings row — horizontal layout with space-between */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Settings section header */
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/* Settings footer */
+.settings-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border-subtle);
+  text-align: center;
+}

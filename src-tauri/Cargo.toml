@@ -37,9 +37,17 @@ dirs = "6"
 # 日志
 log = "0.4"
 
+# Base64 编解码
+base64 = "0.22"
+
 # 错误处理
 thiserror = "2"
 
 # Windows 键盘模拟
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
