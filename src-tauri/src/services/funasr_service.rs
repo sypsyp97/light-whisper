@@ -135,6 +135,9 @@ pub struct ModelCheckResult {
     pub missing_models: Vec<String>,
 }
 
+const ASR_REPO_ID: &str = "FunAudioLLM/SenseVoiceSmall";
+const VAD_REPO_ID: &str = "funasr/fsmn-vad";
+
 /// Python 服务器的 JSON 响应
 ///
 /// 这个结构体对应 Python 服务器返回的 JSON 格式。
@@ -177,20 +180,27 @@ struct ServerModelStatus {
     punc: Option<bool>,
 }
 
-/// 启动标志守卫，确保异常退出时重置 funasr_starting
-struct StartingFlagGuard {
-    flag: Arc<std::sync::atomic::AtomicBool>,
-}
-
-impl StartingFlagGuard {
-    fn new(flag: Arc<std::sync::atomic::AtomicBool>) -> Self {
-        Self { flag }
+impl ServerResponse {
+    fn is_model_loaded(&self) -> bool {
+        self.model_loaded.unwrap_or_else(|| {
+            self.models
+                .as_ref()
+                .map(|m| {
+                    m.asr.unwrap_or(false)
+                        && m.vad.unwrap_or(false)
+                        && m.punc.unwrap_or(false)
+                })
+                .unwrap_or(false)
+        })
     }
 }
 
+/// 启动标志守卫，确保异常退出时重置 funasr_starting
+struct StartingFlagGuard(Arc<std::sync::atomic::AtomicBool>);
+
 impl Drop for StartingFlagGuard {
     fn drop(&mut self) {
-        self.flag.store(false, Ordering::SeqCst);
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -399,7 +409,7 @@ pub async fn start_server(
     }
 
     // 确保无论成功还是失败，都要重置 starting 标志
-    let _starting_guard = StartingFlagGuard::new(state.funasr_starting.clone());
+    let _starting_guard = StartingFlagGuard(state.funasr_starting.clone());
     state.set_funasr_ready(false);
 
     // 查找 Python 解释器
@@ -426,8 +436,6 @@ pub async fn start_server(
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
-        .env("QUQU_DATA_DIR", &data_dir)
-        .env("ELECTRON_USER_DATA", &data_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr({
@@ -493,17 +501,7 @@ pub async fn start_server(
         }
     };
 
-    let model_loaded = response.model_loaded.unwrap_or_else(|| {
-        response
-            .models
-            .as_ref()
-            .map(|m| {
-                m.asr.unwrap_or(false)
-                    && m.vad.unwrap_or(false)
-                    && m.punc.unwrap_or(false)
-            })
-            .unwrap_or(false)
-    });
+    let model_loaded = response.is_model_loaded();
     let initialized = response.initialized.unwrap_or(false)
         || response.success.unwrap_or(false)
         || response.status.as_deref() == Some("ready")
@@ -748,17 +746,7 @@ pub async fn check_status(state: &AppState) -> Result<FunASRStatus, AppError> {
     // 发送状态查询命令
     match send_command_to_server(state, &ServerCommand::Status).await {
         Ok(response) => {
-            let model_loaded = response.model_loaded.unwrap_or_else(|| {
-                response
-                    .models
-                    .as_ref()
-                    .map(|m| {
-                        m.asr.unwrap_or(false)
-                            && m.vad.unwrap_or(false)
-                            && m.punc.unwrap_or(false)
-                    })
-                    .unwrap_or(false)
-            });
+            let model_loaded = response.is_model_loaded();
 
             let initialized = response.initialized.unwrap_or(false) || model_loaded;
             if initialized {
@@ -933,8 +921,8 @@ fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool 
 pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
     // 定义需要检查的模型 (HuggingFace repo ID, 描述, 类型)
     let models: Vec<(&str, &str, &str)> = vec![
-        ("FunAudioLLM/SenseVoiceSmall", "ASR语音识别模型", "asr"),
-        ("funasr/fsmn-vad", "VAD语音活动检测模型", "vad"),
+        (ASR_REPO_ID, "ASR语音识别模型", "asr"),
+        (VAD_REPO_ID, "VAD语音活动检测模型", "vad"),
     ];
 
     let mut missing_models = Vec::new();

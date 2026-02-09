@@ -27,10 +27,6 @@ def get_log_path():
     # 尝试从环境变量获取用户数据目录
     if "LIGHT_WHISPER_DATA_DIR" in os.environ:
         log_dir = os.path.join(os.environ["LIGHT_WHISPER_DATA_DIR"], "logs")
-    elif "QUQU_DATA_DIR" in os.environ:
-        log_dir = os.path.join(os.environ["QUQU_DATA_DIR"], "logs")
-    elif "ELECTRON_USER_DATA" in os.environ:
-        log_dir = os.path.join(os.environ["ELECTRON_USER_DATA"], "logs")
     else:
         # 回退到临时目录
         log_dir = os.path.join(tempfile.gettempdir(), "light_whisper_logs")
@@ -86,51 +82,10 @@ def suppress_stdout():
 
 
 
-def _hf_cache_root():
-    """返回 HuggingFace 默认缓存根目录"""
-    hf_home = os.environ.get("HF_HOME")
-    if hf_home:
-        return os.path.join(hf_home, "hub")
-    xdg_cache = os.environ.get("XDG_CACHE_HOME")
-    if xdg_cache:
-        return os.path.join(xdg_cache, "huggingface", "hub")
-    return os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+from hf_cache_utils import get_hf_cache_root, is_hf_repo_ready, MODEL_REPOS
 
-
-def _hf_repo_ready(repo_id):
-    """检查 HuggingFace 模型是否已缓存且包含实际模型权重文件。
-
-    仅检查目录结构不够——下载中途取消会留下空壳目录（refs/snapshots 存在但无权重文件），
-    导致后续加载卡死。这里额外验证 snapshots 中存在 >1MB 的模型权重文件。
-    """
-    cache_root = _hf_cache_root()
-    dir_name = "models--" + repo_id.replace("/", "--")
-    repo_dir = os.path.join(cache_root, dir_name)
-    if not os.path.isdir(repo_dir):
-        return False
-
-    weight_exts = (".pt", ".bin", ".safetensors", ".onnx")
-    min_size = 1 * 1024 * 1024  # 1MB — 排除空文件或极小的占位文件
-
-    snapshots_dir = os.path.join(repo_dir, "snapshots")
-    if not os.path.isdir(snapshots_dir):
-        return False
-
-    for snapshot_name in os.listdir(snapshots_dir):
-        snapshot_path = os.path.join(snapshots_dir, snapshot_name)
-        if not os.path.isdir(snapshot_path):
-            continue
-        for root, _dirs, files in os.walk(snapshot_path):
-            for f in files:
-                if f.endswith(weight_exts):
-                    filepath = os.path.join(root, f)
-                    try:
-                        if os.path.getsize(filepath) >= min_size:
-                            return True
-                    except OSError:
-                        continue
-
-    return False
+VAD_MAX_SEGMENT_MS = 30000
+CLEANUP_EVERY_N = 5
 
 
 class FunASRServer:
@@ -199,7 +154,7 @@ class FunASRServer:
                 self.asr_model = AutoModel(
                     model="FunAudioLLM/SenseVoiceSmall",
                     vad_model="fsmn-vad",
-                    vad_kwargs={"max_single_segment_time": 30000, "hub": "hf"},
+                    vad_kwargs={"max_single_segment_time": VAD_MAX_SEGMENT_MS, "hub": "hf"},
                     hub="hf",
                     disable_update=True,
                     device=self.device,
@@ -267,7 +222,7 @@ class FunASRServer:
         try:
             # 检查音频文件是否存在
             if not os.path.exists(audio_path):
-                return {"success": False, "error": f"音频文件不存在: {audio_path}"}
+                return {"success": False, "error": f"音频文件不存在: {audio_path}", "type": "transcription_error"}
 
             total_start = time.time()
             logger.info(f"开始转录音频文件: {audio_path}")
@@ -328,8 +283,8 @@ class FunASRServer:
                 "model_type": "pytorch",  # 标识使用的是pytorch版本
             }
 
-            # 生产环境：每5次转录或音频超长时进行内存清理
-            if self.transcription_count % 5 == 0 or duration > 120:
+            # 生产环境：每N次转录或音频超长时进行内存清理
+            if self.transcription_count % CLEANUP_EVERY_N == 0 or duration > 120:
                 self._cleanup_memory()
                 logger.info(f"已完成 {self.transcription_count} 次转录，执行内存清理")
 
@@ -358,7 +313,8 @@ class FunASRServer:
             duration = librosa.get_duration(filename=audio_path)
             self.total_audio_duration += duration  # 累计音频时长
             return duration
-        except Exception:
+        except Exception as e:
+            logger.warning(f"获取音频时长失败: {e}")
             return 0.0
 
     def _cleanup_memory(self):
@@ -436,19 +392,11 @@ class FunASRServer:
         """运行服务器主循环"""
         logger.info("FunASR服务器启动")
 
-        hf_cache = _hf_cache_root()
+        hf_cache = get_hf_cache_root()
         logger.info(f"HuggingFace 缓存根目录: {hf_cache}")
 
         # 检查模型是否已缓存（SenseVoiceSmall + fsmn-vad）
-        missing = []
-        repos = [
-            "FunAudioLLM/SenseVoiceSmall",
-            "funasr/fsmn-vad",
-        ]
-
-        for repo_id in repos:
-            if not _hf_repo_ready(repo_id):
-                missing.append(repo_id)
+        missing = [r for r in MODEL_REPOS if not is_hf_repo_ready(r)]
 
         if not missing:
             logger.info("模型文件存在，开始初始化")

@@ -35,6 +35,8 @@ interface UseModelStatusReturn {
 const MAX_START_FAILURES = 3;
 /** Consecutive loading checks before attempting a restart. */
 const MAX_LOADING_CHECKS = 10;
+/** Polling interval in milliseconds for transient states. */
+const POLL_INTERVAL_MS = 6000;
 
 /**
  * React hook that tracks the FunASR lifecycle:
@@ -72,6 +74,17 @@ export function useModelStatus(): UseModelStatusReturn {
     if (!mountedRef.current) return;
     if (downloadingRef.current) return;
 
+    const handleModelsNotPresent = () => {
+      restartAttemptedRef.current = false;
+      loadingChecksRef.current = 0;
+      setStage("need_download");
+      setDownloadMessage(null);
+      if (!autoDownloadTriggeredRef.current && !downloadingRef.current) {
+        autoDownloadTriggeredRef.current = true;
+        setTimeout(() => triggerDownloadRef.current?.(), 0);
+      }
+    };
+
     try {
       const status = await checkFunASRStatus();
       if (!mountedRef.current) return;
@@ -94,14 +107,7 @@ export function useModelStatus(): UseModelStatusReturn {
         const modelCheck = await checkModelFiles();
         if (!mountedRef.current) return;
         if (!modelCheck.all_present) {
-          restartAttemptedRef.current = false;
-          loadingChecksRef.current = 0;
-          setStage("need_download");
-          setDownloadMessage(null);
-          if (!autoDownloadTriggeredRef.current && !downloadingRef.current) {
-            autoDownloadTriggeredRef.current = true;
-            setTimeout(() => triggerDownloadRef.current?.(), 0);
-          }
+          handleModelsNotPresent();
           return;
         }
 
@@ -123,14 +129,7 @@ export function useModelStatus(): UseModelStatusReturn {
       if (!mountedRef.current) return;
 
       if (!modelCheck.all_present) {
-        restartAttemptedRef.current = false;
-        loadingChecksRef.current = 0;
-        setStage("need_download");
-        setDownloadMessage(null);
-        if (!autoDownloadTriggeredRef.current && !downloadingRef.current) {
-          autoDownloadTriggeredRef.current = true;
-          setTimeout(() => triggerDownloadRef.current?.(), 0);
-        }
+        handleModelsNotPresent();
         return;
       }
 
@@ -169,7 +168,7 @@ export function useModelStatus(): UseModelStatusReturn {
 
     intervalRef.current = setInterval(() => {
       checkStatus();
-    }, 6000);
+    }, POLL_INTERVAL_MS);
 
     return () => {
       mountedRef.current = false;
@@ -289,7 +288,7 @@ export function useModelStatus(): UseModelStatusReturn {
     checkStatus();
     intervalRef.current = setInterval(() => {
       checkStatus();
-    }, 6000);
+    }, POLL_INTERVAL_MS);
   }, [checkStatus, clearPolling]);
 
   return {

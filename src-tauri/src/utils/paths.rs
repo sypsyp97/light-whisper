@@ -42,44 +42,28 @@ pub fn get_data_dir() -> PathBuf {
     app_dir
 }
 
-/// 获取 FunASR 服务器 Python 脚本的路径
+/// 获取 resources 目录下某个脚本的路径
 ///
-/// # 参数
-/// - `app`: Tauri 的 AppHandle，用于获取应用资源目录
-///
-/// # 什么是 AppHandle？
-/// `AppHandle` 是 Tauri 提供的应用句柄，通过它可以访问应用的各种资源和功能。
-/// 比如获取打包时附带的资源文件路径。
-///
-/// # 资源路径说明
-/// 开发模式下，资源文件在项目的 `src-tauri/resources/` 目录中。
-/// 打包后，资源文件会被嵌入到应用包中，通过 `resource_dir()` 获取。
-pub fn get_funasr_server_path(app: &tauri::AppHandle) -> PathBuf {
-    // 尝试从 Tauri 资源目录获取路径
-    // `path()` 返回路径解析器，`resource_dir()` 获取资源目录
+/// 优先从 Tauri 打包资源目录查找，找不到则回退到相对路径（开发模式）。
+fn get_resource_script_path(app: &tauri::AppHandle, filename: &str) -> PathBuf {
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let server_path = resource_dir.join("resources").join("funasr_server.py");
-        if server_path.exists() {
-            return server_path;
-        }
-    }
-
-    // 备用方案：使用相对路径（开发模式下使用）
-    PathBuf::from("resources").join("funasr_server.py")
-}
-
-/// 获取模型下载脚本的路径
-///
-/// 这个脚本负责从 HuggingFace 下载 FunASR 所需的语音识别模型。
-pub fn get_download_script_path(app: &tauri::AppHandle) -> PathBuf {
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let script_path = resource_dir.join("resources").join("download_models.py");
+        let script_path = resource_dir.join("resources").join(filename);
         if script_path.exists() {
             return script_path;
         }
     }
 
-    PathBuf::from("resources").join("download_models.py")
+    PathBuf::from("resources").join(filename)
+}
+
+/// 获取 FunASR 服务器 Python 脚本的路径
+pub fn get_funasr_server_path(app: &tauri::AppHandle) -> PathBuf {
+    get_resource_script_path(app, "funasr_server.py")
+}
+
+/// 获取模型下载脚本的路径
+pub fn get_download_script_path(app: &tauri::AppHandle) -> PathBuf {
+    get_resource_script_path(app, "download_models.py")
 }
 
 /// 清理 Windows 路径中的 `\\?\` 前缀

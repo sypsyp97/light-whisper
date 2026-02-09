@@ -4,8 +4,7 @@ import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { enableAutostart, disableAutostart, isAutostartEnabled } from "@/api/autostart";
 import TitleBar from "@/components/TitleBar";
-
-const PADDING = 16;
+import { PADDING, INPUT_METHOD_KEY } from "@/lib/constants";
 
 const themeOptions = [
   { mode: "light" as const, icon: Sun, label: "浅色" },
@@ -19,7 +18,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [autostartLoading, setAutostartLoading] = useState(true);
   const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
     try {
-      return (localStorage.getItem("light-whisper-input-method") as "sendInput" | "clipboard") || "sendInput";
+      return (localStorage.getItem(INPUT_METHOD_KEY) as "sendInput" | "clipboard") || "sendInput";
     } catch {
       return "sendInput";
     }
@@ -118,7 +117,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   aria-pressed={inputMethod === key}
                   onClick={() => {
                     setInputMethod(key);
-                    try { localStorage.setItem("light-whisper-input-method", key); } catch { /* localStorage 不可用 */ }
+                    try { localStorage.setItem(INPUT_METHOD_KEY, key); } catch { /* localStorage 不可用 */ }
                   }}
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 6,

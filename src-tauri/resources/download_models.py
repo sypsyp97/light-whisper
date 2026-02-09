@@ -9,7 +9,6 @@ import sys
 import json
 import threading
 import os
-from pathlib import Path
 
 # 防止 snapshot_download 在 Windows 上无限期挂起
 os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
@@ -18,6 +17,7 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 from huggingface_hub import snapshot_download
 from tqdm import tqdm
+from hf_cache_utils import is_hf_repo_ready, ASR_REPO_ID, VAD_REPO_ID
 
 
 # ---------------------------------------------------------------------------
@@ -94,52 +94,6 @@ class _ProgressTqdm(tqdm):
 
 
 # ---------------------------------------------------------------------------
-# 缓存检测
-# ---------------------------------------------------------------------------
-
-def _get_hf_cache_root():
-    """获取 HuggingFace 缓存根目录"""
-    hf_home = os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface"))
-    return os.path.join(hf_home, "hub")
-
-
-def _is_repo_cached(repo_id):
-    """检查 HuggingFace 模型是否已缓存且包含实际模型权重文件。
-
-    仅检查目录结构不够——下载中途取消会留下空壳目录，
-    这里额外验证 snapshots 中存在 >1MB 的模型权重文件。
-    """
-    cache_root = _get_hf_cache_root()
-    dir_name = f"models--{repo_id.replace('/', '--')}"
-    repo_dir = os.path.join(cache_root, dir_name)
-    if not os.path.isdir(repo_dir):
-        return False
-
-    weight_exts = (".pt", ".bin", ".safetensors", ".onnx")
-    min_size = 1 * 1024 * 1024  # 1MB
-
-    snapshots_dir = os.path.join(repo_dir, "snapshots")
-    if not os.path.isdir(snapshots_dir):
-        return False
-
-    for snapshot_name in os.listdir(snapshots_dir):
-        snapshot_path = os.path.join(snapshots_dir, snapshot_name)
-        if not os.path.isdir(snapshot_path):
-            continue
-        for root, _dirs, files in os.walk(snapshot_path):
-            for f in files:
-                if f.endswith(weight_exts):
-                    filepath = os.path.join(root, f)
-                    try:
-                        if os.path.getsize(filepath) >= min_size:
-                            return True
-                    except OSError:
-                        continue
-
-    return False
-
-
-# ---------------------------------------------------------------------------
 # 下载逻辑
 # ---------------------------------------------------------------------------
 
@@ -152,7 +106,7 @@ def download_model(model_config):
     fallback_revision = model_config.get("fallback_revision", revision)
 
     # 已缓存的模型直接跳过，不调用 snapshot_download（避免 Windows 上缓慢的完整性校验）
-    if _is_repo_cached(model_name):
+    if is_hf_repo_ready(model_name):
         _emit(model_type, "completed", 100,
               message=f"{model_name} 已缓存，跳过下载")
         return {"success": True, "model": model_type}
@@ -248,8 +202,8 @@ def main():
 
     # 模型配置（HuggingFace repo ID）
     models = [
-        {"name": "FunAudioLLM/SenseVoiceSmall", "type": "asr"},
-        {"name": "funasr/fsmn-vad", "type": "vad"},
+        {"name": ASR_REPO_ID, "type": "asr"},
+        {"name": VAD_REPO_ID, "type": "vad"},
     ]
 
     _total_count = len(models)

@@ -5,8 +5,7 @@ import { useRecordingContext } from "@/contexts/RecordingContext";
 import { copyToClipboard } from "@/api/clipboard";
 import { hideMainWindow } from "@/api/window";
 import TitleBar from "@/components/TitleBar";
-
-const PADDING = 16;
+import { PADDING } from "@/lib/constants";
 const EQ_BAR_COUNT = 5;
 const EQ_BAR_DELAY_STEP = 0.12; // seconds between each bar's animation
 
