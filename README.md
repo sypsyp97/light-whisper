@@ -7,7 +7,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-blue?style=flat-square&logo=tauri)](https://tauri.app/)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange?style=flat-square&logo=rust)](https://www.rust-lang.org/)
-[![FunASR](https://img.shields.io/badge/FunASR-Paraformer-green?style=flat-square)](https://github.com/modelscope/FunASR)
+[![FunASR](https://img.shields.io/badge/FunASR-SenseVoice-green?style=flat-square)](https://github.com/modelscope/FunASR)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
 
 <img src="assets/icon.png" alt="Light-Whisper Logo" width="120" />
@@ -21,7 +21,7 @@
 ## 功能特点
 
 - **F2 一键转写** — 按住录音，松开自动转写，结果直接输入到当前活动窗口
-- **完全离线** — 基于阿里 FunASR Paraformer 模型，数据不出本机
+- **完全离线** — 基于阿里 FunASR [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) 模型，数据不出本机
 - **GPU 加速** — 自动检测 NVIDIA GPU 并启用 CUDA 加速，无 GPU 则回退 CPU
 - **双输入模式** — 支持 SendInput 直接输入（不占用剪贴板）和剪贴板粘贴（兼容中文输入法）两种模式
 - **悬浮窗设计** — 无边框透明窗口，始终置顶，最小化到系统托盘
@@ -42,7 +42,7 @@
 | [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python 包管理 |
 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) | 2019+ | Rust/C++ 编译依赖 |
 
-**磁盘空间**：至少预留 **10 GB**（Python 依赖约 5 GB + ASR 模型约 3 GB）。
+**磁盘空间**：至少预留 **8 GB**（Python 依赖约 5 GB + ASR 模型约 1 GB）。
 
 **GPU 加速（可选）**：如果你有 NVIDIA 显卡，不需要单独安装 CUDA Toolkit — PyTorch 已自带 CUDA 12.4 运行时。只需确保安装了最新的 [NVIDIA 显卡驱动](https://www.nvidia.cn/drivers/lookup/)。
 
@@ -165,17 +165,21 @@ uv sync
 
 ### 第 4 步：下载 ASR 模型
 
-首次运行应用时会**自动下载**模型（约 3 GB），但推荐提前手动下载，避免启动时等待：
+首次运行应用时会**自动下载**模型（约 1 GB），但推荐提前手动下载，避免启动时等待：
 
 ```bash
 # 激活虚拟环境
 .venv\Scripts\activate
 
-# 下载模型到 HuggingFace 缓存
-python -c "from funasr import AutoModel; AutoModel(model='paraformer-zh', model_revision='v2.0.4', vad_model='fsmn-vad', vad_model_revision='v2.0.4', punc_model='ct-punc', punc_model_revision='v2.0.4', hub='hf', vad_kwargs={'hub': 'hf'}, punc_kwargs={'hub': 'hf'})"
+# 下载 SenseVoiceSmall + VAD 模型到 HuggingFace 缓存
+python -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/SenseVoiceSmall'); snapshot_download('funasr/fsmn-vad')"
 ```
 
 模型会缓存到 `~/.cache/huggingface/hub/`，下载一次后续启动不再重复下载。
+
+> **模型说明**：
+> - [**SenseVoiceSmall**](https://huggingface.co/FunAudioLLM/SenseVoiceSmall)（~936 MB）— ASR 语音识别主模型，支持中/英/日/韩/粤语，内置标点恢复（ITN）
+> - [**fsmn-vad**](https://huggingface.co/funasr/fsmn-vad)（~1.7 MB）— 语音活动检测（VAD），负责切分有效语音片段，跳过静音
 
 > **国内下载慢？** 可以设置 HuggingFace 镜像：
 > ```bash
@@ -422,6 +426,7 @@ cd src-tauri && cargo fmt     # Rust 代码格式化
 本项目基于 [**ququ**](https://github.com/yan5xu/ququ) 修改开发，感谢原作者的贡献。
 
 - [FunASR](https://github.com/modelscope/FunASR) — 阿里达摩院开源语音识别
+- [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) — 多语言语音识别模型（中/英/日/韩/粤）
 - [Tauri](https://tauri.app/) — 现代化桌面应用框架
 - [React](https://react.dev/) — 用户界面库
 

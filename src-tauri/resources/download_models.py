@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-FunASR Paraformer 模型下载脚本
-从 HuggingFace 顺序下载 Paraformer 相关模型文件
+FunASR SenseVoiceSmall 模型下载脚本
+从 HuggingFace 顺序下载 SenseVoiceSmall + VAD 模型文件
 """
 
 import sys
@@ -11,7 +11,13 @@ import threading
 import os
 from pathlib import Path
 
+# 防止 snapshot_download 在 Windows 上无限期挂起
+os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
 from huggingface_hub import snapshot_download
+from tqdm import tqdm
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +63,36 @@ def _emit(model_type, stage, percent, error=None, message=None):
     sys.stdout.flush()
 
 
+class _ProgressTqdm(tqdm):
+    """自定义 tqdm 子类，将真实下载进度转发到 JSON 输出。"""
+
+    _model_type = "asr"
+    _model_name = ""
+    _last_pct = -1
+
+    def display(self, msg=None, pos=None):
+        self._report_progress()
+
+    def update(self, n=1):
+        super().update(n)
+        self._report_progress()
+
+    def _report_progress(self):
+        if self.total and self.total > 0:
+            pct = int(self.n * 100 / self.total)
+        else:
+            pct = 0
+        # 避免过于频繁地输出（相同百分比不重复发）
+        if pct != _ProgressTqdm._last_pct:
+            _ProgressTqdm._last_pct = pct
+            _emit(
+                _ProgressTqdm._model_type,
+                "downloading",
+                pct,
+                message=f"{_ProgressTqdm._model_name} 下载中... {pct}%",
+            )
+
+
 # ---------------------------------------------------------------------------
 # 缓存检测
 # ---------------------------------------------------------------------------
@@ -68,24 +104,37 @@ def _get_hf_cache_root():
 
 
 def _is_repo_cached(repo_id):
-    """检查 HuggingFace 模型是否已缓存（refs 任意分支或 snapshots 存在即可）"""
+    """检查 HuggingFace 模型是否已缓存且包含实际模型权重文件。
+
+    仅检查目录结构不够——下载中途取消会留下空壳目录，
+    这里额外验证 snapshots 中存在 >1MB 的模型权重文件。
+    """
     cache_root = _get_hf_cache_root()
     dir_name = f"models--{repo_id.replace('/', '--')}"
     repo_dir = os.path.join(cache_root, dir_name)
     if not os.path.isdir(repo_dir):
         return False
 
-    refs_dir = os.path.join(repo_dir, "refs")
-    if os.path.isdir(refs_dir):
-        for name in os.listdir(refs_dir):
-            if os.path.isfile(os.path.join(refs_dir, name)):
-                return True
+    weight_exts = (".pt", ".bin", ".safetensors", ".onnx")
+    min_size = 1 * 1024 * 1024  # 1MB
 
     snapshots_dir = os.path.join(repo_dir, "snapshots")
-    if os.path.isdir(snapshots_dir):
-        for name in os.listdir(snapshots_dir):
-            if os.path.isdir(os.path.join(snapshots_dir, name)):
-                return True
+    if not os.path.isdir(snapshots_dir):
+        return False
+
+    for snapshot_name in os.listdir(snapshots_dir):
+        snapshot_path = os.path.join(snapshots_dir, snapshot_name)
+        if not os.path.isdir(snapshot_path):
+            continue
+        for root, _dirs, files in os.walk(snapshot_path):
+            for f in files:
+                if f.endswith(weight_exts):
+                    filepath = os.path.join(root, f)
+                    try:
+                        if os.path.getsize(filepath) >= min_size:
+                            return True
+                    except OSError:
+                        continue
 
     return False
 
@@ -110,14 +159,20 @@ def download_model(model_config):
 
     _emit(model_type, "downloading", 0, message=f"准备下载 {model_name}")
 
+    # 设置真实进度回调的上下文
+    _ProgressTqdm._model_type = model_type
+    _ProgressTqdm._model_name = model_name
+    _ProgressTqdm._last_pct = -1
+
     result_box = {}
     done_event = threading.Event()
 
     def _snapshot(repo_id, repo_revision):
         if repo_revision:
-            snapshot_download(repo_id=repo_id, revision=repo_revision)
+            snapshot_download(repo_id=repo_id, revision=repo_revision,
+                              tqdm_class=_ProgressTqdm)
         else:
-            snapshot_download(repo_id=repo_id)
+            snapshot_download(repo_id=repo_id, tqdm_class=_ProgressTqdm)
 
     def _try_download(repo_id, repo_revision):
         try:
@@ -155,18 +210,26 @@ def download_model(model_config):
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
 
-    # 每 2 秒发一次心跳，让 UI 知道还活着（最长等待 10 分钟）
+    # 每 2 秒发一次心跳保活（最长等待 30 分钟）
+    # 真实进度由 _ProgressTqdm 回调输出，心跳仅防止前端判定超时
     tick = 0
-    max_ticks = 300  # 300 * 2s = 600s = 10 min
+    max_ticks = 900  # 900 * 2s = 1800s = 30 min
     while not done_event.wait(timeout=2.0):
         tick += 1
         if tick > max_ticks:
-            _emit(model_type, "error", 0, "下载超时（超过10分钟）",
+            _emit(model_type, "error", 0, "下载超时（超过30分钟）",
                   message=f"{model_name} 下载超时")
-            return {"success": False, "model": model_type, "error": "下载超时（超过10分钟）"}
-        fake_pct = min(95, tick * 5)
-        _emit(model_type, "downloading", fake_pct,
-              message=f"{model_name} 下载中...")
+            return {"success": False, "model": model_type, "error": "下载超时（超过30分钟）"}
+        # 心跳：用当前已记录的进度值重新发送，保持 UI 活跃
+        with _progress_lock:
+            current_pct = _progress.get(model_type, 0)
+        if current_pct == 0 and tick <= 15:
+            # 前 30 秒无进度时提示正在连接
+            _emit(model_type, "downloading", 0,
+                  message=f"正在连接 HuggingFace 下载 {model_name}...")
+        else:
+            _emit(model_type, "downloading", current_pct,
+                  message=f"{model_name} 下载中...")
 
     if result_box.get("ok"):
         finished_name = result_box.get("name", model_name)
@@ -185,13 +248,8 @@ def main():
 
     # 模型配置（HuggingFace repo ID）
     models = [
-        {"name": "funasr/paraformer-zh", "type": "asr", "revision": "v2.0.4"},
-        {"name": "funasr/fsmn-vad", "type": "vad", "revision": "v2.0.4"},
-        {
-            "name": "funasr/ct-punc",
-            "type": "punc",
-            "revision": "v2.0.4",
-        },
+        {"name": "FunAudioLLM/SenseVoiceSmall", "type": "asr"},
+        {"name": "funasr/fsmn-vad", "type": "vad"},
     ]
 
     _total_count = len(models)

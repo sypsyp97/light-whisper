@@ -865,10 +865,10 @@ fn get_hf_cache_root() -> PathBuf {
     PathBuf::from(".cache").join("huggingface").join("hub")
 }
 
-/// 检查 HuggingFace 模型是否已缓存
+/// 检查 HuggingFace 模型是否已缓存且包含实际模型权重文件
 ///
-/// HF 缓存目录格式：`models--<org>--<model>/refs/main`
-/// 存在 `refs/main` 文件表示至少下载过一次。
+/// 仅检查目录结构不够——下载中途取消会留下空壳目录（refs/snapshots 存在但无权重文件），
+/// 导致后续加载卡死。这里额外验证 snapshots 中存在 >1MB 的模型权重文件（.pt/.bin/.safetensors/.onnx）。
 fn is_hf_repo_ready(repo_id: &str) -> bool {
     let cache_root = get_hf_cache_root();
     let dir_name = format!("models--{}", repo_id.replace('/', "--"));
@@ -877,16 +877,22 @@ fn is_hf_repo_ready(repo_id: &str) -> bool {
         return false;
     }
 
-    let refs_dir = repo_dir.join("refs");
-    if let Ok(entries) = std::fs::read_dir(&refs_dir) {
-        if entries.filter_map(Result::ok).any(|entry| entry.path().is_file()) {
-            return true;
-        }
-    }
-
     let snapshots_dir = repo_dir.join("snapshots");
-    if let Ok(entries) = std::fs::read_dir(&snapshots_dir) {
-        if entries.filter_map(Result::ok).any(|entry| entry.path().is_dir()) {
+    let entries = match std::fs::read_dir(&snapshots_dir) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+
+    const MIN_SIZE: u64 = 1_000_000; // 1MB
+    let weight_exts: &[&str] = &[".pt", ".bin", ".safetensors", ".onnx"];
+
+    for entry in entries.filter_map(Result::ok) {
+        let snapshot_path = entry.path();
+        if !snapshot_path.is_dir() {
+            continue;
+        }
+        // 递归遍历 snapshot 目录查找模型权重文件
+        if has_weight_file(&snapshot_path, weight_exts, MIN_SIZE) {
             return true;
         }
     }
@@ -894,21 +900,46 @@ fn is_hf_repo_ready(repo_id: &str) -> bool {
     false
 }
 
+/// 递归检查目录中是否存在符合条件的模型权重文件
+fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            if has_weight_file(&path, exts, min_size) {
+                return true;
+            }
+        } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if exts.iter().any(|ext| name.ends_with(ext)) {
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    if meta.len() >= min_size {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// 检查模型文件是否已下载
 ///
-/// 检查 HuggingFace 缓存中是否存在 Paraformer 相关模型：
-/// - `funasr/paraformer-zh` + `funasr/fsmn-vad` + `funasr/ct-punc`
+/// 检查 HuggingFace 缓存中是否存在 SenseVoiceSmall 相关模型：
+/// - `FunAudioLLM/SenseVoiceSmall` + `funasr/fsmn-vad`
+/// 注：SenseVoiceSmall 内置 ITN 标点恢复，不再需要独立的 ct-punc 模型
 pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
     // 定义需要检查的模型 (HuggingFace repo ID, 描述, 类型)
     let models: Vec<(&str, &str, &str)> = vec![
-        ("funasr/paraformer-zh", "ASR语音识别模型", "asr"),
+        ("FunAudioLLM/SenseVoiceSmall", "ASR语音识别模型", "asr"),
         ("funasr/fsmn-vad", "VAD语音活动检测模型", "vad"),
     ];
 
     let mut missing_models = Vec::new();
     let mut asr_present = false;
     let mut vad_present = false;
-    let mut punc_present = false;
 
     let cache_root = get_hf_cache_root();
 
@@ -926,23 +957,15 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
         }
     }
 
-    // 标点模型使用 ct-punc
-    if is_hf_repo_ready("funasr/ct-punc") {
-        punc_present = true;
-        log::info!("模型文件已就位: 标点符号模型 (funasr/ct-punc)");
-    } else {
-        log::warn!("模型文件缺失: 标点符号模型 (funasr/ct-punc)");
-        missing_models.push("标点符号模型".to_string());
-    }
-
-    let all_present = asr_present && vad_present && punc_present;
+    // SenseVoiceSmall 内置标点恢复，punc 始终视为就绪
+    let all_present = asr_present && vad_present;
 
     Ok(ModelCheckResult {
         all_present,
         asr_model: asr_present,
         vad_model: vad_present,
-        punc_model: punc_present,
-        engine: "paraformer".to_string(),
+        punc_model: true, // SenseVoiceSmall 内置 ITN，无需独立标点模型
+        engine: "sensevoice".to_string(),
         cache_path: cache_root.to_string_lossy().to_string(),
         missing_models,
     })

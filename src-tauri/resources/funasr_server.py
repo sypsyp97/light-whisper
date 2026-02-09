@@ -14,6 +14,10 @@ import signal
 import contextlib
 import threading
 
+# 防止 HuggingFace Hub 在 Windows 上的 symlink 警告和缓存校验卡顿
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "10")
+
 # 设置日志
 import tempfile
 
@@ -94,26 +98,37 @@ def _hf_cache_root():
 
 
 def _hf_repo_ready(repo_id):
-    """检查 HuggingFace 模型是否已缓存"""
+    """检查 HuggingFace 模型是否已缓存且包含实际模型权重文件。
+
+    仅检查目录结构不够——下载中途取消会留下空壳目录（refs/snapshots 存在但无权重文件），
+    导致后续加载卡死。这里额外验证 snapshots 中存在 >1MB 的模型权重文件。
+    """
     cache_root = _hf_cache_root()
-    # HF 缓存目录格式: models--<org>--<model>
     dir_name = "models--" + repo_id.replace("/", "--")
     repo_dir = os.path.join(cache_root, dir_name)
     if not os.path.isdir(repo_dir):
         return False
-    # refs 下任意分支文件存在即可视为已缓存
-    refs_dir = os.path.join(repo_dir, "refs")
-    if os.path.isdir(refs_dir):
-        for name in os.listdir(refs_dir):
-            if os.path.isfile(os.path.join(refs_dir, name)):
-                return True
 
-    # snapshots 目录存在并含子目录也表示已下载
+    weight_exts = (".pt", ".bin", ".safetensors", ".onnx")
+    min_size = 1 * 1024 * 1024  # 1MB — 排除空文件或极小的占位文件
+
     snapshots_dir = os.path.join(repo_dir, "snapshots")
-    if os.path.isdir(snapshots_dir):
-        for name in os.listdir(snapshots_dir):
-            if os.path.isdir(os.path.join(snapshots_dir, name)):
-                return True
+    if not os.path.isdir(snapshots_dir):
+        return False
+
+    for snapshot_name in os.listdir(snapshots_dir):
+        snapshot_path = os.path.join(snapshots_dir, snapshot_name)
+        if not os.path.isdir(snapshot_path):
+            continue
+        for root, _dirs, files in os.walk(snapshot_path):
+            for f in files:
+                if f.endswith(weight_exts):
+                    filepath = os.path.join(root, f)
+                    try:
+                        if os.path.getsize(filepath) >= min_size:
+                            return True
+                    except OSError:
+                        continue
 
     return False
 
@@ -125,7 +140,7 @@ class FunASRServer:
         self.running = True
         self.transcription_count = 0
         self.total_audio_duration = 0.0
-        self.engine = "paraformer"
+        self.engine = "sensevoice"
 
         # 自动检测推理设备：优先 GPU，不可用时回退 CPU
         self.device = self._detect_device()
@@ -175,41 +190,21 @@ class FunASRServer:
         self.running = False
 
     def _load_asr_model(self):
-        """加载ASR模型"""
+        """加载ASR模型（SenseVoiceSmall + fsmn-vad）"""
         try:
-            logger.info(f"开始加载ASR模型 (device={self.device})...")
+            logger.info(f"开始加载 SenseVoiceSmall 模型 (device={self.device})...")
             with suppress_stdout():
                 from funasr import AutoModel
 
-                try:
-                    self.asr_model = AutoModel(
-                        model="paraformer-zh",
-                        model_revision="v2.0.4",
-                        vad_model="fsmn-vad",
-                        vad_model_revision="v2.0.4",
-                        punc_model="ct-punc",
-                        punc_model_revision="v2.0.4",
-                        hub="hf",
-                        vad_kwargs={"hub": "hf"},
-                        punc_kwargs={"hub": "hf"},
-                        disable_update=True,
-                        device=self.device,
-                    )
-                except Exception as e:
-                    logger.warning(f"ct-punc v2.0.4 加载失败：{e}，尝试不指定 revision")
-                    self.asr_model = AutoModel(
-                        model="paraformer-zh",
-                        model_revision="v2.0.4",
-                        vad_model="fsmn-vad",
-                        vad_model_revision="v2.0.4",
-                        punc_model="ct-punc",
-                        hub="hf",
-                        vad_kwargs={"hub": "hf"},
-                        punc_kwargs={"hub": "hf"},
-                        disable_update=True,
-                        device=self.device,
-                    )
-            logger.info(f"ASR模型加载完成 (device={self.device})")
+                self.asr_model = AutoModel(
+                    model="FunAudioLLM/SenseVoiceSmall",
+                    vad_model="fsmn-vad",
+                    vad_kwargs={"max_single_segment_time": 30000, "hub": "hf"},
+                    hub="hf",
+                    disable_update=True,
+                    device=self.device,
+                )
+            logger.info(f"SenseVoiceSmall 模型加载完成 (device={self.device})")
             return True
         except Exception as e:
             if self.device == "cuda":
@@ -286,30 +281,27 @@ class FunASRServer:
                 logger.warning(f"音频过短 ({duration:.2f}秒)，跳过转录")
                 return {"success": True, "text": "", "duration": duration}
 
-            # 设置默认选项
-            default_options = {
-                "batch_size_s": 60,
-                "hotword": "",
-            }
-
-            if options:
-                default_options.update(options)
-
-            # 执行ASR识别（官方推荐：AutoModel 内部集成 VAD + PUNC）
+            # 执行ASR识别（SenseVoiceSmall 内置 ITN 标点恢复）
             asr_start = time.time()
             import torch
             with suppress_stdout(), torch.inference_mode():
                 asr_result = self.asr_model.generate(
                     input=audio_path,
-                    batch_size_s=default_options["batch_size_s"],
-                    hotword=default_options["hotword"],
+                    cache={},
+                    language="auto",
+                    use_itn=True,
+                    batch_size_s=60,
+                    merge_vad=True,
+                    merge_length_s=15,
                 )
             asr_elapsed = time.time() - asr_start
 
-            # 提取识别文本
+            # 提取识别文本并进行富文本后处理（去除 <|zh|><|NEUTRAL|> 等标签）
+            from funasr.utils.postprocess_utils import rich_transcription_postprocess
             if isinstance(asr_result, list) and len(asr_result) > 0:
                 if isinstance(asr_result[0], dict) and "text" in asr_result[0]:
-                    final_text = asr_result[0]["text"]
+                    raw_text = asr_result[0]["text"]
+                    final_text = rich_transcription_postprocess(raw_text)
                 else:
                     final_text = str(asr_result[0])
             else:
@@ -447,19 +439,16 @@ class FunASRServer:
         hf_cache = _hf_cache_root()
         logger.info(f"HuggingFace 缓存根目录: {hf_cache}")
 
-        # 检查模型是否已缓存
+        # 检查模型是否已缓存（SenseVoiceSmall + fsmn-vad）
         missing = []
         repos = [
-            "funasr/paraformer-zh",
+            "FunAudioLLM/SenseVoiceSmall",
             "funasr/fsmn-vad",
         ]
 
         for repo_id in repos:
             if not _hf_repo_ready(repo_id):
                 missing.append(repo_id)
-
-        if not _hf_repo_ready("funasr/ct-punc"):
-            missing.append("funasr/ct-punc")
 
         if not missing:
             logger.info("模型文件存在，开始初始化")

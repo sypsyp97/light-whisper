@@ -58,6 +58,8 @@ export function useModelStatus(): UseModelStatusReturn {
   const restartAttemptedRef = useRef(false);
   const loadingChecksRef = useRef(0);
   const downloadingRef = useRef(false);
+  const autoDownloadTriggeredRef = useRef(false);
+  const triggerDownloadRef = useRef<(() => void) | null>(null);
 
   const clearPolling = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -96,6 +98,10 @@ export function useModelStatus(): UseModelStatusReturn {
           loadingChecksRef.current = 0;
           setStage("need_download");
           setDownloadMessage(null);
+          if (!autoDownloadTriggeredRef.current && !downloadingRef.current) {
+            autoDownloadTriggeredRef.current = true;
+            setTimeout(() => triggerDownloadRef.current?.(), 0);
+          }
           return;
         }
 
@@ -121,6 +127,10 @@ export function useModelStatus(): UseModelStatusReturn {
         loadingChecksRef.current = 0;
         setStage("need_download");
         setDownloadMessage(null);
+        if (!autoDownloadTriggeredRef.current && !downloadingRef.current) {
+          autoDownloadTriggeredRef.current = true;
+          setTimeout(() => triggerDownloadRef.current?.(), 0);
+        }
         return;
       }
 
@@ -206,6 +216,7 @@ export function useModelStatus(): UseModelStatusReturn {
             setDownloadActive(false);
             setDownloadProgress(0);
             setDownloadMessage(message ?? "下载已取消");
+            autoDownloadTriggeredRef.current = false;
             setStage("need_download");
           } else if (status === "error") {
             downloadingRef.current = false;
@@ -251,6 +262,8 @@ export function useModelStatus(): UseModelStatusReturn {
     }
   }, [checkStatus]);
 
+  triggerDownloadRef.current = triggerDownload;
+
   const cancelDownload = useCallback(async () => {
     try {
       await cancelModelDownload();
@@ -270,6 +283,7 @@ export function useModelStatus(): UseModelStatusReturn {
     setDownloadActive(false);
     setStage("checking");
     startFailuresRef.current = 0;
+    autoDownloadTriggeredRef.current = false;
 
     clearPolling();
     checkStatus();
