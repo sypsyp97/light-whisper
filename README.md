@@ -18,6 +18,9 @@
 
 ---
 
+<!-- TODO: 在此添加应用截图或 GIF 动图，例如：-->
+<!-- ![应用截图](assets/screenshot.png) -->
+
 ## 功能特点
 
 - **F2 一键转写** — 按住录音，松开自动转写，结果直接输入到当前活动窗口
@@ -135,6 +138,23 @@ uv --version
 
 </details>
 
+<details>
+<summary><b>验证所有工具是否就绪</b></summary>
+
+在 PowerShell 中运行以下命令，确认所有工具已正确安装：
+
+```powershell
+node --version      # >= 18
+pnpm --version      # >= 8
+rustc --version     # >= 1.75
+python --version    # 3.11.x
+uv --version        # >= 0.4
+```
+
+如果某个命令提示"不是内部或外部命令"，说明对应工具未安装或未添加到 PATH，请回到上方对应步骤重新安装。
+
+</details>
+
 ---
 
 ### 第 1 步：克隆项目
@@ -161,18 +181,14 @@ uv sync
 - 安装 PyTorch（含 CUDA 12.4）、FunASR、transformers 等依赖
 - **耗时较长**（约 5-15 分钟，取决于网速），因为 PyTorch 包体较大
 
-> **网络问题？** 如果 PyTorch 下载缓慢，可以配置 pip 镜像源。详见下方 [常见问题](#网络问题)。
+> **网络问题？** 如果 PyTorch 下载缓慢，详见下方 [常见问题](#常见问题)。
 
 ### 第 4 步：下载 ASR 模型
 
 首次运行应用时会**自动下载**模型（约 1 GB），但推荐提前手动下载，避免启动时等待：
 
 ```bash
-# 激活虚拟环境
-.venv\Scripts\activate
-
-# 下载 SenseVoiceSmall + VAD 模型到 HuggingFace 缓存
-python -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/SenseVoiceSmall'); snapshot_download('funasr/fsmn-vad')"
+uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/SenseVoiceSmall'); snapshot_download('funasr/fsmn-vad')"
 ```
 
 模型会缓存到 `~/.cache/huggingface/hub/`，下载一次后续启动不再重复下载。
@@ -283,7 +299,8 @@ light-whisper/
 │   │       └── paths.rs        #   路径工具
 │   ├── resources/              # 嵌入到应用中的 Python 脚本
 │   │   ├── funasr_server.py    #   FunASR 推理服务（stdin/stdout IPC）
-│   │   └── download_models.py  #   模型下载脚本
+│   │   ├── download_models.py  #   模型下载脚本
+│   │   └── hf_cache_utils.py   #   HuggingFace 缓存检测工具
 │   ├── Cargo.toml
 │   └── tauri.conf.json
 │
@@ -313,11 +330,13 @@ light-whisper/
 <details>
 <summary><b>网络问题：PyTorch 或模型下载很慢</b></summary>
 
-**PyTorch 下载慢**：`uv sync` 会从 `download.pytorch.org` 下载 PyTorch CUDA 版（约 2.5 GB）。如果很慢，可以尝试：
+**PyTorch 下载慢**：`uv sync` 会从 `download.pytorch.org` 下载 PyTorch CUDA 版（约 2.5 GB）。由于项目指定了 PyTorch 官方 CUDA 源，国内镜像无法加速此步骤。建议：
 
+- 使用稳定的网络环境（科学上网或校园网）
+- 如果多次断线，`uv sync` 支持断点续传，重新执行即可
+- 其他 Python 依赖会从默认 PyPI 源下载，可通过清华镜像加速：
 ```powershell
-# 使用清华镜像（在 uv sync 之前设置）
-$env:UV_EXTRA_INDEX_URL = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+$env:UV_INDEX_URL = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 uv sync
 ```
 
