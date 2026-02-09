@@ -176,6 +176,51 @@ export function useModelStatus(): UseModelStatusReturn {
     };
   }, [checkStatus, clearPolling]);
 
+  // Listen for funasr-status events (loading progress, crashed, etc.)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    type FunasrStatusPayload = {
+      status: string;
+      message?: string;
+    };
+
+    const setup = async () => {
+      unlisten = await listen<FunasrStatusPayload>(
+        "funasr-status",
+        (event) => {
+          if (!mountedRef.current) return;
+          const { status, message } = event.payload;
+
+          if (status === "loading") {
+            setStage("loading");
+            setDownloadMessage(message ?? null);
+          } else if (status === "crashed") {
+            setStage("loading");
+            setError(null);
+            setDownloadMessage(message ?? "服务异常，正在重启...");
+            // Reset counters and trigger restart via polling
+            startFailuresRef.current = 0;
+            restartAttemptedRef.current = false;
+            loadingChecksRef.current = 0;
+            // Ensure polling is active
+            if (intervalRef.current === null) {
+              checkStatus();
+              intervalRef.current = setInterval(() => {
+                checkStatus();
+              }, POLL_INTERVAL_MS);
+            }
+          }
+        }
+      );
+    };
+
+    setup();
+    return () => {
+      unlisten?.();
+    };
+  }, [checkStatus, clearPolling]);
+
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 

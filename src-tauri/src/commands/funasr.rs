@@ -57,6 +57,7 @@ pub async fn start_funasr(
 /// ```
 #[tauri::command]
 pub async fn transcribe_audio(
+    app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     audio_base64: String,
 ) -> Result<funasr_service::TranscriptionResult, AppError> {
@@ -64,7 +65,7 @@ pub async fn transcribe_audio(
     let audio_data = base64::engine::general_purpose::STANDARD
         .decode(&audio_base64)
         .map_err(|e| AppError::FunASR(format!("Base64 解码失败: {}", e)))?;
-    funasr_service::transcribe(state.inner(), audio_data).await
+    funasr_service::transcribe(state.inner(), audio_data, &app_handle).await
 }
 
 /// 检查 FunASR 服务器的状态
@@ -72,9 +73,10 @@ pub async fn transcribe_audio(
 /// 返回服务器是否正在运行、是否就绪、模型是否已加载等信息。
 #[tauri::command]
 pub async fn check_funasr_status(
+    app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<funasr_service::FunASRStatus, AppError> {
-    funasr_service::check_status(state.inner()).await
+    funasr_service::check_status(state.inner(), &app_handle).await
 }
 
 /// 检查模型文件是否已下载

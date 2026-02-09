@@ -2,7 +2,7 @@ import { createContext, useContext, useCallback, useMemo, type ReactNode } from 
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
-import type { TranscriptionResult } from "@/types";
+import type { TranscriptionResult, HistoryItem } from "@/types";
 
 interface RecordingContextValue {
   // recording
@@ -12,6 +12,7 @@ interface RecordingContextValue {
   stopRecording: () => Promise<TranscriptionResult | null>;
   recordingError: string | null;
   transcriptionResult: string | null;
+  history: HistoryItem[];
   // model
   stage: ModelStage;
   isReady: boolean;
@@ -36,6 +37,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     stopRecording,
     error: recordingError,
     transcriptionResult,
+    history,
   } = useRecording();
 
   const {
@@ -68,6 +70,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     stopRecording,
     recordingError,
     transcriptionResult,
+    history,
     stage,
     isReady,
     device,
@@ -81,7 +84,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     retryModel,
   }), [
     isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult,
+    recordingError, transcriptionResult, history,
     stage, isReady, device, gpuName,
     downloadProgress, downloadMessage, isDownloading,
     modelError, downloadModels, cancelDownload, retryModel,

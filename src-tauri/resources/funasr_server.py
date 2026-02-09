@@ -38,11 +38,18 @@ def get_log_path():
 
 log_file_path = get_log_path()
 
+from logging.handlers import RotatingFileHandler
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(log_file_path, encoding="utf-8"),
+        RotatingFileHandler(
+            log_file_path,
+            encoding="utf-8",
+            maxBytes=5 * 1024 * 1024,  # 5MB
+            backupCount=3,
+        ),
         logging.StreamHandler(sys.stderr),  # 显式输出到 stderr，避免干扰 stdout IPC
     ],
 )

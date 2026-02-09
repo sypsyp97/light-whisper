@@ -29,3 +29,10 @@ export interface ModelCheckResult {
   missing_models: string[];
 }
 
+// 转录历史记录
+export interface HistoryItem {
+  id: string;
+  text: string;
+  timestamp: number;
+}
+

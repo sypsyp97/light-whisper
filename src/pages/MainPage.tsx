@@ -15,7 +15,7 @@ export default function MainPage({ onNavigate, onExitWindow }: {
 }) {
   const {
     isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, stage, isReady,
+    recordingError, transcriptionResult, history, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError,
     downloadModels: triggerDownload, cancelDownload, retryModel,
@@ -83,7 +83,7 @@ export default function MainPage({ onNavigate, onExitWindow }: {
           {!isReady && stage !== "need_download" && (
             <span className="chip animate-fade-in">
               <Loader2 size={10} className="animate-spin" />
-              {stage === "downloading" ? "下载中" : stage === "loading" ? "加载中" : "准备中"}
+              {stage === "downloading" ? "下载中" : stage === "loading" ? (downloadMessage || "加载中") : "准备中"}
             </span>
           )}
         </div>
@@ -135,7 +135,7 @@ export default function MainPage({ onNavigate, onExitWindow }: {
         <p aria-live="polite" className="status-text">
           {isRecording ? "正在聆听..." : isProcessing ? "识别中..." : isReady ? "点击开始录音"
             : stage === "downloading" ? (downloadProgress > 1 ? `模型下载中 ${Math.round(downloadProgress ?? 0)}%` : downloadMessage ?? "模型下载准备中...")
-            : stage === "need_download" ? "需要下载模型" : stage === "loading" ? "模型加载中..." : "准备中..."}
+            : stage === "need_download" ? "需要下载模型" : stage === "loading" ? (downloadMessage || "模型加载中...") : "准备中..."}
         </p>
 
         {stage === "need_download" && !isDownloading && (
@@ -206,6 +206,34 @@ export default function MainPage({ onNavigate, onExitWindow }: {
               <Loader2 size={14} className="animate-spin" style={{ color: "var(--color-text-tertiary)" }} />
               <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>正在识别语音...</span>
             </div>
+          </div>
+        )}
+        {/* History (skip the first item if it matches current result) */}
+        {history.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {history
+              .filter((item, idx) => !(idx === 0 && transcriptionResult && item.text === transcriptionResult))
+              .map((item) => (
+                <div key={item.id} style={{
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  background: "var(--color-bg-elevated)",
+                  border: "1px solid var(--color-border-subtle)",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.5, margin: 0, wordBreak: "break-all" }}>{item.text}</p>
+                    <span style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 2, display: "block" }}>
+                      {new Date(item.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <button aria-label="复制" className="icon-btn" style={{ padding: 4, flexShrink: 0 }} onClick={() => handleCopy(item.text, item.id)}>
+                    {copiedId === item.id ? <Check size={11} /> : <Copy size={11} strokeWidth={1.5} />}
+                  </button>
+                </div>
+              ))}
           </div>
         )}
       </div>

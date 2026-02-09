@@ -390,6 +390,15 @@ pub async fn start_server(
     let _starting_guard = StartingFlagGuard(state.funasr_starting.clone());
     state.set_funasr_ready(false);
 
+    // 通知前端：正在启动 Python 服务
+    let _ = app_handle.emit(
+        "funasr-status",
+        serde_json::json!({
+            "status": "loading",
+            "message": "正在查找 Python 环境..."
+        }),
+    );
+
     // 查找 Python 解释器
     let python_path = find_python().await?;
     log::info!("使用 Python: {}", python_path);
@@ -442,6 +451,15 @@ pub async fn start_server(
         .map_err(|e| AppError::FunASR(format!("启动 FunASR 进程失败: {}", e)))?;
 
     log::info!("FunASR 子进程已启动，等待初始化...");
+
+    // 通知前端：正在加载语音识别模型
+    let _ = app_handle.emit(
+        "funasr-status",
+        serde_json::json!({
+            "status": "loading",
+            "message": "正在加载语音识别模型..."
+        }),
+    );
 
     // 取出 stdin/stdout 句柄（后续由 FunasrProcess 持有）
     let stdin = match child.stdin.take() {
@@ -547,6 +565,7 @@ pub async fn start_server(
 pub async fn transcribe(
     state: &AppState,
     audio_data: Vec<u8>,
+    app_handle: &tauri::AppHandle,
 ) -> Result<TranscriptionResult, AppError> {
     // 检查服务器是否就绪
     if !state.is_funasr_ready() {
@@ -580,7 +599,7 @@ pub async fn transcribe(
     };
 
     // 发送命令并获取响应（无论成功与否都清理临时文件）
-    let response = send_command_to_server(state, &command).await;
+    let response = send_command_to_server(state, &command, Some(app_handle)).await;
     let _ = tokio::fs::remove_file(&temp_file).await;
     let response = response?;
 
@@ -625,6 +644,7 @@ pub async fn transcribe(
 async fn send_command_to_server(
     state: &AppState,
     command: &ServerCommand,
+    app_handle: Option<&tauri::AppHandle>,
 ) -> Result<ServerResponse, AppError> {
     let mut guard = state.funasr_process.lock().await;
 
@@ -641,6 +661,16 @@ async fn send_command_to_server(
                 log::warn!("FunASR 进程已退出，状态码: {}", status);
                 state.set_funasr_ready(false);
                 *guard = None;
+                // 主动通知前端进程已崩溃
+                if let Some(handle) = app_handle {
+                    let _ = handle.emit(
+                        "funasr-status",
+                        serde_json::json!({
+                            "status": "crashed",
+                            "message": format!("FunASR 进程异常退出（状态码: {}），正在准备重启...", status)
+                        }),
+                    );
+                }
             }
         }
     }
@@ -687,7 +717,7 @@ async fn send_command_impl(
 /// 检查 FunASR 服务器的状态
 ///
 /// 发送 status 命令给 Python 服务器，获取当前的运行状态。
-pub async fn check_status(state: &AppState) -> Result<FunASRStatus, AppError> {
+pub async fn check_status(state: &AppState, app_handle: &tauri::AppHandle) -> Result<FunASRStatus, AppError> {
     // 先检查进程是否存在
     let has_process = {
         let guard = state.funasr_process.lock().await;
@@ -723,7 +753,7 @@ pub async fn check_status(state: &AppState) -> Result<FunASRStatus, AppError> {
     }
 
     // 发送状态查询命令
-    match send_command_to_server(state, &ServerCommand::Status).await {
+    match send_command_to_server(state, &ServerCommand::Status, Some(app_handle)).await {
         Ok(response) => {
             let model_loaded = response.is_model_loaded();
 
@@ -779,7 +809,7 @@ pub async fn check_status(state: &AppState) -> Result<FunASRStatus, AppError> {
 /// 这在需要获取所有权时很有用。
 pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
     // 先尝试发送退出命令
-    let _ = send_command_to_server(state, &ServerCommand::Exit).await;
+    let _ = send_command_to_server(state, &ServerCommand::Exit, None).await;
 
     // 取出子进程句柄
     let mut child = {

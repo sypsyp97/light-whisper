@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback } from "react";
+import { toast } from "sonner";
 import { transcribeAudio } from "@/api/funasr";
 import { pasteText } from "@/api/clipboard";
 import { convertToWav, arrayBufferToBase64 } from "@/lib/audio";
 import { INPUT_METHOD_KEY } from "@/lib/constants";
-import type { TranscriptionResult } from "@/types";
+import type { TranscriptionResult, HistoryItem } from "@/types";
 
 interface UseRecordingReturn {
   isRecording: boolean;
@@ -14,6 +15,8 @@ interface UseRecordingReturn {
   error: string | null;
   /** The raw transcription text from FunASR (null until a transcription completes). */
   transcriptionResult: string | null;
+  /** Recent transcription history (newest first, max 20 items). */
+  history: HistoryItem[];
 }
 
 /**
@@ -24,6 +27,7 @@ export function useRecording(): UseRecordingReturn {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transcriptionResult, setTranscriptionResult] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -47,7 +51,6 @@ export function useRecording(): UseRecordingReturn {
   const startRecording = useCallback(async () => {
     try {
       setError(null);
-      setTranscriptionResult(null);
       cancelledRef.current = false;
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -155,6 +158,15 @@ export function useRecording(): UseRecordingReturn {
           setTranscriptionResult(result.text);
           setIsProcessing(false);
 
+          // Add to history
+          if (result.text) {
+            setHistory(prev => [{
+              id: Date.now().toString(),
+              text: result.text,
+              timestamp: Date.now(),
+            }, ...prev].slice(0, 20));
+          }
+
           // Auto-paste: write to clipboard and simulate Ctrl+V
           if (result.text) {
             try {
@@ -164,7 +176,7 @@ export function useRecording(): UseRecordingReturn {
               } catch { /* localStorage 不可用 */ }
               await pasteText(result.text, inputMethod ?? "sendInput");
             } catch (pasteErr) {
-              console.warn("Auto-paste failed:", pasteErr);
+              toast.error("文字输入失败，结果已保留，请手动复制");
             }
           }
 
@@ -219,5 +231,6 @@ export function useRecording(): UseRecordingReturn {
     cancelRecording,
     error,
     transcriptionResult,
+    history,
   };
 }
