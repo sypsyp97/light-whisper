@@ -2,12 +2,13 @@
 
 # Light-Whisper 轻语
 
-**本地离线中文语音转文字桌面应用**
+**本地离线语音转文字桌面应用**
 
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-blue?style=flat-square&logo=tauri)](https://tauri.app/)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![FunASR](https://img.shields.io/badge/FunASR-SenseVoice-green?style=flat-square)](https://github.com/modelscope/FunASR)
+[![Whisper](https://img.shields.io/badge/Faster--Whisper-turbo-orange?style=flat-square)](https://github.com/SYSTRAN/faster-whisper)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
 
 <img src="assets/icon.png" alt="Light-Whisper Logo" width="120" />
@@ -24,11 +25,27 @@
 ## 功能特点
 
 - **F2 一键转写** — 按住录音，松开自动转写，结果直接输入到当前活动窗口
-- **完全离线** — 基于阿里 FunASR [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) 模型，数据不出本机
+- **双引擎可选** — 在设置页一键切换，各有所长（详见下方对比）
+  - **SenseVoice** — 中文准确率高，内置标点恢复，推理极快
+  - **Faster Whisper** — 支持 99+ 种语言
+- **完全离线** — 所有模型本地运行，数据不出本机
 - **GPU 加速** — 自动检测 NVIDIA GPU 并启用 CUDA 加速，无 GPU 则回退 CPU
-- **双输入模式** — 支持 SendInput 直接输入（不占用剪贴板）和剪贴板粘贴（兼容中文输入法）两种模式
+- **双输入模式** — 支持 SendInput 直接输入（不占用剪贴板）和剪贴板粘贴（兼容中文输入法）
 - **悬浮窗设计** — 无边框透明窗口，始终置顶，最小化到系统托盘
 - **开机自启动** — 可在设置中开启，开机后自动运行
+
+### 引擎对比
+
+| | SenseVoice（默认） | Faster Whisper |
+|---|:---:|:---:|
+| **中文** | CER 2.96%（AISHELL-1） | CER 5.14% |
+| **英文** | WER 3.15%（LibriSpeech） | WER 1.82% |
+| **语言数** | 中/英/日/韩/粤（5种） | 99+ 种 |
+| **标点** | 内置 ITN 标点恢复 | 内置（initial_prompt 引导） |
+| **模型大小** | ~938 MB（ASR + VAD） | ~1.5 GB |
+| **推理速度** | 10s 音频仅需 70ms | 较快（CTranslate2 加速） |
+
+> 数据来源：[FunAudioLLM 论文](https://arxiv.org/html/2407.04051v1) Table 6
 
 ---
 
@@ -44,7 +61,7 @@
 | [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python 包管理（自动安装 Python 3.11） |
 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) | 2019+ | Rust/C++ 编译依赖 |
 
-**磁盘空间**：至少预留 **8 GB**（Python 依赖约 5 GB + ASR 模型约 1 GB）。
+**磁盘空间**：至少预留 **10 GB**（Python 依赖约 5 GB + 模型约 1-2 GB）。
 
 **GPU 加速（可选）**：如果你有 NVIDIA 显卡，不需要单独安装 CUDA Toolkit — PyTorch 已自带 CUDA 12.4 运行时。只需确保安装了最新的 [NVIDIA 显卡驱动](https://www.nvidia.cn/drivers/lookup/)。
 
@@ -164,24 +181,32 @@ uv sync
 这一步会：
 - 自动下载并安装 Python 3.11（如果系统上没有）
 - 在项目根目录自动创建 `.venv` 虚拟环境
-- 安装 PyTorch（含 CUDA 12.4）、FunASR、transformers 等依赖
+- 安装 PyTorch（含 CUDA 12.4）、FunASR、faster-whisper 等依赖
 - **耗时较长**（约 5-15 分钟，取决于网速），因为 PyTorch 包体较大
 
 > **网络问题？** 如果 PyTorch 下载缓慢，详见下方 [常见问题](#常见问题)。
 
-### 第 4 步：下载 ASR 模型
+### 第 4 步：下载 ASR 模型（强烈建议）
 
-首次运行应用时会**自动下载**模型（约 1 GB），但推荐提前手动下载，避免启动时等待：
+> **重要**：强烈建议在首次运行前手动下载模型。应用内自动下载可能因网络问题导致启动失败或超时。
 
 ```bash
+# SenseVoice 引擎（默认，约 938 MB）
 uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/SenseVoiceSmall'); snapshot_download('funasr/fsmn-vad')"
+
+# Faster Whisper 引擎（约 1.5 GB）
+uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('deepdml/faster-whisper-large-v3-turbo-ct2')"
 ```
 
 模型会缓存到 `~/.cache/huggingface/hub/`，下载一次后续启动不再重复下载。
 
 > **模型说明**：
-> - [**SenseVoiceSmall**](https://huggingface.co/FunAudioLLM/SenseVoiceSmall)（~936 MB）— ASR 语音识别主模型，支持中/英/日/韩/粤语，内置标点恢复（ITN）
-> - [**fsmn-vad**](https://huggingface.co/funasr/fsmn-vad)（~1.7 MB）— 语音活动检测（VAD），负责切分有效语音片段，跳过静音
+>
+> | 引擎 | 模型 | 大小 | 说明 |
+> |------|------|------|------|
+> | SenseVoice | [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) | ~936 MB | 语音识别主模型，中/英/日/韩/粤，内置标点（ITN） |
+> | SenseVoice | [fsmn-vad](https://huggingface.co/funasr/fsmn-vad) | ~1.7 MB | 语音活动检测（VAD） |
+> | Faster Whisper | [faster-whisper-large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2) | ~1.5 GB | CTranslate2 格式，99+ 语言，内置 Silero VAD |
 
 > **国内下载慢？** 可以设置 HuggingFace 镜像：
 > ```powershell
@@ -218,6 +243,7 @@ pnpm tauri build
 
 | 选项 | 说明 |
 |------|------|
+| **识别引擎** | SenseVoice（中文优先）或 Faster Whisper（多语言），切换后自动重新加载 |
 | **主题** | 浅色 / 深色 / 跟随系统 |
 | **输入方式** | 直接输入（SendInput，不占用剪贴板）或 剪贴板粘贴（兼容中文输入法） |
 | **开机自启动** | 开启后系统启动时自动运行 |
@@ -270,14 +296,16 @@ light-whisper/
 │   │   │   ├── hotkey.rs       #     快捷键注册
 │   │   │   └── window.rs       #     窗口控制
 │   │   ├── services/
-│   │   │   └── funasr_service.rs  # Python 子进程管理、JSON IPC
+│   │   │   ├── funasr_service.rs  # Python 子进程管理、JSON IPC
+│   │   │   └── download_service.rs # 模型下载进程管理
 │   │   ├── state/
 │   │   │   └── app_state.rs    #   全局应用状态
 │   │   └── utils/
 │   │       ├── error.rs        #   错误类型定义
 │   │       └── paths.rs        #   路径工具
 │   ├── resources/              # 嵌入到应用中的 Python 脚本
-│   │   ├── funasr_server.py    #   FunASR 推理服务（stdin/stdout IPC）
+│   │   ├── funasr_server.py    #   SenseVoice 推理服务（stdin/stdout IPC）
+│   │   ├── whisper_server.py   #   Faster Whisper 推理服务（同协议）
 │   │   ├── download_models.py  #   模型下载脚本
 │   │   └── hf_cache_utils.py   #   HuggingFace 缓存检测工具
 │   ├── Cargo.toml
@@ -292,10 +320,10 @@ light-whisper/
 ### 架构通信流程
 
 ```
-┌──────────────┐     Tauri IPC      ┌──────────────┐   stdin/stdout   ┌──────────────┐
-│  React 前端  │ ◄──── invoke() ───►│  Rust 后端   │ ◄──── JSON ────► │  Python 服务  │
-│  (TypeScript) │ ◄──── emit() ─────│  (Tauri 2)   │                  │  (FunASR)    │
-└──────────────┘                    └──────────────┘                  └──────────────┘
+┌──────────────┐     Tauri IPC      ┌──────────────┐   stdin/stdout   ┌───────────────────┐
+│  React 前端  │ ◄──── invoke() ───►│  Rust 后端   │ ◄──── JSON ────► │  Python ASR 服务  │
+│  (TypeScript) │ ◄──── emit() ─────│  (Tauri 2)   │                  │ SenseVoice/Whisper │
+└──────────────┘                    └──────────────┘                  └───────────────────┘
 ```
 
 1. **前端 → Rust**：通过 `invoke()` 调用 Tauri 命令
@@ -383,7 +411,8 @@ F2 是全局快捷键，如果被其他程序占用（如某些游戏或工具�
 <details>
 <summary><b>应用日志在哪？</b></summary>
 
-- **Python 服务日志**：`%APPDATA%\light-whisper\logs\funasr_server.log`
+- **SenseVoice 日志**：`%APPDATA%\light-whisper\logs\funasr_server.log`
+- **Whisper 日志**：`%APPDATA%\light-whisper\logs\whisper_server.log`
 - **Rust/Tauri 日志**：开发模式下输出到控制台
 
 </details>
@@ -409,6 +438,8 @@ cd src-tauri && cargo fmt     # Rust 代码格式化
 
 - [FunASR](https://github.com/modelscope/FunASR) — 阿里达摩院开源语音识别
 - [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) — 多语言语音识别模型（中/英/日/韩/粤）
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2 加速的 Whisper 推理引擎
+- [faster-whisper-large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2) — CTranslate2 格式 Whisper 模型（99+ 语言）
 - [Tauri](https://tauri.app/) — 现代化桌面应用框架
 - [React](https://react.dev/) — 用户界面库
 
