@@ -187,6 +187,8 @@ pub fn run() {
             commands::funasr::cancel_model_download,
             commands::funasr::restart_funasr,
             commands::funasr::stop_funasr,
+            commands::funasr::get_engine,
+            commands::funasr::set_engine,
             // 剪贴板命令
             commands::clipboard::copy_to_clipboard,
             commands::clipboard::paste_text,

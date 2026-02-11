@@ -115,6 +115,7 @@ pub struct ModelCheckResult {
 
 const ASR_REPO_ID: &str = "FunAudioLLM/SenseVoiceSmall";
 const VAD_REPO_ID: &str = "funasr/fsmn-vad";
+const WHISPER_REPO_ID: &str = "deepdml/faster-whisper-large-v3-turbo-ct2";
 
 /// Python 服务器的 JSON 响应
 ///
@@ -403,10 +404,15 @@ pub async fn start_server(
     let python_path = find_python().await?;
     log::info!("使用 Python: {}", python_path);
 
-    // 获取 FunASR 服务器脚本路径，并清理 Windows \\?\ 前缀
-    let server_script = paths::get_funasr_server_path(app_handle);
+    // 根据引擎配置选择对应的 Python 脚本
+    let engine = paths::read_engine_config();
+    let server_script = if engine == "whisper" {
+        paths::get_whisper_server_path(app_handle)
+    } else {
+        paths::get_funasr_server_path(app_handle)
+    };
     let server_script_str = paths::strip_win_prefix(&server_script);
-    log::info!("FunASR 脚本路径: {}", server_script_str);
+    log::info!("语音识别脚本路径 (engine={}): {}", engine, server_script_str);
 
     if !server_script.exists() {
         return Err(AppError::FunASR(format!(
@@ -928,44 +934,66 @@ fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool 
 /// - `FunAudioLLM/SenseVoiceSmall` + `funasr/fsmn-vad`
 /// 注：SenseVoiceSmall 内置 ITN 标点恢复，不再需要独立的 ct-punc 模型
 pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
-    // 定义需要检查的模型 (HuggingFace repo ID, 描述, 类型)
-    let models: Vec<(&str, &str, &str)> = vec![
-        (ASR_REPO_ID, "ASR语音识别模型", "asr"),
-        (VAD_REPO_ID, "VAD语音活动检测模型", "vad"),
-    ];
-
-    let mut missing_models = Vec::new();
-    let mut asr_present = false;
-    let mut vad_present = false;
-
+    let engine = paths::read_engine_config();
     let cache_root = get_hf_cache_root();
 
-    for (repo_id, description, kind) in models.iter() {
-        if is_hf_repo_ready(repo_id) {
-            log::info!("模型文件已就位: {} ({})", description, repo_id);
-            match *kind {
-                "asr" => asr_present = true,
-                "vad" => vad_present = true,
-                _ => {}
-            };
+    if engine == "whisper" {
+        // Whisper 引擎：只需检查一个模型仓库，内置 VAD 和标点
+        let asr_present = is_hf_repo_ready(WHISPER_REPO_ID);
+        let mut missing_models = Vec::new();
+        if !asr_present {
+            log::warn!("模型文件缺失: Whisper ASR模型 ({})", WHISPER_REPO_ID);
+            missing_models.push("Whisper ASR模型".to_string());
         } else {
-            log::warn!("模型文件缺失: {} ({})", description, repo_id);
-            missing_models.push(description.to_string());
+            log::info!("模型文件已就位: Whisper ASR模型 ({})", WHISPER_REPO_ID);
         }
+
+        Ok(ModelCheckResult {
+            all_present: asr_present,
+            asr_model: asr_present,
+            vad_model: true,  // Whisper 内置 Silero VAD
+            punc_model: true, // Whisper 内置标点
+            engine: "whisper".to_string(),
+            cache_path: cache_root.to_string_lossy().to_string(),
+            missing_models,
+        })
+    } else {
+        // SenseVoice 引擎：检查 ASR + VAD 模型
+        let models: Vec<(&str, &str, &str)> = vec![
+            (ASR_REPO_ID, "ASR语音识别模型", "asr"),
+            (VAD_REPO_ID, "VAD语音活动检测模型", "vad"),
+        ];
+
+        let mut missing_models = Vec::new();
+        let mut asr_present = false;
+        let mut vad_present = false;
+
+        for (repo_id, description, kind) in models.iter() {
+            if is_hf_repo_ready(repo_id) {
+                log::info!("模型文件已就位: {} ({})", description, repo_id);
+                match *kind {
+                    "asr" => asr_present = true,
+                    "vad" => vad_present = true,
+                    _ => {}
+                };
+            } else {
+                log::warn!("模型文件缺失: {} ({})", description, repo_id);
+                missing_models.push(description.to_string());
+            }
+        }
+
+        let all_present = asr_present && vad_present;
+
+        Ok(ModelCheckResult {
+            all_present,
+            asr_model: asr_present,
+            vad_model: vad_present,
+            punc_model: true, // SenseVoiceSmall 内置 ITN，无需独立标点模型
+            engine: "sensevoice".to_string(),
+            cache_path: cache_root.to_string_lossy().to_string(),
+            missing_models,
+        })
     }
-
-    // SenseVoiceSmall 内置标点恢复，punc 始终视为就绪
-    let all_present = asr_present && vad_present;
-
-    Ok(ModelCheckResult {
-        all_present,
-        asr_model: asr_present,
-        vad_model: vad_present,
-        punc_model: true, // SenseVoiceSmall 内置 ITN，无需独立标点模型
-        engine: "sensevoice".to_string(),
-        cache_path: cache_root.to_string_lossy().to_string(),
-        missing_models,
-    })
 }
 
 // 需要引入 Emitter trait 才能使用 emit 方法

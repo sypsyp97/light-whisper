@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { enableAutostart, disableAutostart, isAutostartEnabled } from "@/api/autostart";
+import { getEngine, setEngine } from "@/api/funasr";
+import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY } from "@/lib/constants";
 
@@ -14,6 +16,9 @@ const themeOptions = [
 
 export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const { isDark, theme, setTheme } = useTheme();
+  const { retryModel } = useRecordingContext();
+  const [engine, setEngineState] = useState<string>("sensevoice");
+  const [engineLoading, setEngineLoading] = useState(true);
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);
   const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
@@ -23,6 +28,28 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       return "sendInput";
     }
   });
+
+  useEffect(() => {
+    getEngine().then(e => {
+      setEngineState(e);
+      setEngineLoading(false);
+    }).catch(() => setEngineLoading(false));
+  }, []);
+
+  const handleEngineSwitch = async (newEngine: string) => {
+    if (engineLoading || newEngine === engine) return;
+    setEngineLoading(true);
+    try {
+      await setEngine(newEngine);
+      setEngineState(newEngine);
+      toast.success(`已切换为 ${newEngine === "whisper" ? "Faster Whisper" : "SenseVoice"} 引擎`);
+      retryModel();
+    } catch {
+      toast.error("切换引擎失败");
+    } finally {
+      setEngineLoading(false);
+    }
+  };
 
   useEffect(() => {
     isAutostartEnabled().then(enabled => {
@@ -99,8 +126,44 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
             </div>
           </section>
 
-          {/* Input Method */}
+          {/* Engine */}
           <section className="settings-card" style={{ animationDelay: "50ms" }}>
+            <div className="settings-section-header">
+              <AudioLines size={15} style={{ color: "var(--color-accent)" }} />
+              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>识别引擎</h2>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+              {([
+                { key: "sensevoice", icon: AudioLines, label: "SenseVoice", desc: "中英日韩粤，含标点" },
+                { key: "whisper", icon: Zap, label: "Faster Whisper", desc: "99+语言，速度快" },
+              ] as const).map(({ key, icon: Icon, label, desc }) => (
+                <button
+                  key={key}
+                  className="theme-btn"
+                  aria-label={label}
+                  aria-pressed={engine === key}
+                  disabled={engineLoading}
+                  onClick={() => handleEngineSwitch(key)}
+                  style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                    padding: "10px 10px", borderRadius: 6,
+                    border: `1px solid ${engine === key ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
+                    background: engine === key ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
+                    color: engine === key ? "var(--color-accent)" : "var(--color-text-tertiary)",
+                    cursor: engineLoading ? "wait" : "pointer",
+                    opacity: engineLoading ? 0.6 : 1,
+                  }}
+                >
+                  <Icon size={20} strokeWidth={1.5} />
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{label}</span>
+                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{desc}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Input Method */}
+          <section className="settings-card" style={{ animationDelay: "100ms" }}>
             <div className="settings-section-header">
               <Keyboard size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>输入</h2>
@@ -137,7 +200,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           </section>
 
           {/* Permissions */}
-          <section className="settings-card" style={{ animationDelay: "100ms" }}>
+          <section className="settings-card" style={{ animationDelay: "150ms" }}>
             <div className="settings-section-header">
               <Accessibility size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>权限</h2>
@@ -173,7 +236,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           </section>
 
           {/* Startup */}
-          <section className="settings-card" style={{ animationDelay: "150ms" }}>
+          <section className="settings-card" style={{ animationDelay: "200ms" }}>
             <div className="settings-section-header">
               <Power size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>启动</h2>

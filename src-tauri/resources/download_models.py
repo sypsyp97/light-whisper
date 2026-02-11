@@ -11,13 +11,28 @@ import threading
 import os
 
 # 防止 snapshot_download 在 Windows 上无限期挂起
-os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
-os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
+os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "60")
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "600")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 from huggingface_hub import snapshot_download
 from tqdm import tqdm
-from hf_cache_utils import is_hf_repo_ready, ASR_REPO_ID, VAD_REPO_ID
+from hf_cache_utils import is_hf_repo_ready, get_hf_cache_root, ASR_REPO_ID, VAD_REPO_ID, WHISPER_REPO_ID
+import glob
+
+
+def _cleanup_incomplete_blobs(repo_id):
+    """清理 HF 缓存中残留的 .incomplete 文件，防止续传卡死"""
+    cache_root = get_hf_cache_root()
+    dir_name = "models--" + repo_id.replace("/", "--")
+    blobs_dir = os.path.join(cache_root, dir_name, "blobs")
+    if not os.path.isdir(blobs_dir):
+        return
+    for f in glob.glob(os.path.join(blobs_dir, "*.incomplete")):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +119,9 @@ def download_model(model_config):
     revision = model_config.get("revision")
     fallback_name = model_config.get("fallback_name")
     fallback_revision = model_config.get("fallback_revision", revision)
+
+    # 清理可能残留的 .incomplete 文件（断点续传在 Windows 上容易卡死）
+    _cleanup_incomplete_blobs(model_name)
 
     # 已缓存的模型直接跳过，不调用 snapshot_download（避免 Windows 上缓慢的完整性校验）
     if is_hf_repo_ready(model_name):
@@ -200,11 +218,21 @@ def download_model(model_config):
 def main():
     global _total_count
 
-    # 模型配置（HuggingFace repo ID）
-    models = [
-        {"name": ASR_REPO_ID, "type": "asr"},
-        {"name": VAD_REPO_ID, "type": "vad"},
-    ]
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--engine", default="sensevoice", choices=["sensevoice", "whisper"])
+    args = parser.parse_args()
+
+    # 根据引擎选择要下载的模型
+    if args.engine == "whisper":
+        models = [
+            {"name": WHISPER_REPO_ID, "type": "asr"},
+        ]
+    else:
+        models = [
+            {"name": ASR_REPO_ID, "type": "asr"},
+            {"name": VAD_REPO_ID, "type": "vad"},
+        ]
 
     _total_count = len(models)
     for m in models:

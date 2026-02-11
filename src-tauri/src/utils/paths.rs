@@ -61,6 +61,11 @@ pub fn get_funasr_server_path(app: &tauri::AppHandle) -> PathBuf {
     get_resource_script_path(app, "funasr_server.py")
 }
 
+/// 获取 Whisper 服务器 Python 脚本的路径
+pub fn get_whisper_server_path(app: &tauri::AppHandle) -> PathBuf {
+    get_resource_script_path(app, "whisper_server.py")
+}
+
 /// 获取模型下载脚本的路径
 pub fn get_download_script_path(app: &tauri::AppHandle) -> PathBuf {
     get_resource_script_path(app, "download_models.py")
@@ -78,6 +83,34 @@ pub fn strip_win_prefix(path: &std::path::Path) -> String {
     } else {
         s
     }
+}
+
+/// 获取引擎配置文件路径（{app_data_dir}/engine.json）
+pub fn get_engine_config_path() -> PathBuf {
+    get_data_dir().join("engine.json")
+}
+
+/// 读取当前引擎配置，默认返回 "sensevoice"
+pub fn read_engine_config() -> String {
+    let config_path = get_engine_config_path();
+    if let Ok(content) = std::fs::read_to_string(&config_path) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(engine) = value.get("engine").and_then(|v| v.as_str()) {
+                let engine = engine.to_string();
+                if engine == "whisper" || engine == "sensevoice" {
+                    return engine;
+                }
+            }
+        }
+    }
+    "sensevoice".to_string()
+}
+
+/// 写入引擎配置
+pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
+    let config_path = get_engine_config_path();
+    let content = serde_json::json!({ "engine": engine });
+    std::fs::write(&config_path, serde_json::to_string_pretty(&content).unwrap())
 }
 
 // 需要导入 tauri::Manager trait 才能使用 app.path() 方法

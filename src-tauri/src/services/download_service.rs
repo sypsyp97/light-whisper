@@ -72,9 +72,12 @@ pub async fn run_download(
 
     // 启动下载脚本（逐行读取 stdout 以转发进度）
     // 模型从 HuggingFace 下载，使用 HF 默认缓存目录
+    let engine = paths::read_engine_config();
     let mut child = match Command::new(&python_path)
         .arg("-u")
         .arg(&download_script_str)
+        .arg("--engine")
+        .arg(if engine == "whisper" { "whisper" } else { "sensevoice" })
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .env("LIGHT_WHISPER_DATA_DIR", &data_dir)

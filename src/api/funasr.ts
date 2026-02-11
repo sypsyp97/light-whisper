@@ -61,3 +61,18 @@ export async function cancelModelDownload(): Promise<string> {
 export async function restartFunASR(): Promise<string> {
   return invoke<string>("restart_funasr");
 }
+
+/**
+ * Get the current speech recognition engine ("sensevoice" or "whisper").
+ */
+export async function getEngine(): Promise<string> {
+  return invoke<string>("get_engine");
+}
+
+/**
+ * Set the speech recognition engine and stop the current service.
+ * After calling this, use retryModel() to restart with the new engine.
+ */
+export async function setEngine(engine: string): Promise<string> {
+  return invoke<string>("set_engine", { engine });
+}

@@ -13,7 +13,7 @@
 
 use crate::services::funasr_service;
 use crate::state::AppState;
-use crate::utils::AppError;
+use crate::utils::{paths, AppError};
 
 /// 启动 FunASR 服务器
 ///
@@ -157,4 +157,38 @@ pub async fn stop_funasr(
 ) -> Result<String, AppError> {
     funasr_service::stop_server(state.inner()).await?;
     Ok("FunASR 服务器已停止".to_string())
+}
+
+/// 获取当前引擎配置
+#[tauri::command]
+pub async fn get_engine() -> Result<String, AppError> {
+    Ok(paths::read_engine_config())
+}
+
+/// 设置引擎并停止当前服务
+///
+/// 写入新引擎配置到 engine.json，然后停止当前运行的服务。
+/// 前端应在调用此命令后通过 retryModel() 重新启动新引擎。
+#[tauri::command]
+pub async fn set_engine(
+    state: tauri::State<'_, AppState>,
+    engine: String,
+) -> Result<String, AppError> {
+    // 验证引擎类型
+    if engine != "sensevoice" && engine != "whisper" {
+        return Err(AppError::FunASR(format!(
+            "不支持的引擎类型: {}，可选值: sensevoice, whisper",
+            engine
+        )));
+    }
+
+    // 写入配置
+    paths::write_engine_config(&engine)
+        .map_err(|e| AppError::FunASR(format!("写入引擎配置失败: {}", e)))?;
+
+    // 停止当前服务
+    funasr_service::stop_server(state.inner()).await?;
+
+    log::info!("引擎已切换为: {}", engine);
+    Ok(engine)
 }
