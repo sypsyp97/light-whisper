@@ -1,12 +1,9 @@
-//! 跨平台路径工具模块
+//! 路径工具模块
 //!
-//! 这个模块负责管理应用的各种文件路径，比如日志文件、模型缓存等。
-//! 所有路径都基于操作系统的标准目录，确保跨平台兼容。
+//! 管理应用的各种文件路径，比如日志文件、模型缓存等。
 //!
 //! # 路径说明
-//! - Windows: `C:\Users\用户名\AppData\Roaming\com.light-whisper.app\`
-//! - macOS: `~/Library/Application Support/com.light-whisper.app/`
-//! - Linux: `~/.local/share/com.light-whisper.app/`
+//! - `C:\Users\用户名\AppData\Roaming\com.light-whisper.app\`
 
 use std::path::PathBuf;
 
@@ -78,11 +75,7 @@ pub fn get_download_script_path(app: &tauri::AppHandle) -> PathBuf {
 /// 大多数程序（包括 Python）可能无法正确处理这个前缀，所以需要去掉它。
 pub fn strip_win_prefix(path: &std::path::Path) -> String {
     let s = path.to_string_lossy().to_string();
-    if cfg!(target_os = "windows") {
-        s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
-    } else {
-        s
-    }
+    s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
 }
 
 /// 获取引擎配置文件路径（{app_data_dir}/engine.json）

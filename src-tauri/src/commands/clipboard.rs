@@ -46,9 +46,7 @@ pub async fn copy_to_clipboard(
 ///   - `"clipboard"`：先写入剪贴板，再模拟 Ctrl+V 粘贴
 ///
 /// # 平台实现
-/// - Windows：使用 Win32 SendInput API 发送 Unicode 字符或模拟 Ctrl+V
-/// - macOS：使用 osascript keystroke 模拟按键输入
-/// - Linux：使用 xdotool type 模拟键盘输入
+/// 使用 Win32 SendInput API 发送 Unicode 字符或模拟 Ctrl+V
 ///
 /// # 注意事项
 /// 模拟输入可能被某些安全软件拦截。
@@ -130,29 +128,6 @@ pub async fn paste_text(
                 send_inputs(&inputs)?;
             }
         }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        // macOS：使用 AppleScript keystroke 直接输入文本（不经过剪贴板）
-        let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-        let script = format!(
-            "tell application \"System Events\" to keystroke \"{}\"",
-            escaped
-        );
-        let _ = tokio::process::Command::new("osascript")
-            .args(["-e", &script])
-            .output()
-            .await;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        // Linux：使用 xdotool type 直接输入文本（不经过剪贴板）
-        let _ = tokio::process::Command::new("xdotool")
-            .args(["type", "--clearmodifiers", "--delay", "0", &text])
-            .output()
-            .await;
     }
 
     log::info!("已输入 {} 个字符", text.len());

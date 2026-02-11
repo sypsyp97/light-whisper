@@ -274,11 +274,7 @@ pub async fn find_python() -> Result<String, AppError> {
     };
 
     for venv_dir in &venv_candidates {
-        let venv_python = if cfg!(target_os = "windows") {
-            venv_dir.join("Scripts").join("python.exe")
-        } else {
-            venv_dir.join("bin").join("python")
-        };
+        let venv_python = venv_dir.join("Scripts").join("python.exe");
 
         if tokio::fs::try_exists(&venv_python).await.unwrap_or(false) {
             // 规范化路径（消除 .. 等）
@@ -295,18 +291,10 @@ pub async fn find_python() -> Result<String, AppError> {
 
     // ---- 策略2：在系统 PATH 中搜索 ----
     // 尝试多个可能的 Python 命令名
-    let python_names = if cfg!(target_os = "windows") {
-        vec!["python.exe", "python3.exe", "python"]
-    } else {
-        vec!["python3", "python"]
-    };
+    let python_names = vec!["python.exe", "python3.exe", "python"];
 
     for name in &python_names {
-        let check_cmd = if cfg!(target_os = "windows") {
-            Command::new("where").arg(name).output().await
-        } else {
-            Command::new("which").arg(name).output().await
-        };
+        let check_cmd = Command::new("where").arg(name).output().await;
 
         if let Ok(output) = check_cmd {
             if output.status.success() {

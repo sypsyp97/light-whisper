@@ -34,10 +34,6 @@
     "active": true,
     "targets": ["nsis"],
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
       "icons/icon.ico"
     ],
     "resources": [
@@ -45,10 +41,6 @@
       "resources/whisper_server.py",
       "resources/download_models.py",
       "resources/hf_cache_utils.py"
-    ],
-    "windows": {
-      "wix": null,
-      "nsis": null
-    }
+    ]
   }
 }

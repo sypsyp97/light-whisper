@@ -22,9 +22,6 @@ def get_hf_cache_root():
     hf_home = os.environ.get("HF_HOME")
     if hf_home:
         return os.path.join(hf_home, "hub")
-    xdg_cache = os.environ.get("XDG_CACHE_HOME")
-    if xdg_cache:
-        return os.path.join(xdg_cache, "huggingface", "hub")
     return os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
 
 

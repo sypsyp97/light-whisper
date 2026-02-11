@@ -88,7 +88,6 @@ def suppress_stdout():
 
 
 
-
 from hf_cache_utils import get_hf_cache_root, is_hf_repo_ready, MODEL_REPOS
 
 VAD_MAX_SEGMENT_MS = 30000
@@ -133,8 +132,6 @@ class FunASRServer:
     def _setup_runtime_environment(self):
         """设置运行时环境变量以优化性能"""
         try:
-            import os
-
             # 强制 HuggingFace Hub 离线模式：模型已由 download_models.py 预下载，
             # 避免 AutoModel 内部再次调用 snapshot_download 导致 Windows 上卡住
             os.environ["HF_HUB_OFFLINE"] = "1"

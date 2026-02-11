@@ -4,8 +4,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 interface UseWindowDragReturn {
   /** Attach this to onMouseDown on your drag region element. */
   startDrag: (e: React.MouseEvent) => void;
-  /** Alias for startDrag */
-  onDragStart: (e: React.MouseEvent) => void;
 }
 
 /**
@@ -13,8 +11,8 @@ interface UseWindowDragReturn {
  *
  * Usage:
  * ```tsx
- * const { onDragStart } = useWindowDrag();
- * <div onMouseDown={onDragStart} data-tauri-drag-region>Title Bar</div>
+ * const { startDrag } = useWindowDrag();
+ * <div onMouseDown={startDrag} data-tauri-drag-region>Title Bar</div>
  * ```
  */
 export function useWindowDrag(): UseWindowDragReturn {
@@ -39,5 +37,5 @@ export function useWindowDrag(): UseWindowDragReturn {
     getCurrentWindow().startDragging();
   }, []);
 
-  return { startDrag: onDragStart, onDragStart };
+  return { startDrag: onDragStart };
 }

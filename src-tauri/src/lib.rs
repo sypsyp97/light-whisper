@@ -50,7 +50,6 @@ use tauri::Manager;
 /// Tauri v2 使用 `lib.rs` 作为入口而不是 `main.rs`。
 /// 实际的 `main.rs` 很简单，只是调用这里的 `run()` 函数。
 /// 这种设计让代码可以同时在桌面端和移动端使用。
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 创建 Tauri 应用构建器
     //

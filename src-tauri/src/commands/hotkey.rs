@@ -10,7 +10,6 @@
 //! # 注意事项
 //! - 全局快捷键可能与其他应用冲突
 //! - 某些系统快捷键（如 Win+L）无法覆盖
-//! - macOS 需要辅助功能权限
 
 use crate::utils::AppError;
 use tauri::Emitter;
@@ -100,7 +99,7 @@ pub async fn unregister_f2_hotkey(
 /// # 支持的快捷键格式
 /// - 单键：`F1` ~ `F12`
 /// - 组合键：`Ctrl+R`、`Alt+S`、`Ctrl+Shift+R`
-/// - 修饰键：`Ctrl`（Windows/Linux）、`Cmd`（macOS）、`Alt`、`Shift`
+/// - 修饰键：`Ctrl`、`Alt`、`Shift`
 #[tauri::command]
 pub async fn register_custom_hotkey(
     app_handle: tauri::AppHandle,

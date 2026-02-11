@@ -11,7 +11,6 @@ interface UseRecordingReturn {
   isProcessing: boolean;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<TranscriptionResult | null>;
-  cancelRecording: () => void;
   error: string | null;
   /** The raw transcription text from FunASR (null until a transcription completes). */
   transcriptionResult: string | null;
@@ -32,7 +31,6 @@ export function useRecording(): UseRecordingReturn {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const cancelledRef = useRef(false);
 
   const cleanup = useCallback(() => {
     if (mediaRecorderRef.current) {
@@ -51,7 +49,6 @@ export function useRecording(): UseRecordingReturn {
   const startRecording = useCallback(async () => {
     try {
       setError(null);
-      cancelledRef.current = false;
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -92,7 +89,7 @@ export function useRecording(): UseRecordingReturn {
   }, [cleanup]);
 
   const stopRecording = useCallback(async (): Promise<TranscriptionResult | null> => {
-    if (!mediaRecorderRef.current || cancelledRef.current) {
+    if (!mediaRecorderRef.current) {
       cleanup();
       setIsRecording(false);
       return null;
@@ -215,20 +212,11 @@ export function useRecording(): UseRecordingReturn {
     });
   }, [cleanup]);
 
-  const cancelRecording = useCallback(() => {
-    cancelledRef.current = true;
-    setIsRecording(false);
-    setIsProcessing(false);
-    setError(null);
-    cleanup();
-  }, [cleanup]);
-
   return {
     isRecording,
     isProcessing,
     startRecording,
     stopRecording,
-    cancelRecording,
     error,
     transcriptionResult,
     history,
