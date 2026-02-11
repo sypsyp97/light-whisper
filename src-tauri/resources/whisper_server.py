@@ -259,6 +259,8 @@ class WhisperServer:
                 segments, info = self.model.transcribe(
                     audio_path,
                     language=None,
+                    initial_prompt="Hello, welcome. 你好，欢迎。",
+                    condition_on_previous_text=False,
                     vad_filter=True,
                     vad_parameters={"min_silence_duration_ms": 500},
                 )
