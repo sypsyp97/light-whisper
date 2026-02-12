@@ -8,83 +8,19 @@ Faster Whisper 模型服务器
 import sys
 import json
 import os
-import logging
 import traceback
 import signal
-import contextlib
-import threading
 
-# 防止 HuggingFace Hub 在 Windows 上的 symlink 警告和缓存校验卡顿
-os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "10")
-
-# 设置日志
-import tempfile
-
-
-# 获取日志文件路径
-def get_log_path():
-    # 尝试从环境变量获取用户数据目录
-    if "LIGHT_WHISPER_DATA_DIR" in os.environ:
-        log_dir = os.path.join(os.environ["LIGHT_WHISPER_DATA_DIR"], "logs")
-    else:
-        # 回退到临时目录
-        log_dir = os.path.join(tempfile.gettempdir(), "light_whisper_logs")
-
-    # 确保日志目录存在
-    os.makedirs(log_dir, exist_ok=True)
-    return os.path.join(log_dir, "whisper_server.log")
-
-
-log_file_path = get_log_path()
-
-from logging.handlers import RotatingFileHandler
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        RotatingFileHandler(
-            log_file_path,
-            encoding="utf-8",
-            maxBytes=5 * 1024 * 1024,  # 5MB
-            backupCount=3,
-        ),
-        logging.StreamHandler(sys.stderr),  # 显式输出到 stderr，避免干扰 stdout IPC
-    ],
+from server_common import (
+    apply_hf_env_defaults,
+    get_wav_duration_seconds,
+    setup_rotating_logger,
+    StdoutSuppressor,
 )
-logger = logging.getLogger(__name__)
 
-# 记录日志文件位置
-logger.info(f"Whisper服务器日志文件: {log_file_path}")
-
-_stdout_lock = threading.Lock()
-_stdout_refcount = 0
-_stdout_original = None
-_stdout_devnull = None
-
-
-@contextlib.contextmanager
-def suppress_stdout():
-    """上下文管理器：临时重定向stdout到devnull，避免库的非JSON输出干扰IPC通信"""
-    global _stdout_refcount, _stdout_original, _stdout_devnull
-    with _stdout_lock:
-        if _stdout_refcount == 0:
-            _stdout_original = sys.stdout
-            _stdout_devnull = open(os.devnull, "w")
-            sys.stdout = _stdout_devnull
-        _stdout_refcount += 1
-    try:
-        yield
-    finally:
-        with _stdout_lock:
-            _stdout_refcount -= 1
-            if _stdout_refcount <= 0:
-                sys.stdout = _stdout_original
-                if _stdout_devnull:
-                    _stdout_devnull.close()
-                _stdout_devnull = None
-                _stdout_original = None
+apply_hf_env_defaults()
+logger = setup_rotating_logger(__name__, "whisper_server.log", "Whisper服务器")
+stdout_suppressor = StdoutSuppressor()
 
 
 from hf_cache_utils import get_hf_cache_root, is_hf_repo_ready, WHISPER_MODEL_REPOS
@@ -168,7 +104,7 @@ class WhisperServer:
         """加载 Faster Whisper 模型"""
         try:
             logger.info(f"开始加载 Faster Whisper 模型 (device={self.device}, compute_type={self.compute_type})...")
-            with suppress_stdout():
+            with stdout_suppressor.suppress():
                 from faster_whisper import WhisperModel
 
                 self.model = WhisperModel(
@@ -255,7 +191,7 @@ class WhisperServer:
 
             # 执行 Whisper 转录（内置 Silero VAD）
             asr_start = time.time()
-            with suppress_stdout():
+            with stdout_suppressor.suppress():
                 segments, info = self.model.transcribe(
                     audio_path,
                     language=None,
@@ -305,24 +241,9 @@ class WhisperServer:
 
     def _get_audio_duration(self, audio_path):
         """从 WAV header 快速获取音频时长"""
-        try:
-            import struct
-            with open(audio_path, "rb") as f:
-                riff = f.read(4)
-                if riff != b"RIFF":
-                    raise ValueError("非 WAV 格式")
-                f.seek(28)
-                byte_rate = struct.unpack("<I", f.read(4))[0]
-                f.seek(40)
-                data_size = struct.unpack("<I", f.read(4))[0]
-            if byte_rate <= 0:
-                raise ValueError(f"无效的 byte rate: {byte_rate}")
-            duration = data_size / byte_rate
-            self.total_audio_duration += duration
-            return duration
-        except Exception as e:
-            logger.warning(f"从 WAV header 获取音频时长失败: {e}")
-            return 0.0
+        duration = get_wav_duration_seconds(audio_path, logger)
+        self.total_audio_duration += duration
+        return duration
 
     def _cleanup_memory(self):
         """内存清理"""

@@ -7,6 +7,14 @@ import { getEngine, setEngine } from "@/api/funasr";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY } from "@/lib/constants";
+import {
+  HOTKEY_MODIFIER_ORDER,
+  type HotkeyModifier,
+  formatHotkeyForDisplay,
+  keyboardEventToHotkey,
+  modifierFromKeyboardEvent,
+} from "@/lib/hotkey";
+import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 
 const themeOptions = [
   { mode: "light" as const, icon: Sun, label: "浅色" },
@@ -14,92 +22,7 @@ const themeOptions = [
   { mode: "system" as const, icon: Monitor, label: "跟随系统" },
 ] as const;
 
-const MODIFIER_ORDER = ["Ctrl", "Alt", "Shift", "Super"] as const;
-type HotkeyModifier = (typeof MODIFIER_ORDER)[number];
 const HOTKEY_DEFAULT = "F2";
-
-function toDisplayHotkey(shortcut: string): string {
-  return shortcut.replace(/\bSuper\b/g, "Win");
-}
-
-function modifierFromEvent(event: KeyboardEvent): HotkeyModifier | null {
-  const key = event.key.toLowerCase();
-  const code = event.code.toLowerCase();
-
-  if (key === "control" || code === "controlleft" || code === "controlright") {
-    return "Ctrl";
-  }
-  if (key === "alt" || key === "altgraph" || code === "altleft" || code === "altright") {
-    return "Alt";
-  }
-  if (key === "shift" || code === "shiftleft" || code === "shiftright") {
-    return "Shift";
-  }
-  if (
-    key === "meta" ||
-    key === "os" ||
-    key === "win" ||
-    code === "metaleft" ||
-    code === "metaright"
-  ) {
-    return "Super";
-  }
-  return null;
-}
-
-function collectModifiers(event: KeyboardEvent, activeModifiers: Set<HotkeyModifier>): Set<HotkeyModifier> {
-  const modifiers = new Set<HotkeyModifier>(activeModifiers);
-
-  if (event.ctrlKey || event.getModifierState("Control")) modifiers.add("Ctrl");
-  if (event.altKey || event.getModifierState("Alt") || event.getModifierState("AltGraph")) modifiers.add("Alt");
-  if (event.shiftKey || event.getModifierState("Shift")) modifiers.add("Shift");
-  if (event.metaKey || event.getModifierState("Meta") || event.getModifierState("OS")) modifiers.add("Super");
-
-  return modifiers;
-}
-
-function eventToHotkey(event: KeyboardEvent, activeModifiers: Set<HotkeyModifier>): string | null {
-  let mainKey = "";
-
-  if (/^Key[A-Z]$/.test(event.code)) {
-    mainKey = event.code.slice(3);
-  } else if (/^Digit[0-9]$/.test(event.code)) {
-    mainKey = event.code.slice(5);
-  } else if (/^F([1-9]|1\d|2[0-4])$/.test(event.key.toUpperCase())) {
-    mainKey = event.key.toUpperCase();
-  } else {
-    const key = event.key;
-    const lower = key.toLowerCase();
-    const map: Record<string, string> = {
-      escape: "Escape",
-      enter: "Enter",
-      tab: "Tab",
-      " ": "Space",
-      backspace: "Backspace",
-      delete: "Delete",
-      insert: "Insert",
-      home: "Home",
-      end: "End",
-      pageup: "PageUp",
-      pagedown: "PageDown",
-      arrowup: "ArrowUp",
-      arrowdown: "ArrowDown",
-      arrowleft: "ArrowLeft",
-      arrowright: "ArrowRight",
-    };
-    mainKey = map[lower] ?? "";
-  }
-
-  if (!mainKey || modifierFromEvent(event)) {
-    return null;
-  }
-
-  const modifiers = collectModifiers(event, activeModifiers);
-  const parts: string[] = MODIFIER_ORDER.filter((modifier) => modifiers.has(modifier));
-  parts.push(mainKey);
-
-  return parts.join("+");
-}
 
 export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const { isDark, theme, setTheme } = useTheme();
@@ -111,11 +34,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [hotkeySaving, setHotkeySaving] = useState(false);
   const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
-    try {
-      return (localStorage.getItem(INPUT_METHOD_KEY) as "sendInput" | "clipboard") || "sendInput";
-    } catch {
-      return "sendInput";
-    }
+    return readLocalStorage(INPUT_METHOD_KEY) === "clipboard"
+      ? "clipboard"
+      : "sendInput";
   });
 
   useEffect(() => {
@@ -184,7 +105,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       setHotkeySaving(true);
       void setHotkey(shortcut)
         .then(() => {
-          toast.success(`说话热键已设置为 ${toDisplayHotkey(shortcut)}`);
+          toast.success(`说话热键已设置为 ${formatHotkeyForDisplay(shortcut)}`);
         })
         .catch((err) => {
           const message = err instanceof Error ? err.message : "设置热键失败";
@@ -207,23 +128,25 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
         return;
       }
 
-      const modifier = modifierFromEvent(event);
+      const modifier = modifierFromKeyboardEvent(event);
       if (modifier) {
         activeModifiers.add(modifier);
         return;
       }
 
-      const shortcut = eventToHotkey(event, activeModifiers);
+      const shortcut = keyboardEventToHotkey(event, activeModifiers);
       if (!shortcut) return;
 
       applyShortcut(shortcut);
     };
 
     const onKeyUp = (event: KeyboardEvent) => {
-      const modifier = modifierFromEvent(event);
+      const modifier = modifierFromKeyboardEvent(event);
       if (!modifier || applied) return;
 
-      const beforeRelease = MODIFIER_ORDER.filter((key) => activeModifiers.has(key)).join("+");
+      const beforeRelease = HOTKEY_MODIFIER_ORDER
+        .filter((key) => activeModifiers.has(key))
+        .join("+");
       activeModifiers.delete(modifier);
 
       // Support modifier-only Ctrl+Win capture.
@@ -420,7 +343,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   aria-pressed={inputMethod === key}
                   onClick={() => {
                     setInputMethod(key);
-                    try { localStorage.setItem(INPUT_METHOD_KEY, key); } catch { /* localStorage 不可用 */ }
+                    writeLocalStorage(INPUT_METHOD_KEY, key);
                   }}
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 6,

@@ -89,6 +89,37 @@ export function useModelStatus(): UseModelStatusReturn {
     }
   }, []);
 
+  const setDownloadingState = useCallback((value: boolean) => {
+    downloadingRef.current = value;
+    setDownloadActive(value);
+  }, []);
+
+  const scheduleAutoDownload = useCallback(() => {
+    if (downloadListenerReadyRef.current) {
+      setTimeout(() => triggerDownloadRef.current?.("auto"), 0);
+    } else {
+      pendingAutoDownloadRef.current = true;
+    }
+  }, []);
+
+  const enterNeedDownloadState = useCallback(() => {
+    restartAttemptedRef.current = false;
+    loadingChecksRef.current = 0;
+    setStage("need_download");
+    setError(null);
+    setDownloadMessage(null);
+    if (!autoDownloadTriggeredRef.current && !downloadingRef.current) {
+      autoDownloadTriggeredRef.current = true;
+      scheduleAutoDownload();
+    }
+  }, [scheduleAutoDownload]);
+
+  const enterErrorState = useCallback((message: string) => {
+    setError(message);
+    setStage("error");
+    clearPolling();
+  }, [clearPolling]);
+
   const startDownloadWatchdog = useCallback(() => {
     clearDownloadWatchdog();
     downloadWatchdogRef.current = setTimeout(() => {
@@ -109,22 +140,6 @@ export function useModelStatus(): UseModelStatusReturn {
   const checkStatus = useCallback(async () => {
     if (!mountedRef.current) return;
     if (downloadingRef.current) return;
-
-    const handleModelsNotPresent = () => {
-      restartAttemptedRef.current = false;
-      loadingChecksRef.current = 0;
-      setStage("need_download");
-      setError(null);
-      setDownloadMessage(null);
-      if (!autoDownloadTriggeredRef.current && !downloadingRef.current) {
-        autoDownloadTriggeredRef.current = true;
-        if (downloadListenerReadyRef.current) {
-          setTimeout(() => triggerDownloadRef.current?.("auto"), 0);
-        } else {
-          pendingAutoDownloadRef.current = true;
-        }
-      }
-    };
 
     try {
       const status = await checkFunASRStatus();
@@ -149,7 +164,7 @@ export function useModelStatus(): UseModelStatusReturn {
         const modelCheck = await checkModelFiles();
         if (!mountedRef.current) return;
         if (!modelCheck.all_present) {
-          handleModelsNotPresent();
+          enterNeedDownloadState();
           return;
         }
 
@@ -171,7 +186,7 @@ export function useModelStatus(): UseModelStatusReturn {
       if (!mountedRef.current) return;
 
       if (!modelCheck.all_present) {
-        handleModelsNotPresent();
+        enterNeedDownloadState();
         return;
       }
 
@@ -189,28 +204,28 @@ export function useModelStatus(): UseModelStatusReturn {
             startErr instanceof Error
               ? startErr.message
               : "FunASR 引擎启动失败，请检查 Python 环境是否安装了 funasr 包";
-          setError(message);
-          setStage("error");
-          clearPolling();
+          enterErrorState(message);
         }
       }
     } catch (err) {
       if (!mountedRef.current) return;
       const message =
         err instanceof Error ? err.message : "检查模型状态失败";
-      setError(message);
-      setStage("error");
-      clearPolling();
+      enterErrorState(message);
     }
-  }, [clearPolling]);
+  }, [clearPolling, enterErrorState, enterNeedDownloadState]);
+
+  const startPolling = useCallback(() => {
+    if (intervalRef.current !== null) return;
+    intervalRef.current = setInterval(() => {
+      void checkStatus();
+    }, POLL_INTERVAL_MS);
+  }, [checkStatus]);
 
   useEffect(() => {
     mountedRef.current = true;
-    checkStatus();
-
-    intervalRef.current = setInterval(() => {
-      checkStatus();
-    }, POLL_INTERVAL_MS);
+    void checkStatus();
+    startPolling();
 
     return () => {
       mountedRef.current = false;
@@ -219,7 +234,7 @@ export function useModelStatus(): UseModelStatusReturn {
       clearDownloadWatchdog();
       clearPolling();
     };
-  }, [checkStatus, clearDownloadWatchdog, clearPolling]);
+  }, [checkStatus, clearDownloadWatchdog, clearPolling, startPolling]);
 
   // Listen for funasr-status events (loading progress, crashed, etc.)
   useEffect(() => {
@@ -249,12 +264,8 @@ export function useModelStatus(): UseModelStatusReturn {
             restartAttemptedRef.current = false;
             loadingChecksRef.current = 0;
             // Ensure polling is active
-            if (intervalRef.current === null) {
-              checkStatus();
-              intervalRef.current = setInterval(() => {
-                checkStatus();
-              }, POLL_INTERVAL_MS);
-            }
+            void checkStatus();
+            startPolling();
           }
         }
       );
@@ -264,7 +275,7 @@ export function useModelStatus(): UseModelStatusReturn {
     return () => {
       unlisten?.();
     };
-  }, [checkStatus, clearPolling]);
+  }, [checkStatus, startPolling]);
 
   useEffect(() => {
     let disposed = false;
@@ -285,43 +296,51 @@ export function useModelStatus(): UseModelStatusReturn {
             if (!mountedRef.current) return;
             const { status, progress, message, error: payloadError } = event.payload;
 
-            if (status === "downloading" || status === "progress") {
-              lastDownloadEventAtRef.current = Date.now();
-              startDownloadWatchdog();
-              downloadingRef.current = true;
-              setDownloadActive(true);
-              setStage("downloading");
-              setError(null);
-              if (typeof progress === "number") {
-                setDownloadProgress(Math.max(0, Math.min(100, progress)));
-              } else {
-                setDownloadProgress((prev) => Math.max(prev, 1));
+            switch (status) {
+              case "downloading":
+              case "progress": {
+                lastDownloadEventAtRef.current = Date.now();
+                startDownloadWatchdog();
+                setDownloadingState(true);
+                setStage("downloading");
+                setError(null);
+                if (typeof progress === "number") {
+                  setDownloadProgress(Math.max(0, Math.min(100, progress)));
+                } else {
+                  setDownloadProgress((prev) => Math.max(prev, 1));
+                }
+                setDownloadMessage(message ?? null);
+                break;
               }
-              setDownloadMessage(message ?? null);
-            } else if (status === "completed") {
-              clearDownloadWatchdog();
-              autoDownloadRetryRef.current = 0;
-              downloadingRef.current = false;
-              setDownloadActive(false);
-              setDownloadProgress(100);
-              setDownloadMessage(message ?? null);
-              setStage("loading");
-              restartFunASR().catch(() => {});
-            } else if (status === "cancelled") {
-              clearDownloadWatchdog();
-              downloadingRef.current = false;
-              setDownloadActive(false);
-              setDownloadProgress(0);
-              setDownloadMessage(message ?? "下载已取消");
-              autoDownloadTriggeredRef.current = false;
-              setStage("need_download");
-            } else if (status === "error") {
-              clearDownloadWatchdog();
-              downloadingRef.current = false;
-              setDownloadActive(false);
-              autoDownloadTriggeredRef.current = false;
-              setError(payloadError || message || "模型下载失败");
-              setStage("error");
+              case "completed": {
+                clearDownloadWatchdog();
+                autoDownloadRetryRef.current = 0;
+                setDownloadingState(false);
+                setDownloadProgress(100);
+                setDownloadMessage(message ?? null);
+                setStage("loading");
+                restartFunASR().catch(() => {});
+                break;
+              }
+              case "cancelled": {
+                clearDownloadWatchdog();
+                setDownloadingState(false);
+                setDownloadProgress(0);
+                setDownloadMessage(message ?? "下载已取消");
+                autoDownloadTriggeredRef.current = false;
+                setStage("need_download");
+                break;
+              }
+              case "error": {
+                clearDownloadWatchdog();
+                setDownloadingState(false);
+                autoDownloadTriggeredRef.current = false;
+                setError(payloadError || message || "模型下载失败");
+                setStage("error");
+                break;
+              }
+              default:
+                break;
             }
           }
         );
@@ -352,7 +371,7 @@ export function useModelStatus(): UseModelStatusReturn {
       clearDownloadWatchdog();
       unlisten?.();
     };
-  }, [clearDownloadWatchdog, startDownloadWatchdog]);
+  }, [clearDownloadWatchdog, setDownloadingState, startDownloadWatchdog]);
 
   const triggerDownload = useCallback(async (source: "auto" | "manual" = "manual") => {
     try {
@@ -362,10 +381,9 @@ export function useModelStatus(): UseModelStatusReturn {
         autoDownloadTriggeredRef.current = true;
       }
 
-      downloadingRef.current = true;
+      setDownloadingState(true);
       lastDownloadEventAtRef.current = Date.now();
       startDownloadWatchdog();
-      setDownloadActive(true);
       setStage("downloading");
       setDownloadProgress(0);
       setDownloadMessage("准备下载...");
@@ -382,8 +400,7 @@ export function useModelStatus(): UseModelStatusReturn {
       autoDownloadRetryRef.current = 0;
       if (downloadingRef.current) {
         clearDownloadWatchdog();
-        downloadingRef.current = false;
-        setDownloadActive(false);
+        setDownloadingState(false);
         setStage("loading");
         setDownloadProgress(100);
         checkStatus();
@@ -392,8 +409,7 @@ export function useModelStatus(): UseModelStatusReturn {
       }
     } catch (err) {
       clearDownloadWatchdog();
-      downloadingRef.current = false;
-      setDownloadActive(false);
+      setDownloadingState(false);
       if (!mountedRef.current) return;
       const message =
         err instanceof Error ? err.message : "模型下载失败";
@@ -418,7 +434,7 @@ export function useModelStatus(): UseModelStatusReturn {
       setError(message);
       setStage("error");
     }
-  }, [checkStatus, clearDownloadWatchdog, startDownloadWatchdog]);
+  }, [checkStatus, clearDownloadWatchdog, setDownloadingState, startDownloadWatchdog]);
 
   triggerDownloadRef.current = triggerDownload;
 
@@ -436,23 +452,20 @@ export function useModelStatus(): UseModelStatusReturn {
 
   const retry = useCallback(() => {
     clearDownloadWatchdog();
-    downloadingRef.current = false;
+    setDownloadingState(false);
     autoDownloadRetryRef.current = 0;
     pendingAutoDownloadRef.current = false;
     setError(null);
     setDownloadProgress(0);
     setDownloadMessage(null);
-    setDownloadActive(false);
     setStage("checking");
     startFailuresRef.current = 0;
     autoDownloadTriggeredRef.current = false;
 
     clearPolling();
-    checkStatus();
-    intervalRef.current = setInterval(() => {
-      checkStatus();
-    }, POLL_INTERVAL_MS);
-  }, [checkStatus, clearDownloadWatchdog, clearPolling]);
+    void checkStatus();
+    startPolling();
+  }, [checkStatus, clearDownloadWatchdog, clearPolling, setDownloadingState, startPolling]);
 
   return {
     stage,

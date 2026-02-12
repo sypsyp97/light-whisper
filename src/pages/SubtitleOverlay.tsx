@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { readLocalStorage } from "@/lib/storage";
 import "../styles/theme.css";
 import "../styles/subtitle.css";
 
@@ -35,17 +36,15 @@ export default function SubtitleOverlay() {
 
   // 主题
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("light-whisper-theme");
-      if (stored === "dark") {
-        document.documentElement.setAttribute("data-theme", "dark");
-      } else if (stored === "light") {
-        document.documentElement.setAttribute("data-theme", "light");
-      } else {
-        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
-      }
-    } catch {}
+    const stored = readLocalStorage("light-whisper-theme");
+    if (stored === "dark") {
+      document.documentElement.setAttribute("data-theme", "dark");
+    } else if (stored === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+    } else {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
+    }
   }, []);
 
   // 监听录音状态
@@ -155,36 +154,26 @@ export default function SubtitleOverlay() {
     };
   }, [clearFadeTimer]);
 
+  const hasText = text.length > 0;
+  const indicatorClass =
+    phase === "recording"
+      ? "subtitle-dot-recording"
+      : phase === "processing"
+        ? "subtitle-dot-processing"
+        : null;
+  const hintText =
+    phase === "recording"
+      ? "正在聆听..."
+      : phase === "processing"
+        ? "识别中..."
+        : null;
+
   return (
     <div className="subtitle-root">
       <div className={`subtitle-capsule${fadingOut ? " subtitle-fade-out" : ""}`}>
-        {phase === "recording" && !text && (
-          <>
-            <div className="subtitle-dot-recording" />
-            <span className="subtitle-hint">正在聆听...</span>
-          </>
-        )}
-        {phase === "recording" && text && (
-          <>
-            <div className="subtitle-dot-recording" />
-            <span className="subtitle-text">{text}</span>
-          </>
-        )}
-        {phase === "processing" && !text && (
-          <>
-            <div className="subtitle-dot-processing" />
-            <span className="subtitle-hint">识别中...</span>
-          </>
-        )}
-        {phase === "processing" && text && (
-          <>
-            <div className="subtitle-dot-processing" />
-            <span className="subtitle-text">{text}</span>
-          </>
-        )}
-        {phase === "result" && (
-          <span className="subtitle-text">{text}</span>
-        )}
+        {indicatorClass && <div className={indicatorClass} />}
+        {hasText && <span className="subtitle-text">{text}</span>}
+        {!hasText && hintText && <span className="subtitle-hint">{hintText}</span>}
       </div>
     </div>
   );

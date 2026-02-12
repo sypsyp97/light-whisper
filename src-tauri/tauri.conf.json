@@ -42,7 +42,8 @@
       "resources/funasr_server.py",
       "resources/whisper_server.py",
       "resources/download_models.py",
-      "resources/hf_cache_utils.py"
+      "resources/hf_cache_utils.py",
+      "resources/server_common.py"
     ]
   }
 }

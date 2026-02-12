@@ -23,6 +23,15 @@ struct DownloadLine {
     error: Option<String>,
 }
 
+async fn clear_download_task(state: &AppState) {
+    let mut guard = state.download_task.lock().await;
+    guard.take();
+}
+
+fn emit_download_status(app_handle: &tauri::AppHandle, payload: serde_json::Value) {
+    let _ = app_handle.emit("model-download-status", payload);
+}
+
 /// 执行模型下载
 ///
 /// 启动 Python 下载脚本，逐行读取进度并通过 Tauri 事件转发给前端。
@@ -62,8 +71,8 @@ pub async fn run_download(
     }
 
     // 通知前端开始下载
-    let _ = app_handle.emit(
-        "model-download-status",
+    emit_download_status(
+        app_handle,
         serde_json::json!({
             "status": "downloading",
             "message": "开始下载模型文件..."
@@ -87,8 +96,7 @@ pub async fn run_download(
     {
         Ok(child) => child,
         Err(e) => {
-            let mut guard = state.download_task.lock().await;
-            guard.take();
+            clear_download_task(state).await;
             return Err(AppError::FunASR(format!(
                 "启动模型下载脚本失败: {}",
                 e
@@ -99,8 +107,7 @@ pub async fn run_download(
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => {
-            let mut guard = state.download_task.lock().await;
-            guard.take();
+            clear_download_task(state).await;
             return Err(AppError::FunASR(
                 "无法读取模型下载脚本输出".to_string(),
             ));
@@ -118,7 +125,7 @@ pub async fn run_download(
             _ = &mut cancel_rx => {
                 cancelled = true;
                 let _ = child.kill().await;
-                let _ = app_handle.emit("model-download-status", serde_json::json!({
+                emit_download_status(app_handle, serde_json::json!({
                     "status": "cancelled",
                     "message": "下载已取消"
                 }));
@@ -161,7 +168,7 @@ pub async fn run_download(
                         _ => "progress",
                     };
 
-                    let _ = app_handle.emit("model-download-status", serde_json::json!({
+                    emit_download_status(app_handle, serde_json::json!({
                         "status": status,
                         "progress": progress,
                         "message": message.unwrap_or_else(|| "模型下载中...".to_string()),
@@ -175,8 +182,7 @@ pub async fn run_download(
     let status = match child.wait().await {
         Ok(status) => status,
         Err(e) => {
-            let mut guard = state.download_task.lock().await;
-            guard.take();
+            clear_download_task(state).await;
             return Err(AppError::FunASR(format!(
                 "模型下载进程异常退出: {}",
                 e
@@ -190,10 +196,7 @@ pub async fn run_download(
         .unwrap_or(status.success());
 
     // 清理下载任务
-    {
-        let mut guard = state.download_task.lock().await;
-        guard.take();
-    }
+    clear_download_task(state).await;
 
     if let Some(err) = read_error {
         return Err(err);
@@ -204,27 +207,21 @@ pub async fn run_download(
     }
 
     if final_success {
-        let _ = app_handle.emit(
-            "model-download-status",
-            serde_json::json!({
-                "status": "completed",
-                "progress": 100,
-                "message": "模型下载完成"
-            }),
-        );
+        emit_download_status(app_handle, serde_json::json!({
+            "status": "completed",
+            "progress": 100,
+            "message": "模型下载完成"
+        }));
         Ok("模型下载完成".to_string())
     } else {
         let error_msg = final_result
             .and_then(|r| r.error.or(r.message))
             .unwrap_or_else(|| "模型下载失败".to_string());
 
-        let _ = app_handle.emit(
-            "model-download-status",
-            serde_json::json!({
-                "status": "error",
-                "message": &error_msg
-            }),
-        );
+        emit_download_status(app_handle, serde_json::json!({
+            "status": "error",
+            "message": &error_msg
+        }));
 
         Err(AppError::FunASR(error_msg))
     }

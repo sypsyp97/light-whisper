@@ -186,6 +186,44 @@ impl Drop for StartingFlagGuard {
 const SERVER_INIT_TIMEOUT_SECS: u64 = 120;
 const SERVER_RESPONSE_TIMEOUT_SECS: u64 = 60;
 
+fn to_normalized_path(path: &std::path::Path) -> String {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    paths::strip_win_prefix(&canonical)
+}
+
+fn status_with_defaults(
+    running: bool,
+    ready: bool,
+    model_loaded: bool,
+    message: String,
+) -> FunASRStatus {
+    FunASRStatus {
+        running,
+        ready,
+        model_loaded,
+        device: None,
+        gpu_name: None,
+        gpu_memory_total: None,
+        message,
+        engine: None,
+    }
+}
+
+fn report_model_repo_state(
+    repo_id: &str,
+    description: &str,
+    missing_models: &mut Vec<String>,
+) -> bool {
+    let present = is_hf_repo_ready(repo_id);
+    if present {
+        log::info!("模型文件已就位: {} ({})", description, repo_id);
+    } else {
+        log::warn!("模型文件缺失: {} ({})", description, repo_id);
+        missing_models.push(description.to_string());
+    }
+    present
+}
+
 async fn read_json_response<T, R>(
     reader: &mut R,
     timeout: Duration,
@@ -260,30 +298,19 @@ where
 /// - `Err(AppError)`：没有找到任何可用的 Python
 pub async fn find_python() -> Result<String, AppError> {
     // ---- 策略1：检查项目 .venv 虚拟环境 ----
-    let venv_candidates: Vec<PathBuf> = {
-        let mut candidates = Vec::new();
-        candidates.push(PathBuf::from(".venv"));
-        candidates.push(PathBuf::from("..").join(".venv"));
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                candidates.push(exe_dir.join("..").join("..").join("..").join(".venv"));
-                candidates.push(exe_dir.join("..").join("..").join("..").join("..").join(".venv"));
-            }
+    let mut venv_candidates = vec![PathBuf::from(".venv"), PathBuf::from("..").join(".venv")];
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            venv_candidates.push(exe_dir.join("..").join("..").join("..").join(".venv"));
+            venv_candidates.push(exe_dir.join("..").join("..").join("..").join("..").join(".venv"));
         }
-        candidates
-    };
+    }
 
     for venv_dir in &venv_candidates {
         let venv_python = venv_dir.join("Scripts").join("python.exe");
 
         if tokio::fs::try_exists(&venv_python).await.unwrap_or(false) {
-            // 规范化路径（消除 .. 等）
-            let canonical = std::fs::canonicalize(&venv_python)
-                .unwrap_or_else(|_| venv_python.clone());
-            // Windows 的 canonicalize() 会产生 \\?\ 前缀（扩展路径格式），
-            // 某些程序（包括 Python）可能无法正确处理，所以要去掉它
-            let path_str = canonical.to_string_lossy().to_string();
-            let path_str = path_str.strip_prefix(r"\\?\").unwrap_or(&path_str).to_string();
+            let path_str = to_normalized_path(&venv_python);
             log::info!("找到虚拟环境 Python: {}", path_str);
             return Ok(path_str);
         }
@@ -306,10 +333,7 @@ pub async fn find_python() -> Result<String, AppError> {
                     .to_string();
 
                 if !path.is_empty() {
-                    let version_check = Command::new(&path)
-                        .arg("--version")
-                        .output()
-                        .await;
+                    let version_check = Command::new(&path).arg("--version").output().await;
 
                     if let Ok(ver_output) = version_check {
                         if ver_output.status.success() {
@@ -723,27 +747,19 @@ pub async fn check_status(state: &AppState, app_handle: &tauri::AppHandle) -> Re
         use std::sync::atomic::Ordering;
         if state.funasr_starting.load(Ordering::SeqCst) {
             // 正在启动中（模型加载中），告诉前端"正在运行但还没准备好"
-            return Ok(FunASRStatus {
-                running: true,
-                ready: false,
-                model_loaded: false,
-                device: None,
-                gpu_name: None,
-                gpu_memory_total: None,
-                message: "FunASR 服务器正在启动，模型加载中...".to_string(),
-                engine: None,
-            });
+            return Ok(status_with_defaults(
+                true,
+                false,
+                false,
+                "FunASR 服务器正在启动，模型加载中...".to_string(),
+            ));
         }
-        return Ok(FunASRStatus {
-            running: false,
-            ready: false,
-            model_loaded: false,
-            device: None,
-            gpu_name: None,
-            gpu_memory_total: None,
-            message: "FunASR 服务器未运行".to_string(),
-            engine: None,
-        });
+        return Ok(status_with_defaults(
+            false,
+            false,
+            false,
+            "FunASR 服务器未运行".to_string(),
+        ));
     }
 
     // 发送状态查询命令
@@ -777,16 +793,12 @@ pub async fn check_status(state: &AppState, app_handle: &tauri::AppHandle) -> Re
             // 发送命令失败，可能进程已崩溃
             log::warn!("查询 FunASR 状态失败: {}", e);
             state.set_funasr_ready(false);
-            Ok(FunASRStatus {
-                running: false,
-                ready: false,
-                model_loaded: false,
-                device: None,
-                gpu_name: None,
-                gpu_memory_total: None,
-                message: format!("服务器通信失败: {}", e),
-                engine: None,
-            })
+            Ok(status_with_defaults(
+                false,
+                false,
+                false,
+                format!("服务器通信失败: {}", e),
+            ))
         }
     }
 }
@@ -924,17 +936,16 @@ fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool 
 pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
     let engine = paths::read_engine_config();
     let cache_root = get_hf_cache_root();
+    let cache_path = cache_root.to_string_lossy().to_string();
 
     if engine == "whisper" {
         // Whisper 引擎：只需检查一个模型仓库，内置 VAD 和标点
-        let asr_present = is_hf_repo_ready(WHISPER_REPO_ID);
         let mut missing_models = Vec::new();
-        if !asr_present {
-            log::warn!("模型文件缺失: Whisper ASR模型 ({})", WHISPER_REPO_ID);
-            missing_models.push("Whisper ASR模型".to_string());
-        } else {
-            log::info!("模型文件已就位: Whisper ASR模型 ({})", WHISPER_REPO_ID);
-        }
+        let asr_present = report_model_repo_state(
+            WHISPER_REPO_ID,
+            "Whisper ASR模型",
+            &mut missing_models,
+        );
 
         Ok(ModelCheckResult {
             all_present: asr_present,
@@ -942,33 +953,22 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
             vad_model: true,  // Whisper 内置 Silero VAD
             punc_model: true, // Whisper 内置标点
             engine: "whisper".to_string(),
-            cache_path: cache_root.to_string_lossy().to_string(),
+            cache_path,
             missing_models,
         })
     } else {
         // SenseVoice 引擎：检查 ASR + VAD 模型
-        let models: Vec<(&str, &str, &str)> = vec![
-            (ASR_REPO_ID, "ASR语音识别模型", "asr"),
-            (VAD_REPO_ID, "VAD语音活动检测模型", "vad"),
-        ];
-
         let mut missing_models = Vec::new();
-        let mut asr_present = false;
-        let mut vad_present = false;
-
-        for (repo_id, description, kind) in models.iter() {
-            if is_hf_repo_ready(repo_id) {
-                log::info!("模型文件已就位: {} ({})", description, repo_id);
-                match *kind {
-                    "asr" => asr_present = true,
-                    "vad" => vad_present = true,
-                    _ => {}
-                };
-            } else {
-                log::warn!("模型文件缺失: {} ({})", description, repo_id);
-                missing_models.push(description.to_string());
-            }
-        }
+        let asr_present = report_model_repo_state(
+            ASR_REPO_ID,
+            "ASR语音识别模型",
+            &mut missing_models,
+        );
+        let vad_present = report_model_repo_state(
+            VAD_REPO_ID,
+            "VAD语音活动检测模型",
+            &mut missing_models,
+        );
 
         let all_present = asr_present && vad_present;
 
@@ -978,7 +978,7 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
             vad_model: vad_present,
             punc_model: true, // SenseVoiceSmall 内置 ITN，无需独立标点模型
             engine: "sensevoice".to_string(),
-            cache_path: cache_root.to_string_lossy().to_string(),
+            cache_path,
             missing_models,
         })
     }

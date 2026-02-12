@@ -6,6 +6,7 @@ import { pasteText } from "@/api/clipboard";
 import { showSubtitleWindow, hideSubtitleWindow } from "@/api/window";
 import { convertToWav, arrayBufferToBase64 } from "@/lib/audio";
 import { INPUT_METHOD_KEY } from "@/lib/constants";
+import { readLocalStorage } from "@/lib/storage";
 import type { TranscriptionResult, HistoryItem } from "@/types";
 
 interface UseRecordingReturn {
@@ -52,6 +53,16 @@ const WAV_BYTES_PER_SECOND = 32000; // 16kHz * 16bit * mono
 
 function getWavDurationSeconds(buffer: ArrayBuffer): number {
   return Math.max(0, (buffer.byteLength - WAV_HEADER_BYTES) / WAV_BYTES_PER_SECOND);
+}
+
+function toErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function getInputMethodPreference(): "sendInput" | "clipboard" {
+  return readLocalStorage(INPUT_METHOD_KEY) === "clipboard"
+    ? "clipboard"
+    : "sendInput";
 }
 
 /**
@@ -104,6 +115,10 @@ export function useRecording(): UseRecordingReturn {
   const setProcessingState = useCallback((value: boolean) => {
     isProcessingStateRef.current = value;
     setIsProcessing(value);
+  }, []);
+
+  const isSessionActive = useCallback((sessionId: number) => {
+    return activeSessionIdRef.current === sessionId;
   }, []);
 
   const emitRecordingState = useCallback((payload: RecordingStateEventPayload) => {
@@ -170,15 +185,8 @@ export function useRecording(): UseRecordingReturn {
       const nextText = pasteQueueRef.current.shift();
       if (!nextText) return;
 
-      let inputMethod: "sendInput" | "clipboard" | null = null;
       try {
-        inputMethod = localStorage.getItem(INPUT_METHOD_KEY) as "sendInput" | "clipboard" | null;
-      } catch {
-        inputMethod = null;
-      }
-
-      try {
-        await pasteText(nextText, inputMethod ?? "sendInput");
+        await pasteText(nextText, getInputMethodPreference());
       } catch {
         toast.error("文字输入失败，结果已保留，请手动复制");
       }
@@ -217,7 +225,7 @@ export function useRecording(): UseRecordingReturn {
     ): Promise<{ executed: boolean; elapsedMs: number }> => {
       if (busyRef.current) return { executed: false, elapsedMs: 0 };
       if (isStoppingRef.current) return { executed: false, elapsedMs: 0 };
-      if (activeSessionIdRef.current !== sessionId) return { executed: false, elapsedMs: 0 };
+      if (!isSessionActive(sessionId)) return { executed: false, elapsedMs: 0 };
       if (totalChunkBytesRef.current === 0) return { executed: false, elapsedMs: 0 };
       if (
         totalChunkBytesRef.current - lastInterimBytesRef.current <
@@ -235,14 +243,14 @@ export function useRecording(): UseRecordingReturn {
         if (blob.size === 0) return { executed: false, elapsedMs: 0 };
 
         const wavBuffer = await convertToWav(blob);
-        if (activeSessionIdRef.current !== sessionId) return { executed: false, elapsedMs: 0 };
+        if (!isSessionActive(sessionId)) return { executed: false, elapsedMs: 0 };
 
         const duration = getWavDurationSeconds(wavBuffer);
         if (duration < MIN_AUDIO_DURATION_SEC) return { executed: false, elapsedMs: 0 };
 
         lastInterimBytesRef.current = totalChunkBytesRef.current;
         const result = await transcribeAudio(arrayBufferToBase64(wavBuffer));
-        if (activeSessionIdRef.current !== sessionId) return { executed: false, elapsedMs: 0 };
+        if (!isSessionActive(sessionId)) return { executed: false, elapsedMs: 0 };
 
         if (result.success && result.text) {
           emitTranscription({
@@ -260,7 +268,7 @@ export function useRecording(): UseRecordingReturn {
         busyRef.current = false;
       }
     },
-    [emitTranscription]
+    [emitTranscription, isSessionActive]
   );
 
   const getNextInterimDelay = useCallback((stats: { executed: boolean; elapsedMs: number }) => {
@@ -300,7 +308,7 @@ export function useRecording(): UseRecordingReturn {
         periodicRef.current = null;
 
         if (
-          activeSessionIdRef.current !== sessionId ||
+          !isSessionActive(sessionId) ||
           !isRecordingStateRef.current
         ) {
           return;
@@ -309,7 +317,7 @@ export function useRecording(): UseRecordingReturn {
         void (async () => {
           const stats = await runInterimTranscription(sessionId, mimeType);
           if (
-            activeSessionIdRef.current !== sessionId ||
+            !isSessionActive(sessionId) ||
             !isRecordingStateRef.current
           ) {
             return;
@@ -319,7 +327,7 @@ export function useRecording(): UseRecordingReturn {
         })();
       }, Math.max(INTERIM_INTERVAL_MIN_MS, delayMs));
     },
-    [getNextInterimDelay, runInterimTranscription]
+    [getNextInterimDelay, isSessionActive, runInterimTranscription]
   );
 
   scheduleInterimLoopRef.current = scheduleInterimLoop;
@@ -363,7 +371,7 @@ export function useRecording(): UseRecordingReturn {
         },
       });
 
-      if (activeSessionIdRef.current !== sessionId) {
+      if (!isSessionActive(sessionId)) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
@@ -382,7 +390,7 @@ export function useRecording(): UseRecordingReturn {
         : new MediaRecorder(stream);
 
       recorder.ondataavailable = (event: BlobEvent) => {
-        if (activeSessionIdRef.current !== sessionId) return;
+        if (!isSessionActive(sessionId)) return;
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
           totalChunkBytesRef.current += event.data.size;
@@ -403,10 +411,8 @@ export function useRecording(): UseRecordingReturn {
         INTERIM_INTERVAL_BASE_MS
       );
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "启动录音失败";
-      setError(message);
-      if (activeSessionIdRef.current === sessionId) {
+      setError(toErrorMessage(err, "启动录音失败"));
+      if (isSessionActive(sessionId)) {
         activeSessionIdRef.current = null;
       }
       clearTimers();
@@ -415,7 +421,7 @@ export function useRecording(): UseRecordingReturn {
       setProcessingState(false);
       hideSubtitleSilently();
     } finally {
-      if (activeSessionIdRef.current !== sessionId) {
+      if (!isSessionActive(sessionId)) {
         clearTimers();
         releaseMediaResources();
       }
@@ -427,9 +433,8 @@ export function useRecording(): UseRecordingReturn {
     hideSubtitleSilently,
     isProcessing,
     isRecording,
+    isSessionActive,
     releaseMediaResources,
-    runInterimTranscription,
-    scheduleInterimLoop,
     setProcessingState,
     setRecordingState,
   ]);
@@ -484,7 +489,7 @@ export function useRecording(): UseRecordingReturn {
       }, STOP_SAFETY_TIMEOUT_MS);
 
       recorder.onstop = async () => {
-        if (activeSessionIdRef.current !== sessionId) {
+        if (!isSessionActive(sessionId)) {
           settle(null);
           return;
         }
@@ -506,7 +511,7 @@ export function useRecording(): UseRecordingReturn {
           }
 
           const wavBuffer = await convertToWav(blob);
-          if (activeSessionIdRef.current !== sessionId) {
+          if (!isSessionActive(sessionId)) {
             settle(null);
             return;
           }
@@ -520,7 +525,7 @@ export function useRecording(): UseRecordingReturn {
 
           const audioBase64 = arrayBufferToBase64(wavBuffer);
           const result = await transcribeAudio(audioBase64);
-          if (activeSessionIdRef.current !== sessionId) {
+          if (!isSessionActive(sessionId)) {
             settle(null);
             return;
           }
@@ -560,9 +565,7 @@ export function useRecording(): UseRecordingReturn {
 
           settle(result);
         } catch (err) {
-          const message =
-            err instanceof Error ? err.message : "处理失败";
-          setError(message);
+          setError(toErrorMessage(err, "处理失败"));
           settle(null, { hideNow: true });
         }
       };
@@ -575,9 +578,7 @@ export function useRecording(): UseRecordingReturn {
           settle(null, { hideNow: true });
         }
       } catch (stopErr) {
-        const message =
-          stopErr instanceof Error ? stopErr.message : "停止录音失败";
-        setError(message);
+        setError(toErrorMessage(stopErr, "停止录音失败"));
         settle(null, { hideNow: true });
       }
     });
@@ -586,6 +587,7 @@ export function useRecording(): UseRecordingReturn {
     emitTranscription,
     enqueuePasteText,
     hideSubtitleSilently,
+    isSessionActive,
     releaseMediaResources,
     resetAfterStop,
     setProcessingState,

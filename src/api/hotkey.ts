@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeCommand } from "./invoke";
 
 /**
  * Register the global F2 hotkey for push-to-talk recording.
@@ -6,14 +6,14 @@ import { invoke } from "@tauri-apps/api/core";
  * throws on failure.
  */
 export async function registerF2Hotkey(): Promise<string> {
-  return invoke<string>("register_f2_hotkey");
+  return invokeCommand<string>("register_f2_hotkey");
 }
 
 /**
  * Unregister the global F2 hotkey.
  */
 export async function unregisterF2Hotkey(): Promise<string> {
-  return invoke<string>("unregister_f2_hotkey");
+  return invokeCommand<string>("unregister_f2_hotkey");
 }
 
 /**
@@ -21,12 +21,12 @@ export async function unregisterF2Hotkey(): Promise<string> {
  * Example values: "F2", "Ctrl+Shift+R", "Alt+Space"
  */
 export async function registerCustomHotkey(shortcut: string): Promise<string> {
-  return invoke<string>("register_custom_hotkey", { shortcut });
+  return invokeCommand<string>("register_custom_hotkey", { shortcut });
 }
 
 /**
  * Unregister all currently registered global hotkeys for this app.
  */
 export async function unregisterAllHotkeys(): Promise<string> {
-  return invoke<string>("unregister_all_hotkeys");
+  return invokeCommand<string>("unregister_all_hotkeys");
 }

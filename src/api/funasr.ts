@@ -1,16 +1,16 @@
-import { invoke } from "@tauri-apps/api/core";
 import type {
   TranscriptionResult,
   FunASRStatus,
   ModelCheckResult,
 } from "../types";
+import { invokeCommand } from "./invoke";
 
 /**
  * Start the FunASR speech recognition engine.
  * Rust returns Result<String, AppError> — resolves to a plain string on success.
  */
 export async function startFunASR(): Promise<string> {
-  return invoke<string>("start_funasr");
+  return invokeCommand<string>("start_funasr");
 }
 
 /**
@@ -20,7 +20,7 @@ export async function startFunASR(): Promise<string> {
 export async function transcribeAudio(
   audioBase64: string
 ): Promise<TranscriptionResult> {
-  return invoke<TranscriptionResult>("transcribe_audio", {
+  return invokeCommand<TranscriptionResult>("transcribe_audio", {
     audioBase64,
   });
 }
@@ -29,14 +29,14 @@ export async function transcribeAudio(
  * Check the current status of the FunASR engine.
  */
 export async function checkFunASRStatus(): Promise<FunASRStatus> {
-  return invoke<FunASRStatus>("check_funasr_status");
+  return invokeCommand<FunASRStatus>("check_funasr_status");
 }
 
 /**
  * Check whether required model files are present and complete on disk.
  */
 export async function checkModelFiles(): Promise<ModelCheckResult> {
-  return invoke<ModelCheckResult>("check_model_files");
+  return invokeCommand<ModelCheckResult>("check_model_files");
 }
 
 /**
@@ -44,14 +44,14 @@ export async function checkModelFiles(): Promise<ModelCheckResult> {
  * Rust returns Result<String, AppError> — resolves to a plain string on success.
  */
 export async function downloadModels(): Promise<string> {
-  return invoke<string>("download_models");
+  return invokeCommand<string>("download_models");
 }
 
 /**
  * Cancel the current model download task.
  */
 export async function cancelModelDownload(): Promise<string> {
-  return invoke<string>("cancel_model_download");
+  return invokeCommand<string>("cancel_model_download");
 }
 
 /**
@@ -59,14 +59,14 @@ export async function cancelModelDownload(): Promise<string> {
  * Rust returns Result<String, AppError> — resolves to a plain string on success.
  */
 export async function restartFunASR(): Promise<string> {
-  return invoke<string>("restart_funasr");
+  return invokeCommand<string>("restart_funasr");
 }
 
 /**
  * Get the current speech recognition engine ("sensevoice" or "whisper").
  */
 export async function getEngine(): Promise<string> {
-  return invoke<string>("get_engine");
+  return invokeCommand<string>("get_engine");
 }
 
 /**
@@ -74,5 +74,5 @@ export async function getEngine(): Promise<string> {
  * After calling this, use retryModel() to restart with the new engine.
  */
 export async function setEngine(engine: string): Promise<string> {
-  return invoke<string>("set_engine", { engine });
+  return invokeCommand<string>("set_engine", { engine });
 }

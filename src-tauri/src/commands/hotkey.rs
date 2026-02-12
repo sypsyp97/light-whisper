@@ -30,6 +30,8 @@ enum ShortcutRegistrationMode {
     CtrlSuperModifierOnly,
 }
 
+const F2_SHORTCUT: &str = "F2";
+
 #[derive(Default)]
 struct ShortcutModifiers {
     ctrl: bool,
@@ -186,6 +188,24 @@ fn normalize_shortcut(raw: &str) -> Result<ShortcutRegistrationMode, AppError> {
     Ok(ShortcutRegistrationMode::Standard(normalized.join("+")))
 }
 
+fn emit_shortcut_state<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    state: tauri_plugin_global_shortcut::ShortcutState,
+    pressed_log: &str,
+    released_log: &str,
+) {
+    match state {
+        tauri_plugin_global_shortcut::ShortcutState::Pressed => {
+            log::info!("{}", pressed_log);
+            let _ = app.emit("hotkey-press", ());
+        }
+        tauri_plugin_global_shortcut::ShortcutState::Released => {
+            log::info!("{}", released_log);
+            let _ = app.emit("hotkey-release", ());
+        }
+    }
+}
+
 /// 注册 F2 全局快捷键
 ///
 /// 按下 F2 键时，会向前端发送 `toggle-recording` 事件。
@@ -213,12 +233,8 @@ pub async fn register_f2_hotkey(
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     stop_modifier_only_hotkey_monitor();
 
-    // 解析快捷键字符串
-    // "F2" 会被解析为 F2 功能键
-    let shortcut = "F2";
-
     // 先尝试清理旧的注册（忽略错误）
-    let _ = app_handle.global_shortcut().unregister(shortcut);
+    let _ = app_handle.global_shortcut().unregister(F2_SHORTCUT);
 
     // 注册全局快捷键
     //
@@ -226,17 +242,8 @@ pub async fn register_f2_hotkey(
     // 当用户按下指定快捷键时，回调函数会被调用。
     app_handle
         .global_shortcut()
-        .on_shortcut(shortcut, move |app, _shortcut, event| {
-            match event.state {
-                tauri_plugin_global_shortcut::ShortcutState::Pressed => {
-                    log::info!("F2 按下，开始录音");
-                    let _ = app.emit("hotkey-press", ());
-                }
-                tauri_plugin_global_shortcut::ShortcutState::Released => {
-                    log::info!("F2 松开，停止录音");
-                    let _ = app.emit("hotkey-release", ());
-                }
-            }
+        .on_shortcut(F2_SHORTCUT, move |app, _shortcut, event| {
+            emit_shortcut_state(app, event.state, "F2 按下，开始录音", "F2 松开，停止录音");
         })
         .map_err(|e| AppError::Other(format!("注册 F2 快捷键失败: {}", e)))?;
 
@@ -255,11 +262,9 @@ pub async fn unregister_f2_hotkey(
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     stop_modifier_only_hotkey_monitor();
 
-    let shortcut = "F2";
-
     app_handle
         .global_shortcut()
-        .unregister(shortcut)
+        .unregister(F2_SHORTCUT)
         .map_err(|e| AppError::Other(format!("注销 F2 快捷键失败: {}", e)))?;
 
     log::info!("F2 全局快捷键已注销");
@@ -304,16 +309,12 @@ pub async fn register_custom_hotkey(
     app_handle
         .global_shortcut()
         .on_shortcut(normalized_shortcut.as_str(), move |app, _shortcut, event| {
-            match event.state {
-                tauri_plugin_global_shortcut::ShortcutState::Pressed => {
-                    log::info!("自定义快捷键按下，开始录音");
-                    let _ = app.emit("hotkey-press", ());
-                }
-                tauri_plugin_global_shortcut::ShortcutState::Released => {
-                    log::info!("自定义快捷键松开，停止录音");
-                    let _ = app.emit("hotkey-release", ());
-                }
-            }
+            emit_shortcut_state(
+                app,
+                event.state,
+                "自定义快捷键按下，开始录音",
+                "自定义快捷键松开，停止录音",
+            );
         })
         .map_err(|e| {
             let mut hint = "请检查快捷键格式是否正确。".to_string();

@@ -5,6 +5,20 @@
 use crate::utils::AppError;
 use tauri::Manager;
 
+fn tauri_error(action: &str, err: impl std::fmt::Display) -> AppError {
+    AppError::Tauri(format!("{}: {}", action, err))
+}
+
+fn require_window(
+    app_handle: &tauri::AppHandle,
+    label: &str,
+    missing_message: &str,
+) -> Result<tauri::WebviewWindow, AppError> {
+    app_handle
+        .get_webview_window(label)
+        .ok_or_else(|| AppError::Tauri(missing_message.to_string()))
+}
+
 /// 隐藏主窗口
 ///
 /// 把主窗口隐藏到系统托盘。
@@ -13,15 +27,9 @@ use tauri::Manager;
 pub async fn hide_main_window(
     app_handle: tauri::AppHandle,
 ) -> Result<String, AppError> {
-    if let Some(window) = app_handle.get_webview_window("main") {
-        window
-            .hide()
-            .map_err(|e| AppError::Tauri(format!("隐藏主窗口失败: {}", e)))?;
-
-        Ok("主窗口已隐藏".to_string())
-    } else {
-        Err(AppError::Tauri("主窗口不存在".to_string()))
-    }
+    let window = require_window(&app_handle, "main", "主窗口不存在")?;
+    window.hide().map_err(|e| tauri_error("隐藏主窗口失败", e))?;
+    Ok("主窗口已隐藏".to_string())
 }
 
 /// 显示并聚焦主窗口
@@ -29,17 +37,12 @@ pub async fn hide_main_window(
 pub async fn show_main_window(
     app_handle: tauri::AppHandle,
 ) -> Result<String, AppError> {
-    if let Some(window) = app_handle.get_webview_window("main") {
-        window
-            .show()
-            .map_err(|e| AppError::Tauri(format!("显示主窗口失败: {}", e)))?;
-        window
-            .set_focus()
-            .map_err(|e| AppError::Tauri(format!("聚焦主窗口失败: {}", e)))?;
-        Ok("主窗口已显示".to_string())
-    } else {
-        Err(AppError::Tauri("主窗口不存在".to_string()))
-    }
+    let window = require_window(&app_handle, "main", "主窗口不存在")?;
+    window.show().map_err(|e| tauri_error("显示主窗口失败", e))?;
+    window
+        .set_focus()
+        .map_err(|e| tauri_error("聚焦主窗口失败", e))?;
+    Ok("主窗口已显示".to_string())
 }
 
 /// 创建字幕叠加窗口（隐藏状态）
@@ -58,7 +61,7 @@ pub async fn create_subtitle_window(
     // 获取主显示器尺寸以计算位置
     let monitor = app_handle
         .primary_monitor()
-        .map_err(|e| AppError::Tauri(format!("获取显示器信息失败: {}", e)))?
+        .map_err(|e| tauri_error("获取显示器信息失败", e))?
         .ok_or_else(|| AppError::Tauri("未找到主显示器".to_string()))?;
 
     let screen_size = monitor.size();
@@ -95,12 +98,12 @@ pub async fn create_subtitle_window(
     .shadow(false)
     .visible(false)
     .build()
-    .map_err(|e| AppError::Tauri(format!("创建字幕窗口失败: {}", e)))?;
+    .map_err(|e| tauri_error("创建字幕窗口失败", e))?;
 
     // 设置鼠标穿透，让点击事件透过字幕窗口
     window
         .set_ignore_cursor_events(true)
-        .map_err(|e| AppError::Tauri(format!("设置鼠标穿透失败: {}", e)))?;
+        .map_err(|e| tauri_error("设置鼠标穿透失败", e))?;
 
     Ok("字幕窗口已创建".to_string())
 }
@@ -117,14 +120,11 @@ pub async fn show_subtitle_window(
         create_subtitle_window(app_handle.clone()).await?;
     }
 
-    if let Some(window) = app_handle.get_webview_window("subtitle") {
-        window
-            .show()
-            .map_err(|e| AppError::Tauri(format!("显示字幕窗口失败: {}", e)))?;
-        Ok("字幕窗口已显示".to_string())
-    } else {
-        Err(AppError::Tauri("字幕窗口创建后仍不存在".to_string()))
-    }
+    let window = require_window(&app_handle, "subtitle", "字幕窗口创建后仍不存在")?;
+    window
+        .show()
+        .map_err(|e| tauri_error("显示字幕窗口失败", e))?;
+    Ok("字幕窗口已显示".to_string())
 }
 
 /// 隐藏字幕窗口（不销毁，下次可立即显示）
@@ -135,7 +135,7 @@ pub async fn hide_subtitle_window(
     if let Some(window) = app_handle.get_webview_window("subtitle") {
         window
             .hide()
-            .map_err(|e| AppError::Tauri(format!("隐藏字幕窗口失败: {}", e)))?;
+            .map_err(|e| tauri_error("隐藏字幕窗口失败", e))?;
         Ok("字幕窗口已隐藏".to_string())
     } else {
         Ok("字幕窗口不存在".to_string())
@@ -150,7 +150,7 @@ pub async fn destroy_subtitle_window(
     if let Some(window) = app_handle.get_webview_window("subtitle") {
         window
             .destroy()
-            .map_err(|e| AppError::Tauri(format!("销毁字幕窗口失败: {}", e)))?;
+            .map_err(|e| tauri_error("销毁字幕窗口失败", e))?;
         Ok("字幕窗口已销毁".to_string())
     } else {
         Ok("字幕窗口不存在，无需销毁".to_string())

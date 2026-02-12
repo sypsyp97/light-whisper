@@ -5,6 +5,8 @@ import {
   unregisterAllHotkeys,
 } from "../api/hotkey";
 import { DEFAULT_HOTKEY, HOTKEY_STORAGE_KEY } from "@/lib/constants";
+import { formatHotkeyForDisplay, normalizeHotkey } from "@/lib/hotkey";
+import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 
 interface UseHotkeyReturn {
   /** Whether the hotkey is currently registered. */
@@ -21,116 +23,14 @@ interface UseHotkeyReturn {
   error: string | null;
 }
 
-const MODIFIER_ORDER = ["Ctrl", "Alt", "Shift", "Super"] as const;
-
-function formatHotkeyForDisplay(shortcut: string): string {
-  return shortcut.replace(/\bSuper\b/g, "Win");
-}
-
-function normalizeMainKeyToken(token: string): string {
-  const value = token.trim();
-  if (!value) return "";
-
-  if (/^[a-z]$/i.test(value)) return value.toUpperCase();
-  if (/^\d$/.test(value)) return value;
-  if (/^f([1-9]|1\d|2[0-4])$/i.test(value)) return value.toUpperCase();
-
-  const map: Record<string, string> = {
-    escape: "Escape",
-    esc: "Escape",
-    enter: "Enter",
-    space: "Space",
-    tab: "Tab",
-    backspace: "Backspace",
-    delete: "Delete",
-    insert: "Insert",
-    home: "Home",
-    end: "End",
-    pageup: "PageUp",
-    pagedown: "PageDown",
-    arrowup: "ArrowUp",
-    up: "ArrowUp",
-    arrowdown: "ArrowDown",
-    down: "ArrowDown",
-    arrowleft: "ArrowLeft",
-    left: "ArrowLeft",
-    arrowright: "ArrowRight",
-    right: "ArrowRight",
-  };
-
-  return map[value.toLowerCase()] ?? "";
-}
-
-function normalizeHotkey(raw: string): string {
-  const parts = raw
-    .split("+")
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (parts.length === 0) return DEFAULT_HOTKEY;
-
-  const modifiers = new Set<string>();
-  let mainKey = "";
-
-  for (const token of parts) {
-    const lower = token.toLowerCase();
-    if (lower === "ctrl" || lower === "control") {
-      modifiers.add("Ctrl");
-      continue;
-    }
-    if (lower === "alt") {
-      modifiers.add("Alt");
-      continue;
-    }
-    if (lower === "shift") {
-      modifiers.add("Shift");
-      continue;
-    }
-    if (
-      lower === "meta" ||
-      lower === "super" ||
-      lower === "win" ||
-      lower === "cmd" ||
-      lower === "command"
-    ) {
-      modifiers.add("Super");
-      continue;
-    }
-    mainKey = normalizeMainKeyToken(token);
-  }
-
-  const orderedModifiers = MODIFIER_ORDER.filter((key) => modifiers.has(key));
-  if (!mainKey) {
-    // Allow Ctrl+Win as a special modifier-only hotkey.
-    if (
-      orderedModifiers.length === 2 &&
-      orderedModifiers[0] === "Ctrl" &&
-      orderedModifiers[1] === "Super"
-    ) {
-      return "Ctrl+Super";
-    }
-    return DEFAULT_HOTKEY;
-  }
-
-  return [...orderedModifiers, mainKey].join("+");
-}
-
 function readStoredHotkey(): string {
-  try {
-    const stored = localStorage.getItem(HOTKEY_STORAGE_KEY);
-    if (stored) return normalizeHotkey(stored);
-  } catch {
-    // localStorage may be unavailable
-  }
+  const stored = readLocalStorage(HOTKEY_STORAGE_KEY);
+  if (stored) return normalizeHotkey(stored);
   return DEFAULT_HOTKEY;
 }
 
 function writeStoredHotkey(shortcut: string): void {
-  try {
-    localStorage.setItem(HOTKEY_STORAGE_KEY, shortcut);
-  } catch {
-    // ignore write failures
-  }
+  writeLocalStorage(HOTKEY_STORAGE_KEY, shortcut);
 }
 
 /**

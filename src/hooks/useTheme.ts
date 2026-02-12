@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -47,13 +48,9 @@ function applyThemeToDOM(isDark: boolean): void {
  */
 export function useTheme(): UseThemeReturn {
   const [theme, setThemeState] = useState<ThemeMode>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored === "light" || stored === "dark" || stored === "system") {
-        return stored;
-      }
-    } catch {
-      // localStorage may be unavailable
+    const stored = readLocalStorage(STORAGE_KEY);
+    if (stored === "light" || stored === "dark" || stored === "system") {
+      return stored;
     }
     return "system";
   });
@@ -65,12 +62,7 @@ export function useTheme(): UseThemeReturn {
     const dark = resolveIsDark(theme);
     setIsDark(dark);
     applyThemeToDOM(dark);
-
-    try {
-      localStorage.setItem(STORAGE_KEY, theme);
-    } catch {
-      // ignore write failures
-    }
+    writeLocalStorage(STORAGE_KEY, theme);
   }, [theme]);
 
   // Listen for system preference changes when in "system" mode
