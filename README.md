@@ -25,6 +25,8 @@
 ## 功能特点
 
 - **F2 一键转写** — 按住录音，松开自动转写，结果直接输入到当前活动窗口
+- **连续说话不丢字** — 快速开始下一段时，上一段结果会进入输入队列，按顺序稳定输入
+- **流式反馈更顺滑** — 录音中会更高频地刷新中间结果，字幕观感更接近实时
 - **双引擎可选** — 在设置页一键切换，各有所长（详见下方对比）
   - **SenseVoice** — 中文准确率高，内置标点恢复，推理极快
   - **Faster Whisper** — 支持 99+ 种语言
@@ -235,6 +237,7 @@ pnpm tauri build
 | 操作 | 说明 |
 |------|------|
 | **按住 F2** | 开始录音，松开后自动转写 |
+| **连续快速按住 F2** | 可连续说多段，结果会按顺序输入，不会因下一段开始而丢失上一段 |
 | **点击圆形按钮** | 手动开始/停止录音 |
 | **系统托盘图标** | 右键菜单（显示/隐藏/退出），双击切换显示 |
 | **齿轮图标** | 打开设置页面 |
@@ -272,7 +275,8 @@ light-whisper/
 │   │   └── autostart.ts        #   开机自启动
 │   ├── pages/                  # 页面组件
 │   │   ├── MainPage.tsx        #   主界面（录音+转写）
-│   │   └── SettingsPage.tsx    #   设置页面
+│   │   ├── SettingsPage.tsx    #   设置页面
+│   │   └── SubtitleOverlay.tsx #   字幕悬浮窗页面
 │   ├── components/             # 通用组件
 │   │   └── TitleBar.tsx        #   标题栏（窗口拖动、操作按钮）
 │   ├── hooks/                  # React Hooks
@@ -285,6 +289,8 @@ light-whisper/
 │   │   └── RecordingContext.tsx #   全局录音状态管理
 │   ├── types/
 │   │   └── index.ts            #   TypeScript 类型定义
+│   ├── styles/
+│   │   └── subtitle.css        #   字幕悬浮窗样式
 │   └── main.tsx                # React 入口
 │
 ├── src-tauri/                  # 后端 (Rust + Tauri 2)
@@ -397,6 +403,17 @@ F2 是全局快捷键，如果被其他程序占用（如某些游戏或工具�
 </details>
 
 <details>
+<summary><b>连续说两段时，上一段结果会丢吗？</b></summary>
+
+不会。当前版本使用了**输入队列**：即使你在上一段结果输入前马上开始下一段，上一段也会保留并按顺序输入。
+
+如果你仍感觉有延迟，通常是目标应用自身处理输入较慢（例如重型编辑器、远程桌面或高负载场景），可优先尝试：
+1. 将输入方式切到**剪贴板粘贴**（兼容性更高）
+2. 关闭目标应用中的高频自动格式化插件
+
+</details>
+
+<details>
 <summary><b>转写结果输入到光标位置时部分字符变成句号或乱码</b></summary>
 
 这是因为默认的"直接输入"模式使用 Win32 `SendInput` API 以 `KEYEVENTF_UNICODE` 模式逐字符模拟键盘输入，**当系统开启中文输入法（IME）时，IME 可能拦截并错误处理这些合成的 Unicode 键盘事件**，导致某些中文字符（如"我"、"你"）被转换为其他字符（如"。"）。
@@ -411,8 +428,8 @@ F2 是全局快捷键，如果被其他程序占用（如某些游戏或工具�
 <details>
 <summary><b>应用日志在哪？</b></summary>
 
-- **SenseVoice 日志**：`%APPDATA%\light-whisper\logs\funasr_server.log`
-- **Whisper 日志**：`%APPDATA%\light-whisper\logs\whisper_server.log`
+- **SenseVoice 日志**：`%APPDATA%\com.light-whisper.app\logs\funasr_server.log`
+- **Whisper 日志**：`%APPDATA%\com.light-whisper.app\logs\whisper_server.log`
 - **Rust/Tauri 日志**：开发模式下输出到控制台
 
 </details>

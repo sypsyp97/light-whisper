@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Settings, Minus, X, Copy, Download, Cpu, Loader2, Check } from "lucide-react";
 import { toast } from "sonner";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import { copyToClipboard } from "@/api/clipboard";
 import { hideMainWindow } from "@/api/window";
@@ -9,9 +10,8 @@ import { PADDING } from "@/lib/constants";
 const EQ_BAR_COUNT = 5;
 const EQ_BAR_DELAY_STEP = 0.12; // seconds between each bar's animation
 
-export default function MainPage({ onNavigate, onExitWindow }: {
+export default function MainPage({ onNavigate }: {
   onNavigate: (v: "main" | "settings") => void;
-  onExitWindow: (action: () => Promise<void>) => Promise<void>;
 }) {
   const {
     isRecording, isProcessing, startRecording, stopRecording,
@@ -61,10 +61,10 @@ export default function MainPage({ onNavigate, onExitWindow }: {
         }
         rightActions={
           <>
-            <button aria-label="最小化" className="icon-btn" onClick={() => onExitWindow(async () => { await hideMainWindow(); })}>
+            <button aria-label="最小化" className="icon-btn" onClick={() => getCurrentWindow().minimize()}>
               <Minus size={12} strokeWidth={1.5} />
             </button>
-            <button aria-label="关闭" className="icon-btn" onClick={() => onExitWindow(async () => { await hideMainWindow(); })}>
+            <button aria-label="关闭" className="icon-btn" onClick={() => hideMainWindow()}>
               <X size={12} strokeWidth={1.5} />
             </button>
           </>

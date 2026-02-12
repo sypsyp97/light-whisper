@@ -103,7 +103,18 @@ pub fn read_engine_config() -> String {
 pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
     let config_path = get_engine_config_path();
     let content = serde_json::json!({ "engine": engine });
-    std::fs::write(&config_path, serde_json::to_string_pretty(&content).unwrap())
+    let serialized = serde_json::to_string_pretty(&content).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("序列化引擎配置失败: {}", e),
+        )
+    })?;
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    std::fs::write(&config_path, serialized)
 }
 
 // 需要导入 tauri::Manager trait 才能使用 app.path() 方法

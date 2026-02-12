@@ -164,7 +164,30 @@ pub fn run() {
             // 设置系统托盘
             setup_system_tray(&app_handle)?;
 
+            // 预创建字幕窗口（隐藏），避免首次录音时的 WebView2 初始化延迟
+            let subtitle_handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                // 稍微延迟，等主窗口加载完成后再创建字幕窗口
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                match commands::window::create_subtitle_window(subtitle_handle).await {
+                    Ok(_) => log::info!("字幕窗口预创建成功"),
+                    Err(e) => log::warn!("字幕窗口预创建失败（将在首次录音时重试）: {}", e),
+                }
+            });
+
             Ok(())
+        })
+
+        // ============================================================
+        // 主窗口关闭事件：隐藏到托盘而非退出
+        // ============================================================
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
 
         // ============================================================
@@ -193,6 +216,11 @@ pub fn run() {
             commands::clipboard::paste_text,
             // 窗口命令
             commands::window::hide_main_window,
+            commands::window::show_main_window,
+            commands::window::create_subtitle_window,
+            commands::window::show_subtitle_window,
+            commands::window::hide_subtitle_window,
+            commands::window::destroy_subtitle_window,
             // 快捷键命令
             commands::hotkey::register_f2_hotkey,
             commands::hotkey::unregister_f2_hotkey,

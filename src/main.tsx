@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -49,8 +49,6 @@ function App() {
   const [view, setView] = useState<View>("main");
   const [animClass, setAnimClass] = useState("");
   const isTransitioning = useRef(false);
-  const appRef = useRef<HTMLDivElement>(null);
-  const wasExited = useRef(false);
   useTheme();
 
   // Page navigation with directional slide
@@ -72,63 +70,12 @@ function App() {
     }, 120);
   }, [view]);
 
-  // Smooth window exit: fade-out + scale-down before minimize/hide
-  const exitWindow = useCallback(async (action: () => Promise<void>) => {
-    if (wasExited.current) return;
-    const el = appRef.current;
-    if (el) {
-      el.style.transition = "opacity 120ms ease, transform 120ms ease";
-      el.style.opacity = "0";
-      el.style.transform = "scale(0.97)";
-    }
-    await new Promise(r => setTimeout(r, 130));
-    wasExited.current = true;
-    await action();
-  }, []);
-
-  // Restore window visuals when focus returns after exit
-  useEffect(() => {
-    const restore = () => {
-      if (!wasExited.current) return;
-      wasExited.current = false;
-      const el = appRef.current;
-      if (el) {
-        // Ensure starting state before animating in
-        el.style.transition = "none";
-        el.style.opacity = "0";
-        el.style.transform = "scale(0.97)";
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            el.style.transition = "opacity 150ms ease-out, transform 150ms ease-out";
-            el.style.opacity = "1";
-            el.style.transform = "scale(1)";
-          });
-        });
-      }
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") restore();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    const appWindow = getCurrentWindow();
-    const unlistenPromise = appWindow.onFocusChanged(({ payload: focused }) => {
-      if (focused) restore();
-    });
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-      unlistenPromise.then(fn => fn());
-    };
-  }, []);
-
   return (
     <RecordingProvider>
-      <div ref={appRef} style={{ height: "100%", width: "100%" }}>
+      <div style={{ height: "100%", width: "100%" }}>
         <div className={animClass} style={{ height: "100%", width: "100%" }}>
           {view === "main" ? (
-            <MainPage onNavigate={navigateTo} onExitWindow={exitWindow} />
+            <MainPage onNavigate={navigateTo} />
           ) : (
             <SettingsPage onNavigate={navigateTo} />
           )}
@@ -146,10 +93,26 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </React.StrictMode>
-);
+const windowLabel = getCurrentWindow().label;
+
+if (windowLabel === "subtitle") {
+  import("./pages/SubtitleOverlay")
+    .then(({ default: SubtitleOverlay }) => {
+      ReactDOM.createRoot(document.getElementById("root")!).render(
+        <React.StrictMode>
+          <SubtitleOverlay />
+        </React.StrictMode>
+      );
+    })
+    .catch((error) => {
+      console.error("字幕窗口加载失败:", error);
+    });
+} else {
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+}

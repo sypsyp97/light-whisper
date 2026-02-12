@@ -54,14 +54,18 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     retry: retryModel,
   } = useModelStatus();
 
-  const toggleRecording = useCallback(() => {
-    if (!isReady) return;
-    if (isRecording) stopRecording();
-    else startRecording();
-  }, [isReady, isRecording, startRecording, stopRecording]);
+  // F2 push-to-talk: press to start, release to stop
+  const hotkeyStart = useCallback(() => {
+    if (!isReady || isRecording || isProcessing) return;
+    startRecording();
+  }, [isReady, isRecording, isProcessing, startRecording]);
 
-  // F2 hotkey — always mounted at root, never unregistered during navigation
-  useHotkey(toggleRecording);
+  const hotkeyStop = useCallback(() => {
+    if (!isRecording) return;
+    stopRecording();
+  }, [isRecording, stopRecording]);
+
+  useHotkey(hotkeyStart, hotkeyStop);
 
   const contextValue = useMemo<RecordingContextValue>(() => ({
     isRecording,

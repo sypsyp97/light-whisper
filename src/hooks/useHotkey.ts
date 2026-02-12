@@ -18,28 +18,30 @@ interface UseHotkeyReturn {
 /**
  * React hook that manages the global F2 push-to-talk hotkey.
  *
- * - Registers the hotkey on mount and unregisters on unmount.
- * - Listens for the `toggle-recording` Tauri event emitted by the Rust backend
- *   when the user presses F2.
- * - Accepts an optional callback that fires on each press event.
+ * Press-to-talk: hold F2 to record, release to stop.
  *
- * @param onTrigger - Callback invoked when the hotkey is activated.
+ * @param onPress  - Called when the hotkey is pressed (start recording).
+ * @param onRelease - Called when the hotkey is released (stop recording).
  */
-export function useHotkey(onTrigger?: () => void): UseHotkeyReturn {
+export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotkeyReturn {
   const [registered, setRegistered] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const onTriggerRef = useRef(onTrigger);
-  onTriggerRef.current = onTrigger;
+  const mountedRef = useRef(true);
+  const onPressRef = useRef(onPress);
+  const onReleaseRef = useRef(onRelease);
+  onPressRef.current = onPress;
+  onReleaseRef.current = onRelease;
 
   const register = useCallback(async () => {
     try {
       setError(null);
-      // Rust returns a plain string on success, throws on failure
       await registerF2Hotkey();
+      if (!mountedRef.current) return;
       setRegistered(true);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : String(err);
+      if (!mountedRef.current) return;
       setError(message);
     }
   }, []);
@@ -47,6 +49,7 @@ export function useHotkey(onTrigger?: () => void): UseHotkeyReturn {
   const unregister = useCallback(async () => {
     try {
       await unregisterF2Hotkey();
+      if (!mountedRef.current) return;
       setRegistered(false);
       setError(null);
     } catch {
@@ -56,26 +59,50 @@ export function useHotkey(onTrigger?: () => void): UseHotkeyReturn {
 
   // Register on mount, unregister on unmount
   useEffect(() => {
-    register();
+    mountedRef.current = true;
+    void register();
     return () => {
-      unregisterF2Hotkey().catch(() => {});
+      mountedRef.current = false;
+      void unregisterF2Hotkey().catch(() => undefined);
     };
   }, [register]);
 
-  // Listen for the toggle-recording event from the Rust backend
+  // Listen for hotkey press/release events
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    let unlistenPress: (() => void) | null = null;
+    let unlistenRelease: (() => void) | null = null;
 
-    const setup = async () => {
-      unlisten = await listen("toggle-recording", () => {
-        onTriggerRef.current?.();
-      });
-    };
+    void (async () => {
+      try {
+        const [pressUnlisten, releaseUnlisten] = await Promise.all([
+          listen("hotkey-press", () => {
+            onPressRef.current?.();
+          }),
+          listen("hotkey-release", () => {
+            onReleaseRef.current?.();
+          }),
+        ]);
 
-    setup();
+        if (disposed) {
+          pressUnlisten();
+          releaseUnlisten();
+          return;
+        }
+
+        unlistenPress = pressUnlisten;
+        unlistenRelease = releaseUnlisten;
+      } catch (err) {
+        if (!mountedRef.current) return;
+        const message = err instanceof Error ? err.message : "监听热键事件失败";
+        setError(message);
+      }
+    })();
 
     return () => {
-      unlisten?.();
+      disposed = true;
+      unlistenPress?.();
+      unlistenRelease?.();
     };
   }, []);
 

@@ -1,3 +1,6 @@
+const TARGET_SAMPLE_RATE = 16000;
+const BASE64_CHUNK_BYTES = 0x8000;
+
 /**
  * Write a WAV file header into a DataView.
  * Produces a standard 16-bit mono PCM WAV at the given sample rate.
@@ -43,7 +46,7 @@ function writeString(view: DataView, offset: number, str: string): void {
  * Convert an AudioBuffer (any sample rate) to a 16-bit mono WAV
  * ArrayBuffer re-sampled to the target sample rate.
  */
-function audioBufferToWav(buffer: AudioBuffer, targetSampleRate = 16000): ArrayBuffer {
+function audioBufferToWav(buffer: AudioBuffer, targetSampleRate = TARGET_SAMPLE_RATE): ArrayBuffer {
   // Down-mix to mono (average all channels)
   const numChannels = buffer.numberOfChannels;
   let channelData: Float32Array;
@@ -107,28 +110,38 @@ function audioBufferToWav(buffer: AudioBuffer, targetSampleRate = 16000): ArrayB
  */
 export async function convertToWav(blob: Blob): Promise<ArrayBuffer> {
   const arrayBuffer = await blob.arrayBuffer();
-  let audioCtx: AudioContext;
-  try {
-    audioCtx = new AudioContext({ sampleRate: 16000 });
-  } catch {
-    // Fallback to default sample rate if 16k is unsupported
-    audioCtx = new AudioContext();
+  const audioCtx = getSharedAudioContext();
+  if (audioCtx.state === "suspended") {
+    await audioCtx.resume().catch(() => undefined);
   }
-
-  try {
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-    return audioBufferToWav(audioBuffer, 16000);
-  } finally {
-    await audioCtx.close();
-  }
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+  return audioBufferToWav(audioBuffer, TARGET_SAMPLE_RATE);
 }
 
 /** 将 ArrayBuffer 转为 base64 字符串（避免 JSON 序列化大数组） */
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.byteLength; i += BASE64_CHUNK_BYTES) {
+    const chunk = bytes.subarray(i, i + BASE64_CHUNK_BYTES);
+    parts.push(String.fromCharCode(...chunk));
   }
-  return btoa(binary);
+  return btoa(parts.join(""));
+}
+
+let sharedAudioContext: AudioContext | null = null;
+
+function getSharedAudioContext(): AudioContext {
+  if (sharedAudioContext && sharedAudioContext.state !== "closed") {
+    return sharedAudioContext;
+  }
+
+  try {
+    sharedAudioContext = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+  } catch {
+    // Fallback to default sample rate if 16k is unsupported
+    sharedAudioContext = new AudioContext();
+  }
+
+  return sharedAudioContext;
 }

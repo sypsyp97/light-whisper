@@ -15,13 +15,15 @@
       {
         "label": "main",
         "title": "轻语 Whisper",
-        "width": 320,
-        "height": 400,
-        "resizable": false,
+        "width": 420,
+        "height": 560,
+        "minWidth": 360,
+        "minHeight": 400,
+        "resizable": true,
         "decorations": false,
         "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
         "center": true,
         "url": "/"
       }

@@ -54,12 +54,15 @@ pub async fn register_f2_hotkey(
     app_handle
         .global_shortcut()
         .on_shortcut(shortcut, move |app, _shortcut, event| {
-            // 只在按键按下时触发（忽略松开事件）
-            if let tauri_plugin_global_shortcut::ShortcutState::Pressed = event.state {
-                log::info!("F2 快捷键被按下，切换录音状态");
-
-                // 向前端发送事件
-                let _ = app.emit("toggle-recording", ());
+            match event.state {
+                tauri_plugin_global_shortcut::ShortcutState::Pressed => {
+                    log::info!("F2 按下，开始录音");
+                    let _ = app.emit("hotkey-press", ());
+                }
+                tauri_plugin_global_shortcut::ShortcutState::Released => {
+                    log::info!("F2 松开，停止录音");
+                    let _ = app.emit("hotkey-release", ());
+                }
             }
         })
         .map_err(|e| AppError::Other(format!("注册 F2 快捷键失败: {}", e)))?;
@@ -114,9 +117,15 @@ pub async fn register_custom_hotkey(
     app_handle
         .global_shortcut()
         .on_shortcut(shortcut.as_str(), move |app, _shortcut, event| {
-            if let tauri_plugin_global_shortcut::ShortcutState::Pressed = event.state {
-                log::info!("自定义快捷键被按下，切换录音状态");
-                let _ = app.emit("toggle-recording", ());
+            match event.state {
+                tauri_plugin_global_shortcut::ShortcutState::Pressed => {
+                    log::info!("自定义快捷键按下，开始录音");
+                    let _ = app.emit("hotkey-press", ());
+                }
+                tauri_plugin_global_shortcut::ShortcutState::Released => {
+                    log::info!("自定义快捷键松开，停止录音");
+                    let _ = app.emit("hotkey-release", ());
+                }
             }
         })
         .map_err(|e| {

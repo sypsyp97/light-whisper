@@ -1,0 +1,162 @@
+/* ============================================================
+   Subtitle Overlay Window Styles
+   Transparent background, bottom-center capsule with glassmorphism.
+   Only loaded in the subtitle window.
+   ============================================================ */
+
+/* Force fully transparent background — override theme.css body gradient */
+html,
+body,
+#root {
+  background: transparent !important;
+  background-image: none !important;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Root container — full viewport, bottom-center aligned */
+.subtitle-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 8px;
+  pointer-events: none;
+  background: transparent;
+}
+
+/* Capsule container — glassmorphism pill */
+.subtitle-capsule {
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 20px;
+  border-radius: var(--radius-full);
+  background: rgba(20, 18, 14, 0.82);
+  backdrop-filter: blur(16px) saturate(1.6);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  max-width: 90vw;
+  animation: subtitle-fade-in 0.2s ease-out forwards;
+}
+
+/* Light theme capsule */
+[data-theme="light"] .subtitle-capsule {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .subtitle-text {
+  color: var(--color-text-primary);
+}
+
+[data-theme="light"] .subtitle-hint {
+  color: var(--color-text-secondary);
+}
+
+/* Fade-out state */
+.subtitle-capsule.subtitle-fade-out {
+  animation: subtitle-fade-out 0.3s ease-in forwards;
+}
+
+/* Text content */
+.subtitle-text {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  color: #F0EBE3;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Status hint text */
+.subtitle-hint {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: rgba(200, 190, 175, 0.9);
+}
+
+/* ---- Indicator dots ---- */
+
+/* Recording dot — pulsing terracotta */
+.subtitle-dot-recording {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex-shrink: 0;
+  animation: subtitle-pulse 1.2s ease-in-out infinite;
+}
+
+/* Processing dot — spinning */
+.subtitle-dot-processing {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-top-color: var(--color-accent);
+  flex-shrink: 0;
+  animation: spin 0.7s linear infinite;
+}
+
+[data-theme="light"] .subtitle-dot-processing {
+  border-color: rgba(0, 0, 0, 0.06);
+  border-top-color: var(--color-accent);
+}
+
+/* ---- Animations ---- */
+
+@keyframes subtitle-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes subtitle-fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes subtitle-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ---- Accessibility ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .subtitle-capsule,
+  .subtitle-capsule.subtitle-fade-out,
+  .subtitle-dot-recording,
+  .subtitle-dot-processing {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
