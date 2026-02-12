@@ -37,6 +37,11 @@ const MAX_START_FAILURES = 3;
 const MAX_LOADING_CHECKS = 10;
 /** Polling interval in milliseconds for transient states. */
 const POLL_INTERVAL_MS = 6000;
+/** Consider download stalled if no progress event arrives within this period. */
+const DOWNLOAD_STALL_HINT_MS = 20000;
+/** Auto-download retries when app cold-starts without models. */
+const AUTO_DOWNLOAD_MAX_RETRIES = 1;
+const AUTO_DOWNLOAD_RETRY_DELAY_MS = 3000;
 
 /**
  * React hook that tracks the FunASR lifecycle:
@@ -61,7 +66,14 @@ export function useModelStatus(): UseModelStatusReturn {
   const loadingChecksRef = useRef(0);
   const downloadingRef = useRef(false);
   const autoDownloadTriggeredRef = useRef(false);
-  const triggerDownloadRef = useRef<(() => void) | null>(null);
+  const autoDownloadRetryRef = useRef(0);
+  const pendingAutoDownloadRef = useRef(false);
+  const downloadListenerReadyRef = useRef(false);
+  const lastDownloadEventAtRef = useRef(0);
+  const downloadWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerDownloadRef = useRef<
+    ((source?: "auto" | "manual") => void) | null
+  >(null);
 
   const clearPolling = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -69,6 +81,30 @@ export function useModelStatus(): UseModelStatusReturn {
       intervalRef.current = null;
     }
   }, []);
+
+  const clearDownloadWatchdog = useCallback(() => {
+    if (downloadWatchdogRef.current !== null) {
+      clearTimeout(downloadWatchdogRef.current);
+      downloadWatchdogRef.current = null;
+    }
+  }, []);
+
+  const startDownloadWatchdog = useCallback(() => {
+    clearDownloadWatchdog();
+    downloadWatchdogRef.current = setTimeout(() => {
+      if (!mountedRef.current || !downloadingRef.current) return;
+      const silentFor = Date.now() - lastDownloadEventAtRef.current;
+      if (silentFor >= DOWNLOAD_STALL_HINT_MS) {
+        setDownloadMessage((prev) => {
+          if (prev && prev.includes("网络较慢")) return prev;
+          return prev
+            ? `${prev}（网络较慢，仍在下载...）`
+            : "网络较慢，仍在下载...";
+        });
+      }
+      startDownloadWatchdog();
+    }, DOWNLOAD_STALL_HINT_MS);
+  }, [clearDownloadWatchdog]);
 
   const checkStatus = useCallback(async () => {
     if (!mountedRef.current) return;
@@ -78,10 +114,15 @@ export function useModelStatus(): UseModelStatusReturn {
       restartAttemptedRef.current = false;
       loadingChecksRef.current = 0;
       setStage("need_download");
+      setError(null);
       setDownloadMessage(null);
       if (!autoDownloadTriggeredRef.current && !downloadingRef.current) {
         autoDownloadTriggeredRef.current = true;
-        setTimeout(() => triggerDownloadRef.current?.(), 0);
+        if (downloadListenerReadyRef.current) {
+          setTimeout(() => triggerDownloadRef.current?.("auto"), 0);
+        } else {
+          pendingAutoDownloadRef.current = true;
+        }
       }
     };
 
@@ -94,6 +135,7 @@ export function useModelStatus(): UseModelStatusReturn {
 
       if (status.running && status.ready) {
         startFailuresRef.current = 0;
+        autoDownloadRetryRef.current = 0;
         restartAttemptedRef.current = false;
         loadingChecksRef.current = 0;
         setStage("ready");
@@ -172,9 +214,12 @@ export function useModelStatus(): UseModelStatusReturn {
 
     return () => {
       mountedRef.current = false;
+      downloadListenerReadyRef.current = false;
+      pendingAutoDownloadRef.current = false;
+      clearDownloadWatchdog();
       clearPolling();
     };
-  }, [checkStatus, clearPolling]);
+  }, [checkStatus, clearDownloadWatchdog, clearPolling]);
 
   // Listen for funasr-status events (loading progress, crashed, etc.)
   useEffect(() => {
@@ -222,6 +267,7 @@ export function useModelStatus(): UseModelStatusReturn {
   }, [checkStatus, clearPolling]);
 
   useEffect(() => {
+    let disposed = false;
     let unlisten: (() => void) | undefined;
 
     type DownloadStatusPayload = {
@@ -232,56 +278,93 @@ export function useModelStatus(): UseModelStatusReturn {
     };
 
     const setup = async () => {
-      unlisten = await listen<DownloadStatusPayload>(
-        "model-download-status",
-        (event) => {
-          if (!mountedRef.current) return;
-          const { status, progress, message, error: payloadError } = event.payload;
+      try {
+        unlisten = await listen<DownloadStatusPayload>(
+          "model-download-status",
+          (event) => {
+            if (!mountedRef.current) return;
+            const { status, progress, message, error: payloadError } = event.payload;
 
-          if (status === "downloading" || status === "progress") {
-            downloadingRef.current = true;
-            setDownloadActive(true);
-            setStage("downloading");
-            if (typeof progress === "number") {
-              setDownloadProgress(Math.max(0, Math.min(100, progress)));
-            } else {
-              setDownloadProgress((prev) => Math.max(prev, 1));
+            if (status === "downloading" || status === "progress") {
+              lastDownloadEventAtRef.current = Date.now();
+              startDownloadWatchdog();
+              downloadingRef.current = true;
+              setDownloadActive(true);
+              setStage("downloading");
+              setError(null);
+              if (typeof progress === "number") {
+                setDownloadProgress(Math.max(0, Math.min(100, progress)));
+              } else {
+                setDownloadProgress((prev) => Math.max(prev, 1));
+              }
+              setDownloadMessage(message ?? null);
+            } else if (status === "completed") {
+              clearDownloadWatchdog();
+              autoDownloadRetryRef.current = 0;
+              downloadingRef.current = false;
+              setDownloadActive(false);
+              setDownloadProgress(100);
+              setDownloadMessage(message ?? null);
+              setStage("loading");
+              restartFunASR().catch(() => {});
+            } else if (status === "cancelled") {
+              clearDownloadWatchdog();
+              downloadingRef.current = false;
+              setDownloadActive(false);
+              setDownloadProgress(0);
+              setDownloadMessage(message ?? "下载已取消");
+              autoDownloadTriggeredRef.current = false;
+              setStage("need_download");
+            } else if (status === "error") {
+              clearDownloadWatchdog();
+              downloadingRef.current = false;
+              setDownloadActive(false);
+              autoDownloadTriggeredRef.current = false;
+              setError(payloadError || message || "模型下载失败");
+              setStage("error");
             }
-            setDownloadMessage(message ?? null);
-          } else if (status === "completed") {
-            downloadingRef.current = false;
-            setDownloadActive(false);
-            setDownloadProgress(100);
-            setDownloadMessage(message ?? null);
-            setStage("loading");
-            restartFunASR().catch(() => {});
-          } else if (status === "cancelled") {
-            downloadingRef.current = false;
-            setDownloadActive(false);
-            setDownloadProgress(0);
-            setDownloadMessage(message ?? "下载已取消");
-            autoDownloadTriggeredRef.current = false;
-            setStage("need_download");
-          } else if (status === "error") {
-            downloadingRef.current = false;
-            setDownloadActive(false);
-            setError(payloadError || message || "模型下载失败");
-            setStage("error");
           }
+        );
+
+        if (disposed) {
+          unlisten?.();
+          return;
         }
-      );
+
+        downloadListenerReadyRef.current = true;
+        if (pendingAutoDownloadRef.current && !downloadingRef.current) {
+          pendingAutoDownloadRef.current = false;
+          setTimeout(() => triggerDownloadRef.current?.("auto"), 0);
+        }
+      } catch (err) {
+        if (!mountedRef.current) return;
+        const message =
+          err instanceof Error ? err.message : "监听模型下载状态失败";
+        setError(message);
+        setStage("error");
+      }
     };
 
     setup();
     return () => {
+      disposed = true;
+      downloadListenerReadyRef.current = false;
+      clearDownloadWatchdog();
       unlisten?.();
     };
-  }, []);
+  }, [clearDownloadWatchdog, startDownloadWatchdog]);
 
-  const triggerDownload = useCallback(async () => {
+  const triggerDownload = useCallback(async (source: "auto" | "manual" = "manual") => {
     try {
       if (downloadingRef.current) return;
+
+      if (source === "manual") {
+        autoDownloadTriggeredRef.current = true;
+      }
+
       downloadingRef.current = true;
+      lastDownloadEventAtRef.current = Date.now();
+      startDownloadWatchdog();
       setDownloadActive(true);
       setStage("downloading");
       setDownloadProgress(0);
@@ -289,22 +372,53 @@ export function useModelStatus(): UseModelStatusReturn {
       setError(null);
       await downloadModels();
       if (!mountedRef.current) return;
+
+      const modelCheck = await checkModelFiles();
+      if (!mountedRef.current) return;
+      if (!modelCheck.all_present) {
+        throw new Error("模型下载未完整，请重试");
+      }
+
+      autoDownloadRetryRef.current = 0;
       if (downloadingRef.current) {
+        clearDownloadWatchdog();
         downloadingRef.current = false;
         setDownloadActive(false);
         setStage("loading");
+        setDownloadProgress(100);
+        checkStatus();
+      } else {
         checkStatus();
       }
     } catch (err) {
+      clearDownloadWatchdog();
       downloadingRef.current = false;
       setDownloadActive(false);
       if (!mountedRef.current) return;
       const message =
         err instanceof Error ? err.message : "模型下载失败";
+
+      if (
+        source === "auto" &&
+        autoDownloadRetryRef.current < AUTO_DOWNLOAD_MAX_RETRIES
+      ) {
+        autoDownloadRetryRef.current += 1;
+        setError(null);
+        setStage("need_download");
+        setDownloadMessage(
+          `下载失败，${Math.ceil(AUTO_DOWNLOAD_RETRY_DELAY_MS / 1000)} 秒后自动重试...`
+        );
+        setTimeout(() => {
+          if (!mountedRef.current || downloadingRef.current) return;
+          triggerDownloadRef.current?.("auto");
+        }, AUTO_DOWNLOAD_RETRY_DELAY_MS);
+        return;
+      }
+
       setError(message);
       setStage("error");
     }
-  }, [checkStatus]);
+  }, [checkStatus, clearDownloadWatchdog, startDownloadWatchdog]);
 
   triggerDownloadRef.current = triggerDownload;
 
@@ -321,6 +435,10 @@ export function useModelStatus(): UseModelStatusReturn {
   }, []);
 
   const retry = useCallback(() => {
+    clearDownloadWatchdog();
+    downloadingRef.current = false;
+    autoDownloadRetryRef.current = 0;
+    pendingAutoDownloadRef.current = false;
     setError(null);
     setDownloadProgress(0);
     setDownloadMessage(null);
@@ -334,7 +452,7 @@ export function useModelStatus(): UseModelStatusReturn {
     intervalRef.current = setInterval(() => {
       checkStatus();
     }, POLL_INTERVAL_MS);
-  }, [checkStatus, clearPolling]);
+  }, [checkStatus, clearDownloadWatchdog, clearPolling]);
 
   return {
     stage,

@@ -33,9 +33,16 @@ interface TranscriptionEventPayload {
 }
 
 const MIN_AUDIO_DURATION_SEC = 0.5;
-const INTERIM_INTERVAL_MS = 220;
+const INTERIM_INTERVAL_MIN_MS = 140;
+const INTERIM_INTERVAL_BASE_MS = 220;
+const INTERIM_INTERVAL_MAX_MS = 460;
+const INTERIM_INTERVAL_DOWN_STEP_MS = 24;
+const INTERIM_INTERVAL_UP_STEP_MS = 42;
+const INTERIM_HEAVY_COST_MS = 420;
+const INTERIM_LIGHT_COST_MS = 180;
 const INTERIM_MIN_BYTES_GROWTH = 2 * 1024;
 const RESULT_HIDE_DELAY_MS = 2500;
+const EMPTY_RESULT_HIDE_DELAY_MS = 360;
 const PASTE_DELAY_MS = 260;
 const PASTE_RETRY_INTERVAL_MS = 140;
 const RECORDER_TIMESLICE_MS = 80;
@@ -75,11 +82,14 @@ export function useRecording(): UseRecordingReturn {
 
   const totalChunkBytesRef = useRef(0);
   const lastInterimBytesRef = useRef(0);
-  const pendingInterimRef = useRef(false);
+  const interimIntervalRef = useRef(INTERIM_INTERVAL_BASE_MS);
 
-  const periodicRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const periodicRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busyRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleInterimLoopRef = useRef<
+    (sessionId: number, mimeType: string, delayMs: number) => void
+  >(() => {});
 
   const pasteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pasteQueueRef = useRef<string[]>([]);
@@ -106,7 +116,7 @@ export function useRecording(): UseRecordingReturn {
 
   const clearTimers = useCallback((options?: { preserveHide?: boolean }) => {
     if (periodicRef.current) {
-      clearInterval(periodicRef.current);
+      clearTimeout(periodicRef.current);
       periodicRef.current = null;
     }
     if (!options?.preserveHide && hideTimerRef.current) {
@@ -124,7 +134,6 @@ export function useRecording(): UseRecordingReturn {
 
   const releaseMediaResources = useCallback(() => {
     busyRef.current = false;
-    pendingInterimRef.current = false;
 
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.ondataavailable = null;
@@ -141,6 +150,7 @@ export function useRecording(): UseRecordingReturn {
     chunksRef.current = [];
     totalChunkBytesRef.current = 0;
     lastInterimBytesRef.current = 0;
+    interimIntervalRef.current = INTERIM_INTERVAL_BASE_MS;
   }, []);
 
   const hideSubtitleSilently = useCallback(() => {
@@ -201,36 +211,38 @@ export function useRecording(): UseRecordingReturn {
   }, []);
 
   const runInterimTranscription = useCallback(
-    async (sessionId: number, mimeType: string) => {
-      if (busyRef.current) {
-        pendingInterimRef.current = true;
-        return;
-      }
-      if (activeSessionIdRef.current !== sessionId) return;
-      if (totalChunkBytesRef.current === 0) return;
+    async (
+      sessionId: number,
+      mimeType: string
+    ): Promise<{ executed: boolean; elapsedMs: number }> => {
+      if (busyRef.current) return { executed: false, elapsedMs: 0 };
+      if (isStoppingRef.current) return { executed: false, elapsedMs: 0 };
+      if (activeSessionIdRef.current !== sessionId) return { executed: false, elapsedMs: 0 };
+      if (totalChunkBytesRef.current === 0) return { executed: false, elapsedMs: 0 };
       if (
         totalChunkBytesRef.current - lastInterimBytesRef.current <
         INTERIM_MIN_BYTES_GROWTH
       ) {
-        return;
+        return { executed: false, elapsedMs: 0 };
       }
 
       busyRef.current = true;
+      const runStart = performance.now();
       try {
         const blob = new Blob([...chunksRef.current], {
           type: mimeType || "audio/webm",
         });
-        if (blob.size === 0) return;
+        if (blob.size === 0) return { executed: false, elapsedMs: 0 };
 
         const wavBuffer = await convertToWav(blob);
-        if (activeSessionIdRef.current !== sessionId) return;
+        if (activeSessionIdRef.current !== sessionId) return { executed: false, elapsedMs: 0 };
 
         const duration = getWavDurationSeconds(wavBuffer);
-        if (duration < MIN_AUDIO_DURATION_SEC) return;
+        if (duration < MIN_AUDIO_DURATION_SEC) return { executed: false, elapsedMs: 0 };
 
         lastInterimBytesRef.current = totalChunkBytesRef.current;
         const result = await transcribeAudio(arrayBufferToBase64(wavBuffer));
-        if (activeSessionIdRef.current !== sessionId) return;
+        if (activeSessionIdRef.current !== sessionId) return { executed: false, elapsedMs: 0 };
 
         if (result.success && result.text) {
           emitTranscription({
@@ -239,21 +251,78 @@ export function useRecording(): UseRecordingReturn {
             interim: true,
           });
         }
+
+        return { executed: true, elapsedMs: performance.now() - runStart };
       } catch {
         // 中间转写失败静默忽略
+        return { executed: false, elapsedMs: 0 };
       } finally {
         busyRef.current = false;
-        if (
-          pendingInterimRef.current &&
-          activeSessionIdRef.current === sessionId
-        ) {
-          pendingInterimRef.current = false;
-          void runInterimTranscription(sessionId, mimeType);
-        }
       }
     },
     [emitTranscription]
   );
+
+  const getNextInterimDelay = useCallback((stats: { executed: boolean; elapsedMs: number }) => {
+    let next = interimIntervalRef.current;
+
+    if (!stats.executed) {
+      next = Math.max(
+        INTERIM_INTERVAL_MIN_MS,
+        Math.min(INTERIM_INTERVAL_BASE_MS, next - 8)
+      );
+      interimIntervalRef.current = next;
+      return next;
+    }
+
+    if (stats.elapsedMs >= INTERIM_HEAVY_COST_MS) {
+      next = Math.min(INTERIM_INTERVAL_MAX_MS, next + INTERIM_INTERVAL_UP_STEP_MS);
+    } else if (stats.elapsedMs <= INTERIM_LIGHT_COST_MS) {
+      next = Math.max(INTERIM_INTERVAL_MIN_MS, next - INTERIM_INTERVAL_DOWN_STEP_MS);
+    } else if (next > INTERIM_INTERVAL_BASE_MS) {
+      next = Math.max(INTERIM_INTERVAL_BASE_MS, next - 8);
+    } else if (next < INTERIM_INTERVAL_BASE_MS) {
+      next = Math.min(INTERIM_INTERVAL_BASE_MS, next + 4);
+    }
+
+    interimIntervalRef.current = next;
+    return next;
+  }, []);
+
+  const scheduleInterimLoop = useCallback(
+    (sessionId: number, mimeType: string, delayMs: number) => {
+      if (periodicRef.current) {
+        clearTimeout(periodicRef.current);
+        periodicRef.current = null;
+      }
+
+      periodicRef.current = setTimeout(() => {
+        periodicRef.current = null;
+
+        if (
+          activeSessionIdRef.current !== sessionId ||
+          !isRecordingStateRef.current
+        ) {
+          return;
+        }
+
+        void (async () => {
+          const stats = await runInterimTranscription(sessionId, mimeType);
+          if (
+            activeSessionIdRef.current !== sessionId ||
+            !isRecordingStateRef.current
+          ) {
+            return;
+          }
+          const nextDelay = getNextInterimDelay(stats);
+          scheduleInterimLoopRef.current(sessionId, mimeType, nextDelay);
+        })();
+      }, Math.max(INTERIM_INTERVAL_MIN_MS, delayMs));
+    },
+    [getNextInterimDelay, runInterimTranscription]
+  );
+
+  scheduleInterimLoopRef.current = scheduleInterimLoop;
 
   const resetAfterStop = useCallback((options?: { preserveHide?: boolean }) => {
     activeSessionIdRef.current = null;
@@ -303,7 +372,7 @@ export function useRecording(): UseRecordingReturn {
       chunksRef.current = [];
       totalChunkBytesRef.current = 0;
       lastInterimBytesRef.current = 0;
-      pendingInterimRef.current = false;
+      interimIntervalRef.current = INTERIM_INTERVAL_BASE_MS;
       busyRef.current = false;
 
       const preferredTypes = ["audio/webm;codecs=opus", "audio/webm"];
@@ -317,7 +386,6 @@ export function useRecording(): UseRecordingReturn {
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
           totalChunkBytesRef.current += event.data.size;
-          if (busyRef.current) pendingInterimRef.current = true;
         }
       };
 
@@ -329,9 +397,11 @@ export function useRecording(): UseRecordingReturn {
       emitRecordingState({ sessionId, isRecording: true, isProcessing: false });
       void showSubtitleWindow().catch(() => undefined);
 
-      periodicRef.current = setInterval(() => {
-        void runInterimTranscription(sessionId, recorder.mimeType);
-      }, INTERIM_INTERVAL_MS);
+      scheduleInterimLoopRef.current(
+        sessionId,
+        recorder.mimeType,
+        INTERIM_INTERVAL_BASE_MS
+      );
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "启动录音失败";
@@ -359,6 +429,7 @@ export function useRecording(): UseRecordingReturn {
     isRecording,
     releaseMediaResources,
     runInterimTranscription,
+    scheduleInterimLoop,
     setProcessingState,
     setRecordingState,
   ]);
@@ -367,7 +438,7 @@ export function useRecording(): UseRecordingReturn {
     if (isStoppingRef.current) return null;
 
     if (periodicRef.current) {
-      clearInterval(periodicRef.current);
+      clearTimeout(periodicRef.current);
       periodicRef.current = null;
     }
 
@@ -460,7 +531,7 @@ export function useRecording(): UseRecordingReturn {
             return;
           }
 
-          const finalText = result.text ?? "";
+          const finalText = (result.text ?? "").trim();
           setTranscriptionResult(finalText);
           setProcessingState(false);
 
@@ -480,11 +551,12 @@ export function useRecording(): UseRecordingReturn {
             enqueuePasteText(finalText);
           }
 
+          const hideDelayMs = finalText ? RESULT_HIDE_DELAY_MS : EMPTY_RESULT_HIDE_DELAY_MS;
           hideTimerRef.current = setTimeout(() => {
             if (sessionSequenceRef.current !== sessionId) return;
             hideSubtitleSilently();
             hideTimerRef.current = null;
-          }, RESULT_HIDE_DELAY_MS);
+          }, hideDelayMs);
 
           settle(result);
         } catch (err) {

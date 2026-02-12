@@ -225,6 +225,7 @@ pub fn run() {
             commands::hotkey::register_f2_hotkey,
             commands::hotkey::unregister_f2_hotkey,
             commands::hotkey::register_custom_hotkey,
+            commands::hotkey::unregister_all_hotkeys,
         ])
 
         // ============================================================

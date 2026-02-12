@@ -25,6 +25,11 @@ interface RecordingContextValue {
   downloadModels: () => void;
   cancelDownload: () => void;
   retryModel: () => void;
+  // hotkey
+  hotkeyDisplay: string;
+  hotkeyRegistered: boolean;
+  hotkeyError: string | null;
+  setHotkey: (shortcut: string) => Promise<void>;
 }
 
 const RecordingContext = createContext<RecordingContextValue | null>(null);
@@ -65,7 +70,12 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     stopRecording();
   }, [isRecording, stopRecording]);
 
-  useHotkey(hotkeyStart, hotkeyStop);
+  const {
+    registered: hotkeyRegistered,
+    hotkeyDisplay,
+    setHotkey,
+    error: hotkeyError,
+  } = useHotkey(hotkeyStart, hotkeyStop);
 
   const contextValue = useMemo<RecordingContextValue>(() => ({
     isRecording,
@@ -86,12 +96,17 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     downloadModels,
     cancelDownload,
     retryModel,
+    hotkeyDisplay,
+    hotkeyRegistered,
+    hotkeyError,
+    setHotkey,
   }), [
     isRecording, isProcessing, startRecording, stopRecording,
     recordingError, transcriptionResult, history,
     stage, isReady, device, gpuName,
     downloadProgress, downloadMessage, isDownloading,
     modelError, downloadModels, cancelDownload, retryModel,
+    hotkeyDisplay, hotkeyRegistered, hotkeyError, setHotkey,
   ]);
 
   return (

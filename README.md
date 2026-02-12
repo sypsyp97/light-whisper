@@ -24,7 +24,7 @@
 
 ## 功能特点
 
-- **F2 一键转写** — 按住录音，松开自动转写，结果直接输入到当前活动窗口
+- **F2（默认）一键转写** — 按住录音，松开自动转写，结果直接输入到当前活动窗口
 - **连续说话不丢字** — 快速开始下一段时，上一段结果会进入输入队列，按顺序稳定输入
 - **流式反馈更顺滑** — 录音中会更高频地刷新中间结果，字幕观感更接近实时
 - **双引擎可选** — 在设置页一键切换，各有所长（详见下方对比）
@@ -248,6 +248,7 @@ pnpm tauri build
 |------|------|
 | **识别引擎** | SenseVoice（中文优先）或 Faster Whisper（多语言），切换后自动重新加载 |
 | **主题** | 浅色 / 深色 / 跟随系统 |
+| **说话热键** | 默认 F2，可在设置页自定义（支持组合键） |
 | **输入方式** | 直接输入（SendInput，不占用剪贴板）或 剪贴板粘贴（兼容中文输入法） |
 | **开机自启动** | 开启后系统启动时自动运行 |
 
@@ -282,7 +283,7 @@ light-whisper/
 │   ├── hooks/                  # React Hooks
 │   │   ├── useRecording.ts     #   WebAudio 录音逻辑
 │   │   ├── useModelStatus.ts   #   模型状态事件监听
-│   │   ├── useHotkey.ts        #   F2 快捷键处理
+│   │   ├── useHotkey.ts        #   全局快捷键处理（可自定义）
 │   │   ├── useTheme.ts         #   主题切换
 │   │   └── useWindowDrag.ts    #   无边框窗口拖动
 │   ├── contexts/
@@ -392,13 +393,9 @@ $env:HF_ENDPOINT = "https://hf-mirror.com"
 </details>
 
 <details>
-<summary><b>F2 快捷键没反应或被占用</b></summary>
+<summary><b>快捷键没反应或被占用</b></summary>
 
-F2 是全局快捷键，如果被其他程序占用（如某些游戏或工具），可能无法注册。检查是否有其他程序也在使用 F2。
-
-当前 F2 按键是硬编码的，如需修改，编辑以下文件：
-- `src/hooks/useHotkey.ts` — 前端监听
-- `src-tauri/src/commands/hotkey.rs` — 后端注册
+默认使用 F2。若被其他程序占用（如游戏或工具），可在设置页把“说话热键”改成其他组合键（如 `Ctrl+Shift+R` 或 `Ctrl+Win+R`）。
 
 </details>
 

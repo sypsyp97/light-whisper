@@ -14,13 +14,102 @@ const themeOptions = [
   { mode: "system" as const, icon: Monitor, label: "跟随系统" },
 ] as const;
 
+const MODIFIER_ORDER = ["Ctrl", "Alt", "Shift", "Super"] as const;
+type HotkeyModifier = (typeof MODIFIER_ORDER)[number];
+const HOTKEY_DEFAULT = "F2";
+
+function toDisplayHotkey(shortcut: string): string {
+  return shortcut.replace(/\bSuper\b/g, "Win");
+}
+
+function modifierFromEvent(event: KeyboardEvent): HotkeyModifier | null {
+  const key = event.key.toLowerCase();
+  const code = event.code.toLowerCase();
+
+  if (key === "control" || code === "controlleft" || code === "controlright") {
+    return "Ctrl";
+  }
+  if (key === "alt" || key === "altgraph" || code === "altleft" || code === "altright") {
+    return "Alt";
+  }
+  if (key === "shift" || code === "shiftleft" || code === "shiftright") {
+    return "Shift";
+  }
+  if (
+    key === "meta" ||
+    key === "os" ||
+    key === "win" ||
+    code === "metaleft" ||
+    code === "metaright"
+  ) {
+    return "Super";
+  }
+  return null;
+}
+
+function collectModifiers(event: KeyboardEvent, activeModifiers: Set<HotkeyModifier>): Set<HotkeyModifier> {
+  const modifiers = new Set<HotkeyModifier>(activeModifiers);
+
+  if (event.ctrlKey || event.getModifierState("Control")) modifiers.add("Ctrl");
+  if (event.altKey || event.getModifierState("Alt") || event.getModifierState("AltGraph")) modifiers.add("Alt");
+  if (event.shiftKey || event.getModifierState("Shift")) modifiers.add("Shift");
+  if (event.metaKey || event.getModifierState("Meta") || event.getModifierState("OS")) modifiers.add("Super");
+
+  return modifiers;
+}
+
+function eventToHotkey(event: KeyboardEvent, activeModifiers: Set<HotkeyModifier>): string | null {
+  let mainKey = "";
+
+  if (/^Key[A-Z]$/.test(event.code)) {
+    mainKey = event.code.slice(3);
+  } else if (/^Digit[0-9]$/.test(event.code)) {
+    mainKey = event.code.slice(5);
+  } else if (/^F([1-9]|1\d|2[0-4])$/.test(event.key.toUpperCase())) {
+    mainKey = event.key.toUpperCase();
+  } else {
+    const key = event.key;
+    const lower = key.toLowerCase();
+    const map: Record<string, string> = {
+      escape: "Escape",
+      enter: "Enter",
+      tab: "Tab",
+      " ": "Space",
+      backspace: "Backspace",
+      delete: "Delete",
+      insert: "Insert",
+      home: "Home",
+      end: "End",
+      pageup: "PageUp",
+      pagedown: "PageDown",
+      arrowup: "ArrowUp",
+      arrowdown: "ArrowDown",
+      arrowleft: "ArrowLeft",
+      arrowright: "ArrowRight",
+    };
+    mainKey = map[lower] ?? "";
+  }
+
+  if (!mainKey || modifierFromEvent(event)) {
+    return null;
+  }
+
+  const modifiers = collectModifiers(event, activeModifiers);
+  const parts: string[] = MODIFIER_ORDER.filter((modifier) => modifiers.has(modifier));
+  parts.push(mainKey);
+
+  return parts.join("+");
+}
+
 export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const { isDark, theme, setTheme } = useTheme();
-  const { retryModel } = useRecordingContext();
+  const { retryModel, hotkeyDisplay, setHotkey, hotkeyError } = useRecordingContext();
   const [engine, setEngineState] = useState<string>("sensevoice");
   const [engineLoading, setEngineLoading] = useState(true);
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);
+  const [capturingHotkey, setCapturingHotkey] = useState(false);
+  const [hotkeySaving, setHotkeySaving] = useState(false);
   const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
     try {
       return (localStorage.getItem(INPUT_METHOD_KEY) as "sendInput" | "clipboard") || "sendInput";
@@ -67,16 +156,112 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     try {
       if (prev) {
         await disableAutostart();
-        toast.success("已关闭开机自启动");
+        toast.success("已关闭开机自启动", { duration: 1100 });
       } else {
         await enableAutostart();
-        toast.success("已开启开机自启动");
+        toast.success("已开启开机自启动", { duration: 1100 });
       }
     } catch {
       setAutostart(prev); // revert
       toast.error("设置失败");
     } finally {
       setAutostartLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!capturingHotkey) return;
+
+    const activeModifiers = new Set<HotkeyModifier>();
+    let applied = false;
+    const clearModifiers = () => {
+      activeModifiers.clear();
+    };
+
+    const applyShortcut = (shortcut: string) => {
+      if (applied) return;
+      applied = true;
+      setHotkeySaving(true);
+      void setHotkey(shortcut)
+        .then(() => {
+          toast.success(`说话热键已设置为 ${toDisplayHotkey(shortcut)}`);
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : "设置热键失败";
+          toast.error(message);
+        })
+        .finally(() => {
+          setHotkeySaving(false);
+          setCapturingHotkey(false);
+          clearModifiers();
+        });
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === "Escape") {
+        setCapturingHotkey(false);
+        clearModifiers();
+        return;
+      }
+
+      const modifier = modifierFromEvent(event);
+      if (modifier) {
+        activeModifiers.add(modifier);
+        return;
+      }
+
+      const shortcut = eventToHotkey(event, activeModifiers);
+      if (!shortcut) return;
+
+      applyShortcut(shortcut);
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      const modifier = modifierFromEvent(event);
+      if (!modifier || applied) return;
+
+      const beforeRelease = MODIFIER_ORDER.filter((key) => activeModifiers.has(key)).join("+");
+      activeModifiers.delete(modifier);
+
+      // Support modifier-only Ctrl+Win capture.
+      if (beforeRelease === "Ctrl+Super") {
+        applyShortcut("Ctrl+Super");
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        clearModifiers();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", clearModifiers);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", clearModifiers);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [capturingHotkey, setHotkey]);
+
+  const handleResetHotkey = async () => {
+    if (hotkeySaving) return;
+    setHotkeySaving(true);
+    try {
+      await setHotkey(HOTKEY_DEFAULT);
+      toast.success("已恢复默认热键 F2");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "恢复默认热键失败";
+      toast.error(message);
+    } finally {
+      setHotkeySaving(false);
+      setCapturingHotkey(false);
     }
   };
 
@@ -162,10 +347,65 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
             </div>
           </section>
 
-          {/* Input Method */}
+          {/* Hotkey */}
           <section className="settings-card" style={{ animationDelay: "100ms" }}>
             <div className="settings-section-header">
               <Keyboard size={15} style={{ color: "var(--color-accent)" }} />
+              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>说话热键</h2>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
+                <button
+                  className="theme-btn"
+                  onClick={() => setCapturingHotkey(true)}
+                  disabled={hotkeySaving}
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "10px 12px",
+                    borderRadius: 6,
+                    border: `1px solid ${capturingHotkey ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
+                    background: capturingHotkey ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
+                    color: capturingHotkey ? "var(--color-accent)" : "var(--color-text-secondary)",
+                    cursor: hotkeySaving ? "wait" : "pointer",
+                    opacity: hotkeySaving ? 0.7 : 1,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {capturingHotkey ? "请按下组合键..." : hotkeyDisplay}
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={handleResetHotkey}
+                  disabled={hotkeySaving}
+                  style={{
+                    fontSize: 12,
+                    padding: "8px 10px",
+                    cursor: hotkeySaving ? "wait" : "pointer",
+                    opacity: hotkeySaving ? 0.7 : 1,
+                  }}
+                >
+                  恢复 F2
+                </button>
+              </div>
+              <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.5, margin: 0 }}>
+                点击上方按钮后按下新热键，支持 Win 组合（如 Ctrl+Win+R），也支持纯 Ctrl+Win。按 Esc 取消设置。
+              </p>
+              {hotkeyError && (
+                <p style={{ fontSize: 11, color: "var(--color-error)", lineHeight: 1.5, margin: 0 }}>
+                  {hotkeyError}
+                </p>
+              )}
+            </div>
+          </section>
+
+          {/* Input Method */}
+          <section className="settings-card" style={{ animationDelay: "150ms" }}>
+            <div className="settings-section-header">
+              <ClipboardPaste size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>输入</h2>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
@@ -200,7 +440,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           </section>
 
           {/* Permissions */}
-          <section className="settings-card" style={{ animationDelay: "150ms" }}>
+          <section className="settings-card" style={{ animationDelay: "200ms" }}>
             <div className="settings-section-header">
               <Accessibility size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>权限</h2>
@@ -236,7 +476,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           </section>
 
           {/* Startup */}
-          <section className="settings-card" style={{ animationDelay: "200ms" }}>
+          <section className="settings-card" style={{ animationDelay: "250ms" }}>
             <div className="settings-section-header">
               <Power size={15} style={{ color: "var(--color-accent)" }} />
               <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>启动</h2>

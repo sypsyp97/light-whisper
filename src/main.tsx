@@ -82,11 +82,12 @@ function App() {
         </div>
       </div>
       <Toaster
-        position="top-center"
+        position="bottom-right"
+        offset={14}
         richColors
         toastOptions={{
           className: "font-sans",
-          duration: 3000,
+          duration: 1800,
         }}
       />
     </RecordingProvider>

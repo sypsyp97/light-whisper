@@ -107,14 +107,27 @@ export default function SubtitleOverlay() {
             latestSessionIdRef.current = sessionId;
           }
 
-          setText(event.payload.text || "");
+          const incomingText = event.payload.text || "";
+          setText(incomingText);
 
           if (interim) {
             setFadingOut(false);
             return;
           }
 
+          const finalText = incomingText.trim();
           clearFadeTimer();
+
+          // Empty final text: keep processing hint and fade out directly
+          // to avoid the capsule shrinking into a tiny blank pill.
+          if (!finalText) {
+            setText("");
+            setPhase("processing");
+            setFadingOut(true);
+            return;
+          }
+
+          setText(finalText);
           setPhase("result");
           setFadingOut(false);
 
