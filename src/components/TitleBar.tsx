@@ -1,4 +1,4 @@
-import { useWindowDrag } from "@/hooks/useWindowDrag";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { PADDING } from "@/lib/constants";
 
 interface TitleBarProps {
@@ -8,7 +8,24 @@ interface TitleBarProps {
 }
 
 export default function TitleBar({ title, leftAction, rightActions }: TitleBarProps) {
-  const { startDrag } = useWindowDrag();
+  const startDrag = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+
+    const target = e.target as HTMLElement;
+    if (
+      target.closest("button") ||
+      target.closest("input") ||
+      target.closest("select") ||
+      target.closest("textarea") ||
+      target.closest("a") ||
+      target.closest("[data-no-drag]")
+    ) {
+      return;
+    }
+
+    e.preventDefault();
+    getCurrentWindow().startDragging();
+  };
 
   return (
     <header

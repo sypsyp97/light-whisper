@@ -65,9 +65,7 @@ pub async fn run_download(
                 "已有下载任务正在进行，请先取消或等待完成".to_string(),
             ));
         }
-        *guard = Some(crate::state::DownloadTask {
-            cancel: cancel_tx,
-        });
+        *guard = Some(crate::state::DownloadTask { cancel: cancel_tx });
     }
 
     // 通知前端开始下载
@@ -86,7 +84,11 @@ pub async fn run_download(
         .arg("-u")
         .arg(&download_script_str)
         .arg("--engine")
-        .arg(if engine == "whisper" { "whisper" } else { "sensevoice" })
+        .arg(if engine == "whisper" {
+            "whisper"
+        } else {
+            "sensevoice"
+        })
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
@@ -97,10 +99,7 @@ pub async fn run_download(
         Ok(child) => child,
         Err(e) => {
             clear_download_task(state).await;
-            return Err(AppError::FunASR(format!(
-                "启动模型下载脚本失败: {}",
-                e
-            )));
+            return Err(AppError::FunASR(format!("启动模型下载脚本失败: {}", e)));
         }
     };
 
@@ -108,9 +107,7 @@ pub async fn run_download(
         Some(stdout) => stdout,
         None => {
             clear_download_task(state).await;
-            return Err(AppError::FunASR(
-                "无法读取模型下载脚本输出".to_string(),
-            ));
+            return Err(AppError::FunASR("无法读取模型下载脚本输出".to_string()));
         }
     };
 
@@ -183,10 +180,7 @@ pub async fn run_download(
         Ok(status) => status,
         Err(e) => {
             clear_download_task(state).await;
-            return Err(AppError::FunASR(format!(
-                "模型下载进程异常退出: {}",
-                e
-            )));
+            return Err(AppError::FunASR(format!("模型下载进程异常退出: {}", e)));
         }
     };
 
@@ -207,21 +201,27 @@ pub async fn run_download(
     }
 
     if final_success {
-        emit_download_status(app_handle, serde_json::json!({
-            "status": "completed",
-            "progress": 100,
-            "message": "模型下载完成"
-        }));
+        emit_download_status(
+            app_handle,
+            serde_json::json!({
+                "status": "completed",
+                "progress": 100,
+                "message": "模型下载完成"
+            }),
+        );
         Ok("模型下载完成".to_string())
     } else {
         let error_msg = final_result
             .and_then(|r| r.error.or(r.message))
             .unwrap_or_else(|| "模型下载失败".to_string());
 
-        emit_download_status(app_handle, serde_json::json!({
-            "status": "error",
-            "message": &error_msg
-        }));
+        emit_download_status(
+            app_handle,
+            serde_json::json!({
+                "status": "error",
+                "message": &error_msg
+            }),
+        );
 
         Err(AppError::FunASR(error_msg))
     }

@@ -27,9 +27,6 @@ serde_json = "1"
 # 异步运行时
 tokio = { version = "1", features = ["rt", "io-util", "sync", "time", "process", "fs", "macros"] }
 
-# 临时文件
-tempfile = "3"
-
 # 用户目录路径
 dirs = "6"
 

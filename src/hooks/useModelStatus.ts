@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
+  cancelModelDownload,
   checkFunASRStatus,
   checkModelFiles,
-  cancelModelDownload,
   downloadModels,
-  startFunASR,
   restartFunASR,
-} from "../api/funasr";
+  startFunASR,
+} from "@/api/tauri";
 
 export type ModelStage =
   | "checking"
@@ -42,6 +42,17 @@ const DOWNLOAD_STALL_HINT_MS = 20000;
 /** Auto-download retries when app cold-starts without models. */
 const AUTO_DOWNLOAD_MAX_RETRIES = 1;
 const AUTO_DOWNLOAD_RETRY_DELAY_MS = 3000;
+
+function toErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
+function normalizeProgress(progress: number | undefined, current: number): number {
+  if (typeof progress !== "number") {
+    return Math.max(current, 1);
+  }
+  return Math.max(0, Math.min(100, progress));
+}
 
 /**
  * React hook that tracks the FunASR lifecycle:
@@ -160,28 +171,6 @@ export function useModelStatus(): UseModelStatusReturn {
         return;
       }
 
-      if (status.running && !status.ready) {
-        const modelCheck = await checkModelFiles();
-        if (!mountedRef.current) return;
-        if (!modelCheck.all_present) {
-          enterNeedDownloadState();
-          return;
-        }
-
-        loadingChecksRef.current += 1;
-        setStage("loading");
-        if (
-          loadingChecksRef.current >= MAX_LOADING_CHECKS &&
-          !restartAttemptedRef.current
-        ) {
-          restartAttemptedRef.current = true;
-          restartFunASR().catch(() => {});
-        }
-        return;
-      }
-
-      loadingChecksRef.current = 0;
-
       const modelCheck = await checkModelFiles();
       if (!mountedRef.current) return;
 
@@ -190,28 +179,42 @@ export function useModelStatus(): UseModelStatusReturn {
         return;
       }
 
+      if (!status.running) {
+        loadingChecksRef.current = 0;
+      }
+
       setStage("loading");
-      try {
-        if (!status.running) {
-          await startFunASR();
+
+      if (status.running) {
+        loadingChecksRef.current += 1;
+        if (
+          loadingChecksRef.current >= MAX_LOADING_CHECKS &&
+          !restartAttemptedRef.current
+        ) {
+          restartAttemptedRef.current = true;
+          restartFunASR().catch(() => undefined);
         }
+        return;
+      }
+
+      try {
+        await startFunASR();
         startFailuresRef.current = 0;
       } catch (startErr) {
         startFailuresRef.current += 1;
-
-        if (startFailuresRef.current >= MAX_START_FAILURES) {
-          const message =
-            startErr instanceof Error
-              ? startErr.message
-              : "FunASR 引擎启动失败，请检查 Python 环境是否安装了 funasr 包";
-          enterErrorState(message);
+        if (startFailuresRef.current < MAX_START_FAILURES) {
+          return;
         }
+        enterErrorState(
+          toErrorMessage(
+            startErr,
+            "FunASR 引擎启动失败，请检查 Python 环境是否安装了 funasr 包"
+          )
+        );
       }
     } catch (err) {
       if (!mountedRef.current) return;
-      const message =
-        err instanceof Error ? err.message : "检查模型状态失败";
-      enterErrorState(message);
+      enterErrorState(toErrorMessage(err, "检查模型状态失败"));
     }
   }, [clearPolling, enterErrorState, enterNeedDownloadState]);
 
@@ -304,11 +307,7 @@ export function useModelStatus(): UseModelStatusReturn {
                 setDownloadingState(true);
                 setStage("downloading");
                 setError(null);
-                if (typeof progress === "number") {
-                  setDownloadProgress(Math.max(0, Math.min(100, progress)));
-                } else {
-                  setDownloadProgress((prev) => Math.max(prev, 1));
-                }
+                setDownloadProgress((prev) => normalizeProgress(progress, prev));
                 setDownloadMessage(message ?? null);
                 break;
               }
@@ -357,9 +356,7 @@ export function useModelStatus(): UseModelStatusReturn {
         }
       } catch (err) {
         if (!mountedRef.current) return;
-        const message =
-          err instanceof Error ? err.message : "监听模型下载状态失败";
-        setError(message);
+        setError(toErrorMessage(err, "监听模型下载状态失败"));
         setStage("error");
       }
     };
@@ -411,8 +408,7 @@ export function useModelStatus(): UseModelStatusReturn {
       clearDownloadWatchdog();
       setDownloadingState(false);
       if (!mountedRef.current) return;
-      const message =
-        err instanceof Error ? err.message : "模型下载失败";
+      const message = toErrorMessage(err, "模型下载失败");
 
       if (
         source === "auto" &&
@@ -443,9 +439,7 @@ export function useModelStatus(): UseModelStatusReturn {
       await cancelModelDownload();
     } catch (err) {
       if (!mountedRef.current) return;
-      const message =
-        err instanceof Error ? err.message : "取消下载失败";
-      setError(message);
+      setError(toErrorMessage(err, "取消下载失败"));
       setStage("error");
     }
   }, []);

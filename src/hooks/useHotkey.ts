@@ -3,20 +3,14 @@ import { listen } from "@tauri-apps/api/event";
 import {
   registerCustomHotkey,
   unregisterAllHotkeys,
-} from "../api/hotkey";
+} from "@/api/tauri";
 import { DEFAULT_HOTKEY, HOTKEY_STORAGE_KEY } from "@/lib/constants";
 import { formatHotkeyForDisplay, normalizeHotkey } from "@/lib/hotkey";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 
 interface UseHotkeyReturn {
-  /** Whether the hotkey is currently registered. */
-  registered: boolean;
   /** A human-readable string describing the current hotkey (e.g. "F2"). */
   hotkeyDisplay: string;
-  /** Manually register the current hotkey (called automatically on mount). */
-  register: () => Promise<void>;
-  /** Manually unregister all global hotkeys for this app. */
-  unregister: () => Promise<void>;
   /** Update hotkey, persist it locally and re-register immediately. */
   setHotkey: (shortcut: string) => Promise<void>;
   /** Error message if registration failed. */
@@ -42,7 +36,6 @@ function writeStoredHotkey(shortcut: string): void {
  * @param onRelease - Called when the hotkey is released (stop recording).
  */
 export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotkeyReturn {
-  const [registered, setRegistered] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hotkeyRaw, setHotkeyRaw] = useState<string>(() => readStoredHotkey());
   const hotkeyDisplay = formatHotkeyForDisplay(hotkeyRaw);
@@ -60,7 +53,6 @@ export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotk
     const normalized = normalizeHotkey(shortcut);
     await registerCustomHotkey(normalized);
     if (!mountedRef.current) return normalized;
-    setRegistered(true);
     setError(null);
     setHotkeyRaw(normalized);
     hotkeyRef.current = normalized;
@@ -79,17 +71,6 @@ export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotk
       setError(message);
     }
   }, [registerShortcut]);
-
-  const unregister = useCallback(async () => {
-    try {
-      await unregisterAllHotkeys();
-      if (!mountedRef.current) return;
-      setRegistered(false);
-      setError(null);
-    } catch {
-      // Best-effort during teardown
-    }
-  }, []);
 
   const setHotkey = useCallback(async (shortcut: string) => {
     const normalized = normalizeHotkey(shortcut);
@@ -155,10 +136,7 @@ export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotk
   }, []);
 
   return {
-    registered,
     hotkeyDisplay,
-    register,
-    unregister,
     setHotkey,
     error,
   };

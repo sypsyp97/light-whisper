@@ -1,9 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { emit } from "@tauri-apps/api/event";
-import { transcribeAudio } from "@/api/funasr";
-import { pasteText } from "@/api/clipboard";
-import { showSubtitleWindow, hideSubtitleWindow } from "@/api/window";
+import {
+  hideSubtitleWindow,
+  pasteText,
+  showSubtitleWindow,
+  transcribeAudio,
+} from "@/api/tauri";
 import { convertToWav, arrayBufferToBase64 } from "@/lib/audio";
 import { INPUT_METHOD_KEY } from "@/lib/constants";
 import { readLocalStorage } from "@/lib/storage";
@@ -50,6 +53,12 @@ const RECORDER_TIMESLICE_MS = 80;
 const STOP_SAFETY_TIMEOUT_MS = 15000;
 const WAV_HEADER_BYTES = 44;
 const WAV_BYTES_PER_SECOND = 32000; // 16kHz * 16bit * mono
+
+function clearTimer(ref: { current: ReturnType<typeof setTimeout> | null }): void {
+  if (!ref.current) return;
+  clearTimeout(ref.current);
+  ref.current = null;
+}
 
 function getWavDurationSeconds(buffer: ArrayBuffer): number {
   return Math.max(0, (buffer.byteLength - WAV_HEADER_BYTES) / WAV_BYTES_PER_SECOND);
@@ -130,21 +139,14 @@ export function useRecording(): UseRecordingReturn {
   }, []);
 
   const clearTimers = useCallback((options?: { preserveHide?: boolean }) => {
-    if (periodicRef.current) {
-      clearTimeout(periodicRef.current);
-      periodicRef.current = null;
-    }
-    if (!options?.preserveHide && hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
+    clearTimer(periodicRef);
+    if (!options?.preserveHide) {
+      clearTimer(hideTimerRef);
     }
   }, []);
 
   const clearPasteTimer = useCallback(() => {
-    if (pasteTimerRef.current) {
-      clearTimeout(pasteTimerRef.current);
-      pasteTimerRef.current = null;
-    }
+    clearTimer(pasteTimerRef);
   }, []);
 
   const releaseMediaResources = useCallback(() => {
@@ -377,11 +379,6 @@ export function useRecording(): UseRecordingReturn {
       }
 
       streamRef.current = stream;
-      chunksRef.current = [];
-      totalChunkBytesRef.current = 0;
-      lastInterimBytesRef.current = 0;
-      interimIntervalRef.current = INTERIM_INTERVAL_BASE_MS;
-      busyRef.current = false;
 
       const preferredTypes = ["audio/webm;codecs=opus", "audio/webm"];
       const mimeType = preferredTypes.find((t) => MediaRecorder.isTypeSupported(t));
@@ -442,24 +439,12 @@ export function useRecording(): UseRecordingReturn {
   const stopRecording = useCallback(async (): Promise<TranscriptionResult | null> => {
     if (isStoppingRef.current) return null;
 
-    if (periodicRef.current) {
-      clearTimeout(periodicRef.current);
-      periodicRef.current = null;
-    }
+    clearTimers({ preserveHide: true });
 
     const sessionId = activeSessionIdRef.current;
-    if (sessionId === null) {
-      resetAfterStop();
-      hideSubtitleSilently();
-      return null;
-    }
-
     const recorder = mediaRecorderRef.current;
-    if (!recorder) {
-      activeSessionIdRef.current = null;
-      setRecordingState(false);
-      setProcessingState(false);
-      releaseMediaResources();
+    if (sessionId === null || !recorder) {
+      resetAfterStop();
       hideSubtitleSilently();
       return null;
     }
@@ -588,10 +573,8 @@ export function useRecording(): UseRecordingReturn {
     enqueuePasteText,
     hideSubtitleSilently,
     isSessionActive,
-    releaseMediaResources,
     resetAfterStop,
-    setProcessingState,
-    setRecordingState,
+    clearTimers,
   ]);
 
   useEffect(() => {

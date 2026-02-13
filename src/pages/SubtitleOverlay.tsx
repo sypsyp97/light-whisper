@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { readLocalStorage } from "@/lib/storage";
+import { THEME_STORAGE_KEY } from "@/lib/constants";
 import "../styles/theme.css";
 import "../styles/subtitle.css";
 
@@ -36,7 +37,7 @@ export default function SubtitleOverlay() {
 
   // 主题
   useEffect(() => {
-    const stored = readLocalStorage("light-whisper-theme");
+    const stored = readLocalStorage(THEME_STORAGE_KEY);
     if (stored === "dark") {
       document.documentElement.setAttribute("data-theme", "dark");
     } else if (stored === "light") {

@@ -165,9 +165,7 @@ impl ServerResponse {
             self.models
                 .as_ref()
                 .map(|m| {
-                    m.asr.unwrap_or(false)
-                        && m.vad.unwrap_or(false)
-                        && m.punc.unwrap_or(false)
+                    m.asr.unwrap_or(false) && m.vad.unwrap_or(false) && m.punc.unwrap_or(false)
                 })
                 .unwrap_or(false)
         })
@@ -239,23 +237,14 @@ where
     loop {
         let remaining = timeout
             .checked_sub(start_at.elapsed())
-            .ok_or_else(|| {
-                AppError::FunASR(format!("{}超时", context))
-            })?;
+            .ok_or_else(|| AppError::FunASR(format!("{}超时", context)))?;
 
         line.clear();
-        let read_result = tokio::time::timeout(
-            remaining,
-            reader.read_line(&mut line),
-        )
-        .await;
+        let read_result = tokio::time::timeout(remaining, reader.read_line(&mut line)).await;
 
         match read_result {
             Ok(Ok(0)) => {
-                return Err(AppError::FunASR(format!(
-                    "{}失败：stdout 已关闭",
-                    context
-                )));
+                return Err(AppError::FunASR(format!("{}失败：stdout 已关闭", context)));
             }
             Ok(Ok(_)) => {
                 let trimmed = line.trim();
@@ -271,10 +260,7 @@ where
                 }
             }
             Ok(Err(e)) => {
-                return Err(AppError::FunASR(format!(
-                    "{}失败：{}",
-                    context, e
-                )));
+                return Err(AppError::FunASR(format!("{}失败：{}", context, e)));
             }
             Err(_) => {
                 return Err(AppError::FunASR(format!("{}超时", context)));
@@ -302,7 +288,14 @@ pub async fn find_python() -> Result<String, AppError> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             venv_candidates.push(exe_dir.join("..").join("..").join("..").join(".venv"));
-            venv_candidates.push(exe_dir.join("..").join("..").join("..").join("..").join(".venv"));
+            venv_candidates.push(
+                exe_dir
+                    .join("..")
+                    .join("..")
+                    .join("..")
+                    .join("..")
+                    .join(".venv"),
+            );
         }
     }
 
@@ -373,10 +366,7 @@ pub async fn find_python() -> Result<String, AppError> {
 ///
 /// 为什么要用异步？因为启动进程和等待初始化可能需要几秒钟，
 /// 如果用同步方式，整个 UI 线程会被阻塞，导致界面卡死。
-pub async fn start_server(
-    app_handle: &tauri::AppHandle,
-    state: &AppState,
-) -> Result<(), AppError> {
+pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Result<(), AppError> {
     // 先检查是否已经有运行中的服务器或正在启动中
     {
         let process_guard = state.funasr_process.lock().await;
@@ -424,7 +414,11 @@ pub async fn start_server(
         paths::get_funasr_server_path(app_handle)
     };
     let server_script_str = paths::strip_win_prefix(&server_script);
-    log::info!("语音识别脚本路径 (engine={}): {}", engine, server_script_str);
+    log::info!(
+        "语音识别脚本路径 (engine={}): {}",
+        engine,
+        server_script_str
+    );
 
     if !server_script.exists() {
         return Err(AppError::FunASR(format!(
@@ -465,7 +459,8 @@ pub async fn start_server(
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let mut child = cmd.spawn()
+    let mut child = cmd
+        .spawn()
         .map_err(|e| AppError::FunASR(format!("启动 FunASR 进程失败: {}", e)))?;
 
     log::info!("FunASR 子进程已启动，等待初始化...");
@@ -607,9 +602,9 @@ pub async fn transcribe(
     ));
 
     // 写入音频数据到临时文件
-    tokio::fs::write(&temp_file, &audio_data).await.map_err(|e| {
-        AppError::FunASR(format!("写入临时音频文件失败: {}", e))
-    })?;
+    tokio::fs::write(&temp_file, &audio_data)
+        .await
+        .map_err(|e| AppError::FunASR(format!("写入临时音频文件失败: {}", e)))?;
 
     // 构建转写命令
     let command = ServerCommand::Transcribe {
@@ -667,9 +662,9 @@ async fn send_command_to_server(
     let mut guard = state.funasr_process.lock().await;
 
     let result = {
-        let process = guard.as_mut().ok_or_else(|| {
-            AppError::FunASR("FunASR 进程未运行".to_string())
-        })?;
+        let process = guard
+            .as_mut()
+            .ok_or_else(|| AppError::FunASR("FunASR 进程未运行".to_string()))?;
         send_command_impl(process, command).await
     };
 
@@ -735,7 +730,10 @@ async fn send_command_impl(
 /// 检查 FunASR 服务器的状态
 ///
 /// 发送 status 命令给 Python 服务器，获取当前的运行状态。
-pub async fn check_status(state: &AppState, app_handle: &tauri::AppHandle) -> Result<FunASRStatus, AppError> {
+pub async fn check_status(
+    state: &AppState,
+    app_handle: &tauri::AppHandle,
+) -> Result<FunASRStatus, AppError> {
     // 先检查进程是否存在
     let has_process = {
         let guard = state.funasr_process.lock().await;
@@ -941,11 +939,8 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
     if engine == "whisper" {
         // Whisper 引擎：只需检查一个模型仓库，内置 VAD 和标点
         let mut missing_models = Vec::new();
-        let asr_present = report_model_repo_state(
-            WHISPER_REPO_ID,
-            "Whisper ASR模型",
-            &mut missing_models,
-        );
+        let asr_present =
+            report_model_repo_state(WHISPER_REPO_ID, "Whisper ASR模型", &mut missing_models);
 
         Ok(ModelCheckResult {
             all_present: asr_present,
@@ -959,16 +954,10 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
     } else {
         // SenseVoice 引擎：检查 ASR + VAD 模型
         let mut missing_models = Vec::new();
-        let asr_present = report_model_repo_state(
-            ASR_REPO_ID,
-            "ASR语音识别模型",
-            &mut missing_models,
-        );
-        let vad_present = report_model_repo_state(
-            VAD_REPO_ID,
-            "VAD语音活动检测模型",
-            &mut missing_models,
-        );
+        let asr_present =
+            report_model_repo_state(ASR_REPO_ID, "ASR语音识别模型", &mut missing_models);
+        let vad_present =
+            report_model_repo_state(VAD_REPO_ID, "VAD语音活动检测模型", &mut missing_models);
 
         let all_present = asr_present && vad_present;
 

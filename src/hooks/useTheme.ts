@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
+import { THEME_STORAGE_KEY } from "@/lib/constants";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -7,10 +8,7 @@ interface UseThemeReturn {
   theme: ThemeMode;
   isDark: boolean;
   setTheme: (mode: ThemeMode) => void;
-  toggleTheme: () => void;
 }
-
-const STORAGE_KEY = "light-whisper-theme";
 
 function getSystemPrefersDark(): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -48,7 +46,7 @@ function applyThemeToDOM(isDark: boolean): void {
  */
 export function useTheme(): UseThemeReturn {
   const [theme, setThemeState] = useState<ThemeMode>(() => {
-    const stored = readLocalStorage(STORAGE_KEY);
+    const stored = readLocalStorage(THEME_STORAGE_KEY);
     if (stored === "light" || stored === "dark" || stored === "system") {
       return stored;
     }
@@ -62,7 +60,7 @@ export function useTheme(): UseThemeReturn {
     const dark = resolveIsDark(theme);
     setIsDark(dark);
     applyThemeToDOM(dark);
-    writeLocalStorage(STORAGE_KEY, theme);
+    writeLocalStorage(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
   // Listen for system preference changes when in "system" mode
@@ -84,13 +82,5 @@ export function useTheme(): UseThemeReturn {
     setThemeState(mode);
   }, []);
 
-  const toggleTheme = useCallback(() => {
-    setThemeState((prev) => {
-      if (prev === "light") return "dark";
-      if (prev === "dark") return "system";
-      return "light";
-    });
-  }, []);
-
-  return { theme, isDark, setTheme, toggleTheme };
+  return { theme, isDark, setTheme };
 }

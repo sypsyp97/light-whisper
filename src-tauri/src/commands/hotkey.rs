@@ -1,18 +1,4 @@
-//! 全局快捷键命令模块
-//!
-//! 管理应用的全局快捷键。
-//! 默认使用 F2 键作为录音的开始/停止快捷键。
-//!
-//! # 实现方式
-//! 使用 `tauri-plugin-global-shortcut` 插件注册全局快捷键。
-//! 全局快捷键即使应用不在前台也能响应。
-//!
-//! # 注意事项
-//! - 全局快捷键可能与其他应用冲突
-//! - 某些系统快捷键（如 Win+L）无法覆盖
-
 use crate::utils::AppError;
-use tauri::Emitter;
 #[cfg(target_os = "windows")]
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -20,6 +6,7 @@ use std::sync::{
 };
 #[cfg(target_os = "windows")]
 use std::thread::JoinHandle;
+use tauri::Emitter;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VK_LCONTROL, VK_LWIN, VK_RCONTROL, VK_RWIN,
@@ -29,8 +16,6 @@ enum ShortcutRegistrationMode {
     Standard(String),
     CtrlSuperModifierOnly,
 }
-
-const F2_SHORTCUT: &str = "F2";
 
 #[derive(Default)]
 struct ShortcutModifiers {
@@ -206,71 +191,6 @@ fn emit_shortcut_state<R: tauri::Runtime>(
     }
 }
 
-/// 注册 F2 全局快捷键
-///
-/// 按下 F2 键时，会向前端发送 `toggle-recording` 事件。
-/// 前端监听这个事件来切换录音状态。
-///
-/// # Rust 知识点：闭包（Closure）
-/// `|app, shortcut, event| { ... }` 是一个闭包，类似于 JavaScript 的箭头函数。
-/// 闭包可以捕获外部变量（这里的 `app`）。
-///
-/// `move` 关键字表示闭包获取捕获变量的所有权（而不是引用）。
-/// 在多线程场景下，`move` 闭包确保数据的安全传递。
-///
-/// # 前端监听示例
-/// ```javascript
-/// import { listen } from '@tauri-apps/api/event';
-/// listen('toggle-recording', () => {
-///     // 切换录音状态
-///     toggleRecording();
-/// });
-/// ```
-#[tauri::command]
-pub async fn register_f2_hotkey(
-    app_handle: tauri::AppHandle,
-) -> Result<String, AppError> {
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    stop_modifier_only_hotkey_monitor();
-
-    // 先尝试清理旧的注册（忽略错误）
-    let _ = app_handle.global_shortcut().unregister(F2_SHORTCUT);
-
-    // 注册全局快捷键
-    //
-    // `on_shortcut` 方法注册一个快捷键及其回调函数。
-    // 当用户按下指定快捷键时，回调函数会被调用。
-    app_handle
-        .global_shortcut()
-        .on_shortcut(F2_SHORTCUT, move |app, _shortcut, event| {
-            emit_shortcut_state(app, event.state, "F2 按下，开始录音", "F2 松开，停止录音");
-        })
-        .map_err(|e| AppError::Other(format!("注册 F2 快捷键失败: {}", e)))?;
-
-    log::info!("F2 全局快捷键已注册");
-    Ok("F2 快捷键已注册".to_string())
-}
-
-/// 注销 F2 全局快捷键
-///
-/// 取消 F2 键的全局快捷键绑定。
-/// 通常在应用退出前或用户更改快捷键时调用。
-#[tauri::command]
-pub async fn unregister_f2_hotkey(
-    app_handle: tauri::AppHandle,
-) -> Result<String, AppError> {
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    stop_modifier_only_hotkey_monitor();
-
-    app_handle
-        .global_shortcut()
-        .unregister(F2_SHORTCUT)
-        .map_err(|e| AppError::Other(format!("注销 F2 快捷键失败: {}", e)))?;
-
-    log::info!("F2 全局快捷键已注销");
-    Ok("F2 快捷键已注销".to_string())
-}
-
 /// 注册自定义快捷键
 ///
 /// 允许用户自定义快捷键来触发录音。
@@ -308,14 +228,17 @@ pub async fn register_custom_hotkey(
     // 注册新的快捷键
     app_handle
         .global_shortcut()
-        .on_shortcut(normalized_shortcut.as_str(), move |app, _shortcut, event| {
-            emit_shortcut_state(
-                app,
-                event.state,
-                "自定义快捷键按下，开始录音",
-                "自定义快捷键松开，停止录音",
-            );
-        })
+        .on_shortcut(
+            normalized_shortcut.as_str(),
+            move |app, _shortcut, event| {
+                emit_shortcut_state(
+                    app,
+                    event.state,
+                    "自定义快捷键按下，开始录音",
+                    "自定义快捷键松开，停止录音",
+                );
+            },
+        )
         .map_err(|e| {
             let mut hint = "请检查快捷键格式是否正确。".to_string();
             #[cfg(target_os = "windows")]
@@ -337,9 +260,7 @@ pub async fn register_custom_hotkey(
 
 /// 注销所有全局快捷键
 #[tauri::command]
-pub async fn unregister_all_hotkeys(
-    app_handle: tauri::AppHandle,
-) -> Result<String, AppError> {
+pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<String, AppError> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     stop_modifier_only_hotkey_monitor();
 

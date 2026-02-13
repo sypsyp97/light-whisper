@@ -2,8 +2,14 @@ import { useState, useEffect } from "react";
 import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
-import { enableAutostart, disableAutostart, isAutostartEnabled } from "@/api/autostart";
-import { getEngine, setEngine } from "@/api/funasr";
+import {
+  disableAutostart,
+  enableAutostart,
+  getEngine,
+  isAutostartEnabled,
+  pasteText,
+  setEngine,
+} from "@/api/tauri";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY } from "@/lib/constants";
@@ -389,7 +395,6 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 </div>
                 <button className="test-btn" onClick={async () => {
                   try {
-                    const { pasteText } = await import("@/api/clipboard");
                     await pasteText("测试粘贴", inputMethod);
                     toast.success("粘贴功能正常");
                   } catch { toast.error("粘贴功能异常"); }

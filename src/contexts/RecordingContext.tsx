@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useCallback, type ReactNode } from "react";
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
@@ -27,7 +27,6 @@ interface RecordingContextValue {
   retryModel: () => void;
   // hotkey
   hotkeyDisplay: string;
-  hotkeyRegistered: boolean;
   hotkeyError: string | null;
   setHotkey: (shortcut: string) => Promise<void>;
 }
@@ -71,13 +70,12 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   }, [isRecording, stopRecording]);
 
   const {
-    registered: hotkeyRegistered,
     hotkeyDisplay,
     setHotkey,
     error: hotkeyError,
   } = useHotkey(hotkeyStart, hotkeyStop);
 
-  const contextValue = useMemo<RecordingContextValue>(() => ({
+  const contextValue: RecordingContextValue = {
     isRecording,
     isProcessing,
     startRecording,
@@ -97,17 +95,9 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     cancelDownload,
     retryModel,
     hotkeyDisplay,
-    hotkeyRegistered,
     hotkeyError,
     setHotkey,
-  }), [
-    isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, history,
-    stage, isReady, device, gpuName,
-    downloadProgress, downloadMessage, isDownloading,
-    modelError, downloadModels, cancelDownload, retryModel,
-    hotkeyDisplay, hotkeyRegistered, hotkeyError, setHotkey,
-  ]);
+  };
 
   return (
     <RecordingContext.Provider value={contextValue}>

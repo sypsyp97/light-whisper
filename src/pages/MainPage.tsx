@@ -3,8 +3,7 @@ import { Settings, Minus, X, Copy, Download, Cpu, Loader2, Check } from "lucide-
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecordingContext } from "@/contexts/RecordingContext";
-import { copyToClipboard } from "@/api/clipboard";
-import { hideMainWindow } from "@/api/window";
+import { copyToClipboard, hideMainWindow } from "@/api/tauri";
 import TitleBar from "@/components/TitleBar";
 import { PADDING } from "@/lib/constants";
 const EQ_BAR_COUNT = 5;
