@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { THEME_STORAGE_KEY } from "@/lib/constants";
 
@@ -78,9 +78,5 @@ export function useTheme(): UseThemeReturn {
     return () => mediaQuery.removeEventListener("change", handler);
   }, [theme]);
 
-  const setTheme = useCallback((mode: ThemeMode) => {
-    setThemeState(mode);
-  }, []);
-
-  return { theme, isDark, setTheme };
+  return { theme, isDark, setTheme: setThemeState };
 }

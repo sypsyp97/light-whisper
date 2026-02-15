@@ -48,6 +48,26 @@ export default function MainPage({ onNavigate }: {
   const isIdle = !isRecording && !isProcessing;
   const recordBtnLabel = isRecording ? "停止录音" : isProcessing ? "识别中" : "开始录音";
 
+  function getStatusText(): string {
+    if (isRecording) return "正在聆听...";
+    if (isProcessing) return "识别中...";
+    if (isReady) return "点击开始录音";
+    if (stage === "downloading") {
+      return downloadProgress > 1
+        ? `模型下载中 ${Math.round(downloadProgress)}%`
+        : (downloadMessage ?? "模型下载准备中...");
+    }
+    if (stage === "need_download") return "需要下载模型";
+    if (stage === "loading") return downloadMessage || "模型加载中...";
+    return "准备中...";
+  }
+
+  function getChipLabel(): string | null {
+    if (stage === "downloading") return "下载中";
+    if (stage === "loading") return downloadMessage || "加载中";
+    return "准备中";
+  }
+
   return (
     <div className="page-root">
 
@@ -82,7 +102,7 @@ export default function MainPage({ onNavigate }: {
           {!isReady && stage !== "need_download" && (
             <span className="chip animate-fade-in">
               <Loader2 size={10} className="animate-spin" />
-              {stage === "downloading" ? "下载中" : stage === "loading" ? (downloadMessage || "加载中") : "准备中"}
+              {getChipLabel()}
             </span>
           )}
         </div>
@@ -132,9 +152,7 @@ export default function MainPage({ onNavigate }: {
         </div>
 
         <p aria-live="polite" className="status-text">
-          {isRecording ? "正在聆听..." : isProcessing ? "识别中..." : isReady ? "点击开始录音"
-            : stage === "downloading" ? (downloadProgress > 1 ? `模型下载中 ${Math.round(downloadProgress ?? 0)}%` : downloadMessage ?? "模型下载准备中...")
-            : stage === "need_download" ? "需要下载模型" : stage === "loading" ? (downloadMessage || "模型加载中...") : "准备中..."}
+          {getStatusText()}
         </p>
 
         {stage === "need_download" && !isDownloading && (

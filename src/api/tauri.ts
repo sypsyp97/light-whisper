@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
-  disable as disableAutostartPlugin,
-  enable as enableAutostartPlugin,
-  isEnabled as isAutostartEnabledPlugin,
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
 import type {
   FunASRStatus,
@@ -63,14 +63,4 @@ export function registerCustomHotkey(shortcut: string): Promise<string> {
   return invokeCommand<string>("register_custom_hotkey", { shortcut });
 }
 
-export async function enableAutostart(): Promise<void> {
-  await enableAutostartPlugin();
-}
-
-export async function disableAutostart(): Promise<void> {
-  await disableAutostartPlugin();
-}
-
-export async function isAutostartEnabled(): Promise<boolean> {
-  return await isAutostartEnabledPlugin();
-}
+export { enableAutostart, disableAutostart, isAutostartEnabled };

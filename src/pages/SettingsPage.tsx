@@ -12,7 +12,7 @@ import {
 } from "@/api/tauri";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
-import { PADDING, INPUT_METHOD_KEY } from "@/lib/constants";
+import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY } from "@/lib/constants";
 import {
   HOTKEY_MODIFIER_ORDER,
   type HotkeyModifier,
@@ -27,8 +27,6 @@ const themeOptions = [
   { mode: "dark" as const, icon: Moon, label: "深色" },
   { mode: "system" as const, icon: Monitor, label: "跟随系统" },
 ] as const;
-
-const HOTKEY_DEFAULT = "F2";
 
 export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const { isDark, theme, setTheme } = useTheme();
@@ -183,7 +181,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     if (hotkeySaving) return;
     setHotkeySaving(true);
     try {
-      await setHotkey(HOTKEY_DEFAULT);
+      await setHotkey(DEFAULT_HOTKEY);
       toast.success("已恢复默认热键 F2");
     } catch (err) {
       const message = err instanceof Error ? err.message : "恢复默认热键失败";

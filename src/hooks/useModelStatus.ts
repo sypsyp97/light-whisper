@@ -8,6 +8,7 @@ import {
   restartFunASR,
   startFunASR,
 } from "@/api/tauri";
+import { toErrorMessage } from "@/lib/error";
 
 export type ModelStage =
   | "checking"
@@ -42,10 +43,6 @@ const DOWNLOAD_STALL_HINT_MS = 20000;
 /** Auto-download retries when app cold-starts without models. */
 const AUTO_DOWNLOAD_MAX_RETRIES = 1;
 const AUTO_DOWNLOAD_RETRY_DELAY_MS = 3000;
-
-function toErrorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback;
-}
 
 function normalizeProgress(progress: number | undefined, current: number): number {
   if (typeof progress !== "number") {

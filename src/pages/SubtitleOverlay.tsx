@@ -156,18 +156,25 @@ export default function SubtitleOverlay() {
   }, [clearFadeTimer]);
 
   const hasText = text.length > 0;
-  const indicatorClass =
-    phase === "recording"
-      ? "subtitle-dot-recording"
-      : phase === "processing"
-        ? "subtitle-dot-processing"
-        : null;
-  const hintText =
-    phase === "recording"
-      ? "正在聆听..."
-      : phase === "processing"
-        ? "识别中..."
-        : null;
+
+  function getIndicatorClass(): string | null {
+    switch (phase) {
+      case "recording": return "subtitle-dot-recording";
+      case "processing": return "subtitle-dot-processing";
+      default: return null;
+    }
+  }
+
+  function getHintText(): string | null {
+    switch (phase) {
+      case "recording": return "正在聆听...";
+      case "processing": return "识别中...";
+      default: return null;
+    }
+  }
+
+  const indicatorClass = getIndicatorClass();
+  const hintText = getHintText();
 
   return (
     <div className="subtitle-root">

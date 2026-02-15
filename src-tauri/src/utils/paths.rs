@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use tauri::Manager;
 
 const APP_IDENTIFIER: &str = "com.light-whisper.app";
 
@@ -74,4 +75,3 @@ pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
 
     std::fs::write(&config_path, serialized)
 }
-use tauri::Manager;
