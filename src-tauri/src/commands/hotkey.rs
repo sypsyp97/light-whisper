@@ -92,7 +92,7 @@ fn start_ctrl_super_modifier_only_hotkey_monitor(
                     );
                 }
 
-                std::thread::sleep(std::time::Duration::from_millis(16));
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
 
             if was_active {
