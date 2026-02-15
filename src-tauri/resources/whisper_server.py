@@ -123,19 +123,23 @@ class WhisperServer(BaseASRServer):
         try:
             duration = 0.0
 
+            # 检查音频文件是否存在
             if not os.path.exists(audio_path):
                 return {"success": False, "error": f"音频文件不存在: {audio_path}", "type": "transcription_error"}
 
             total_start = time.time()
             logger.info(f"开始转录音频文件: {audio_path}")
 
+            # 获取音频时长
             duration = self._get_audio_duration(audio_path)
             logger.info(f"音频时长: {duration:.2f}秒")
 
+            # 音频过短时跳过转录
             if 0 < duration < 0.5:
                 logger.warning(f"音频过短 ({duration:.2f}秒)，跳过转录")
                 return {"success": True, "text": "", "duration": duration}
 
+            # 执行 Whisper 转录（内置 Silero VAD）
             asr_start = time.time()
             with self.stdout_suppressor.suppress():
                 segments, info = self.model.transcribe(

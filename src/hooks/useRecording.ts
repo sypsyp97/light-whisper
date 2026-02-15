@@ -9,7 +9,6 @@ import {
 } from "@/api/tauri";
 import { convertToWav, arrayBufferToBase64 } from "@/lib/audio";
 import { INPUT_METHOD_KEY } from "@/lib/constants";
-import { toErrorMessage } from "@/lib/error";
 import { readLocalStorage } from "@/lib/storage";
 import type { TranscriptionResult, HistoryItem } from "@/types";
 
@@ -63,6 +62,10 @@ function clearTimer(ref: { current: ReturnType<typeof setTimeout> | null }): voi
 
 function getWavDurationSeconds(buffer: ArrayBuffer): number {
   return Math.max(0, (buffer.byteLength - WAV_HEADER_BYTES) / WAV_BYTES_PER_SECOND);
+}
+
+function toErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function getInputMethodPreference(): "sendInput" | "clipboard" {

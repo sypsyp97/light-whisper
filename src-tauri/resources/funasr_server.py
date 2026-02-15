@@ -104,19 +104,23 @@ class FunASRServer(BaseASRServer):
         try:
             duration = 0.0
 
+            # 检查音频文件是否存在
             if not os.path.exists(audio_path):
                 return {"success": False, "error": f"音频文件不存在: {audio_path}", "type": "transcription_error"}
 
             total_start = time.time()
             logger.info(f"开始转录音频文件: {audio_path}")
 
+            # 预先获取音频时长，用于决定是否跳过 VAD
             duration = self._get_audio_duration(audio_path)
             logger.info(f"音频时长: {duration:.2f}秒")
 
+            # 音频过短时 VAD 检测不到语音，会导致空张量索引错误
             if 0 < duration < 0.5:
                 logger.warning(f"音频过短 ({duration:.2f}秒)，跳过转录")
                 return {"success": True, "text": "", "duration": duration}
 
+            # 执行ASR识别（SenseVoiceSmall 内置 ITN 标点恢复）
             asr_start = time.time()
             import torch
             with self.stdout_suppressor.suppress(), torch.inference_mode():
@@ -131,6 +135,7 @@ class FunASRServer(BaseASRServer):
                 )
             asr_elapsed = time.time() - asr_start
 
+            # 提取识别文本并进行富文本后处理（去除 <|zh|><|NEUTRAL|> 等标签）
             from funasr.utils.postprocess_utils import rich_transcription_postprocess
             if isinstance(asr_result, list) and len(asr_result) > 0:
                 if isinstance(asr_result[0], dict) and "text" in asr_result[0]:
