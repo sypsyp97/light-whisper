@@ -123,8 +123,12 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   const parts: string[] = [];
   for (let i = 0; i < bytes.byteLength; i += BASE64_CHUNK_BYTES) {
-    const chunk = bytes.subarray(i, i + BASE64_CHUNK_BYTES);
-    parts.push(String.fromCharCode(...chunk));
+    const end = Math.min(i + BASE64_CHUNK_BYTES, bytes.byteLength);
+    const chars = new Array(end - i);
+    for (let j = i; j < end; j++) {
+      chars[j - i] = String.fromCharCode(bytes[j]);
+    }
+    parts.push(chars.join(""));
   }
   return btoa(parts.join(""));
 }
