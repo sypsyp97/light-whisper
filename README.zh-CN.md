@@ -1,0 +1,464 @@
+<div align="center">
+
+# Light-Whisper 轻语
+
+**本地离线语音转文字桌面应用**
+
+简体中文 | [English](README.md)
+
+[![Tauri](https://img.shields.io/badge/Tauri-2.0-blue?style=flat-square&logo=tauri)](https://tauri.app/)
+[![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react)](https://react.dev/)
+[![Rust](https://img.shields.io/badge/Rust-2021-orange?style=flat-square&logo=rust)](https://www.rust-lang.org/)
+[![FunASR](https://img.shields.io/badge/FunASR-SenseVoice-green?style=flat-square)](https://github.com/modelscope/FunASR)
+[![Whisper](https://img.shields.io/badge/Faster--Whisper-turbo-orange?style=flat-square)](https://github.com/SYSTRAN/faster-whisper)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
+
+<img src="assets/icon.png" alt="Light-Whisper Logo" width="120" />
+
+*按下 F2，开口说话，松开即得文字*
+
+</div>
+
+---
+
+<!-- TODO: 在此添加应用截图或 GIF 动图，例如：-->
+<!-- ![应用截图](assets/screenshot.png) -->
+
+## 功能特点
+
+- **F2（默认）一键转写** — 按住录音，松开自动转写，结果直接输入到当前活动窗口
+- **连续说话不丢字** — 快速开始下一段时，上一段结果会进入输入队列，按顺序稳定输入
+- **流式反馈更顺滑** — 录音中会更高频地刷新中间结果，字幕观感更接近实时
+- **双引擎可选** — 在设置页一键切换，各有所长（详见下方对比）
+  - **SenseVoice** — 中文准确率高，内置标点恢复，推理极快
+  - **Faster Whisper** — 支持 99+ 种语言
+- **完全离线** — 所有模型本地运行，数据不出本机
+- **GPU 加速** — 自动检测 NVIDIA GPU 并启用 CUDA 加速，无 GPU 则回退 CPU
+- **双输入模式** — 支持 SendInput 直接输入（不占用剪贴板）和剪贴板粘贴（兼容中文输入法）
+- **悬浮窗设计** — 无边框透明窗口，始终置顶，最小化到系统托盘
+- **开机自启动** — 可在设置中开启，开机后自动运行
+
+### 引擎对比
+
+| | SenseVoice（默认） | Faster Whisper |
+|---|:---:|:---:|
+| **中文** | CER 2.96%（AISHELL-1） | CER 5.14% |
+| **英文** | WER 3.15%（LibriSpeech） | WER 1.82% |
+| **语言数** | 中/英/日/韩/粤（5种） | 99+ 种 |
+| **标点** | 内置 ITN 标点恢复 | 内置（initial_prompt 引导） |
+| **模型大小** | ~938 MB（ASR + VAD） | ~1.5 GB |
+| **推理速度** | 10s 音频仅需 70ms | 较快（CTranslate2 加速） |
+
+> 数据来源：[FunAudioLLM 论文](https://arxiv.org/html/2407.04051v1) Table 6
+
+---
+
+## 环境要求
+
+> **操作系统**：目前仅支持 Windows 10/11（x64）
+
+| 工具 | 版本要求 | 用途 |
+|------|---------|------|
+| [Node.js](https://nodejs.org/) | >= 18 | 前端构建 |
+| [pnpm](https://pnpm.io/) | >= 8 | 前端包管理 |
+| [Rust](https://www.rust-lang.org/tools/install) | >= 1.75 | 后端编译 |
+| [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python 包管理（自动安装 Python 3.11） |
+| [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) | 2019+ | Rust/C++ 编译依赖 |
+
+**磁盘空间**：至少预留 **10 GB**（Python 依赖约 5 GB + 模型约 1-2 GB）。
+
+**GPU 加速（可选）**：如果你有 NVIDIA 显卡，不需要单独安装 CUDA Toolkit — PyTorch 已自带 CUDA 12.4 运行时。只需确保安装了最新的 [NVIDIA 显卡驱动](https://www.nvidia.cn/drivers/lookup/)。
+
+---
+
+## 快速开始
+
+### 第 0 步：安装前置工具
+
+如果你已经装好了上述所有工具，可以跳到第 1 步。否则按顺序安装：
+
+<details>
+<summary><b>0.1 安装 Visual Studio Build Tools</b></summary>
+
+Rust 在 Windows 上编译需要 MSVC C++ 构建工具。
+
+1. 下载 [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/)
+2. 运行安装程序，勾选 **"使用 C++ 的桌面开发"** 工作负载
+3. 安装完成后重启电脑
+
+</details>
+
+<details>
+<summary><b>0.2 安装 Rust</b></summary>
+
+```powershell
+# 在 PowerShell 中运行
+winget install Rustlang.Rustup
+# 或访问 https://rustup.rs/ 下载安装器
+```
+
+安装完成后验证：
+```powershell
+rustc --version   # 应显示 1.75+
+```
+
+</details>
+
+<details>
+<summary><b>0.3 安装 Node.js 和 pnpm</b></summary>
+
+```powershell
+# 安装 Node.js（推荐 LTS 版本）
+winget install OpenJS.NodeJS.LTS
+
+# 安装 pnpm
+npm install -g pnpm
+```
+
+验证：
+```powershell
+node --version    # 应显示 v18+
+pnpm --version    # 应显示 8+
+```
+
+</details>
+
+<details>
+<summary><b>0.4 安装 uv</b></summary>
+
+[uv](https://docs.astral.sh/uv/) 是一个极速的 Python 包管理器，会根据项目配置**自动下载并安装所需的 Python 版本**（本项目使用 3.11），无需手动安装 Python：
+
+```powershell
+# PowerShell
+irm https://astral.sh/uv/install.ps1 | iex
+
+# 或使用 winget
+winget install astral-sh.uv
+```
+
+验证：
+```powershell
+uv --version
+```
+
+</details>
+
+<details>
+<summary><b>验证所有工具是否就绪</b></summary>
+
+在 PowerShell 中运行以下命令，确认所有工具已正确安装：
+
+```powershell
+node --version      # >= 18
+pnpm --version      # >= 8
+rustc --version     # >= 1.75
+uv --version        # >= 0.4
+```
+
+如果某个命令提示"不是内部或外部命令"，说明对应工具未安装或未添加到 PATH，请回到上方对应步骤重新安装。
+
+> **Python 无需单独安装**：`uv sync` 执行时会自动下载并管理 Python 3.11。
+
+</details>
+
+---
+
+### 第 1 步：克隆项目
+
+```bash
+git clone https://github.com/sypsyp97/light-whisper.git
+cd light-whisper
+```
+
+### 第 2 步：安装前端依赖
+
+```bash
+pnpm install
+```
+
+### 第 3 步：安装 Python 依赖
+
+```bash
+uv sync
+```
+
+这一步会：
+- 自动下载并安装 Python 3.11（如果系统上没有）
+- 在项目根目录自动创建 `.venv` 虚拟环境
+- 安装 PyTorch（含 CUDA 12.4）、FunASR、faster-whisper 等依赖
+- **耗时较长**（约 5-15 分钟，取决于网速），因为 PyTorch 包体较大
+
+> **网络问题？** 如果 PyTorch 下载缓慢，详见下方 [常见问题](#常见问题)。
+
+### 第 4 步：下载 ASR 模型（强烈建议）
+
+> **重要**：强烈建议在首次运行前手动下载模型。应用内自动下载可能因网络问题导致启动失败或超时。
+
+```bash
+# SenseVoice 引擎（默认，约 938 MB）
+uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/SenseVoiceSmall'); snapshot_download('funasr/fsmn-vad')"
+
+# Faster Whisper 引擎（约 1.5 GB）
+uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('deepdml/faster-whisper-large-v3-turbo-ct2')"
+```
+
+模型会缓存到 `~/.cache/huggingface/hub/`，下载一次后续启动不再重复下载。
+
+> **模型说明**：
+>
+> | 引擎 | 模型 | 大小 | 说明 |
+> |------|------|------|------|
+> | SenseVoice | [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) | ~936 MB | 语音识别主模型，中/英/日/韩/粤，内置标点（ITN） |
+> | SenseVoice | [fsmn-vad](https://huggingface.co/funasr/fsmn-vad) | ~1.7 MB | 语音活动检测（VAD） |
+> | Faster Whisper | [faster-whisper-large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2) | ~1.5 GB | CTranslate2 格式，99+ 语言，内置 Silero VAD |
+
+> **国内下载慢？** 可以设置 HuggingFace 镜像：
+> ```powershell
+> $env:HF_ENDPOINT = "https://hf-mirror.com"
+> ```
+> 然后再执行上面的下载命令。
+
+### 第 5 步：构建并运行
+
+```bash
+pnpm tauri build
+```
+
+首次构建需要编译所有 Rust 依赖，耗时约 **5-15 分钟**，请耐心等待。构建完成后：
+
+1. 直接运行 `src-tauri/target/release/light-whisper.exe`
+2. 或在 `src-tauri/target/release/bundle/nsis/` 目录下找到安装包，安装后使用
+3. 应用窗口出现在屏幕中央（无边框悬浮窗）
+4. 等待状态显示"就绪"（模型加载中时会显示进度）
+5. **按住 F2 说话，松开后自动转写并输入到当前光标位置**
+
+---
+
+## 使用说明
+
+| 操作 | 说明 |
+|------|------|
+| **按住 F2** | 开始录音，松开后自动转写 |
+| **连续快速按住 F2** | 可连续说多段，结果会按顺序输入，不会因下一段开始而丢失上一段 |
+| **点击圆形按钮** | 手动开始/停止录音 |
+| **系统托盘图标** | 右键菜单（显示/隐藏/退出），双击切换显示 |
+| **齿轮图标** | 打开设置页面 |
+
+### 设置选项
+
+| 选项 | 说明 |
+|------|------|
+| **识别引擎** | SenseVoice（中文优先）或 Faster Whisper（多语言），切换后自动重新加载 |
+| **主题** | 浅色 / 深色 / 跟随系统 |
+| **说话热键** | 默认 F2，可在设置页自定义（支持组合键） |
+| **输入方式** | 直接输入（SendInput，不占用剪贴板）或 剪贴板粘贴（兼容中文输入法） |
+| **开机自启动** | 开启后系统启动时自动运行 |
+
+### 状态指示
+
+| 状态 | 含义 |
+|------|------|
+| `GPU: NVIDIA RTX...` | GPU 加速已启用 |
+| `CPU` | 使用 CPU 推理 |
+| `模型加载中...` | 正在初始化模型（首次约 10-30 秒） |
+| `下载中 45%` | 正在下载 ASR 模型 |
+
+---
+
+## 项目结构
+
+```
+light-whisper/
+├── src/                        # 前端 (React + TypeScript)
+│   ├── api/                    # Tauri API 封装层
+│   │   ├── funasr.ts           #   FunASR 服务调用
+│   │   ├── clipboard.ts        #   剪贴板 / 文本输入
+│   │   ├── hotkey.ts           #   快捷键注册
+│   │   ├── window.ts           #   窗口控制
+│   │   └── autostart.ts        #   开机自启动
+│   ├── pages/                  # 页面组件
+│   │   ├── MainPage.tsx        #   主界面（录音+转写）
+│   │   ├── SettingsPage.tsx    #   设置页面
+│   │   └── SubtitleOverlay.tsx #   字幕悬浮窗页面
+│   ├── components/             # 通用组件
+│   │   └── TitleBar.tsx        #   标题栏（窗口拖动、操作按钮）
+│   ├── hooks/                  # React Hooks
+│   │   ├── useRecording.ts     #   WebAudio 录音逻辑
+│   │   ├── useModelStatus.ts   #   模型状态事件监听
+│   │   ├── useHotkey.ts        #   全局快捷键处理（可自定义）
+│   │   ├── useTheme.ts         #   主题切换
+│   │   └── useWindowDrag.ts    #   无边框窗口拖动
+│   ├── contexts/
+│   │   └── RecordingContext.tsx #   全局录音状态管理
+│   ├── types/
+│   │   └── index.ts            #   TypeScript 类型定义
+│   ├── styles/
+│   │   └── subtitle.css        #   字幕悬浮窗样式
+│   └── main.tsx                # React 入口
+│
+├── src-tauri/                  # 后端 (Rust + Tauri 2)
+│   ├── src/
+│   │   ├── lib.rs              #   应用入口、插件注册、托盘设置
+│   │   ├── commands/           #   Tauri 命令（前端可调用）
+│   │   │   ├── funasr.rs       #     启动/停止/转写/状态查询
+│   │   │   ├── clipboard.rs    #     复制/输入（SendInput / 剪贴板粘贴）
+│   │   │   ├── hotkey.rs       #     快捷键注册
+│   │   │   └── window.rs       #     窗口控制
+│   │   ├── services/
+│   │   │   ├── funasr_service.rs  # Python 子进程管理、JSON IPC
+│   │   │   └── download_service.rs # 模型下载进程管理
+│   │   ├── state/
+│   │   │   └── app_state.rs    #   全局应用状态
+│   │   └── utils/
+│   │       ├── error.rs        #   错误类型定义
+│   │       └── paths.rs        #   路径工具
+│   ├── resources/              # 嵌入到应用中的 Python 脚本
+│   │   ├── funasr_server.py    #   SenseVoice 推理服务（stdin/stdout IPC）
+│   │   ├── whisper_server.py   #   Faster Whisper 推理服务（同协议）
+│   │   ├── download_models.py  #   模型下载脚本
+│   │   └── hf_cache_utils.py   #   HuggingFace 缓存检测工具
+│   ├── Cargo.toml
+│   └── tauri.conf.json
+│
+├── package.json                # 前端依赖
+├── pyproject.toml              # Python 依赖（含 CUDA 12.4 PyTorch）
+├── vite.config.ts              # Vite 构建配置
+└── .python-version             # Python 版本约束 (3.11)
+```
+
+### 架构通信流程
+
+```
+┌──────────────┐     Tauri IPC      ┌──────────────┐   stdin/stdout   ┌───────────────────┐
+│  React 前端  │ ◄──── invoke() ───►│  Rust 后端   │ ◄──── JSON ────► │  Python ASR 服务  │
+│  (TypeScript) │ ◄──── emit() ─────│  (Tauri 2)   │                  │ SenseVoice/Whisper │
+└──────────────┘                    └──────────────┘                  └───────────────────┘
+```
+
+1. **前端 → Rust**：通过 `invoke()` 调用 Tauri 命令
+2. **Rust → Python**：通过子进程的 stdin 发送 JSON 命令，从 stdout 读取 JSON 响应
+3. **Rust → 前端**：通过 `emit()` 广播状态事件
+
+---
+
+## 常见问题
+
+<details>
+<summary><b>网络问题：PyTorch 或模型下载很慢</b></summary>
+
+**PyTorch 下载慢**：`uv sync` 会从 `download.pytorch.org` 下载 PyTorch CUDA 版（约 2.5 GB）。由于项目指定了 PyTorch 官方 CUDA 源，国内镜像无法加速此步骤。建议：
+
+- 使用稳定的网络环境（科学上网或校园网）
+- 如果多次断线，`uv sync` 支持断点续传，重新执行即可
+- 其他 Python 依赖会从默认 PyPI 源下载，可通过清华镜像加速：
+```powershell
+$env:UV_INDEX_URL = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+uv sync
+```
+
+**模型下载慢**：ASR 模型从 HuggingFace Hub 下载，国内可设置镜像：
+
+```powershell
+$env:HF_ENDPOINT = "https://hf-mirror.com"
+# 然后重新启动应用或手动下载模型
+```
+
+</details>
+
+<details>
+<summary><b>Python 找不到或版本不对</b></summary>
+
+应用启动时，Rust 后端优先查找项目根目录的 `.venv/Scripts/python.exe`。
+
+**确保 `uv sync` 在项目根目录执行过**，它会自动下载 Python 3.11 并创建 `.venv` 目录。可以验证：
+
+```powershell
+.venv\Scripts\python.exe --version   # 应显示 Python 3.11.x
+```
+
+</details>
+
+<details>
+<summary><b>GPU 未被检测到</b></summary>
+
+1. 确认安装了最新的 [NVIDIA 显卡驱动](https://www.nvidia.cn/drivers/lookup/)
+2. 确认 PyTorch 是 CUDA 版本：
+   ```powershell
+   .venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"
+   ```
+   应输出 `True`。如果输出 `False`：
+   - 检查驱动版本是否支持 CUDA 12.4（驱动版本 >= 525.60）
+   - 确认 `uv sync` 安装的是 CUDA 版 PyTorch（`pyproject.toml` 中已配置）
+
+如果不需要 GPU 加速，应用会自动回退到 CPU 模式，无需额外操作。
+
+</details>
+
+<details>
+<summary><b>快捷键没反应或被占用</b></summary>
+
+默认使用 F2。若被其他程序占用（如游戏或工具），可在设置页把"说话热键"改成其他组合键（如 `Ctrl+Shift+R` 或 `Ctrl+Win+R`）。
+
+</details>
+
+<details>
+<summary><b>连续说两段时，上一段结果会丢吗？</b></summary>
+
+不会。当前版本使用了**输入队列**：即使你在上一段结果输入前马上开始下一段，上一段也会保留并按顺序输入。
+
+如果你仍感觉有延迟，通常是目标应用自身处理输入较慢（例如重型编辑器、远程桌面或高负载场景），可优先尝试：
+1. 将输入方式切到**剪贴板粘贴**（兼容性更高）
+2. 关闭目标应用中的高频自动格式化插件
+
+</details>
+
+<details>
+<summary><b>转写结果输入到光标位置时部分字符变成句号或乱码</b></summary>
+
+这是因为默认的"直接输入"模式使用 Win32 `SendInput` API 以 `KEYEVENTF_UNICODE` 模式逐字符模拟键盘输入，**当系统开启中文输入法（IME）时，IME 可能拦截并错误处理这些合成的 Unicode 键盘事件**，导致某些中文字符（如"我"、"你"）被转换为其他字符（如"。"）。
+
+**解决方法**（任选其一）：
+1. **推荐**：打开设置页面，将输入方式切换为**「剪贴板粘贴」**模式，该模式通过剪贴板 + Ctrl+V 粘贴，完全兼容中文输入法
+2. 在使用语音转写时，将输入法切换到**英文模式**（按 `Shift` 或 `Ctrl+Space` 切换）
+
+</details>
+
+
+<details>
+<summary><b>应用日志在哪？</b></summary>
+
+- **SenseVoice 日志**：`%APPDATA%\com.light-whisper.app\logs\funasr_server.log`
+- **Whisper 日志**：`%APPDATA%\com.light-whisper.app\logs\whisper_server.log`
+- **Rust/Tauri 日志**：开发模式下输出到控制台
+
+</details>
+
+---
+
+## 开发命令速查
+
+```bash
+pnpm tauri build        # 构建 Windows 安装包
+pnpm build              # 仅构建前端
+uv sync                 # 同步 Python 依赖
+uv add <package>        # 添加 Python 依赖
+cd src-tauri && cargo check   # Rust 类型检查
+cd src-tauri && cargo fmt     # Rust 代码格式化
+```
+
+---
+
+## 致谢
+
+本项目基于 [**ququ**](https://github.com/yan5xu/ququ) 修改开发，感谢原作者的贡献。
+
+- [FunASR](https://github.com/modelscope/FunASR) — 阿里达摩院开源语音识别
+- [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) — 多语言语音识别模型（中/英/日/韩/粤）
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2 加速的 Whisper 推理引擎
+- [faster-whisper-large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2) — CTranslate2 格式 Whisper 模型（99+ 语言）
+- [Tauri](https://tauri.app/) — 现代化桌面应用框架
+- [React](https://react.dev/) — 用户界面库
+
+## 许可证
+
+[Apache License 2.0](LICENSE)
