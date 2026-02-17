@@ -35,17 +35,37 @@ export default function SubtitleOverlay() {
     }
   }, []);
 
-  // 主题
+  // 主题同步：读取初始值 + 监听主窗口的 localStorage 变更
   useEffect(() => {
-    const stored = readLocalStorage(THEME_STORAGE_KEY);
-    if (stored === "dark") {
-      document.documentElement.setAttribute("data-theme", "dark");
-    } else if (stored === "light") {
-      document.documentElement.setAttribute("data-theme", "light");
-    } else {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
-    }
+    const applyTheme = () => {
+      const stored = readLocalStorage(THEME_STORAGE_KEY);
+      if (stored === "dark") {
+        document.documentElement.setAttribute("data-theme", "dark");
+      } else if (stored === "light") {
+        document.documentElement.setAttribute("data-theme", "light");
+      } else {
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
+      }
+    };
+
+    applyTheme();
+
+    // 监听 localStorage 变更（跨窗口同步）
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === THEME_STORAGE_KEY) applyTheme();
+    };
+
+    // 监听系统主题变更（当设置为"跟随系统"时）
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystemThemeChange = () => applyTheme();
+
+    window.addEventListener("storage", onStorage);
+    mediaQuery.addEventListener("change", onSystemThemeChange);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      mediaQuery.removeEventListener("change", onSystemThemeChange);
+    };
   }, []);
 
   // 监听录音状态

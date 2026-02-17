@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useMemo, type ReactNode } from "react";
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
@@ -75,7 +75,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     error: hotkeyError,
   } = useHotkey(hotkeyStart, hotkeyStop);
 
-  const contextValue: RecordingContextValue = {
+  const contextValue = useMemo<RecordingContextValue>(() => ({
     isRecording,
     isProcessing,
     startRecording,
@@ -97,7 +97,14 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     hotkeyDisplay,
     hotkeyError,
     setHotkey,
-  };
+  }), [
+    isRecording, isProcessing, startRecording, stopRecording,
+    recordingError, transcriptionResult, history,
+    stage, isReady, device, gpuName,
+    downloadProgress, downloadMessage, isDownloading, modelError,
+    downloadModels, cancelDownload, retryModel,
+    hotkeyDisplay, hotkeyError, setHotkey,
+  ]);
 
   return (
     <RecordingContext.Provider value={contextValue}>

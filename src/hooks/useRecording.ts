@@ -35,40 +35,74 @@ export function useRecording(): UseRecordingReturn {
 
   // 监听 recording-state 事件
   useEffect(() => {
-    const unlisten = listen<RecordingStatePayload>("recording-state", (e) => {
-      setIsRecording(e.payload.isRecording);
-      setIsProcessing(e.payload.isProcessing);
-      if (e.payload.error) {
-        setError(e.payload.error);
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        unlisten = await listen<RecordingStatePayload>("recording-state", (e) => {
+          setIsRecording(e.payload.isRecording);
+          setIsProcessing(e.payload.isProcessing);
+          if (e.payload.error) {
+            setError(e.payload.error);
+          }
+        });
+
+        if (disposed && unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      } catch {
+        // 忽略事件监听初始化失败
       }
-    });
+    })();
+
     return () => {
-      unlisten.then((fn) => fn());
+      disposed = true;
+      unlisten?.();
     };
   }, []);
 
   // 监听 transcription-result 事件
   useEffect(() => {
-    const unlisten = listen<TranscriptionPayload>("transcription-result", (e) => {
-      if (!e.payload.interim) {
-        const text = e.payload.text;
-        setTranscriptionResult(text);
-        if (text) {
-          setHistory((prev) =>
-            [
-              {
-                id: Date.now().toString(),
-                text,
-                timestamp: Date.now(),
-              },
-              ...prev,
-            ].slice(0, 20)
-          );
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        unlisten = await listen<TranscriptionPayload>("transcription-result", (e) => {
+          if (!e.payload.interim) {
+            const text = e.payload.text;
+            setTranscriptionResult(text);
+            if (text) {
+              const now = Date.now();
+              setHistory((prev) =>
+                [
+                  {
+                    id: now.toString(),
+                    text,
+                    timestamp: now,
+                    timeDisplay: new Date(now).toLocaleTimeString(),
+                  },
+                  ...prev,
+                ].slice(0, 20)
+              );
+            }
+          }
+        });
+
+        if (disposed && unlisten) {
+          unlisten();
+          unlisten = null;
         }
+      } catch {
+        // 忽略事件监听初始化失败
       }
-    });
+    })();
+
     return () => {
-      unlisten.then((fn) => fn());
+      disposed = true;
+      unlisten?.();
     };
   }, []);
 

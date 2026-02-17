@@ -51,7 +51,7 @@ function App() {
   const isTransitioning = useRef(false);
   useTheme();
 
-  // Page navigation with directional slide
+  // Page navigation with directional slide — both pages stay mounted
   const navigateTo = useCallback((target: View) => {
     if (isTransitioning.current || target === view) return;
     isTransitioning.current = true;
@@ -74,11 +74,12 @@ function App() {
     <RecordingProvider>
       <div style={{ height: "100%", width: "100%" }}>
         <div className={animClass} style={{ height: "100%", width: "100%" }}>
-          {view === "main" ? (
+          <div style={{ height: "100%", display: view === "main" ? "contents" : "none" }}>
             <MainPage onNavigate={navigateTo} />
-          ) : (
+          </div>
+          <div style={{ height: "100%", display: view === "settings" ? "contents" : "none" }}>
             <SettingsPage onNavigate={navigateTo} />
-          )}
+          </div>
         </div>
       </div>
       <Toaster

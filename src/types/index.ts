@@ -34,5 +34,6 @@ export interface HistoryItem {
   id: string;
   text: string;
   timestamp: number;
+  timeDisplay: string;
 }
 

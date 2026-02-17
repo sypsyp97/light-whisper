@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Settings, Minus, X, Copy, Download, Cpu, Loader2, Check } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -23,6 +23,7 @@ export default function MainPage({ onNavigate }: {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [errorDismissed, setErrorDismissed] = useState(false);
   const prevRecording = useRef(isRecording);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset error dismissed when error changes
   useEffect(() => {
@@ -34,16 +35,27 @@ export default function MainPage({ onNavigate }: {
     prevRecording.current = isRecording;
   }, [isRecording]);
 
-  const handleCopy = async (text: string, id: string) => {
+  // Cleanup copy timer on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const handleCopy = useCallback(async (text: string, id: string) => {
     try {
       await copyToClipboard(text);
       setCopiedId(id);
       toast.success("已复制到剪贴板");
-      setTimeout(() => setCopiedId(null), 1500);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => {
+        setCopiedId(null);
+        copyTimerRef.current = null;
+      }, 1500);
     } catch {
       toast.error("复制失败");
     }
-  };
+  }, []);
 
   const isIdle = !isRecording && !isProcessing;
   const recordBtnLabel = isRecording ? "停止录音" : isProcessing ? "识别中" : "开始录音";
@@ -92,7 +104,7 @@ export default function MainPage({ onNavigate }: {
 
       {/* Recording zone */}
       <div className="recording-zone" style={{ padding: `16px ${PADDING}px 12px` }}>
-        <div style={{ minHeight: 20 }}>
+        <div className="chip-container">
           {isReady && device && (
             <span className="chip animate-success">
               <Cpu size={10} strokeWidth={1.8} />
@@ -107,15 +119,8 @@ export default function MainPage({ onNavigate }: {
           )}
         </div>
 
-        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {isRecording && (
-            <span style={{
-              position: "absolute", width: 50, height: 50, borderRadius: "50%",
-              border: "2px solid var(--color-accent)",
-              animation: "recording-pulse 1.8s ease-out infinite",
-              pointerEvents: "none",
-            }} />
-          )}
+        <div className="record-btn-wrapper">
+          {isRecording && <span className="recording-pulse-ring" />}
           <button
             key={isRecording ? "recording" : isProcessing ? "processing" : "idle"}
             className={`record-btn${isRecording !== prevRecording.current ? " animate-record-enter" : ""}`}
@@ -133,7 +138,7 @@ export default function MainPage({ onNavigate }: {
             }}
           >
             {isRecording && (
-              <div style={{ display: "flex", alignItems: "center", gap: 2.5 }}>
+              <div className="eq-bar-container">
                 {Array.from({ length: EQ_BAR_COUNT }, (_, i) => (
                   <span key={i} className="eq-bar" style={{ animationDelay: `${i * EQ_BAR_DELAY_STEP}s` }} />
                 ))}
@@ -161,7 +166,7 @@ export default function MainPage({ onNavigate }: {
           </button>
         )}
         {stage === "need_download" && isDownloading && (
-          <div style={{ marginTop: 4, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, fontSize: 11, color: "var(--color-text-tertiary)" }}>
+          <div className="download-info">
             <span>另一个模型正在下载中</span>
             <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
           </div>
@@ -186,15 +191,15 @@ export default function MainPage({ onNavigate }: {
 
       {/* Error */}
       {(recordingError || modelError) && !errorDismissed && (
-        <div style={{ margin: `0 ${PADDING}px 8px`, flexShrink: 0 }} className="animate-shake">
+        <div className="error-section animate-shake" style={{ margin: `0 ${PADDING}px 8px` }}>
           <div className="error-banner">
             <div className="error-banner-inner">
               <p style={{ fontSize: 12, color: "var(--color-error)", lineHeight: 1.6, flex: 1 }}>{recordingError || modelError}</p>
-              <button onClick={() => setErrorDismissed(true)} aria-label="关闭" style={{ flexShrink: 0, padding: 2, background: "none", border: "none", cursor: "pointer", color: "var(--color-error)", opacity: 0.6, lineHeight: 1 }}>
+              <button onClick={() => setErrorDismissed(true)} aria-label="关闭" className="error-dismiss-btn">
                 <X size={12} />
               </button>
             </div>
-            {stage === "error" && <button onClick={retryModel} style={{ marginTop: 8, fontSize: 11, fontWeight: 500, color: "var(--color-error)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>重试</button>}
+            {stage === "error" && <button onClick={retryModel} className="error-retry-link">重试</button>}
           </div>
         </div>
       )}
@@ -206,7 +211,7 @@ export default function MainPage({ onNavigate }: {
             <div className="result-card">
               <div className="result-card-header">
                 <span className="result-card-title">
-                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--color-accent)", flexShrink: 0 }} />
+                  <span className="result-dot" />
                   识别结果
                 </span>
                 <button aria-label="复制" className="icon-btn" style={{ padding: 6 }} onClick={() => handleCopy(transcriptionResult, "original")}>
@@ -219,31 +224,23 @@ export default function MainPage({ onNavigate }: {
         )}
         {isProcessing && !transcriptionResult && (
           <div className="animate-fade-in">
-            <div className="skeleton-shimmer" style={{ borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)" }}>
-              <Loader2 size={14} className="animate-spin" style={{ color: "var(--color-text-tertiary)" }} />
-              <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>正在识别语音...</span>
+            <div className="skeleton-shimmer skeleton-indicator">
+              <Loader2 size={14} className="animate-spin icon-tertiary" />
+              <span className="skeleton-indicator-text">正在识别语音...</span>
             </div>
           </div>
         )}
         {/* History (skip the first item if it matches current result) */}
         {history.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div className="history-list">
             {history
               .filter((item, idx) => !(idx === 0 && transcriptionResult && item.text === transcriptionResult))
               .map((item) => (
-                <div key={item.id} style={{
-                  padding: "8px 10px",
-                  borderRadius: 6,
-                  background: "var(--color-bg-elevated)",
-                  border: "1px solid var(--color-border-subtle)",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 8,
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.5, margin: 0, wordBreak: "break-all" }}>{item.text}</p>
-                    <span style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 2, display: "block" }}>
-                      {new Date(item.timestamp).toLocaleTimeString()}
+                <div key={item.id} className="history-item">
+                  <div className="history-item-body">
+                    <p className="history-item-text">{item.text}</p>
+                    <span className="history-item-time">
+                      {item.timeDisplay}
                     </span>
                   </div>
                   <button aria-label="复制" className="icon-btn" style={{ padding: 4, flexShrink: 0 }} onClick={() => handleCopy(item.text, item.id)}>

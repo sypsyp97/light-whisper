@@ -30,6 +30,16 @@ const themeOptions = [
   { mode: "system" as const, icon: Monitor, label: "跟随系统" },
 ] as const;
 
+const engineOptions = [
+  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", desc: "中英日韩粤，含标点" },
+  { key: "whisper", icon: Zap, label: "Faster Whisper", desc: "99+语言，速度快" },
+] as const;
+
+const inputOptions = [
+  { key: "sendInput" as const, icon: Keyboard, label: "直接输入", desc: "不占用剪贴板" },
+  { key: "clipboard" as const, icon: ClipboardPaste, label: "剪贴板粘贴", desc: "兼容中文输入法" },
+];
+
 export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const { isDark, theme, setTheme } = useTheme();
   const { retryModel, hotkeyDisplay, setHotkey, hotkeyError } = useRecordingContext();
@@ -208,33 +218,25 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
 
       {/* Content */}
       <div className="settings-content" style={{ padding: `16px ${PADDING}px 16px` }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="settings-sections">
 
           {/* Appearance */}
           <section className="settings-card" style={{ animationDelay: "0ms" }}>
             <div className="settings-section-header">
-              {isDark ? <Moon size={15} style={{ color: "var(--color-accent)" }} /> : <Sun size={15} style={{ color: "var(--color-accent)" }} />}
-              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>外观</h2>
+              {isDark ? <Moon size={15} className="icon-accent" /> : <Sun size={15} className="icon-accent" />}
+              <h2 className="settings-section-title">外观</h2>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+            <div className="settings-grid-3">
               {themeOptions.map(({ mode, icon: Icon, label }) => (
                 <button
                   key={mode}
-                  className="theme-btn"
+                  className="theme-btn settings-option-btn theme-option"
                   aria-label={`切换为${label}模式`}
                   aria-pressed={theme === mode}
                   onClick={() => setTheme(mode)}
-                  style={{
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-                    padding: "10px 10px", borderRadius: 6,
-                    border: `1px solid ${theme === mode ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
-                    background: theme === mode ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
-                    color: theme === mode ? "var(--color-accent)" : "var(--color-text-tertiary)",
-                    cursor: "pointer",
-                  }}
                 >
                   <Icon size={20} strokeWidth={1.5} />
-                  <span style={{ fontSize: 12, fontWeight: 500 }}>{label}</span>
+                  <span className="settings-option-label">{label}</span>
                 </button>
               ))}
             </div>
@@ -243,34 +245,22 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           {/* Engine */}
           <section className="settings-card" style={{ animationDelay: "50ms" }}>
             <div className="settings-section-header">
-              <AudioLines size={15} style={{ color: "var(--color-accent)" }} />
-              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>识别引擎</h2>
+              <AudioLines size={15} className="icon-accent" />
+              <h2 className="settings-section-title">识别引擎</h2>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-              {([
-                { key: "sensevoice", icon: AudioLines, label: "SenseVoice", desc: "中英日韩粤，含标点" },
-                { key: "whisper", icon: Zap, label: "Faster Whisper", desc: "99+语言，速度快" },
-              ] as const).map(({ key, icon: Icon, label, desc }) => (
+            <div className="settings-grid-2">
+              {engineOptions.map(({ key, icon: Icon, label, desc }) => (
                 <button
                   key={key}
-                  className="theme-btn"
+                  className="theme-btn settings-option-btn"
                   aria-label={label}
                   aria-pressed={engine === key}
                   disabled={engineLoading}
                   onClick={() => handleEngineSwitch(key)}
-                  style={{
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-                    padding: "10px 10px", borderRadius: 6,
-                    border: `1px solid ${engine === key ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
-                    background: engine === key ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
-                    color: engine === key ? "var(--color-accent)" : "var(--color-text-tertiary)",
-                    cursor: engineLoading ? "wait" : "pointer",
-                    opacity: engineLoading ? 0.6 : 1,
-                  }}
                 >
                   <Icon size={20} strokeWidth={1.5} />
-                  <span style={{ fontSize: 12, fontWeight: 500 }}>{label}</span>
-                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{desc}</span>
+                  <span className="settings-option-label">{label}</span>
+                  <span className="settings-option-desc">{desc}</span>
                 </button>
               ))}
             </div>
@@ -279,29 +269,19 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           {/* Hotkey */}
           <section className="settings-card" style={{ animationDelay: "100ms" }}>
             <div className="settings-section-header">
-              <Keyboard size={15} style={{ color: "var(--color-accent)" }} />
-              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>说话热键</h2>
+              <Keyboard size={15} className="icon-accent" />
+              <h2 className="settings-section-title">说话热键</h2>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div className="settings-column">
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
                 <button
-                  className="theme-btn"
+                  className="theme-btn hotkey-capture-btn"
                   onClick={() => setCapturingHotkey(true)}
                   disabled={hotkeySaving}
+                  data-capturing={capturingHotkey}
                   style={{
-                    flex: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "10px 12px",
-                    borderRadius: 6,
-                    border: `1px solid ${capturingHotkey ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
-                    background: capturingHotkey ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
-                    color: capturingHotkey ? "var(--color-accent)" : "var(--color-text-secondary)",
                     cursor: hotkeySaving ? "wait" : "pointer",
                     opacity: hotkeySaving ? 0.7 : 1,
-                    fontSize: 12,
-                    fontWeight: 600,
                   }}
                 >
                   {capturingHotkey ? "请按下组合键..." : hotkeyDisplay}
@@ -320,31 +300,24 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   恢复 F2
                 </button>
               </div>
-              <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.5, margin: 0 }}>
+              <p className="settings-hint">
                 点击上方按钮后按下新热键，支持 Win 组合（如 Ctrl+Win+R），也支持纯 Ctrl+Win。按 Esc 取消设置。
               </p>
-              {hotkeyError && (
-                <p style={{ fontSize: 11, color: "var(--color-error)", lineHeight: 1.5, margin: 0 }}>
-                  {hotkeyError}
-                </p>
-              )}
+              {hotkeyError && <p className="settings-error">{hotkeyError}</p>}
             </div>
           </section>
 
           {/* Input Method */}
           <section className="settings-card" style={{ animationDelay: "150ms" }}>
             <div className="settings-section-header">
-              <ClipboardPaste size={15} style={{ color: "var(--color-accent)" }} />
-              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>输入</h2>
+              <ClipboardPaste size={15} className="icon-accent" />
+              <h2 className="settings-section-title">输入</h2>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-              {([
-                { key: "sendInput" as const, icon: Keyboard, label: "直接输入", desc: "不占用剪贴板" },
-                { key: "clipboard" as const, icon: ClipboardPaste, label: "剪贴板粘贴", desc: "兼容中文输入法" },
-              ]).map(({ key, icon: Icon, label, desc }) => (
+            <div className="settings-grid-2">
+              {inputOptions.map(({ key, icon: Icon, label, desc }) => (
                 <button
                   key={key}
-                  className="theme-btn"
+                  className="theme-btn settings-option-btn"
                   aria-label={label}
                   aria-pressed={inputMethod === key}
                   onClick={() => {
@@ -352,18 +325,10 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                     writeLocalStorage(INPUT_METHOD_KEY, key);
                     setInputMethodCommand(key).catch(() => {});
                   }}
-                  style={{
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-                    padding: "10px 10px", borderRadius: 6,
-                    border: `1px solid ${inputMethod === key ? "var(--color-border-accent)" : "var(--color-border-subtle)"}`,
-                    background: inputMethod === key ? "var(--color-accent-subtle)" : "var(--color-bg-elevated)",
-                    color: inputMethod === key ? "var(--color-accent)" : "var(--color-text-tertiary)",
-                    cursor: "pointer",
-                  }}
                 >
                   <Icon size={20} strokeWidth={1.5} />
-                  <span style={{ fontSize: 12, fontWeight: 500 }}>{label}</span>
-                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{desc}</span>
+                  <span className="settings-option-label">{label}</span>
+                  <span className="settings-option-desc">{desc}</span>
                 </button>
               ))}
             </div>
@@ -372,14 +337,14 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           {/* Permissions */}
           <section className="settings-card" style={{ animationDelay: "200ms" }}>
             <div className="settings-section-header">
-              <Accessibility size={15} style={{ color: "var(--color-accent)" }} />
-              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>权限</h2>
+              <Accessibility size={15} className="icon-accent" />
+              <h2 className="settings-section-title">权限</h2>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="permission-list">
               <div className="settings-row">
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Mic size={14} style={{ color: "var(--color-text-tertiary)" }} />
-                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>麦克风</span>
+                <div className="permission-item">
+                  <Mic size={14} className="icon-tertiary" />
+                  <span className="permission-label">麦克风</span>
                 </div>
                 <button className="test-btn" onClick={async () => {
                   try {
@@ -389,9 +354,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 }}>测试</button>
               </div>
               <div className="settings-row">
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Accessibility size={14} style={{ color: "var(--color-text-tertiary)" }} />
-                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>辅助功能 / 粘贴</span>
+                <div className="permission-item">
+                  <Accessibility size={14} className="icon-tertiary" />
+                  <span className="permission-label">辅助功能 / 粘贴</span>
                 </div>
                 <button className="test-btn" onClick={async () => {
                   try {
@@ -406,11 +371,11 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           {/* Startup */}
           <section className="settings-card" style={{ animationDelay: "250ms" }}>
             <div className="settings-section-header">
-              <Power size={15} style={{ color: "var(--color-accent)" }} />
-              <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>启动</h2>
+              <Power size={15} className="icon-accent" />
+              <h2 className="settings-section-title">启动</h2>
             </div>
             <div className="settings-row">
-              <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>开机自启动</span>
+              <span className="permission-label">开机自启动</span>
               <button
                 role="switch"
                 aria-checked={autostart}
@@ -430,8 +395,8 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
 
       {/* Footer */}
       <div className="settings-footer" style={{ padding: `10px ${PADDING}px` }}>
-        <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", margin: 0 }}>
-          轻语 Whisper <span style={{ marginLeft: 4, fontSize: 11 }}>v1.0.0</span>
+        <p className="settings-footer-text">
+          轻语 Whisper <span className="settings-footer-version">v1.0.0</span>
           <span style={{ margin: "0 6px" }}>·</span>
           本地语音转文字
         </p>

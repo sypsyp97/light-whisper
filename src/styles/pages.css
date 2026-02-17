@@ -115,6 +115,144 @@
   overflow: hidden;
 }
 
+/* Recording button wrapper — centers the button with pulse ring */
+.record-btn-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Recording pulse ring */
+.recording-pulse-ring {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: 2px solid var(--color-accent);
+  animation: recording-pulse 1.8s ease-out infinite;
+  pointer-events: none;
+}
+
+/* Equalizer bar container */
+.eq-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 2.5px;
+}
+
+/* Error section margin */
+.error-section {
+  flex-shrink: 0;
+}
+
+/* Error dismiss button */
+.error-dismiss-btn {
+  flex-shrink: 0;
+  padding: 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-error);
+  opacity: 0.6;
+  line-height: 1;
+}
+
+/* Error retry link */
+.error-retry-link {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-error);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Result card accent dot */
+.result-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex-shrink: 0;
+}
+
+/* History item */
+.history-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* History item text container */
+.history-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* History item text */
+.history-item-text {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+  word-break: break-all;
+}
+
+/* History item timestamp */
+.history-item-time {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+  display: block;
+}
+
+/* History list */
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Skeleton processing indicator */
+.skeleton-indicator {
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+}
+
+/* Skeleton processing text */
+.skeleton-indicator-text {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+/* Download info container */
+.download-info {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* Chip min-height container */
+.chip-container {
+  min-height: 20px;
+}
+
 /* ---------- SettingsPage ---------- */
 
 /* Scrollable content area for settings */
@@ -144,4 +282,166 @@
   flex-shrink: 0;
   border-top: 1px solid var(--color-border-subtle);
   text-align: center;
+}
+
+/* Settings section title */
+.settings-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* Settings sections container */
+.settings-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Settings grid — 2 or 3 column option layouts */
+.settings-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.settings-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+/* Settings option button — shared layout for theme/engine/input buttons */
+.settings-option-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.settings-option-btn[aria-pressed="true"] {
+  border: 1px solid var(--color-border-accent);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.settings-option-btn[aria-pressed="false"] {
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-tertiary);
+}
+
+.settings-option-btn:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+/* Theme option buttons have wider gap */
+.settings-option-btn.theme-option {
+  gap: 8px;
+}
+
+/* Option button label */
+.settings-option-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Option button description */
+.settings-option-desc {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* Settings column layout */
+.settings-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Hotkey capture button */
+.hotkey-capture-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hotkey-capture-btn[data-capturing="true"] {
+  border: 1px solid var(--color-border-accent);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.hotkey-capture-btn[data-capturing="false"] {
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+}
+
+/* Hotkey hint text */
+.settings-hint {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Settings error text */
+.settings-error {
+  font-size: 11px;
+  color: var(--color-error);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Permission row item */
+.permission-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Permission label */
+.permission-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+/* Permission list */
+.permission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Settings footer text */
+.settings-footer-text {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  margin: 0;
+}
+
+/* Settings footer version */
+.settings-footer-version {
+  margin-left: 4px;
+  font-size: 11px;
+}
+
+/* Accent icon color */
+.icon-accent {
+  color: var(--color-accent);
+}
+
+/* Tertiary icon color */
+.icon-tertiary {
+  color: var(--color-text-tertiary);
 }
