@@ -378,9 +378,10 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         .await;
     }
 
-    // 2. 取消中间转写任务
+    // 2. 等待中间转写任务自然结束（stop_flag 已为 true，循环会在当前转写完成后退出）
+    //    不能 abort：如果 interim 正持有 funasr_process 锁与 Python 通信，
+    //    强杀会导致 stdin/stdout 协议错乱，后续 transcribe 必定失败。
     if let Some(task) = session.interim_task {
-        task.abort();
         let _ = task.await;
     }
 
