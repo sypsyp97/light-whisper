@@ -463,11 +463,7 @@ fn emit_done(app_handle: &tauri::AppHandle, session_id: u64, text: &str, hide_de
         }),
     );
 
-    let app = app_handle.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(hide_delay_ms)).await;
-        let _ = crate::commands::window::hide_subtitle_window_inner(&app);
-    });
+    schedule_hide(app_handle, hide_delay_ms);
 }
 
 fn emit_error(app_handle: &tauri::AppHandle, session_id: u64, error: &str) {
@@ -481,9 +477,18 @@ fn emit_error(app_handle: &tauri::AppHandle, session_id: u64, error: &str) {
         }),
     );
 
+    schedule_hide(app_handle, EMPTY_RESULT_HIDE_DELAY_MS);
+}
+
+/// 延迟隐藏字幕窗口，但如果此时有新录音正在进行则跳过。
+fn schedule_hide(app_handle: &tauri::AppHandle, delay_ms: u64) {
     let app = app_handle.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(EMPTY_RESULT_HIDE_DELAY_MS)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        let state = app.state::<AppState>();
+        if state.recording.lock().is_ok_and(|g| g.is_some()) {
+            return;
+        }
         let _ = crate::commands::window::hide_subtitle_window_inner(&app);
     });
 }
