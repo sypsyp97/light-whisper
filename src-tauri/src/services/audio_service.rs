@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -62,22 +63,22 @@ pub fn encode_wav(samples: &[i16], sample_rate: u32) -> Vec<u8> {
 
 // ---------- 重采样 ----------
 
-fn resample_to_16k(input: &[i16], input_rate: u32) -> Vec<i16> {
+fn resample_to_16k<'a>(input: &'a [i16], input_rate: u32) -> Cow<'a, [i16]> {
     if input_rate == TARGET_SAMPLE_RATE {
-        return input.to_vec();
+        return Cow::Borrowed(input);
     }
     let ratio = input_rate as f64 / TARGET_SAMPLE_RATE as f64;
     let new_len = (input.len() as f64 / ratio).round() as usize;
-    let mut output = Vec::with_capacity(new_len);
-    for i in 0..new_len {
-        let src_idx = i as f64 * ratio;
-        let low = src_idx.floor() as usize;
-        let high = (low + 1).min(input.len().saturating_sub(1));
-        let frac = src_idx - low as f64;
-        let val = input[low] as f64 * (1.0 - frac) + input[high] as f64 * frac;
-        output.push(val.round() as i16);
-    }
-    output
+    let output: Vec<i16> = (0..new_len)
+        .map(|i| {
+            let src_idx = i as f64 * ratio;
+            let low = src_idx.floor() as usize;
+            let high = (low + 1).min(input.len().saturating_sub(1));
+            let frac = src_idx - low as f64;
+            (input[low] as f64 * (1.0 - frac) + input[high] as f64 * frac).round() as i16
+        })
+        .collect();
+    Cow::Owned(output)
 }
 
 // ---------- cpal 音频捕获 ----------
@@ -227,40 +228,31 @@ pub fn spawn_audio_capture_thread(
 fn find_best_config(
     configs: &[cpal::SupportedStreamConfigRange],
 ) -> Result<cpal::SupportedStreamConfig, AppError> {
-    // 优先：i16 且支持 16kHz
-    for c in configs {
-        if c.sample_format() == cpal::SampleFormat::I16
-            && c.min_sample_rate().0 <= TARGET_SAMPLE_RATE
+    use cpal::SampleFormat::{F32, I16};
+
+    let supports_16k = |c: &&cpal::SupportedStreamConfigRange| {
+        c.min_sample_rate().0 <= TARGET_SAMPLE_RATE
             && c.max_sample_rate().0 >= TARGET_SAMPLE_RATE
-        {
-            return Ok(c.with_sample_rate(cpal::SampleRate(TARGET_SAMPLE_RATE)));
-        }
-    }
-    // 其次：f32 且支持 16kHz
-    for c in configs {
-        if c.sample_format() == cpal::SampleFormat::F32
-            && c.min_sample_rate().0 <= TARGET_SAMPLE_RATE
-            && c.max_sample_rate().0 >= TARGET_SAMPLE_RATE
-        {
-            return Ok(c.with_sample_rate(cpal::SampleRate(TARGET_SAMPLE_RATE)));
-        }
-    }
-    // 兜底：i16 任意采样率
-    for c in configs {
-        if c.sample_format() == cpal::SampleFormat::I16 {
-            return Ok(c.with_max_sample_rate());
-        }
-    }
-    // 兜底：f32 任意采样率
-    for c in configs {
-        if c.sample_format() == cpal::SampleFormat::F32 {
-            return Ok(c.with_max_sample_rate());
-        }
-    }
-    configs
-        .first()
-        .map(|c| c.with_max_sample_rate())
-        .ok_or_else(|| AppError::Other("无法找到合适的音频输入配置".into()))
+    };
+    let is_format =
+        |fmt| move |c: &&cpal::SupportedStreamConfigRange| c.sample_format() == fmt;
+
+    // 按优先级查找：i16@16k > f32@16k > i16@max > f32@max > 任意@max
+    let pick = configs
+        .iter()
+        .find(|c| is_format(I16)(c) && supports_16k(c))
+        .or_else(|| configs.iter().find(|c| is_format(F32)(c) && supports_16k(c)))
+        .map(|c| c.with_sample_rate(cpal::SampleRate(TARGET_SAMPLE_RATE)))
+        .or_else(|| {
+            configs
+                .iter()
+                .find(|c| is_format(I16)(c))
+                .or_else(|| configs.iter().find(|c| is_format(F32)(c)))
+                .or(configs.first())
+                .map(|c| c.with_max_sample_rate())
+        });
+
+    pick.ok_or_else(|| AppError::Other("无法找到合适的音频输入配置".into()))
 }
 
 fn f32_to_i16(s: f32) -> i16 {
@@ -345,8 +337,7 @@ fn adjust_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
     if !executed {
         return current
             .saturating_sub(8)
-            .max(INTERIM_INTERVAL_MIN_MS)
-            .min(INTERIM_INTERVAL_BASE_MS);
+            .clamp(INTERIM_INTERVAL_MIN_MS, INTERIM_INTERVAL_BASE_MS);
     }
 
     if elapsed_ms >= INTERIM_HEAVY_COST_MS {
@@ -355,12 +346,13 @@ fn adjust_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
         current
             .saturating_sub(INTERIM_INTERVAL_DOWN_STEP_MS)
             .max(INTERIM_INTERVAL_MIN_MS)
-    } else if current > INTERIM_INTERVAL_BASE_MS {
-        current.saturating_sub(8).max(INTERIM_INTERVAL_BASE_MS)
-    } else if current < INTERIM_INTERVAL_BASE_MS {
-        (current + 4).min(INTERIM_INTERVAL_BASE_MS)
     } else {
-        current
+        // 向 BASE 靠拢
+        match current.cmp(&INTERIM_INTERVAL_BASE_MS) {
+            std::cmp::Ordering::Greater => current.saturating_sub(8).max(INTERIM_INTERVAL_BASE_MS),
+            std::cmp::Ordering::Less => (current + 4).min(INTERIM_INTERVAL_BASE_MS),
+            std::cmp::Ordering::Equal => current,
+        }
     }
 }
 
