@@ -82,6 +82,10 @@ pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String
 
 #[tauri::command]
 pub async fn hide_subtitle_window(app_handle: tauri::AppHandle) -> Result<String, AppError> {
+    hide_subtitle_window_inner(&app_handle)
+}
+
+pub fn hide_subtitle_window_inner(app_handle: &tauri::AppHandle) -> Result<String, AppError> {
     if let Some(window) = app_handle.get_webview_window("subtitle") {
         window
             .hide()

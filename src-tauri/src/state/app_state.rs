@@ -1,5 +1,5 @@
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use tokio::io::BufReader;
@@ -7,11 +7,23 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 
+pub struct RecordingSession {
+    pub session_id: u64,
+    pub stop_flag: Arc<AtomicBool>,
+    pub samples: Arc<std::sync::Mutex<Vec<i16>>>,
+    pub sample_rate: u32,
+    pub audio_thread: Option<std::thread::JoinHandle<()>>,
+    pub interim_task: Option<tokio::task::JoinHandle<()>>,
+}
+
 pub struct AppState {
     pub funasr_process: Arc<Mutex<Option<FunasrProcess>>>,
     pub funasr_ready: Arc<AtomicBool>,
     pub funasr_starting: Arc<AtomicBool>,
     pub download_task: Arc<Mutex<Option<DownloadTask>>>,
+    pub recording: Arc<std::sync::Mutex<Option<RecordingSession>>>,
+    pub session_counter: AtomicU64,
+    pub input_method: Arc<std::sync::Mutex<String>>,
 }
 
 impl Default for AppState {
@@ -21,6 +33,9 @@ impl Default for AppState {
             funasr_ready: Arc::new(AtomicBool::new(false)),
             funasr_starting: Arc::new(AtomicBool::new(false)),
             download_task: Arc::new(Mutex::new(None)),
+            recording: Arc::new(std::sync::Mutex::new(None)),
+            session_counter: AtomicU64::new(0),
+            input_method: Arc::new(std::sync::Mutex::new("sendInput".to_string())),
         }
     }
 }

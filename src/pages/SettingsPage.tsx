@@ -9,6 +9,8 @@ import {
   isAutostartEnabled,
   pasteText,
   setEngine,
+  testMicrophone,
+  setInputMethodCommand,
 } from "@/api/tauri";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
@@ -348,6 +350,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   onClick={() => {
                     setInputMethod(key);
                     writeLocalStorage(INPUT_METHOD_KEY, key);
+                    setInputMethodCommand(key).catch(() => {});
                   }}
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
@@ -380,10 +383,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 </div>
                 <button className="test-btn" onClick={async () => {
                   try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    stream.getTracks().forEach(t => t.stop());
-                    toast.success("麦克风权限正常");
-                  } catch { toast.error("麦克风权限未授予"); }
+                    const msg = await testMicrophone();
+                    toast.success(msg);
+                  } catch { toast.error("麦克风测试失败"); }
                 }}>测试</button>
               </div>
               <div className="settings-row">

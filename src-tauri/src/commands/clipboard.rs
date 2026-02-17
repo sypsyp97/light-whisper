@@ -23,6 +23,15 @@ pub async fn paste_text(
     text: String,
     method: Option<String>,
 ) -> Result<String, AppError> {
+    let method_str = method.as_deref().unwrap_or("sendInput");
+    paste_text_impl(&app_handle, &text, method_str).await
+}
+
+pub async fn paste_text_impl(
+    app_handle: &tauri::AppHandle,
+    text: &str,
+    method: &str,
+) -> Result<String, AppError> {
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -59,14 +68,14 @@ pub async fn paste_text(
             Ok(())
         }
 
-        let use_clipboard = method.as_deref() == Some("clipboard");
+        let use_clipboard = method == "clipboard";
 
         if use_clipboard {
             use tauri_plugin_clipboard_manager::ClipboardExt;
 
             app_handle
                 .clipboard()
-                .write_text(&text)
+                .write_text(text)
                 .map_err(|e| AppError::Other(format!("写入剪贴板失败: {}", e)))?;
 
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;

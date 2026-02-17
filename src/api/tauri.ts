@@ -63,4 +63,12 @@ export function registerCustomHotkey(shortcut: string): Promise<string> {
   return invokeCommand<string>("register_custom_hotkey", { shortcut });
 }
 
+export const startRecording = createNoArgCommand<number>("start_recording");
+export const stopRecording = createNoArgCommand<void>("stop_recording");
+export const testMicrophone = createNoArgCommand<string>("test_microphone");
+
+export function setInputMethodCommand(method: string): Promise<void> {
+  return invokeCommand<void>("set_input_method", { method });
+}
+
 export { enableAutostart, disableAutostart, isAutostartEnabled };

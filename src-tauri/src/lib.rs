@@ -67,6 +67,10 @@ pub fn run() {
             commands::window::hide_subtitle_window,
             commands::hotkey::register_custom_hotkey,
             commands::hotkey::unregister_all_hotkeys,
+            commands::audio::start_recording,
+            commands::audio::stop_recording,
+            commands::audio::test_microphone,
+            commands::audio::set_input_method,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");
@@ -136,6 +140,19 @@ fn toggle_main_window(app: &tauri::AppHandle) {
 
 fn stop_funasr_on_exit(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
+
+    // 停止正在进行的录音
+    if let Ok(mut guard) = state.recording.lock() {
+        if let Some(session) = guard.take() {
+            session
+                .stop_flag
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(task) = session.interim_task {
+                task.abort();
+            }
+        }
+    }
+
     let funasr_process = state.funasr_process.clone();
 
     tauri::async_runtime::block_on(async {
