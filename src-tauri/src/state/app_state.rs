@@ -27,6 +27,10 @@ pub struct AppState {
     /// 待粘贴文本队列：当粘贴时机恰逢新录音已开始，文本会暂存于此，
     /// 等下次录音结束后一并粘贴，避免丢失。
     pub pending_paste: Arc<std::sync::Mutex<Vec<String>>>,
+    /// 字幕窗口"显示代"计数器：每次 show 时递增。
+    /// schedule_hide 会在睡眠前记录当前代，醒来后若代已变则跳过隐藏，
+    /// 从而避免旧 hide 任务误杀新一轮字幕。
+    pub subtitle_show_gen: AtomicU64,
 }
 
 impl Default for AppState {
@@ -40,6 +44,7 @@ impl Default for AppState {
             session_counter: AtomicU64::new(0),
             input_method: Arc::new(std::sync::Mutex::new("sendInput".to_string())),
             pending_paste: Arc::new(std::sync::Mutex::new(Vec::new())),
+            subtitle_show_gen: AtomicU64::new(0),
         }
     }
 }

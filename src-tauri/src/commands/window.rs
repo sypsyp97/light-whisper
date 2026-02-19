@@ -1,3 +1,6 @@
+use std::sync::atomic::Ordering;
+
+use crate::state::AppState;
 use crate::utils::AppError;
 use tauri::Manager;
 
@@ -77,6 +80,14 @@ pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String
     window
         .show()
         .map_err(|e| tauri_error("显示字幕窗口失败", e))?;
+
+    // 确保窗口在最顶层（Windows 上 hide/show 后可能丢失置顶状态）
+    let _ = window.set_always_on_top(true);
+
+    // 递增"显示代"，使之前排队的 schedule_hide 全部作废
+    let state = app_handle.state::<AppState>();
+    state.subtitle_show_gen.fetch_add(1, Ordering::Relaxed);
+
     Ok("字幕窗口已显示".to_string())
 }
 

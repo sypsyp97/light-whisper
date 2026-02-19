@@ -598,15 +598,33 @@ fn read_input_method(state: &AppState) -> String {
     }
 }
 
-/// 延迟隐藏字幕窗口，但如果此时有新录音正在进行则跳过。
+/// 延迟隐藏字幕窗口。
+/// 记录调度时的"显示代"，醒来后若代已变（说明中间有新的 show）则跳过隐藏；
+/// 同时仍保留"正在录音则跳过"的兜底检查。
 fn schedule_hide(app_handle: &tauri::AppHandle, delay_ms: u64) {
     let app = app_handle.clone();
+    let state = app.state::<AppState>();
+    let gen_at_schedule = state
+        .subtitle_show_gen
+        .load(std::sync::atomic::Ordering::Relaxed);
+
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         let state = app.state::<AppState>();
+
+        // 若期间字幕窗口被重新 show 过，本次 hide 已过时
+        let gen_now = state
+            .subtitle_show_gen
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if gen_now != gen_at_schedule {
+            return;
+        }
+
+        // 兜底：正在录音时不隐藏
         if is_recording_active(state.inner()) {
             return;
         }
+
         let _ = crate::commands::window::hide_subtitle_window_inner(&app);
     });
 }

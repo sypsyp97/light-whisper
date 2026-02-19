@@ -72,7 +72,9 @@ pub async fn start_recording(
 
     let app_for_subtitle = app_handle.clone();
     tokio::spawn(async move {
-        let _ = crate::commands::window::show_subtitle_window(app_for_subtitle).await;
+        if let Err(e) = crate::commands::window::show_subtitle_window(app_for_subtitle).await {
+            log::error!("显示字幕窗口失败: {}", e);
+        }
     });
 
     log::info!("录音已开始 (session {}, {}Hz)", session_id, actual_sample_rate);
