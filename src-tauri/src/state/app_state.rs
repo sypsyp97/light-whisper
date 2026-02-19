@@ -24,6 +24,9 @@ pub struct AppState {
     pub recording: Arc<std::sync::Mutex<Option<RecordingSession>>>,
     pub session_counter: AtomicU64,
     pub input_method: Arc<std::sync::Mutex<String>>,
+    /// 待粘贴文本队列：当粘贴时机恰逢新录音已开始，文本会暂存于此，
+    /// 等下次录音结束后一并粘贴，避免丢失。
+    pub pending_paste: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl Default for AppState {
@@ -36,6 +39,7 @@ impl Default for AppState {
             recording: Arc::new(std::sync::Mutex::new(None)),
             session_counter: AtomicU64::new(0),
             input_method: Arc::new(std::sync::Mutex::new("sendInput".to_string())),
+            pending_paste: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 }

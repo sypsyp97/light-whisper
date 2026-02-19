@@ -402,6 +402,8 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
         emit_done(&app_handle, session_id, "", EMPTY_RESULT_HIDE_DELAY_MS);
+        // 即使本次录音太短，也要把之前缓冲的待粘贴文本粘出去
+        flush_pending_paste(&app_handle);
         return;
     }
 
@@ -425,14 +427,18 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
                     do_paste(&app_for_paste, &text).await;
                 });
+            } else {
+                flush_pending_paste(&app_handle);
             }
         }
         Ok(result) => {
             let msg = result.error.unwrap_or_else(|| "语音识别失败".into());
             emit_error(&app_handle, session_id, &msg);
+            flush_pending_paste(&app_handle);
         }
         Err(e) => {
             emit_error(&app_handle, session_id, &format!("语音识别失败: {}", e));
+            flush_pending_paste(&app_handle);
         }
     }
 }
@@ -485,8 +491,55 @@ fn schedule_hide(app_handle: &tauri::AppHandle, delay_ms: u64) {
     });
 }
 
+/// 将待粘贴队列中的文本粘出去（用于本次录音结果为空或失败的情况）。
+fn flush_pending_paste(app_handle: &tauri::AppHandle) {
+    let state = app_handle.state::<AppState>();
+    let texts: Vec<String> = state
+        .pending_paste
+        .lock()
+        .ok()
+        .map(|mut v| v.drain(..).collect())
+        .unwrap_or_default();
+
+    if texts.is_empty() {
+        return;
+    }
+
+    let combined: String = texts.into_iter().collect();
+    let app = app_handle.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
+        do_paste(&app, &combined).await;
+    });
+}
+
 async fn do_paste(app_handle: &tauri::AppHandle, text: &str) {
     let state = app_handle.state::<AppState>();
+
+    // 检查是否有新录音正在进行
+    let is_recording = state.recording.lock().is_ok_and(|g| g.is_some());
+
+    if is_recording {
+        // 新录音已开始，将文本暂存到待粘贴队列，等下次录音结束后一并粘贴
+        if let Ok(mut pending) = state.pending_paste.lock() {
+            pending.push(text.to_string());
+        }
+        log::info!(
+            "录音进行中，文本已加入待粘贴队列（{} 个字符）",
+            text.len()
+        );
+        return;
+    }
+
+    // 先取出待粘贴队列中的文本（来自之前被中断的粘贴）
+    let mut full_text = String::new();
+    if let Ok(mut pending) = state.pending_paste.lock() {
+        for t in pending.drain(..) {
+            full_text.push_str(&t);
+        }
+    }
+    full_text.push_str(text);
+
     let method = state
         .input_method
         .lock()
@@ -495,7 +548,9 @@ async fn do_paste(app_handle: &tauri::AppHandle, text: &str) {
         .map(|s| s.to_owned())
         .unwrap_or_else(|| "sendInput".into());
 
-    if let Err(e) = crate::commands::clipboard::paste_text_impl(app_handle, text, &method).await {
+    if let Err(e) =
+        crate::commands::clipboard::paste_text_impl(app_handle, &full_text, &method).await
+    {
         log::error!("自动粘贴失败: {}", e);
     }
 }
