@@ -67,10 +67,10 @@ impl AppState {
     }
 
     pub fn is_funasr_ready(&self) -> bool {
-        self.funasr_ready.load(Ordering::Relaxed)
+        self.funasr_ready.load(Ordering::Acquire)
     }
 
     pub fn set_funasr_ready(&self, ready: bool) {
-        self.funasr_ready.store(ready, Ordering::Relaxed);
+        self.funasr_ready.store(ready, Ordering::Release);
     }
 }

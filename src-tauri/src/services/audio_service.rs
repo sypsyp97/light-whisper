@@ -27,6 +27,7 @@ const INTERIM_LIGHT_COST_MS: u64 = 180;
 const RESULT_HIDE_DELAY_MS: u64 = 2500;
 const EMPTY_RESULT_HIDE_DELAY_MS: u64 = 360;
 const PASTE_DELAY_MS: u64 = 260;
+const AUDIO_CAPTURE_INIT_TIMEOUT_SECS: u64 = 8;
 
 // ---------- WAV 编码 ----------
 
@@ -64,6 +65,9 @@ pub fn encode_wav(samples: &[i16], sample_rate: u32) -> Vec<u8> {
 // ---------- 重采样 ----------
 
 fn resample_to_16k<'a>(input: &'a [i16], input_rate: u32) -> Cow<'a, [i16]> {
+    if input.is_empty() || input_rate == 0 {
+        return Cow::Borrowed(input);
+    }
     if input_rate == TARGET_SAMPLE_RATE {
         return Cow::Borrowed(input);
     }
@@ -89,6 +93,7 @@ pub fn spawn_audio_capture_thread(
     samples: Arc<std::sync::Mutex<Vec<i16>>>,
 ) -> Result<(std::thread::JoinHandle<()>, u32), AppError> {
     let (rate_tx, rate_rx) = std::sync::mpsc::sync_channel::<Result<u32, String>>(1);
+    let stop_for_thread = stop_flag.clone();
 
     let handle = std::thread::Builder::new()
         .name("audio-capture".into())
@@ -132,31 +137,39 @@ pub fn spawn_audio_capture_thread(
             let channels = config.channels() as usize;
             let sample_format = config.sample_format();
 
-            log::info!("音频配置: {}Hz, {}ch, {:?}", sample_rate, channels, sample_format);
+            log::info!(
+                "音频配置: {}Hz, {}ch, {:?}",
+                sample_rate,
+                channels,
+                sample_format
+            );
 
             let err_callback = |err: cpal::StreamError| {
                 log::error!("音频流错误: {}", err);
             };
 
-            let stop_for_cb = stop_flag.clone();
+            let stop_for_cb = stop_for_thread.clone();
             let stream = match sample_format {
                 cpal::SampleFormat::I16 => {
                     let buf = samples.clone();
+                    let stop_for_cb = stop_for_cb.clone();
                     device.build_input_stream(
                         &config.into(),
                         move |data: &[i16], _: &cpal::InputCallbackInfo| {
                             if stop_for_cb.load(Ordering::Relaxed) {
                                 return;
                             }
-                            if let Ok(mut guard) = buf.lock() {
-                                if channels <= 1 {
-                                    guard.extend_from_slice(data);
-                                } else {
-                                    guard.extend(data.chunks_exact(channels).map(|frame| {
-                                        let sum: i32 = frame.iter().map(|&s| s as i32).sum();
-                                        (sum / channels as i32) as i16
-                                    }));
-                                }
+                            let mut guard = match buf.lock() {
+                                Ok(g) => g,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
+                            if channels <= 1 {
+                                guard.extend_from_slice(data);
+                            } else {
+                                guard.extend(data.chunks_exact(channels).map(|frame| {
+                                    let sum: i32 = frame.iter().map(|&s| s as i32).sum();
+                                    (sum / channels as i32) as i16
+                                }));
                             }
                         },
                         err_callback,
@@ -165,20 +178,49 @@ pub fn spawn_audio_capture_thread(
                 }
                 cpal::SampleFormat::F32 => {
                     let buf = samples.clone();
+                    let stop_for_cb = stop_for_cb.clone();
                     device.build_input_stream(
                         &config.into(),
                         move |data: &[f32], _: &cpal::InputCallbackInfo| {
                             if stop_for_cb.load(Ordering::Relaxed) {
                                 return;
                             }
-                            if let Ok(mut guard) = buf.lock() {
-                                if channels <= 1 {
-                                    guard.extend(data.iter().map(|&s| f32_to_i16(s)));
-                                } else {
-                                    guard.extend(data.chunks_exact(channels).map(|frame| {
-                                        f32_to_i16(frame.iter().sum::<f32>() / channels as f32)
-                                    }));
-                                }
+                            let mut guard = match buf.lock() {
+                                Ok(g) => g,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
+                            if channels <= 1 {
+                                guard.extend(data.iter().map(|&s| f32_to_i16(s)));
+                            } else {
+                                guard.extend(data.chunks_exact(channels).map(|frame| {
+                                    f32_to_i16(frame.iter().sum::<f32>() / channels as f32)
+                                }));
+                            }
+                        },
+                        err_callback,
+                        None,
+                    )
+                }
+                cpal::SampleFormat::U16 => {
+                    let buf = samples.clone();
+                    let stop_for_cb = stop_for_cb.clone();
+                    device.build_input_stream(
+                        &config.into(),
+                        move |data: &[u16], _: &cpal::InputCallbackInfo| {
+                            if stop_for_cb.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            let mut guard = match buf.lock() {
+                                Ok(g) => g,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
+                            if channels <= 1 {
+                                guard.extend(data.iter().map(|&s| u16_to_i16(s)));
+                            } else {
+                                guard.extend(data.chunks_exact(channels).map(|frame| {
+                                    let sum: u64 = frame.iter().map(|&s| s as u64).sum();
+                                    u16_to_i16((sum / channels as u64) as u16)
+                                }));
                             }
                         },
                         err_callback,
@@ -207,7 +249,7 @@ pub fn spawn_audio_capture_thread(
             // 通知调用方：成功启动，返回实际采样率
             let _ = rate_tx.send(Ok(sample_rate));
 
-            while !stop_flag.load(Ordering::Relaxed) {
+            while !stop_for_thread.load(Ordering::Relaxed) {
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
 
@@ -217,10 +259,21 @@ pub fn spawn_audio_capture_thread(
         .map_err(|e| AppError::Other(format!("创建录音线程失败: {}", e)))?;
 
     // 等待线程初始化完成，拿到采样率或错误
-    let sample_rate = rate_rx
-        .recv()
-        .map_err(|_| AppError::Other("录音线程启动后未返回结果".into()))?
-        .map_err(|e| AppError::Other(e))?;
+    let sample_rate = match rate_rx.recv_timeout(std::time::Duration::from_secs(
+        AUDIO_CAPTURE_INIT_TIMEOUT_SECS,
+    )) {
+        Ok(result) => result.map_err(AppError::Other)?,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            stop_flag.store(true, Ordering::Relaxed);
+            return Err(AppError::Other(format!(
+                "录音线程启动超时（{} 秒）",
+                AUDIO_CAPTURE_INIT_TIMEOUT_SECS
+            )));
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            return Err(AppError::Other("录音线程启动后未返回结果".into()));
+        }
+    };
 
     Ok((handle, sample_rate))
 }
@@ -228,26 +281,34 @@ pub fn spawn_audio_capture_thread(
 fn find_best_config(
     configs: &[cpal::SupportedStreamConfigRange],
 ) -> Result<cpal::SupportedStreamConfig, AppError> {
-    use cpal::SampleFormat::{F32, I16};
+    use cpal::SampleFormat::{F32, I16, U16};
 
     let supports_16k = |c: &&cpal::SupportedStreamConfigRange| {
-        c.min_sample_rate().0 <= TARGET_SAMPLE_RATE
-            && c.max_sample_rate().0 >= TARGET_SAMPLE_RATE
+        c.min_sample_rate().0 <= TARGET_SAMPLE_RATE && c.max_sample_rate().0 >= TARGET_SAMPLE_RATE
     };
-    let is_format =
-        |fmt| move |c: &&cpal::SupportedStreamConfigRange| c.sample_format() == fmt;
+    let is_format = |fmt| move |c: &&cpal::SupportedStreamConfigRange| c.sample_format() == fmt;
 
-    // 按优先级查找：i16@16k > f32@16k > i16@max > f32@max > 任意@max
+    // 按优先级查找：i16@16k > f32@16k > u16@16k > i16@max > f32@max > u16@max > 任意@max
     let pick = configs
         .iter()
         .find(|c| is_format(I16)(c) && supports_16k(c))
-        .or_else(|| configs.iter().find(|c| is_format(F32)(c) && supports_16k(c)))
+        .or_else(|| {
+            configs
+                .iter()
+                .find(|c| is_format(F32)(c) && supports_16k(c))
+        })
+        .or_else(|| {
+            configs
+                .iter()
+                .find(|c| is_format(U16)(c) && supports_16k(c))
+        })
         .map(|c| c.with_sample_rate(cpal::SampleRate(TARGET_SAMPLE_RATE)))
         .or_else(|| {
             configs
                 .iter()
                 .find(|c| is_format(I16)(c))
                 .or_else(|| configs.iter().find(|c| is_format(F32)(c)))
+                .or_else(|| configs.iter().find(|c| is_format(U16)(c)))
                 .or(configs.first())
                 .map(|c| c.with_max_sample_rate())
         });
@@ -264,6 +325,11 @@ fn f32_to_i16(s: f32) -> i16 {
     }
 }
 
+fn u16_to_i16(s: u16) -> i16 {
+    // 无符号 PCM16（0..65535）映射到有符号 PCM16（-32768..32767）
+    (s as i32 - 32768) as i16
+}
+
 // ---------- 中间转写循环 ----------
 
 pub fn spawn_interim_loop(
@@ -277,6 +343,12 @@ pub fn spawn_interim_loop(
         let state = app_handle.state::<AppState>();
         let mut interval_ms = INTERIM_INTERVAL_BASE_MS;
         let mut last_sample_count: usize = 0;
+        let mut samples_lock_poisoned_logged = false;
+
+        if sample_rate == 0 {
+            log::error!("中间转写启动失败：采样率为 0 (session {})", session_id);
+            return;
+        }
 
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(interval_ms)).await;
@@ -288,7 +360,13 @@ pub fn spawn_interim_loop(
             let (current_samples, current_count) = {
                 let guard = match samples.lock() {
                     Ok(g) => g,
-                    Err(_) => break,
+                    Err(poisoned) => {
+                        if !samples_lock_poisoned_logged {
+                            log::warn!("采样缓冲区锁已污染，继续使用恢复后的数据");
+                            samples_lock_poisoned_logged = true;
+                        }
+                        poisoned.into_inner()
+                    }
                 };
                 let count = guard.len();
                 if count.saturating_sub(last_sample_count) < MIN_SAMPLES_GROWTH {
@@ -390,9 +468,9 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     // 4. 获取采样数据
     let final_samples = match session.samples.lock() {
         Ok(guard) => guard.clone(),
-        Err(_) => {
-            emit_error(&app_handle, session_id, "获取音频数据失败");
-            return;
+        Err(poisoned) => {
+            log::warn!("采样缓冲区锁已污染，继续使用恢复后的数据");
+            poisoned.into_inner().clone()
         }
     };
 
@@ -478,13 +556,55 @@ fn emit_error(app_handle: &tauri::AppHandle, session_id: u64, error: &str) {
     schedule_hide(app_handle, EMPTY_RESULT_HIDE_DELAY_MS);
 }
 
+fn is_recording_active(state: &AppState) -> bool {
+    match state.recording.lock() {
+        Ok(guard) => guard.is_some(),
+        Err(poisoned) => {
+            log::warn!("录音状态锁已污染，继续使用恢复后的状态");
+            poisoned.into_inner().is_some()
+        }
+    }
+}
+
+fn drain_pending_paste(state: &AppState) -> Vec<String> {
+    match state.pending_paste.lock() {
+        Ok(mut pending) => pending.drain(..).collect(),
+        Err(poisoned) => {
+            log::warn!("待粘贴队列锁已污染，继续使用恢复后的数据");
+            let mut pending = poisoned.into_inner();
+            pending.drain(..).collect()
+        }
+    }
+}
+
+fn push_pending_paste(state: &AppState, text: &str) {
+    match state.pending_paste.lock() {
+        Ok(mut pending) => pending.push(text.to_string()),
+        Err(poisoned) => {
+            log::warn!("待粘贴队列锁已污染，继续使用恢复后的数据");
+            let mut pending = poisoned.into_inner();
+            pending.push(text.to_string());
+        }
+    }
+}
+
+fn read_input_method(state: &AppState) -> String {
+    match state.input_method.lock() {
+        Ok(method) => method.clone(),
+        Err(poisoned) => {
+            log::warn!("输入方式锁已污染，回退到恢复后的值");
+            poisoned.into_inner().clone()
+        }
+    }
+}
+
 /// 延迟隐藏字幕窗口，但如果此时有新录音正在进行则跳过。
 fn schedule_hide(app_handle: &tauri::AppHandle, delay_ms: u64) {
     let app = app_handle.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         let state = app.state::<AppState>();
-        if state.recording.lock().is_ok_and(|g| g.is_some()) {
+        if is_recording_active(state.inner()) {
             return;
         }
         let _ = crate::commands::window::hide_subtitle_window_inner(&app);
@@ -494,12 +614,7 @@ fn schedule_hide(app_handle: &tauri::AppHandle, delay_ms: u64) {
 /// 将待粘贴队列中的文本粘出去（用于本次录音结果为空或失败的情况）。
 fn flush_pending_paste(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
-    let texts: Vec<String> = state
-        .pending_paste
-        .lock()
-        .ok()
-        .map(|mut v| v.drain(..).collect())
-        .unwrap_or_default();
+    let texts = drain_pending_paste(state.inner());
 
     if texts.is_empty() {
         return;
@@ -517,36 +632,23 @@ async fn do_paste(app_handle: &tauri::AppHandle, text: &str) {
     let state = app_handle.state::<AppState>();
 
     // 检查是否有新录音正在进行
-    let is_recording = state.recording.lock().is_ok_and(|g| g.is_some());
+    let is_recording = is_recording_active(state.inner());
 
     if is_recording {
         // 新录音已开始，将文本暂存到待粘贴队列，等下次录音结束后一并粘贴
-        if let Ok(mut pending) = state.pending_paste.lock() {
-            pending.push(text.to_string());
-        }
-        log::info!(
-            "录音进行中，文本已加入待粘贴队列（{} 个字符）",
-            text.len()
-        );
+        push_pending_paste(state.inner(), text);
+        log::info!("录音进行中，文本已加入待粘贴队列（{} 个字符）", text.len());
         return;
     }
 
     // 先取出待粘贴队列中的文本（来自之前被中断的粘贴）
     let mut full_text = String::new();
-    if let Ok(mut pending) = state.pending_paste.lock() {
-        for t in pending.drain(..) {
-            full_text.push_str(&t);
-        }
+    for t in drain_pending_paste(state.inner()) {
+        full_text.push_str(&t);
     }
     full_text.push_str(text);
 
-    let method = state
-        .input_method
-        .lock()
-        .ok()
-        .as_deref()
-        .map(|s| s.to_owned())
-        .unwrap_or_else(|| "sendInput".into());
+    let method = read_input_method(state.inner());
 
     if let Err(e) =
         crate::commands::clipboard::paste_text_impl(app_handle, &full_text, &method).await
@@ -585,7 +687,7 @@ pub fn test_microphone_sync() -> Result<String, AppError> {
                 |err| log::warn!("麦克风测试流错误: {}", err),
                 None,
             ),
-            _ => device.build_input_stream(
+            cpal::SampleFormat::F32 => device.build_input_stream(
                 &config.into(),
                 move |_: &[f32], _: &cpal::InputCallbackInfo| {
                     flag.store(true, Ordering::Relaxed);
@@ -593,6 +695,20 @@ pub fn test_microphone_sync() -> Result<String, AppError> {
                 |err| log::warn!("麦克风测试流错误: {}", err),
                 None,
             ),
+            cpal::SampleFormat::U16 => device.build_input_stream(
+                &config.into(),
+                move |_: &[u16], _: &cpal::InputCallbackInfo| {
+                    flag.store(true, Ordering::Relaxed);
+                },
+                |err| log::warn!("麦克风测试流错误: {}", err),
+                None,
+            ),
+            other => {
+                return Err(AppError::Other(format!(
+                    "麦克风测试不支持的采样格式: {:?}",
+                    other
+                )));
+            }
         }
     }
     .map_err(|e| AppError::Other(format!("创建音频流失败: {}", e)))?;

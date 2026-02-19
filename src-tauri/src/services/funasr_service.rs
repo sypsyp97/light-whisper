@@ -930,6 +930,7 @@ fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool 
 ///
 /// 检查 HuggingFace 缓存中是否存在 SenseVoiceSmall 相关模型：
 /// - `FunAudioLLM/SenseVoiceSmall` + `funasr/fsmn-vad`
+///
 /// 注：SenseVoiceSmall 内置 ITN 标点恢复，不再需要独立的 ct-punc 模型
 pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
     let engine = paths::read_engine_config();
