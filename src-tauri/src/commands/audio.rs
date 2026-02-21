@@ -15,7 +15,7 @@ pub async fn start_recording(
     state: tauri::State<'_, AppState>,
 ) -> Result<u64, AppError> {
     if !state.is_funasr_ready() {
-        return Err(AppError::Other(
+        return Err(AppError::Audio(
             "语音识别服务尚未就绪，请等待初始化完成".into(),
         ));
     }
@@ -24,9 +24,9 @@ pub async fn start_recording(
         let guard = state
             .recording
             .lock()
-            .map_err(|_| AppError::Other("录音状态锁异常".into()))?;
+            .map_err(|_| AppError::Audio("录音状态锁异常".into()))?;
         if guard.is_some() {
-            return Err(AppError::Other("已有录音正在进行中".into()));
+            return Err(AppError::Audio("已有录音正在进行中".into()));
         }
     }
 
@@ -50,7 +50,7 @@ pub async fn start_recording(
         let mut guard = state
             .recording
             .lock()
-            .map_err(|_| AppError::Other("录音状态锁异常".into()))?;
+            .map_err(|_| AppError::Audio("录音状态锁异常".into()))?;
         *guard = Some(crate::state::RecordingSession {
             session_id,
             stop_flag,
@@ -90,7 +90,7 @@ pub async fn stop_recording(
         let mut guard = state
             .recording
             .lock()
-            .map_err(|_| AppError::Other("录音状态锁异常".into()))?;
+            .map_err(|_| AppError::Audio("录音状态锁异常".into()))?;
         guard.take()
     };
 
@@ -117,7 +117,7 @@ pub async fn stop_recording(
 pub async fn test_microphone() -> Result<String, AppError> {
     tokio::task::spawn_blocking(audio_service::test_microphone_sync)
         .await
-        .map_err(|e| AppError::Other(format!("麦克风测试任务失败: {}", e)))?
+        .map_err(|e| AppError::Audio(format!("麦克风测试任务失败: {}", e)))?
 }
 
 #[tauri::command]
@@ -128,7 +128,7 @@ pub async fn set_input_method(
     let mut guard = state
         .input_method
         .lock()
-        .map_err(|_| AppError::Other("输入方式锁异常".into()))?;
+        .map_err(|_| AppError::Audio("输入方式锁异常".into()))?;
     *guard = method;
     Ok(())
 }

@@ -4,6 +4,8 @@ use serde::Serialize;
 pub enum AppError {
     #[error("FunASR错误: {0}")]
     FunASR(String),
+    #[error("音频错误: {0}")]
+    Audio(String),
     #[error("IO错误: {0}")]
     Io(#[from] std::io::Error),
     #[error("序列化错误: {0}")]

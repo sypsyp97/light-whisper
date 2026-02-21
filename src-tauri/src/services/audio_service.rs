@@ -256,22 +256,22 @@ pub fn spawn_audio_capture_thread(
             drop(stream);
             log::info!("音频捕获已停止");
         })
-        .map_err(|e| AppError::Other(format!("创建录音线程失败: {}", e)))?;
+        .map_err(|e| AppError::Audio(format!("创建录音线程失败: {}", e)))?;
 
     // 等待线程初始化完成，拿到采样率或错误
     let sample_rate = match rate_rx.recv_timeout(std::time::Duration::from_secs(
         AUDIO_CAPTURE_INIT_TIMEOUT_SECS,
     )) {
-        Ok(result) => result.map_err(AppError::Other)?,
+        Ok(result) => result.map_err(AppError::Audio)?,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             stop_flag.store(true, Ordering::Relaxed);
-            return Err(AppError::Other(format!(
+            return Err(AppError::Audio(format!(
                 "录音线程启动超时（{} 秒）",
                 AUDIO_CAPTURE_INIT_TIMEOUT_SECS
             )));
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            return Err(AppError::Other("录音线程启动后未返回结果".into()));
+            return Err(AppError::Audio("录音线程启动后未返回结果".into()));
         }
     };
 
@@ -313,7 +313,7 @@ fn find_best_config(
                 .map(|c| c.with_max_sample_rate())
         });
 
-    pick.ok_or_else(|| AppError::Other("无法找到合适的音频输入配置".into()))
+    pick.ok_or_else(|| AppError::Audio("无法找到合适的音频输入配置".into()))
 }
 
 fn f32_to_i16(s: f32) -> i16 {
@@ -683,13 +683,13 @@ pub fn test_microphone_sync() -> Result<String, AppError> {
     let host = cpal::default_host();
     let device = host
         .default_input_device()
-        .ok_or_else(|| AppError::Other("未找到可用的音频输入设备".into()))?;
+        .ok_or_else(|| AppError::Audio("未找到可用的音频输入设备".into()))?;
 
     let device_name = device.name().unwrap_or_else(|_| "未知设备".into());
 
     let config = device
         .default_input_config()
-        .map_err(|e| AppError::Other(format!("获取默认音频配置失败: {}", e)))?;
+        .map_err(|e| AppError::Audio(format!("获取默认音频配置失败: {}", e)))?;
 
     let received = Arc::new(AtomicBool::new(false));
     let sample_format = config.sample_format();
@@ -722,18 +722,18 @@ pub fn test_microphone_sync() -> Result<String, AppError> {
                 None,
             ),
             other => {
-                return Err(AppError::Other(format!(
+                return Err(AppError::Audio(format!(
                     "麦克风测试不支持的采样格式: {:?}",
                     other
                 )));
             }
         }
     }
-    .map_err(|e| AppError::Other(format!("创建音频流失败: {}", e)))?;
+    .map_err(|e| AppError::Audio(format!("创建音频流失败: {}", e)))?;
 
     stream
         .play()
-        .map_err(|e| AppError::Other(format!("启动音频流失败: {}", e)))?;
+        .map_err(|e| AppError::Audio(format!("启动音频流失败: {}", e)))?;
 
     std::thread::sleep(std::time::Duration::from_millis(200));
     drop(stream);

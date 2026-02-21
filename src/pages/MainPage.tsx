@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Settings, Minus, X, Copy, Download, Cpu, Loader2, Check } from "lucide-react";
+import { Settings, Minus, X } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import { copyToClipboard, hideMainWindow } from "@/api/tauri";
 import TitleBar from "@/components/TitleBar";
+import RecordingButton from "@/components/RecordingButton";
+import StatusIndicator from "@/components/StatusIndicator";
+import TranscriptionResult from "@/components/TranscriptionResult";
+import TranscriptionHistory from "@/components/TranscriptionHistory";
 import { PADDING } from "@/lib/constants";
-const EQ_BAR_COUNT = 5;
-const EQ_BAR_DELAY_STEP = 0.12; // seconds between each bar's animation
 
 export default function MainPage({ onNavigate }: {
   onNavigate: (v: "main" | "settings") => void;
@@ -22,25 +24,10 @@ export default function MainPage({ onNavigate }: {
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [errorDismissed, setErrorDismissed] = useState(false);
-  const prevRecording = useRef(isRecording);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset error dismissed when error changes
-  useEffect(() => {
-    setErrorDismissed(false);
-  }, [recordingError, modelError]);
-
-  // Trigger record-enter animation on recording state change
-  useEffect(() => {
-    prevRecording.current = isRecording;
-  }, [isRecording]);
-
-  // Cleanup copy timer on unmount
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    };
-  }, []);
+  useEffect(() => { setErrorDismissed(false); }, [recordingError, modelError]);
+  useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
 
   const handleCopy = useCallback(async (text: string, id: string) => {
     try {
@@ -57,28 +44,10 @@ export default function MainPage({ onNavigate }: {
     }
   }, []);
 
-  const isIdle = !isRecording && !isProcessing;
-  const recordBtnLabel = isRecording ? "停止录音" : isProcessing ? "识别中" : "开始录音";
-
-  function getStatusText(): string {
-    if (isRecording) return "正在聆听...";
-    if (isProcessing) return "识别中...";
-    if (isReady) return "点击开始录音";
-    if (stage === "downloading") {
-      return downloadProgress > 1
-        ? `模型下载中 ${Math.round(downloadProgress)}%`
-        : (downloadMessage ?? "模型下载准备中...");
-    }
-    if (stage === "need_download") return "需要下载模型";
-    if (stage === "loading") return downloadMessage || "模型加载中...";
-    return "准备中...";
-  }
-
-  function getChipLabel(): string | null {
-    if (stage === "downloading") return "下载中";
-    if (stage === "loading") return downloadMessage || "加载中";
-    return "准备中";
-  }
+  const handleToggleRecording = useCallback(() => {
+    if (!isReady) return;
+    isRecording ? stopRecording() : startRecording();
+  }, [isReady, isRecording, stopRecording, startRecording]);
 
   return (
     <div className="page-root">
@@ -104,89 +73,26 @@ export default function MainPage({ onNavigate }: {
 
       {/* Recording zone */}
       <div className="recording-zone" style={{ padding: `16px ${PADDING}px 12px` }}>
-        <div className="chip-container">
-          {isReady && device && (
-            <span className="chip animate-success">
-              <Cpu size={10} strokeWidth={1.8} />
-              {device === "cuda" || device === "gpu" ? (gpuName || "GPU") : "CPU"}
-            </span>
-          )}
-          {!isReady && stage !== "need_download" && (
-            <span className="chip animate-fade-in">
-              <Loader2 size={10} className="animate-spin" />
-              {getChipLabel()}
-            </span>
-          )}
-        </div>
-
-        <div className="record-btn-wrapper">
-          {isRecording && <span className="recording-pulse-ring" />}
-          <button
-            key={isRecording ? "recording" : isProcessing ? "processing" : "idle"}
-            className={`record-btn${isRecording !== prevRecording.current ? " animate-record-enter" : ""}`}
-            aria-label={recordBtnLabel}
-            aria-pressed={isRecording}
-            disabled={!isReady || isProcessing}
-            onClick={() => { if (!isReady) return; isRecording ? stopRecording() : startRecording(); }}
-            style={{
-              border: isRecording ? "none" : "1px solid var(--color-border)",
-              background: isRecording ? "var(--color-accent)" : isProcessing ? "var(--color-bg-tertiary)" : "var(--color-bg-elevated)",
-              color: isRecording ? "white" : isProcessing ? "var(--color-text-tertiary)" : "var(--color-accent)",
-              boxShadow: isRecording ? "0 0 0 4px rgba(193, 95, 60, 0.12), var(--shadow-lg)" : "var(--shadow-md)",
-              cursor: !isReady ? "not-allowed" : isProcessing ? "wait" : "pointer",
-              opacity: !isReady ? 0.4 : 1,
-            }}
-          >
-            {isRecording && (
-              <div className="eq-bar-container">
-                {Array.from({ length: EQ_BAR_COUNT }, (_, i) => (
-                  <span key={i} className="eq-bar" style={{ animationDelay: `${i * EQ_BAR_DELAY_STEP}s` }} />
-                ))}
-              </div>
-            )}
-            {isIdle && isReady && (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" x2="12" y1="19" y2="22" />
-              </svg>
-            )}
-            {isProcessing && <Loader2 size={20} className="animate-spin" strokeWidth={1.5} />}
-            {!isReady && isIdle && <Loader2 size={18} className="animate-spin" strokeWidth={1.5} />}
-          </button>
-        </div>
-
-        <p aria-live="polite" className="status-text">
-          {getStatusText()}
-        </p>
-
-        {stage === "need_download" && !isDownloading && (
-          <button onClick={() => triggerDownload()} className="btn-primary" style={{ marginTop: 4, fontSize: 12, padding: "8px 16px" }}>
-            <Download size={12} /> 开始下载
-          </button>
-        )}
-        {stage === "need_download" && isDownloading && (
-          <div className="download-info">
-            <span>另一个模型正在下载中</span>
-            <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
-          </div>
-        )}
-        {stage === "downloading" && (
-          <div className="download-progress">
-            <div
-              role="progressbar"
-              aria-valuenow={downloadProgress > 1 ? Math.round(downloadProgress) : undefined}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              className="download-progress-track"
-            >
-              {downloadProgress > 1
-                ? <div style={{ height: "100%", background: downloadProgress >= 100 ? "var(--color-success)" : "var(--color-accent)", borderRadius: 4, transition: "width 0.5s ease, background 0.3s ease", width: `${downloadProgress ?? 0}%` }} />
-                : <div className="download-pulse-bar" />}
-            </div>
-            <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
-          </div>
-        )}
+        <StatusIndicator
+          stage={stage}
+          isReady={isReady}
+          isRecording={isRecording}
+          isProcessing={isProcessing}
+          device={device}
+          gpuName={gpuName}
+          downloadProgress={downloadProgress}
+          downloadMessage={downloadMessage}
+          isDownloading={isDownloading}
+          downloadModels={triggerDownload}
+          cancelDownload={cancelDownload}
+        >
+          <RecordingButton
+            isRecording={isRecording}
+            isProcessing={isProcessing}
+            isReady={isReady}
+            onToggle={handleToggleRecording}
+          />
+        </StatusIndicator>
       </div>
 
       {/* Error */}
@@ -206,50 +112,18 @@ export default function MainPage({ onNavigate }: {
 
       {/* Results */}
       <div className="results-area" style={{ padding: `0 ${PADDING}px 12px` }}>
-        {transcriptionResult && (
-          <div style={{ marginBottom: 12 }} className="animate-slide-up">
-            <div className="result-card">
-              <div className="result-card-header">
-                <span className="result-card-title">
-                  <span className="result-dot" />
-                  识别结果
-                </span>
-                <button aria-label="复制" className="icon-btn" style={{ padding: 6 }} onClick={() => handleCopy(transcriptionResult, "original")}>
-                  {copiedId === "original" ? <Check size={12} /> : <Copy size={12} strokeWidth={1.5} />}
-                </button>
-              </div>
-              <p className="result-card-body">{transcriptionResult}</p>
-            </div>
-          </div>
-        )}
-        {isProcessing && !transcriptionResult && (
-          <div className="animate-fade-in">
-            <div className="skeleton-shimmer skeleton-indicator">
-              <Loader2 size={14} className="animate-spin icon-tertiary" />
-              <span className="skeleton-indicator-text">正在识别语音...</span>
-            </div>
-          </div>
-        )}
-        {/* History (skip the first item if it matches current result) */}
-        {history.length > 0 && (
-          <div className="history-list">
-            {history
-              .filter((item, idx) => !(idx === 0 && transcriptionResult && item.text === transcriptionResult))
-              .map((item) => (
-                <div key={item.id} className="history-item">
-                  <div className="history-item-body">
-                    <p className="history-item-text">{item.text}</p>
-                    <span className="history-item-time">
-                      {item.timeDisplay}
-                    </span>
-                  </div>
-                  <button aria-label="复制" className="icon-btn" style={{ padding: 4, flexShrink: 0 }} onClick={() => handleCopy(item.text, item.id)}>
-                    {copiedId === item.id ? <Check size={11} /> : <Copy size={11} strokeWidth={1.5} />}
-                  </button>
-                </div>
-              ))}
-          </div>
-        )}
+        <TranscriptionResult
+          text={transcriptionResult}
+          isProcessing={isProcessing}
+          copiedId={copiedId}
+          onCopy={handleCopy}
+        />
+        <TranscriptionHistory
+          history={history}
+          currentResult={transcriptionResult}
+          copiedId={copiedId}
+          onCopy={handleCopy}
+        />
       </div>
 
     </div>
