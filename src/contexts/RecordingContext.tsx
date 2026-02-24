@@ -1,7 +1,10 @@
-import { createContext, useContext, useCallback, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
+import { setInputMethodCommand } from "@/api/tauri";
+import { readLocalStorage } from "@/lib/storage";
+import { INPUT_METHOD_KEY } from "@/lib/constants";
 import type { TranscriptionResult, HistoryItem } from "@/types";
 
 interface RecordingContextValue {
@@ -74,6 +77,14 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     setHotkey,
     error: hotkeyError,
   } = useHotkey(hotkeyStart, hotkeyStop);
+
+  // 启动时将 localStorage 中持久化的输入方式同步到后端
+  useEffect(() => {
+    const stored = readLocalStorage(INPUT_METHOD_KEY);
+    if (stored === "clipboard") {
+      setInputMethodCommand("clipboard").catch(() => {});
+    }
+  }, []);
 
   const contextValue = useMemo<RecordingContextValue>(() => ({
     isRecording,

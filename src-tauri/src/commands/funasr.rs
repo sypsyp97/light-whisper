@@ -93,6 +93,13 @@ pub async fn set_engine(
         .map_err(|e| AppError::FunASR(format!("写入引擎配置失败: {}", e)))?;
     funasr_service::stop_server(state.inner()).await?;
 
+    // 强制重置启动标志，确保新引擎可以立即启动。
+    // 如果旧的 start_server 仍在运行（持有 StartingFlagGuard），
+    // 它会在失败后把标志设回 false，不影响新引擎的启动。
+    state
+        .funasr_starting
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+
     log::info!("引擎已切换为: {}", engine);
     Ok(engine)
 }
