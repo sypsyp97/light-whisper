@@ -61,6 +61,10 @@ pub async fn start_recording(
         });
     }
 
+    if let Err(e) = crate::commands::window::show_subtitle_window(app_handle.clone()).await {
+        log::warn!("显示字幕窗口失败（录音继续）: {}", e);
+    }
+
     let _ = app_handle.emit(
         "recording-state",
         serde_json::json!({
@@ -69,13 +73,6 @@ pub async fn start_recording(
             "isProcessing": false,
         }),
     );
-
-    let app_for_subtitle = app_handle.clone();
-    tokio::spawn(async move {
-        if let Err(e) = crate::commands::window::show_subtitle_window(app_for_subtitle).await {
-            log::error!("显示字幕窗口失败: {}", e);
-        }
-    });
 
     log::info!("录音已开始 (session {}, {}Hz)", session_id, actual_sample_rate);
     Ok(session_id)
