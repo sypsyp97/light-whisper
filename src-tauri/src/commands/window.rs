@@ -4,6 +4,33 @@ use crate::state::AppState;
 use crate::utils::AppError;
 use tauri::Manager;
 
+/// 使用 Windows API 强制将窗口置于最顶层
+#[cfg(target_os = "windows")]
+fn force_window_topmost(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+    };
+
+    match window.hwnd() {
+        Ok(hwnd) => {
+            let raw = hwnd.0;
+            let topmost = -1isize as *mut std::ffi::c_void;
+            unsafe {
+                SetWindowPos(
+                    raw,
+                    topmost,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
+            }
+        }
+        Err(err) => log::warn!("获取字幕窗口句柄失败: {}", err),
+    }
+}
+
 const SUBTITLE_WINDOW_HEIGHT: f64 = 64.0;
 const SUBTITLE_WINDOW_BOTTOM_MARGIN: f64 = 60.0;
 const DEFAULT_SUBTITLE_WINDOW_WIDTH: f64 = 1280.0;
@@ -134,9 +161,14 @@ pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String
         .map_err(|e| tauri_error("显示字幕窗口失败", e))?;
 
     // 确保窗口在最顶层（Windows 上 hide/show 后可能丢失置顶状态）
+    // 先用 Tauri API 置顶
+    let _ = window.set_always_on_top(false);
     if let Err(err) = window.set_always_on_top(true) {
         log::warn!("设置字幕窗口置顶失败: {}", err);
     }
+    // 再通过 Windows API 强制置顶，避免被其他窗口遮挡
+    #[cfg(target_os = "windows")]
+    force_window_topmost(&window);
 
     if let Err(err) = window.set_ignore_cursor_events(true) {
         log::warn!("重新设置字幕窗口鼠标穿透失败: {}", err);
