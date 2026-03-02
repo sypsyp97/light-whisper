@@ -271,61 +271,73 @@ pnpm tauri build
 
 ```
 light-whisper/
-├── src/                        # 前端 (React + TypeScript)
-│   ├── api/                    # Tauri API 封装层
-│   │   ├── funasr.ts           #   FunASR 服务调用
-│   │   ├── clipboard.ts        #   剪贴板 / 文本输入
-│   │   ├── hotkey.ts           #   快捷键注册
-│   │   ├── window.ts           #   窗口控制
-│   │   └── autostart.ts        #   开机自启动
-│   ├── pages/                  # 页面组件
-│   │   ├── MainPage.tsx        #   主界面（录音+转写）
-│   │   ├── SettingsPage.tsx    #   设置页面
-│   │   └── SubtitleOverlay.tsx #   字幕悬浮窗页面
-│   ├── components/             # 通用组件
-│   │   └── TitleBar.tsx        #   标题栏（窗口拖动、操作按钮）
-│   ├── hooks/                  # React Hooks
-│   │   ├── useRecording.ts     #   WebAudio 录音逻辑
-│   │   ├── useModelStatus.ts   #   模型状态事件监听
-│   │   ├── useHotkey.ts        #   全局快捷键处理（可自定义）
-│   │   ├── useTheme.ts         #   主题切换
-│   │   └── useWindowDrag.ts    #   无边框窗口拖动
+├── src/                          # 前端 (React + TypeScript)
+│   ├── api/
+│   │   └── tauri.ts              #   Tauri 命令封装（所有 IPC 调用）
+│   ├── pages/
+│   │   ├── MainPage.tsx          #   主界面（录音+转写）
+│   │   ├── SettingsPage.tsx      #   设置页面
+│   │   └── SubtitleOverlay.tsx   #   字幕悬浮窗
+│   ├── components/
+│   │   ├── TitleBar.tsx          #   标题栏（拖动、窗口操作）
+│   │   ├── RecordingButton.tsx   #   录音按钮（含 EQ 动画）
+│   │   ├── StatusIndicator.tsx   #   模型状态标签（GPU/CPU）
+│   │   ├── TranscriptionResult.tsx # 转写结果卡片
+│   │   └── TranscriptionHistory.tsx # 历史记录列表
+│   ├── hooks/
+│   │   ├── useRecording.ts       #   录音状态 & 事件监听
+│   │   ├── useModelStatus.ts     #   模型状态轮询
+│   │   ├── useHotkey.ts          #   全局快捷键处理
+│   │   └── useTheme.ts           #   主题切换
 │   ├── contexts/
-│   │   └── RecordingContext.tsx #   全局录音状态管理
+│   │   └── RecordingContext.tsx   #   全局录音状态管理
+│   ├── lib/
+│   │   ├── constants.ts          #   localStorage 键名 & 常量
+│   │   ├── hotkey.ts             #   快捷键解析工具
+│   │   └── storage.ts            #   localStorage 读写辅助
 │   ├── types/
-│   │   └── index.ts            #   TypeScript 类型定义
+│   │   └── index.ts              #   TypeScript 类型定义
 │   ├── styles/
-│   │   └── subtitle.css        #   字幕悬浮窗样式
-│   └── main.tsx                # React 入口
+│   │   ├── theme.css             #   全局主题变量 & 动画
+│   │   ├── pages.css             #   页面专属样式
+│   │   └── subtitle.css          #   字幕悬浮窗样式
+│   └── main.tsx                  # React 入口
 │
-├── src-tauri/                  # 后端 (Rust + Tauri 2)
+├── src-tauri/                    # 后端 (Rust + Tauri 2)
 │   ├── src/
-│   │   ├── lib.rs              #   应用入口、插件注册、托盘设置
-│   │   ├── commands/           #   Tauri 命令（前端可调用）
-│   │   │   ├── funasr.rs       #     启动/停止/转写/状态查询
-│   │   │   ├── clipboard.rs    #     复制/输入（SendInput / 剪贴板粘贴）
-│   │   │   ├── hotkey.rs       #     快捷键注册
-│   │   │   └── window.rs       #     窗口控制
+│   │   ├── lib.rs                #   应用入口、插件注册、托盘设置
+│   │   ├── commands/
+│   │   │   ├── funasr.rs         #     引擎启动/停止/转写/状态
+│   │   │   ├── audio.rs          #     录音开始/停止、麦克风测试
+│   │   │   ├── clipboard.rs      #     复制/粘贴（SendInput / 剪贴板）
+│   │   │   ├── hotkey.rs         #     快捷键注册
+│   │   │   ├── window.rs         #     窗口管理
+│   │   │   └── ai_polish.rs      #     AI 润色配置 & 密钥环存储
 │   │   ├── services/
-│   │   │   ├── funasr_service.rs  # Python 子进程管理、JSON IPC
-│   │   │   └── download_service.rs # 模型下载进程管理
+│   │   │   ├── funasr_service.rs #     Python 子进程管理、JSON IPC
+│   │   │   ├── audio_service.rs  #     音频采集、中间转写、粘贴
+│   │   │   ├── download_service.rs #   模型下载进程管理
+│   │   │   └── ai_polish_service.rs #  Cerebras API 集成
 │   │   ├── state/
-│   │   │   └── app_state.rs    #   全局应用状态
+│   │   │   └── app_state.rs      #   全局应用状态（Mutex/Atomic）
 │   │   └── utils/
-│   │       ├── error.rs        #   错误类型定义
-│   │       └── paths.rs        #   路径工具
-│   ├── resources/              # 嵌入到应用中的 Python 脚本
-│   │   ├── funasr_server.py    #   SenseVoice 推理服务（stdin/stdout IPC）
-│   │   ├── whisper_server.py   #   Faster Whisper 推理服务（同协议）
-│   │   ├── download_models.py  #   模型下载脚本
-│   │   └── hf_cache_utils.py   #   HuggingFace 缓存检测工具
+│   │       ├── error.rs          #   错误类型定义
+│   │       └── paths.rs          #   路径工具
+│   ├── resources/
+│   │   ├── funasr_server.py      #   SenseVoice 推理服务
+│   │   ├── whisper_server.py     #   Faster Whisper 推理服务
+│   │   ├── server_common.py      #   ASR 服务器共享基类
+│   │   ├── download_models.py    #   模型下载脚本
+│   │   └── hf_cache_utils.py     #   HuggingFace 缓存检测
+│   ├── capabilities/
+│   │   └── default.json          #   Tauri 权限配置
 │   ├── Cargo.toml
 │   └── tauri.conf.json
 │
-├── package.json                # 前端依赖
-├── pyproject.toml              # Python 依赖（含 CUDA 12.4 PyTorch）
-├── vite.config.ts              # Vite 构建配置
-└── .python-version             # Python 版本约束 (3.11)
+├── package.json                  # 前端依赖
+├── pyproject.toml                # Python 依赖（含 CUDA 12.4 PyTorch）
+├── vite.config.ts                # Vite 构建配置
+└── .python-version               # Python 版本约束 (3.11)
 ```
 
 ### 架构通信流程

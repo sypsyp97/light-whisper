@@ -271,61 +271,73 @@ The first build compiles all Rust dependencies and takes about **5–15 minutes*
 
 ```
 light-whisper/
-├── src/                        # Frontend (React + TypeScript)
-│   ├── api/                    # Tauri API wrappers
-│   │   ├── funasr.ts           #   FunASR service calls
-│   │   ├── clipboard.ts        #   Clipboard / text input
-│   │   ├── hotkey.ts           #   Hotkey registration
-│   │   ├── window.ts           #   Window control
-│   │   └── autostart.ts        #   Launch at startup
-│   ├── pages/                  # Page components
-│   │   ├── MainPage.tsx        #   Main UI (record + transcribe)
-│   │   ├── SettingsPage.tsx    #   Settings page
-│   │   └── SubtitleOverlay.tsx #   Subtitle overlay page
-│   ├── components/             # Shared components
-│   │   └── TitleBar.tsx        #   Title bar (drag, window controls)
-│   ├── hooks/                  # React Hooks
-│   │   ├── useRecording.ts     #   WebAudio recording logic
-│   │   ├── useModelStatus.ts   #   Model status event listener
-│   │   ├── useHotkey.ts        #   Global hotkey handling (customizable)
-│   │   ├── useTheme.ts         #   Theme switching
-│   │   └── useWindowDrag.ts    #   Borderless window dragging
+├── src/                          # Frontend (React + TypeScript)
+│   ├── api/
+│   │   └── tauri.ts              #   Tauri command wrappers (all IPC calls)
+│   ├── pages/
+│   │   ├── MainPage.tsx          #   Main UI (record + transcribe)
+│   │   ├── SettingsPage.tsx      #   Settings page
+│   │   └── SubtitleOverlay.tsx   #   Subtitle overlay window
+│   ├── components/
+│   │   ├── TitleBar.tsx          #   Title bar (drag, window controls)
+│   │   ├── RecordingButton.tsx   #   Recording button with EQ animation
+│   │   ├── StatusIndicator.tsx   #   Model status chip (GPU/CPU)
+│   │   ├── TranscriptionResult.tsx # Transcription result card
+│   │   └── TranscriptionHistory.tsx # History list
+│   ├── hooks/
+│   │   ├── useRecording.ts       #   Recording state & event listeners
+│   │   ├── useModelStatus.ts     #   Model status polling
+│   │   ├── useHotkey.ts          #   Global hotkey handling
+│   │   └── useTheme.ts           #   Theme switching
 │   ├── contexts/
-│   │   └── RecordingContext.tsx #   Global recording state
+│   │   └── RecordingContext.tsx   #   Global recording state provider
+│   ├── lib/
+│   │   ├── constants.ts          #   localStorage keys & constants
+│   │   ├── hotkey.ts             #   Hotkey parsing utilities
+│   │   └── storage.ts            #   localStorage helpers
 │   ├── types/
-│   │   └── index.ts            #   TypeScript type definitions
+│   │   └── index.ts              #   TypeScript type definitions
 │   ├── styles/
-│   │   └── subtitle.css        #   Subtitle overlay styles
-│   └── main.tsx                # React entry point
+│   │   ├── theme.css             #   Global theme variables & animations
+│   │   ├── pages.css             #   Page-specific styles
+│   │   └── subtitle.css          #   Subtitle overlay styles
+│   └── main.tsx                  # React entry point
 │
-├── src-tauri/                  # Backend (Rust + Tauri 2)
+├── src-tauri/                    # Backend (Rust + Tauri 2)
 │   ├── src/
-│   │   ├── lib.rs              #   App entry, plugin registration, tray
-│   │   ├── commands/           #   Tauri commands (callable from frontend)
-│   │   │   ├── funasr.rs       #     Start/stop/transcribe/status
-│   │   │   ├── clipboard.rs    #     Copy/input (SendInput / clipboard paste)
-│   │   │   ├── hotkey.rs       #     Hotkey registration
-│   │   │   └── window.rs       #     Window control
+│   │   ├── lib.rs                #   App entry, plugin registration, tray
+│   │   ├── commands/
+│   │   │   ├── funasr.rs         #     Engine start/stop/transcribe/status
+│   │   │   ├── audio.rs          #     Recording start/stop, microphone test
+│   │   │   ├── clipboard.rs      #     Copy/paste (SendInput / clipboard)
+│   │   │   ├── hotkey.rs         #     Hotkey registration
+│   │   │   ├── window.rs         #     Window management
+│   │   │   └── ai_polish.rs      #     AI polish config & keyring storage
 │   │   ├── services/
-│   │   │   ├── funasr_service.rs  # Python subprocess mgmt, JSON IPC
-│   │   │   └── download_service.rs # Model download process mgmt
+│   │   │   ├── funasr_service.rs #     Python subprocess mgmt, JSON IPC
+│   │   │   ├── audio_service.rs  #     Audio capture, interim transcription, paste
+│   │   │   ├── download_service.rs #   Model download process mgmt
+│   │   │   └── ai_polish_service.rs #  Cerebras API integration
 │   │   ├── state/
-│   │   │   └── app_state.rs    #   Global app state
+│   │   │   └── app_state.rs      #   Global app state (Mutex/Atomic fields)
 │   │   └── utils/
-│   │       ├── error.rs        #   Error type definitions
-│   │       └── paths.rs        #   Path utilities
-│   ├── resources/              # Python scripts embedded in the app
-│   │   ├── funasr_server.py    #   SenseVoice inference service (stdin/stdout IPC)
-│   │   ├── whisper_server.py   #   Faster Whisper inference service (same protocol)
-│   │   ├── download_models.py  #   Model download script
-│   │   └── hf_cache_utils.py   #   HuggingFace cache detection utility
+│   │       ├── error.rs          #   Error type definitions
+│   │       └── paths.rs          #   Path utilities
+│   ├── resources/
+│   │   ├── funasr_server.py      #   SenseVoice inference service
+│   │   ├── whisper_server.py     #   Faster Whisper inference service
+│   │   ├── server_common.py      #   Shared base class for ASR servers
+│   │   ├── download_models.py    #   Model download script
+│   │   └── hf_cache_utils.py     #   HuggingFace cache detection
+│   ├── capabilities/
+│   │   └── default.json          #   Tauri permission configuration
 │   ├── Cargo.toml
 │   └── tauri.conf.json
 │
-├── package.json                # Frontend dependencies
-├── pyproject.toml              # Python dependencies (with CUDA 12.4 PyTorch)
-├── vite.config.ts              # Vite build config
-└── .python-version             # Python version constraint (3.11)
+├── package.json                  # Frontend dependencies
+├── pyproject.toml                # Python dependencies (with CUDA 12.4 PyTorch)
+├── vite.config.ts                # Vite build config
+└── .python-version               # Python version constraint (3.11)
 ```
 
 ### Architecture & Communication Flow
