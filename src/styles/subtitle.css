@@ -93,6 +93,16 @@ body,
   animation: subtitle-pulse 1.2s ease-in-out infinite;
 }
 
+/* Polishing dot — sparkle shimmer */
+.subtitle-dot-polishing {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--color-accent);
+  flex-shrink: 0;
+  animation: subtitle-sparkle 0.8s ease-in-out infinite;
+}
+
 /* Processing dot — spinning */
 .subtitle-dot-processing {
   width: 12px;
@@ -144,6 +154,19 @@ body,
   }
 }
 
+@keyframes subtitle-sparkle {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    border-radius: 3px;
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.75) rotate(180deg);
+    border-radius: 50%;
+  }
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -155,6 +178,7 @@ body,
   .subtitle-capsule,
   .subtitle-capsule.subtitle-fade-out,
   .subtitle-dot-recording,
+  .subtitle-dot-polishing,
   .subtitle-dot-processing {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;

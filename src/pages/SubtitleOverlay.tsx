@@ -17,7 +17,7 @@ interface TranscriptionResult {
   interim?: boolean;
 }
 
-type Phase = "idle" | "recording" | "processing" | "result";
+type Phase = "idle" | "recording" | "processing" | "polishing" | "result";
 const RESULT_FADE_DELAY_MS = 2000;
 
 export default function SubtitleOverlay() {
@@ -113,6 +113,36 @@ export default function SubtitleOverlay() {
     };
   }, [clearFadeTimer]);
 
+  // 监听 AI 润色状态
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        unlisten = await listen<{ status: string }>("ai-polish-status", (event) => {
+          if (event.payload.status === "polishing") {
+            clearFadeTimer();
+            setFadingOut(false);
+            setPhase("polishing");
+          }
+        });
+
+        if (disposed && unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      } catch {
+        // 忽略事件监听初始化失败
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [clearFadeTimer]);
+
   // 监听转写结果（中间结果 interim=true，最终结果 interim=false）
   useEffect(() => {
     let disposed = false;
@@ -181,13 +211,17 @@ export default function SubtitleOverlay() {
       ? "subtitle-dot-recording"
       : phase === "processing"
         ? "subtitle-dot-processing"
-        : null;
+        : phase === "polishing"
+          ? "subtitle-dot-polishing"
+          : null;
   const hintText =
     phase === "recording"
       ? "正在聆听..."
       : phase === "processing"
         ? "识别中..."
-        : null;
+        : phase === "polishing"
+          ? "优化中..."
+          : null;
 
   return (
     <div className="subtitle-root">

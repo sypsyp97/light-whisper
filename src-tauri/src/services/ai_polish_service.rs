@@ -58,6 +58,7 @@ pub async fn polish_text(
     });
 
     let start = std::time::Instant::now();
+    emit_polish_status(app_handle, "polishing", text, "", "");
 
     let response = state
         .http_client
