@@ -34,6 +34,7 @@
   - **Faster Whisper** — Supports 99+ languages
 - **Fully offline** — All models run locally, no data leaves your machine
 - **GPU acceleration** — Automatically detects NVIDIA GPU and enables CUDA; falls back to CPU if unavailable
+- **AI text polish (optional)** — Uses [Cerebras](https://cerebras.ai/) API (OpenAI GPT-OSS 120B) to auto-correct homophones, fix punctuation, and clean up filler words before output. Free tier: 1M tokens/day
 - **Dual input mode** — SendInput (doesn't occupy clipboard) and clipboard paste (compatible with Chinese IME)
 - **Floating window** — Borderless transparent window, always on top, minimizes to system tray
 - **Launch at startup** — Can be enabled in settings
@@ -252,6 +253,7 @@ The first build compiles all Rust dependencies and takes about **5–15 minutes*
 | **Theme** | Light / Dark / Follow system |
 | **Hotkey** | Default F2; customizable in settings (supports key combos) |
 | **Input method** | Direct input (SendInput, doesn't use clipboard) or Clipboard paste (compatible with Chinese IME) |
+| **AI polish** | Enable AI text correction via Cerebras API; requires a free API key from [cerebras.ai](https://cerebras.ai/) |
 | **Launch at startup** | Auto-run on system boot |
 
 ### Status Indicators
