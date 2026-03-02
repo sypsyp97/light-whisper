@@ -14,6 +14,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
+        .plugin(tauri_plugin_keyring::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .clear_targets()
@@ -35,6 +36,20 @@ pub fn run() {
                 "轻语 Whisper 应用启动，数据目录: {:?}",
                 utils::paths::get_data_dir()
             );
+
+            // 启动时从系统密钥环加载 API Key
+            {
+                use tauri_plugin_keyring::KeyringExt;
+                if let Ok(Some(key)) = app_handle.keyring().get_password("light-whisper", "cerebras-api-key") {
+                    if !key.is_empty() {
+                        let state = app_handle.state::<AppState>();
+                        if let Ok(mut api_key) = state.ai_polish_api_key.lock() {
+                            *api_key = key;
+                        }
+                        log::info!("已从系统密钥环加载 AI 润色 API Key");
+                    }
+                }
+            }
 
             spawn_funasr_startup(app_handle.clone());
             spawn_subtitle_prewarm(app_handle.clone());
@@ -72,6 +87,7 @@ pub fn run() {
             commands::audio::test_microphone,
             commands::audio::set_input_method,
             commands::ai_polish::set_ai_polish_config,
+            commands::ai_polish::get_ai_polish_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");

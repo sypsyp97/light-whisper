@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import type { TranscriptionResult, HistoryItem } from "@/types";
 
 interface UseRecordingReturn {
@@ -97,6 +98,40 @@ export function useRecording(): UseRecordingReturn {
         }
       } catch {
         // 忽略事件监听初始化失败
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // 监听 AI 润色状态
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        unlisten = await listen<{ status: string; original: string; polished: string; error: string }>(
+          "ai-polish-status",
+          (e) => {
+            const { status, error: errMsg } = e.payload;
+            if (status === "applied") {
+              toast.success("AI 润色已应用", { duration: 1500 });
+            } else if (status === "error") {
+              toast.error(`AI 润色失败: ${errMsg}`, { duration: 2500 });
+            }
+          }
+        );
+
+        if (disposed && unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      } catch {
+        // 忽略
       }
     })();
 

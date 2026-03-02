@@ -26,6 +26,9 @@ importers:
       sonner:
         specifier: ^1.7.0
         version: 1.7.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      tauri-plugin-keyring-api:
+        specifier: ^0.1.1
+        version: 0.1.1
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2
@@ -772,6 +775,9 @@ packages:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
+  tauri-plugin-keyring-api@0.1.1:
+    resolution: {integrity: sha512-vs1ztf6REJPfvUDBY3VgNHiW+xBHvBtMf3ZQIJKB8UCWdb2bLFoDS+BjUHe58deCPGTInCh+SEtd69pZvV/b4w==}
+
   tinyglobby@0.2.15:
     resolution: {integrity: sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ==}
     engines: {node: '>=12.0.0'}
@@ -1412,6 +1418,10 @@ snapshots:
       react-dom: 19.2.4(react@19.2.4)
 
   source-map-js@1.2.1: {}
+
+  tauri-plugin-keyring-api@0.1.1:
+    dependencies:
+      '@tauri-apps/api': 2.10.1
 
   tinyglobby@0.2.15:
     dependencies:

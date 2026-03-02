@@ -12,10 +12,11 @@ import {
   testMicrophone,
   setInputMethodCommand,
   setAiPolishConfig,
+  getAiPolishApiKey,
 } from "@/api/tauri";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
-import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, AI_POLISH_API_KEY_KEY } from "@/lib/constants";
+import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY } from "@/lib/constants";
 import {
   HOTKEY_MODIFIER_ORDER,
   type HotkeyModifier,
@@ -56,8 +57,15 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       : "sendInput";
   });
   const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
-  const [aiPolishApiKey, setAiPolishApiKey] = useState(() => readLocalStorage(AI_POLISH_API_KEY_KEY) ?? "");
+  const [aiPolishApiKey, setAiPolishApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
+
+  // 从系统密钥环加载 API Key
+  useEffect(() => {
+    getAiPolishApiKey().then(key => {
+      if (key) setAiPolishApiKey(key);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     getEngine().then(e => {
@@ -374,7 +382,6 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   onChange={(e) => {
                     const val = e.target.value;
                     setAiPolishApiKey(val);
-                    writeLocalStorage(AI_POLISH_API_KEY_KEY, val);
                     setAiPolishConfig(aiPolishEnabled, val).catch(() => {});
                   }}
                   style={{

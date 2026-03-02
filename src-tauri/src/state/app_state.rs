@@ -33,6 +33,7 @@ pub struct AppState {
     pub subtitle_show_gen: AtomicU64,
     pub ai_polish_enabled: Arc<AtomicBool>,
     pub ai_polish_api_key: Arc<std::sync::Mutex<String>>,
+    pub http_client: reqwest::Client,
 }
 
 impl Default for AppState {
@@ -49,6 +50,7 @@ impl Default for AppState {
             subtitle_show_gen: AtomicU64::new(0),
             ai_polish_enabled: Arc::new(AtomicBool::new(false)),
             ai_polish_api_key: Arc::new(std::sync::Mutex::new(String::new())),
+            http_client: reqwest::Client::new(),
         }
     }
 }

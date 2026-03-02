@@ -75,4 +75,8 @@ export function setAiPolishConfig(enabled: boolean, apiKey: string): Promise<voi
   return invokeCommand<void>("set_ai_polish_config", { enabled, apiKey });
 }
 
+export function getAiPolishApiKey(): Promise<string> {
+  return invokeCommand<string>("get_ai_polish_api_key");
+}
+
 export { enableAutostart, disableAutostart, isAutostartEnabled };

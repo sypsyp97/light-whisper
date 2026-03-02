@@ -1,5 +1,7 @@
 use std::sync::atomic::Ordering;
 
+use tauri::Emitter;
+
 use crate::state::AppState;
 
 const CEREBRAS_API_URL: &str = "https://api.cerebras.ai/v1/chat/completions";
@@ -23,13 +25,11 @@ const SYSTEM_PROMPT: &str = "\
 
 直接输出校正后的文本。";
 
-fn repeat_messages(messages: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
-    let mut repeated = messages.clone();
-    repeated.extend(messages);
-    repeated
-}
-
-pub async fn polish_text(state: &AppState, text: &str) -> Result<String, String> {
+pub async fn polish_text(
+    state: &AppState,
+    text: &str,
+    app_handle: &tauri::AppHandle,
+) -> Result<String, String> {
     if !state.ai_polish_enabled.load(Ordering::Acquire) {
         return Ok(text.to_string());
     }
@@ -48,7 +48,6 @@ pub async fn polish_text(state: &AppState, text: &str) -> Result<String, String>
         serde_json::json!({ "role": "system", "content": SYSTEM_PROMPT }),
         serde_json::json!({ "role": "user", "content": text }),
     ];
-    let messages = repeat_messages(messages);
 
     let body = serde_json::json!({
         "model": MODEL,
@@ -58,8 +57,10 @@ pub async fn polish_text(state: &AppState, text: &str) -> Result<String, String>
         "reasoning_effort": "low",
     });
 
-    let client = reqwest::Client::new();
-    let response = client
+    let start = std::time::Instant::now();
+
+    let response = state
+        .http_client
         .post(CEREBRAS_API_URL)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
@@ -72,7 +73,9 @@ pub async fn polish_text(state: &AppState, text: &str) -> Result<String, String>
     if !response.status().is_success() {
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
-        return Err(format!("AI 润色 API 返回错误 {}: {}", status, body_text));
+        let err = format!("AI 润色 API 返回错误 {}: {}", status, body_text);
+        emit_polish_status(app_handle, "error", text, text, &err);
+        return Err(err);
     }
 
     let json: serde_json::Value = response
@@ -90,6 +93,39 @@ pub async fn polish_text(state: &AppState, text: &str) -> Result<String, String>
         return Ok(text.to_string());
     }
 
-    log::info!("AI 润色完成: \"{}\" -> \"{}\"", text, polished);
+    let elapsed_ms = start.elapsed().as_millis();
+    let changed = polished != text;
+
+    if changed {
+        log::info!(
+            "AI 润色完成 ({}ms): \"{}\" -> \"{}\"",
+            elapsed_ms,
+            text,
+            polished
+        );
+        emit_polish_status(app_handle, "applied", text, &polished, "");
+    } else {
+        log::info!("AI 润色完成 ({}ms): 文本无变化", elapsed_ms);
+        emit_polish_status(app_handle, "unchanged", text, &polished, "");
+    }
+
     Ok(polished)
+}
+
+fn emit_polish_status(
+    app_handle: &tauri::AppHandle,
+    status: &str,
+    original: &str,
+    polished: &str,
+    error: &str,
+) {
+    let _ = app_handle.emit(
+        "ai-polish-status",
+        serde_json::json!({
+            "status": status,
+            "original": original,
+            "polished": polished,
+            "error": error,
+        }),
+    );
 }

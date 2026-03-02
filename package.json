@@ -15,7 +15,8 @@
     "lucide-react": "^0.460.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "sonner": "^1.7.0"
+    "sonner": "^1.7.0",
+    "tauri-plugin-keyring-api": "^0.1.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
