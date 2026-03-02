@@ -55,6 +55,7 @@ pub async fn polish_text(state: &AppState, text: &str) -> Result<String, String>
         "messages": messages,
         "max_tokens": 1024,
         "temperature": 0.0,
+        "reasoning_effort": "low",
     });
 
     let client = reqwest::Client::new();
