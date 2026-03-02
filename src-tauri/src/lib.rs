@@ -71,6 +71,7 @@ pub fn run() {
             commands::audio::stop_recording,
             commands::audio::test_microphone,
             commands::audio::set_input_method,
+            commands::ai_polish::set_ai_polish_config,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");

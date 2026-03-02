@@ -2,9 +2,9 @@ import { createContext, useContext, useCallback, useEffect, useMemo, type ReactN
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
-import { setInputMethodCommand } from "@/api/tauri";
+import { setInputMethodCommand, setAiPolishConfig } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
-import { INPUT_METHOD_KEY } from "@/lib/constants";
+import { INPUT_METHOD_KEY, AI_POLISH_ENABLED_KEY, AI_POLISH_API_KEY_KEY } from "@/lib/constants";
 import type { TranscriptionResult, HistoryItem } from "@/types";
 
 interface RecordingContextValue {
@@ -83,6 +83,15 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     const stored = readLocalStorage(INPUT_METHOD_KEY);
     if (stored === "clipboard") {
       setInputMethodCommand("clipboard").catch(() => {});
+    }
+  }, []);
+
+  // 启动时将 AI 润色配置同步到后端
+  useEffect(() => {
+    const enabled = readLocalStorage(AI_POLISH_ENABLED_KEY) === "true";
+    const apiKey = readLocalStorage(AI_POLISH_API_KEY_KEY) ?? "";
+    if (enabled && apiKey) {
+      setAiPolishConfig(enabled, apiKey).catch(() => {});
     }
   }, []);
 

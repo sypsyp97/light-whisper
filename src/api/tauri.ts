@@ -71,4 +71,8 @@ export function setInputMethodCommand(method: string): Promise<void> {
   return invokeCommand<void>("set_input_method", { method });
 }
 
+export function setAiPolishConfig(enabled: boolean, apiKey: string): Promise<void> {
+  return invokeCommand<void>("set_ai_polish_config", { enabled, apiKey });
+}
+
 export { enableAutostart, disableAutostart, isAutostartEnabled };

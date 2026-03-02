@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -11,10 +11,11 @@ import {
   setEngine,
   testMicrophone,
   setInputMethodCommand,
+  setAiPolishConfig,
 } from "@/api/tauri";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
-import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY } from "@/lib/constants";
+import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, AI_POLISH_API_KEY_KEY } from "@/lib/constants";
 import {
   HOTKEY_MODIFIER_ORDER,
   type HotkeyModifier,
@@ -54,6 +55,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       ? "clipboard"
       : "sendInput";
   });
+  const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
+  const [aiPolishApiKey, setAiPolishApiKey] = useState(() => readLocalStorage(AI_POLISH_API_KEY_KEY) ?? "");
+  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     getEngine().then(e => {
@@ -334,8 +338,73 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
             </div>
           </section>
 
-          {/* Permissions */}
+          {/* AI Polish */}
           <section className="settings-card" style={{ animationDelay: "200ms" }}>
+            <div className="settings-section-header">
+              <Sparkles size={15} className="icon-accent" />
+              <h2 className="settings-section-title">AI 优化</h2>
+            </div>
+            <div className="settings-column" style={{ gap: 10 }}>
+              <div className="settings-row">
+                <span className="permission-label">启用 AI 文本润色</span>
+                <button
+                  role="switch"
+                  aria-checked={aiPolishEnabled}
+                  aria-label="启用 AI 文本润色"
+                  onClick={() => {
+                    const next = !aiPolishEnabled;
+                    setAiPolishEnabled(next);
+                    writeLocalStorage(AI_POLISH_ENABLED_KEY, String(next));
+                    setAiPolishConfig(next, aiPolishApiKey).catch(() => {});
+                  }}
+                  className="toggle-switch"
+                  style={{
+                    background: aiPolishEnabled ? "var(--color-accent)" : "var(--color-bg-tertiary)",
+                  }}
+                >
+                  <div className="toggle-knob" style={{ transform: aiPolishEnabled ? "translateX(20px)" : "translateX(0)" }} />
+                </button>
+              </div>
+              <div className="settings-row" style={{ position: "relative" }}>
+                <input
+                  type={showApiKey ? "text" : "password"}
+                  className="settings-input"
+                  placeholder="Cerebras API Key"
+                  value={aiPolishApiKey}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAiPolishApiKey(val);
+                    writeLocalStorage(AI_POLISH_API_KEY_KEY, val);
+                    setAiPolishConfig(aiPolishEnabled, val).catch(() => {});
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "8px 36px 8px 10px",
+                    borderRadius: 8,
+                    border: "1px solid var(--color-border)",
+                    background: "var(--color-bg-secondary)",
+                    color: "var(--color-text-primary)",
+                    fontSize: 13,
+                    outline: "none",
+                  }}
+                />
+                <button
+                  className="icon-btn plain"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)" }}
+                  aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                >
+                  {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              <p className="settings-hint">
+                使用 Cerebras API 对语音识别结果进行纠错润色。需在 cerebras.ai 获取 API Key。
+              </p>
+            </div>
+          </section>
+
+          {/* Permissions */}
+          <section className="settings-card" style={{ animationDelay: "250ms" }}>
             <div className="settings-section-header">
               <Accessibility size={15} className="icon-accent" />
               <h2 className="settings-section-title">权限</h2>
@@ -369,7 +438,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           </section>
 
           {/* Startup */}
-          <section className="settings-card" style={{ animationDelay: "250ms" }}>
+          <section className="settings-card" style={{ animationDelay: "300ms" }}>
             <div className="settings-section-header">
               <Power size={15} className="icon-accent" />
               <h2 className="settings-section-title">启动</h2>

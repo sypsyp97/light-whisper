@@ -6,7 +6,7 @@ use std::sync::{
 
 use tauri::{Emitter, Manager};
 
-use crate::services::funasr_service;
+use crate::services::{ai_polish_service, funasr_service};
 use crate::state::{AppState, RecordingSession};
 use crate::utils::AppError;
 
@@ -492,6 +492,13 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     match funasr_service::transcribe(state.inner(), wav_bytes, &app_handle).await {
         Ok(result) if result.success => {
             let text = result.text.trim().to_string();
+            // AI 润色：失败时 fallback 返回原文
+            let text = ai_polish_service::polish_text(state.inner(), &text)
+                .await
+                .unwrap_or_else(|e| {
+                    log::warn!("AI 润色失败，使用原文: {}", e);
+                    text
+                });
             let hide_delay = if text.is_empty() {
                 EMPTY_RESULT_HIDE_DELAY_MS
             } else {

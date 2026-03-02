@@ -40,6 +40,9 @@ base64 = "0.22"
 # 原生音频捕获
 cpal = "0.15"
 
+# HTTP 请求（AI 润色服务）
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
 # 错误处理
 thiserror = "2"
 
