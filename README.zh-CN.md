@@ -34,7 +34,8 @@
   - **Faster Whisper** — 支持 99+ 种语言
 - **完全离线** — 所有模型本地运行，数据不出本机
 - **GPU 加速** — 自动检测 NVIDIA GPU 并启用 CUDA 加速，无 GPU 则回退 CPU
-- **AI 文本润色（可选）** — 通过 [Cerebras](https://cerebras.ai/) API（OpenAI GPT-OSS 120B）自动纠正同音字、修复标点、清理口头禅，免费层每天 100 万 tokens
+- **AI 文本润色（可选）** — 支持多后端 LLM（Cerebras / DeepSeek / 自定义 OpenAI 兼容端点），自动纠正同音字、修复标点、清理口头禅
+- **自适应学习** — 自动从每次 AI 纠错中学习用户常用词汇和纠错模式，越用越准（详见下方说明）
 - **双输入模式** — 支持 SendInput 直接输入（不占用剪贴板）和剪贴板粘贴（兼容中文输入法）
 - **悬浮窗设计** — 无边框透明窗口，始终置顶，最小化到系统托盘
 - **开机自启动** — 可在设置中开启，开机后自动运行
@@ -51,6 +52,20 @@
 | **推理速度** | 10s 音频仅需 70ms | 较快（CTranslate2 加速） |
 
 > 数据来源：[FunAudioLLM 论文](https://arxiv.org/html/2407.04051v1) Table 6
+
+### AI 文本润色 & 自适应学习
+
+启用 AI 润色后，语音识别结果会自动经 LLM 纠错后再输出。支持三种后端：
+
+| 后端 | 说明 |
+|------|------|
+| **Cerebras** | 默认，使用 GPT-OSS 120B，免费层每天 100 万 tokens |
+| **DeepSeek** | DeepSeek Chat API |
+| **自定义** | 任意 OpenAI Chat Completions 或 Responses API 兼容端点 |
+
+**自适应学习**（全自动，无需手动操作）：
+
+每次 AI 纠错完成后，系统自动对比 ASR 原始结果与纠正后文本，提取差异片段作为纠错模式，并统计词频。当某个词汇使用达到 5 次以上，自动提升为"热词"注入 ASR 引擎（提升识别准确率）和 LLM prompt（引导纠错方向），形成闭环越用越准。
 
 ---
 
@@ -253,7 +268,7 @@ pnpm tauri build
 | **主题** | 浅色 / 深色 / 跟随系统 |
 | **说话热键** | 默认 F2，可在设置页自定义（支持组合键） |
 | **输入方式** | 直接输入（SendInput，不占用剪贴板）或 剪贴板粘贴（兼容中文输入法） |
-| **AI 优化** | 开启后对语音识别结果进行 AI 纠错润色，需在 [cerebras.ai](https://cerebras.ai/) 免费获取 API Key |
+| **AI 润色** | 开启后对语音识别结果进行 AI 纠错润色；支持 Cerebras / DeepSeek / 自定义端点，API Key 安全存储在系统密钥环中 |
 | **开机自启动** | 开启后系统启动时自动运行 |
 
 ### 状态指示
@@ -312,17 +327,21 @@ light-whisper/
 │   │   │   ├── clipboard.rs      #     复制/粘贴（SendInput / 剪贴板）
 │   │   │   ├── hotkey.rs         #     快捷键注册
 │   │   │   ├── window.rs         #     窗口管理
-│   │   │   └── ai_polish.rs      #     AI 润色配置 & 密钥环存储
+│   │   │   ├── ai_polish.rs      #     AI 润色配置 & 密钥环存储
+│   │   │   └── profile.rs        #     用户画像管理（热词、纠错模式）
 │   │   ├── services/
 │   │   │   ├── funasr_service.rs #     Python 子进程管理、JSON IPC
 │   │   │   ├── audio_service.rs  #     音频采集、中间转写、粘贴
 │   │   │   ├── download_service.rs #   模型下载进程管理
-│   │   │   └── ai_polish_service.rs #  Cerebras API 集成
+│   │   │   ├── ai_polish_service.rs #  LLM 文本润色（支持多后端）
+│   │   │   ├── llm_provider.rs   #     LLM 后端抽象（Cerebras/DeepSeek/自定义）
+│   │   │   └── profile_service.rs #    用户画像持久化 & 自适应学习
 │   │   ├── state/
-│   │   │   └── app_state.rs      #   全局应用状态（Mutex/Atomic）
+│   │   │   ├── app_state.rs      #     全局应用状态（Mutex/Atomic）
+│   │   │   └── user_profile.rs   #     用户画像数据结构（热词、纠错模式、词频）
 │   │   └── utils/
-│   │       ├── error.rs          #   错误类型定义
-│   │       └── paths.rs          #   路径工具
+│   │       ├── error.rs          #     错误类型定义
+│   │       └── paths.rs          #     路径工具
 │   ├── resources/
 │   │   ├── funasr_server.py      #   SenseVoice 推理服务
 │   │   ├── whisper_server.py     #   Faster Whisper 推理服务
@@ -347,11 +366,18 @@ light-whisper/
 │  React 前端  │ ◄──── invoke() ───►│  Rust 后端   │ ◄──── JSON ────► │  Python ASR 服务  │
 │  (TypeScript) │ ◄──── emit() ─────│  (Tauri 2)   │                  │ SenseVoice/Whisper │
 └──────────────┘                    └──────────────┘                  └───────────────────┘
+                                           │
+                                           ├── LLM API ──► Cerebras / DeepSeek / 自定义端点
+                                           │                （AI 文本润色）
+                                           └── 用户画像 ──► 热词注入 ASR + LLM prompt
+                                                            （自适应学习闭环）
 ```
 
 1. **前端 → Rust**：通过 `invoke()` 调用 Tauri 命令
 2. **Rust → Python**：通过子进程的 stdin 发送 JSON 命令，从 stdout 读取 JSON 响应
-3. **Rust → 前端**：通过 `emit()` 广播状态事件
+3. **Rust → LLM**：AI 润色通过 HTTP 调用 LLM API，支持 OpenAI Chat Completions 和 Responses API 两种格式
+4. **Rust → 前端**：通过 `emit()` 广播状态事件
+5. **自适应学习**：AI 纠错结果自动反馈到用户画像，热词注入 ASR 引擎和 LLM prompt
 
 ---
 

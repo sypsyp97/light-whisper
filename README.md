@@ -34,7 +34,8 @@
   - **Faster Whisper** — Supports 99+ languages
 - **Fully offline** — All models run locally, no data leaves your machine
 - **GPU acceleration** — Automatically detects NVIDIA GPU and enables CUDA; falls back to CPU if unavailable
-- **AI text polish (optional)** — Uses [Cerebras](https://cerebras.ai/) API (OpenAI GPT-OSS 120B) to auto-correct homophones, fix punctuation, and clean up filler words before output. Free tier: 1M tokens/day
+- **AI text polish (optional)** — Multi-backend LLM support (Cerebras / DeepSeek / custom OpenAI-compatible endpoint) to auto-correct homophones, fix punctuation, and clean up filler words
+- **Adaptive learning** — Automatically learns user vocabulary and correction patterns from each AI polish cycle, improving accuracy over time (see details below)
 - **Dual input mode** — SendInput (doesn't occupy clipboard) and clipboard paste (compatible with Chinese IME)
 - **Floating window** — Borderless transparent window, always on top, minimizes to system tray
 - **Launch at startup** — Can be enabled in settings
@@ -51,6 +52,20 @@
 | **Inference speed** | 10s audio in ~70ms | Fast (CTranslate2 accelerated) |
 
 > Data source: [FunAudioLLM paper](https://arxiv.org/html/2407.04051v1) Table 6
+
+### AI Text Polish & Adaptive Learning
+
+When AI polish is enabled, transcription results are automatically corrected by an LLM before output. Three backends are supported:
+
+| Backend | Description |
+|---------|-------------|
+| **Cerebras** | Default, uses GPT-OSS 120B, free tier: 1M tokens/day |
+| **DeepSeek** | DeepSeek Chat API |
+| **Custom** | Any OpenAI Chat Completions or Responses API compatible endpoint |
+
+**Adaptive learning** (fully automatic, no manual action needed):
+
+After each AI correction, the system compares the original ASR output with the polished text, extracts difference segments as correction patterns, and tracks word frequency. When a word has been used 5+ times, it is automatically promoted to a "hot word" and injected into both the ASR engine (to improve recognition accuracy) and the LLM prompt (to guide corrections) — forming a closed loop that gets more accurate with use.
 
 ---
 
@@ -253,7 +268,7 @@ The first build compiles all Rust dependencies and takes about **5–15 minutes*
 | **Theme** | Light / Dark / Follow system |
 | **Hotkey** | Default F2; customizable in settings (supports key combos) |
 | **Input method** | Direct input (SendInput, doesn't use clipboard) or Clipboard paste (compatible with Chinese IME) |
-| **AI polish** | Enable AI text correction via Cerebras API; requires a free API key from [cerebras.ai](https://cerebras.ai/) |
+| **AI polish** | Enable AI text correction; supports Cerebras / DeepSeek / custom endpoint, API keys stored securely in the system keyring |
 | **Launch at startup** | Auto-run on system boot |
 
 ### Status Indicators
@@ -312,17 +327,21 @@ light-whisper/
 │   │   │   ├── clipboard.rs      #     Copy/paste (SendInput / clipboard)
 │   │   │   ├── hotkey.rs         #     Hotkey registration
 │   │   │   ├── window.rs         #     Window management
-│   │   │   └── ai_polish.rs      #     AI polish config & keyring storage
+│   │   │   ├── ai_polish.rs      #     AI polish config & keyring storage
+│   │   │   └── profile.rs        #     User profile management (hot words, corrections)
 │   │   ├── services/
 │   │   │   ├── funasr_service.rs #     Python subprocess mgmt, JSON IPC
 │   │   │   ├── audio_service.rs  #     Audio capture, interim transcription, paste
 │   │   │   ├── download_service.rs #   Model download process mgmt
-│   │   │   └── ai_polish_service.rs #  Cerebras API integration
+│   │   │   ├── ai_polish_service.rs #  LLM text polish (multi-backend)
+│   │   │   ├── llm_provider.rs   #     LLM backend abstraction (Cerebras/DeepSeek/custom)
+│   │   │   └── profile_service.rs #    User profile persistence & adaptive learning
 │   │   ├── state/
-│   │   │   └── app_state.rs      #   Global app state (Mutex/Atomic fields)
+│   │   │   ├── app_state.rs      #     Global app state (Mutex/Atomic fields)
+│   │   │   └── user_profile.rs   #     User profile data structures (hot words, corrections, vocab)
 │   │   └── utils/
-│   │       ├── error.rs          #   Error type definitions
-│   │       └── paths.rs          #   Path utilities
+│   │       ├── error.rs          #     Error type definitions
+│   │       └── paths.rs          #     Path utilities
 │   ├── resources/
 │   │   ├── funasr_server.py      #   SenseVoice inference service
 │   │   ├── whisper_server.py     #   Faster Whisper inference service
@@ -347,11 +366,18 @@ light-whisper/
 │  React UI    │ ◄──── invoke() ───►│  Rust Backend │ ◄──── JSON ────► │  Python ASR Svc   │
 │ (TypeScript) │ ◄──── emit() ─────│  (Tauri 2)    │                  │ SenseVoice/Whisper │
 └──────────────┘                    └──────────────┘                  └───────────────────┘
+                                           │
+                                           ├── LLM API ──► Cerebras / DeepSeek / Custom
+                                           │                (AI text polish)
+                                           └── User Profile ─► Hot words injected into ASR + LLM
+                                                               (adaptive learning loop)
 ```
 
 1. **Frontend → Rust**: Calls Tauri commands via `invoke()`
 2. **Rust → Python**: Sends JSON commands to the subprocess via stdin, reads JSON responses from stdout
-3. **Rust → Frontend**: Broadcasts status events via `emit()`
+3. **Rust → LLM**: AI polish calls LLM API over HTTP, supporting both OpenAI Chat Completions and Responses API formats
+4. **Rust → Frontend**: Broadcasts status events via `emit()`
+5. **Adaptive learning**: AI correction results automatically feed back into the user profile, with hot words injected into the ASR engine and LLM prompt
 
 ---
 
