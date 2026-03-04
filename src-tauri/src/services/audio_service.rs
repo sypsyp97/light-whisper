@@ -479,7 +479,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
-        emit_done(&app_handle, session_id, "", EMPTY_RESULT_HIDE_DELAY_MS);
+        emit_done(&app_handle, session_id, "", EMPTY_RESULT_HIDE_DELAY_MS, duration_sec, false);
         // 即使本次录音太短，也要把之前缓冲的待粘贴文本粘出去
         flush_pending_paste(&app_handle);
         return;
@@ -493,18 +493,20 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         Ok(result) if result.success => {
             let text = result.text.trim().to_string();
             // AI 润色：失败时 fallback 返回原文
+            let original = text.clone();
             let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle)
                 .await
                 .unwrap_or_else(|e| {
                     log::warn!("AI 润色失败，使用原文: {}", e);
                     text
                 });
+            let polished = text != original;
             let hide_delay = if text.is_empty() {
                 EMPTY_RESULT_HIDE_DELAY_MS
             } else {
                 RESULT_HIDE_DELAY_MS
             };
-            emit_done(&app_handle, session_id, &text, hide_delay);
+            emit_done(&app_handle, session_id, &text, hide_delay, duration_sec, polished);
 
             if !text.is_empty() {
                 let app_for_paste = app_handle.clone();
@@ -528,7 +530,14 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     }
 }
 
-fn emit_done(app_handle: &tauri::AppHandle, session_id: u64, text: &str, hide_delay_ms: u64) {
+fn emit_done(
+    app_handle: &tauri::AppHandle,
+    session_id: u64,
+    text: &str,
+    hide_delay_ms: u64,
+    duration_sec: f64,
+    polished: bool,
+) {
     let _ = app_handle.emit(
         "recording-state",
         serde_json::json!({
@@ -537,12 +546,16 @@ fn emit_done(app_handle: &tauri::AppHandle, session_id: u64, text: &str, hide_de
             "isProcessing": false,
         }),
     );
+    let char_count = text.chars().count();
     let _ = app_handle.emit(
         "transcription-result",
         serde_json::json!({
             "sessionId": session_id,
             "text": text,
             "interim": false,
+            "durationSec": duration_sec,
+            "charCount": char_count,
+            "polished": polished,
         }),
     );
 

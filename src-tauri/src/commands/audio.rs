@@ -74,6 +74,9 @@ pub async fn start_recording(
         }),
     );
 
+    if state.sound_enabled.load(Ordering::Acquire) {
+        crate::utils::sound::play_start_sound();
+    }
     log::info!("录音已开始 (session {}, {}Hz)", session_id, actual_sample_rate);
     Ok(session_id)
 }
@@ -100,6 +103,9 @@ pub async fn stop_recording(
     };
 
     session.stop_flag.store(true, Ordering::Relaxed);
+    if state.sound_enabled.load(Ordering::Acquire) {
+        crate::utils::sound::play_stop_sound();
+    }
     log::info!("正在停止录音 (session {})", session.session_id);
 
     // 后台执行最终转写，不阻塞命令返回
@@ -115,6 +121,15 @@ pub async fn test_microphone() -> Result<String, AppError> {
     tokio::task::spawn_blocking(audio_service::test_microphone_sync)
         .await
         .map_err(|e| AppError::Audio(format!("麦克风测试任务失败: {}", e)))?
+}
+
+#[tauri::command]
+pub async fn set_sound_enabled(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), AppError> {
+    state.sound_enabled.store(enabled, Ordering::Release);
+    Ok(())
 }
 
 #[tauri::command]

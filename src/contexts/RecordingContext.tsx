@@ -2,9 +2,9 @@ import { createContext, useContext, useCallback, useEffect, useMemo, type ReactN
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
-import { setInputMethodCommand, setAiPolishConfig, getAiPolishApiKey } from "@/api/tauri";
+import { setInputMethodCommand, setAiPolishConfig, getAiPolishApiKey, setSoundEnabled } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
-import { INPUT_METHOD_KEY, AI_POLISH_ENABLED_KEY } from "@/lib/constants";
+import { INPUT_METHOD_KEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY } from "@/lib/constants";
 import type { TranscriptionResult, HistoryItem } from "@/types";
 
 interface RecordingContextValue {
@@ -15,6 +15,8 @@ interface RecordingContextValue {
   stopRecording: () => Promise<TranscriptionResult | null>;
   recordingError: string | null;
   transcriptionResult: string | null;
+  durationSec: number | null;
+  charCount: number | null;
   history: HistoryItem[];
   // model
   stage: ModelStage;
@@ -44,6 +46,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     stopRecording,
     error: recordingError,
     transcriptionResult,
+    durationSec,
+    charCount,
     history,
   } = useRecording();
 
@@ -86,6 +90,14 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // 启动时将音效开关同步到后端（默认开启）
+  useEffect(() => {
+    const stored = readLocalStorage(SOUND_ENABLED_KEY);
+    if (stored === "false") {
+      setSoundEnabled(false).catch(() => {});
+    }
+  }, []);
+
   // 启动时将 AI 润色开关同步到后端（API Key 已在后端 setup 从密钥环加载）
   useEffect(() => {
     const enabled = readLocalStorage(AI_POLISH_ENABLED_KEY) === "true";
@@ -103,6 +115,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     stopRecording,
     recordingError,
     transcriptionResult,
+    durationSec,
+    charCount,
     history,
     stage,
     isReady,
@@ -120,7 +134,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     setHotkey,
   }), [
     isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, history,
+    recordingError, transcriptionResult, durationSec, charCount, history,
     stage, isReady, device, gpuName,
     downloadProgress, downloadMessage, isDownloading, modelError,
     downloadModels, cancelDownload, retryModel,

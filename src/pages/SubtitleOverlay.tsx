@@ -15,6 +15,7 @@ interface TranscriptionResult {
   sessionId?: number;
   text: string;
   interim?: boolean;
+  polished?: boolean;
 }
 
 type Phase = "idle" | "recording" | "processing" | "polishing" | "result";
@@ -25,6 +26,7 @@ export default function SubtitleOverlay() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [text, setText] = useState("");
   const [fadingOut, setFadingOut] = useState(false);
+  const [polishFlash, setPolishFlash] = useState(false);
   const latestSessionIdRef = useRef(0);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -124,6 +126,7 @@ export default function SubtitleOverlay() {
           if (event.payload.status === "polishing") {
             clearFadeTimer();
             setFadingOut(false);
+            setPolishFlash(false);
             setPhase("polishing");
           }
         });
@@ -180,6 +183,7 @@ export default function SubtitleOverlay() {
           setText(finalText);
           setPhase("result");
           setFadingOut(false);
+          setPolishFlash(!!event.payload.polished);
 
           const expectedSessionId = latestSessionIdRef.current;
           fadeTimerRef.current = setTimeout(() => {
@@ -227,7 +231,14 @@ export default function SubtitleOverlay() {
     <div className="subtitle-root">
       <div className={`subtitle-capsule${fadingOut ? " subtitle-fade-out" : ""}`}>
         {indicatorClass && <div className={indicatorClass} />}
-        {hasText && <span className="subtitle-text">{text}</span>}
+        {hasText && (
+          <span
+            className={`subtitle-text${polishFlash ? " subtitle-polish-flash" : ""}`}
+            onAnimationEnd={() => setPolishFlash(false)}
+          >
+            {text}
+          </span>
+        )}
         {!hasText && hintText && <span className="subtitle-hint">{hintText}</span>}
       </div>
     </div>

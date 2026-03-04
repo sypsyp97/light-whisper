@@ -16,7 +16,7 @@ export default function MainPage({ onNavigate }: {
 }) {
   const {
     isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, history, stage, isReady,
+    recordingError, transcriptionResult, durationSec, charCount, history, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError,
     downloadModels: triggerDownload, cancelDownload, retryModel,
@@ -117,6 +117,8 @@ export default function MainPage({ onNavigate }: {
           isProcessing={isProcessing}
           copiedId={copiedId}
           onCopy={handleCopy}
+          durationSec={durationSec}
+          charCount={charCount}
         />
         <TranscriptionHistory
           history={history}

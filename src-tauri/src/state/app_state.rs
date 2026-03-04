@@ -33,6 +33,7 @@ pub struct AppState {
     /// schedule_hide 会在睡眠前记录当前代，醒来后若代已变则跳过隐藏，
     /// 从而避免旧 hide 任务误杀新一轮字幕。
     pub subtitle_show_gen: AtomicU64,
+    pub sound_enabled: Arc<AtomicBool>,
     pub ai_polish_enabled: Arc<AtomicBool>,
     pub ai_polish_api_key: Arc<std::sync::Mutex<String>>,
     pub http_client: reqwest::Client,
@@ -51,6 +52,7 @@ impl Default for AppState {
             input_method: Arc::new(std::sync::Mutex::new("sendInput".to_string())),
             pending_paste: Arc::new(std::sync::Mutex::new(Vec::new())),
             subtitle_show_gen: AtomicU64::new(0),
+            sound_enabled: Arc::new(AtomicBool::new(true)),
             ai_polish_enabled: Arc::new(AtomicBool::new(false)),
             ai_polish_api_key: Arc::new(std::sync::Mutex::new(String::new())),
             http_client: reqwest::Client::new(),

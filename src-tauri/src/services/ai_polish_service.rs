@@ -15,6 +15,8 @@ const BASE_SYSTEM_PROMPT: &str = "\
 3. 标点断句：修正断句不合理、语气符号缺失的问题
 4. 口语化表达：轻度书面化，去除口头禅和重复词（嗯、啊、然后然后、就是就是），但保留说话者的原始语气和风格
 5. 数字格式：根据语境使用合适的数字格式
+6. 结构化格式：当用户明显在列举（「第一、第二」或「首先、其次」），用换行或编号格式化
+7. 语气适配：如果输入带有 [当前应用] 上下文，根据应用场景自适应语气（如聊天软件保持口语化，邮件客户端用正式书面语，代码编辑器保留技术术语等）
 
 禁止事项：
 - 禁止添加原文没有的信息
@@ -86,6 +88,9 @@ pub async fn polish_text(
     // 构建动态 prompt
     let system_prompt = build_system_prompt(state);
 
+    // 注入前台应用上下文到 user message
+    let user_content = build_user_content(text);
+
     let is_responses_api = endpoint.api_url.contains("/v1/responses");
 
     let mut body = if is_responses_api {
@@ -93,14 +98,14 @@ pub async fn polish_text(
         serde_json::json!({
             "model": endpoint.model,
             "instructions": system_prompt,
-            "input": text,
+            "input": user_content,
             "max_output_tokens": 1024,
         })
     } else {
         // OpenAI Chat Completions 兼容格式
         let messages = vec![
             serde_json::json!({ "role": "system", "content": system_prompt }),
-            serde_json::json!({ "role": "user", "content": text }),
+            serde_json::json!({ "role": "user", "content": user_content }),
         ];
         serde_json::json!({
             "model": endpoint.model,
@@ -189,6 +194,22 @@ pub async fn polish_text(
     }
 
     Ok(polished)
+}
+
+fn build_user_content(text: &str) -> String {
+    if let Some(app) = crate::utils::foreground::get_foreground_app() {
+        let mut ctx_parts = Vec::new();
+        if !app.window_title.is_empty() {
+            ctx_parts.push(format!("窗口：{}", app.window_title));
+        }
+        if !app.process_name.is_empty() {
+            ctx_parts.push(format!("程序：{}", app.process_name));
+        }
+        if !ctx_parts.is_empty() {
+            return format!("[当前应用 | {}]\n{}", ctx_parts.join(" | "), text);
+        }
+    }
+    text.to_string()
 }
 
 fn emit_polish_status(

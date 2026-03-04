@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Brain, Download, Upload } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -19,11 +19,12 @@ import {
   setLlmProviderConfig,
   exportUserProfile,
   importUserProfile,
+  setSoundEnabled,
 } from "@/api/tauri";
 import type { UserProfile } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
-import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY } from "@/lib/constants";
+import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY } from "@/lib/constants";
 import {
   HOTKEY_MODIFIER_ORDER,
   type HotkeyModifier,
@@ -79,6 +80,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       ? "clipboard"
       : "sendInput";
   });
+  const [soundEnabled, setSoundEnabledState] = useState(() => readLocalStorage(SOUND_ENABLED_KEY) !== "false");
   const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
   const [aiPolishApiKey, setAiPolishApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
@@ -394,6 +396,26 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 </button>
               ))}
             </div>
+            <div className="settings-row" style={{ marginTop: 6 }}>
+              <span className="permission-label">录音提示音</span>
+              <button
+                role="switch"
+                aria-checked={soundEnabled}
+                aria-label="录音提示音"
+                onClick={() => {
+                  const next = !soundEnabled;
+                  setSoundEnabledState(next);
+                  writeLocalStorage(SOUND_ENABLED_KEY, String(next));
+                  setSoundEnabled(next).catch(() => {});
+                }}
+                className="toggle-switch"
+                style={{
+                  background: soundEnabled ? "var(--color-accent)" : "var(--color-bg-tertiary)",
+                }}
+              >
+                <div className="toggle-knob" style={{ transform: soundEnabled ? "translateX(20px)" : "translateX(0)" }} />
+              </button>
+            </div>
           </section>
 
           {/* AI Polish + LLM Backend */}
@@ -629,39 +651,6 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
               </div>
             </div>
           </section>
-
-          {/* Correction Patterns */}
-          {profile && profile.correction_patterns.length > 0 && (
-            <section className="settings-card" style={{ animationDelay: "240ms" }}>
-              <div className="settings-section-header">
-                <Brain size={15} className="icon-accent" />
-                <h2 className="settings-section-title">学习记录</h2>
-                <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-text-tertiary)" }}>
-                  {profile.correction_patterns.length} 个纠错模式
-                </span>
-              </div>
-              <div style={{
-                display: "flex", flexDirection: "column", gap: 3,
-                maxHeight: 100, overflow: "auto",
-              }}>
-                {profile.correction_patterns
-                  .sort((a, b) => b.count - a.count)
-                  .slice(0, 15)
-                  .map((p, i) => (
-                  <div key={i} style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    fontSize: 12, color: "var(--color-text-secondary)",
-                    padding: "2px 0",
-                  }}>
-                    <span style={{ textDecoration: "line-through", opacity: 0.6 }}>{p.original}</span>
-                    <span style={{ color: "var(--color-text-tertiary)" }}>→</span>
-                    <span style={{ color: "#10b981" }}>{p.corrected}</span>
-                    <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-text-tertiary)" }}>×{p.count}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
 
           {/* Profile Export/Import */}
           <section className="settings-card" style={{ animationDelay: "255ms" }}>

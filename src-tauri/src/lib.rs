@@ -101,6 +101,7 @@ pub fn run() {
             commands::audio::stop_recording,
             commands::audio::test_microphone,
             commands::audio::set_input_method,
+            commands::audio::set_sound_enabled,
             commands::ai_polish::set_ai_polish_config,
             commands::ai_polish::get_ai_polish_api_key,
             commands::profile::get_user_profile,

@@ -11,6 +11,8 @@ interface UseRecordingReturn {
   stopRecording: () => Promise<TranscriptionResult | null>;
   error: string | null;
   transcriptionResult: string | null;
+  durationSec: number | null;
+  charCount: number | null;
   history: HistoryItem[];
 }
 
@@ -25,6 +27,8 @@ interface TranscriptionPayload {
   sessionId: number;
   text: string;
   interim: boolean;
+  durationSec?: number;
+  charCount?: number;
 }
 
 export function useRecording(): UseRecordingReturn {
@@ -32,6 +36,8 @@ export function useRecording(): UseRecordingReturn {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transcriptionResult, setTranscriptionResult] = useState<string | null>(null);
+  const [durationSec, setDurationSec] = useState<number | null>(null);
+  const [charCount, setCharCount] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
   // 监听 recording-state 事件
@@ -75,6 +81,8 @@ export function useRecording(): UseRecordingReturn {
           if (!e.payload.interim) {
             const text = e.payload.text;
             setTranscriptionResult(text);
+            setDurationSec(e.payload.durationSec ?? null);
+            setCharCount(e.payload.charCount ?? null);
             if (text) {
               const now = Date.now();
               setHistory((prev) =>
@@ -166,6 +174,8 @@ export function useRecording(): UseRecordingReturn {
     stopRecording,
     error,
     transcriptionResult,
+    durationSec,
+    charCount,
     history,
   };
 }

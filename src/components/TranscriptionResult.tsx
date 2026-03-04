@@ -5,11 +5,20 @@ interface TranscriptionResultProps {
   isProcessing: boolean;
   copiedId: string | null;
   onCopy: (text: string, id: string) => void;
+  durationSec: number | null;
+  charCount: number | null;
+}
+
+function formatStats(charCount: number, durationSec: number): string {
+  const cpm = Math.round((charCount / durationSec) * 60);
+  return `${charCount}字 · ${durationSec.toFixed(1)}秒 · ${cpm}字/分钟`;
 }
 
 export default function TranscriptionResult({
-  text, isProcessing, copiedId, onCopy,
+  text, isProcessing, copiedId, onCopy, durationSec, charCount,
 }: TranscriptionResultProps) {
+  const showStats = text && durationSec && durationSec > 0 && charCount;
+
   return (
     <>
       {text && (
@@ -25,6 +34,14 @@ export default function TranscriptionResult({
               </button>
             </div>
             <p className="result-card-body">{text}</p>
+            {showStats && (
+              <p style={{
+                margin: "6px 0 0",
+                fontSize: 11,
+                color: "var(--color-text-tertiary)",
+                textAlign: "right",
+              }}>{formatStats(charCount, durationSec)}</p>
+            )}
           </div>
         </div>
       )}

@@ -172,6 +172,46 @@ body,
   to { transform: rotate(360deg); }
 }
 
+/* ---- Polish flash effect ---- */
+
+.subtitle-polish-flash {
+  animation: subtitle-flash 0.6s ease-out;
+}
+
+@keyframes subtitle-flash {
+  0% {
+    text-shadow: 0 0 0 transparent;
+    filter: brightness(1);
+  }
+  20% {
+    text-shadow: 0 0 12px var(--color-accent), 0 0 24px var(--color-accent);
+    filter: brightness(1.4);
+  }
+  100% {
+    text-shadow: 0 0 0 transparent;
+    filter: brightness(1);
+  }
+}
+
+[data-theme="light"] .subtitle-polish-flash {
+  animation: subtitle-flash-light 0.6s ease-out;
+}
+
+@keyframes subtitle-flash-light {
+  0% {
+    text-shadow: 0 0 0 transparent;
+    filter: brightness(1);
+  }
+  20% {
+    text-shadow: 0 0 8px var(--color-accent), 0 0 16px rgba(0, 0, 0, 0.1);
+    filter: brightness(1.15);
+  }
+  100% {
+    text-shadow: 0 0 0 transparent;
+    filter: brightness(1);
+  }
+}
+
 /* ---- Accessibility ---- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -179,7 +219,8 @@ body,
   .subtitle-capsule.subtitle-fade-out,
   .subtitle-dot-recording,
   .subtitle-dot-polishing,
-  .subtitle-dot-processing {
+  .subtitle-dot-processing,
+  .subtitle-polish-flash {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }

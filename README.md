@@ -34,8 +34,10 @@
   - **Faster Whisper** — Supports 99+ languages
 - **Fully offline** — All models run locally, no data leaves your machine
 - **GPU acceleration** — Automatically detects NVIDIA GPU and enables CUDA; falls back to CPU if unavailable
-- **AI text polish (optional)** — Multi-backend LLM support (Cerebras / DeepSeek / custom OpenAI-compatible endpoint) to auto-correct homophones, fix punctuation, and clean up filler words
+- **AI text polish (optional)** — Multi-backend LLM support (Cerebras / DeepSeek / custom OpenAI-compatible endpoint) to auto-correct homophones, fix punctuation, and clean up filler words; automatically detects the foreground app (e.g., WeChat, Outlook, VS Code) and adapts tone accordingly
 - **Adaptive learning** — Automatically learns user vocabulary and correction patterns from each AI polish cycle, improving accuracy over time (see details below)
+- **Transcription statistics** — Shows character count, recording duration, and characters per minute (CPM)
+- **Recording sound feedback** — Plays start/stop tones when recording begins and ends, toggleable in settings
 - **Dual input mode** — SendInput (doesn't occupy clipboard) and clipboard paste (compatible with Chinese IME)
 - **Floating window** — Borderless transparent window, always on top, minimizes to system tray
 - **Launch at startup** — Can be enabled in settings
@@ -268,6 +270,7 @@ The first build compiles all Rust dependencies and takes about **5–15 minutes*
 | **Theme** | Light / Dark / Follow system |
 | **Hotkey** | Default F2; customizable in settings (supports key combos) |
 | **Input method** | Direct input (SendInput, doesn't use clipboard) or Clipboard paste (compatible with Chinese IME) |
+| **Recording sound** | Audio feedback when recording starts/stops, toggleable |
 | **AI polish** | Enable AI text correction; supports Cerebras / DeepSeek / custom endpoint, API keys stored securely in the system keyring |
 | **Launch at startup** | Auto-run on system boot |
 
@@ -341,7 +344,9 @@ light-whisper/
 │   │   │   └── user_profile.rs   #     User profile data structures (hot words, corrections, vocab)
 │   │   └── utils/
 │   │       ├── error.rs          #     Error type definitions
-│   │       └── paths.rs          #     Path utilities
+│   │       ├── paths.rs          #     Path utilities
+│   │       ├── foreground.rs     #     Foreground window detection (Windows API)
+│   │       └── sound.rs          #     Recording sound generation & playback
 │   ├── resources/
 │   │   ├── funasr_server.py      #   SenseVoice inference service
 │   │   ├── whisper_server.py     #   Faster Whisper inference service
