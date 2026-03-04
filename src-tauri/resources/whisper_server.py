@@ -111,7 +111,7 @@ class WhisperServer(BaseASRServer):
             logger.error(traceback.format_exc())
             return {"success": False, "error": error_msg, "type": "init_error", "engine": self.engine}
 
-    def transcribe_audio(self, audio_path, options=None):
+    def transcribe_audio(self, audio_path, options=None, hot_words=None):
         """转录音频文件"""
         import time
 
@@ -139,13 +139,20 @@ class WhisperServer(BaseASRServer):
                 logger.warning(f"音频过短 ({duration:.2f}秒)，跳过转录")
                 return {"success": True, "text": "", "duration": duration}
 
+            # 构建 initial_prompt（注入热词作为 Glossary）
+            initial_prompt = "Hello, welcome. 你好，欢迎。"
+            if hot_words and isinstance(hot_words, list) and len(hot_words) > 0:
+                glossary = ", ".join(hot_words[:100])  # 限制数量避免超出 224 tokens
+                initial_prompt = f"Glossary: {glossary}. {initial_prompt}"
+                logger.info(f"Whisper initial_prompt 注入 {len(hot_words)} 个热词")
+
             # 执行 Whisper 转录（内置 Silero VAD）
             asr_start = time.time()
             with self.stdout_suppressor.suppress():
                 segments, info = self.model.transcribe(
                     audio_path,
                     language=None,
-                    initial_prompt="Hello, welcome. 你好，欢迎。",
+                    initial_prompt=initial_prompt,
                     condition_on_previous_text=False,
                     vad_filter=True,
                     vad_parameters={"min_silence_duration_ms": 500},

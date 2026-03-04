@@ -37,16 +37,31 @@ pub fn run() {
                 utils::paths::get_data_dir()
             );
 
-            // 启动时从系统密钥环加载 API Key
+            // 启动时加载用户画像
+            {
+                let state = app_handle.state::<AppState>();
+                let loaded = services::profile_service::load_profile();
+                if let Ok(mut profile) = state.user_profile.lock() {
+                    *profile = loaded;
+                }
+                log::info!("已加载用户画像");
+            }
+
+            // 启动时根据活跃 provider 从系统密钥环加载对应 API Key
             {
                 use tauri_plugin_keyring::KeyringExt;
-                if let Ok(Some(key)) = app_handle.keyring().get_password("light-whisper", "cerebras-api-key") {
+                let state = app_handle.state::<AppState>();
+                let provider = match state.user_profile.lock() {
+                    Ok(p) => p.llm_provider.active.clone(),
+                    Err(poisoned) => poisoned.into_inner().llm_provider.active.clone(),
+                };
+                let keyring_user = services::llm_provider::keyring_user_for_provider(&provider);
+                if let Ok(Some(key)) = app_handle.keyring().get_password("light-whisper", keyring_user) {
                     if !key.is_empty() {
-                        let state = app_handle.state::<AppState>();
                         if let Ok(mut api_key) = state.ai_polish_api_key.lock() {
                             *api_key = key;
                         }
-                        log::info!("已从系统密钥环加载 AI 润色 API Key");
+                        log::info!("已从系统密钥环加载 AI 润色 API Key (provider: {})", provider);
                     }
                 }
             }
@@ -88,6 +103,12 @@ pub fn run() {
             commands::audio::set_input_method,
             commands::ai_polish::set_ai_polish_config,
             commands::ai_polish::get_ai_polish_api_key,
+            commands::profile::get_user_profile,
+            commands::profile::add_hot_word,
+            commands::profile::remove_hot_word,
+            commands::profile::set_llm_provider_config,
+            commands::profile::export_user_profile,
+            commands::profile::import_user_profile,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");
@@ -173,13 +194,18 @@ fn stop_funasr_on_exit(app: &tauri::AppHandle) {
     let funasr_process = state.funasr_process.clone();
 
     tauri::async_runtime::block_on(async {
-        if let Ok(mut guard) = funasr_process.try_lock() {
-            if let Some(ref mut process) = *guard {
-                log::info!("正在停止 FunASR 进程...");
-                let _ = process.child.start_kill();
-                let _ =
-                    tokio::time::timeout(std::time::Duration::from_secs(3), process.child.wait())
-                        .await;
+        match tokio::time::timeout(std::time::Duration::from_secs(2), funasr_process.lock()).await {
+            Ok(mut guard) => {
+                if let Some(ref mut process) = *guard {
+                    log::info!("正在停止 FunASR 进程...");
+                    let _ = process.child.start_kill();
+                    let _ =
+                        tokio::time::timeout(std::time::Duration::from_secs(3), process.child.wait())
+                            .await;
+                }
+            }
+            Err(_) => {
+                log::warn!("退出时获取 FunASR 进程锁超时，进程可能未被清理");
             }
         }
     });

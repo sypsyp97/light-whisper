@@ -7,6 +7,8 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 
+use super::user_profile::UserProfile;
+
 pub struct RecordingSession {
     pub session_id: u64,
     pub stop_flag: Arc<AtomicBool>,
@@ -34,6 +36,7 @@ pub struct AppState {
     pub ai_polish_enabled: Arc<AtomicBool>,
     pub ai_polish_api_key: Arc<std::sync::Mutex<String>>,
     pub http_client: reqwest::Client,
+    pub user_profile: Arc<std::sync::Mutex<UserProfile>>,
 }
 
 impl Default for AppState {
@@ -51,6 +54,7 @@ impl Default for AppState {
             ai_polish_enabled: Arc::new(AtomicBool::new(false)),
             ai_polish_api_key: Arc::new(std::sync::Mutex::new(String::new())),
             http_client: reqwest::Client::new(),
+            user_profile: Arc::new(std::sync::Mutex::new(UserProfile::default())),
         }
     }
 }

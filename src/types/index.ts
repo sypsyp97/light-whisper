@@ -37,3 +37,40 @@ export interface HistoryItem {
   timeDisplay: string;
 }
 
+// 热词来源
+export type HotWordSource = "user" | "learned";
+
+// 热词条目
+export interface HotWord {
+  text: string;
+  weight: number;
+  source: HotWordSource;
+  use_count: number;
+  last_used: number;
+}
+
+// 纠错模式
+export interface CorrectionPattern {
+  original: string;
+  corrected: string;
+  count: number;
+  last_seen: number;
+}
+
+// LLM 后端配置
+export interface LlmProviderConfig {
+  active: string;
+  custom_base_url?: string;
+  custom_model?: string;
+}
+
+// 用户画像
+export interface UserProfile {
+  hot_words: HotWord[];
+  correction_patterns: CorrectionPattern[];
+  vocab_frequency: Record<string, { count: number; last_seen: number }>;
+  total_transcriptions: number;
+  last_updated: number;
+  llm_provider: LlmProviderConfig;
+}
+

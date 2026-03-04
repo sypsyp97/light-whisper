@@ -226,7 +226,7 @@ class BaseASRServer:
     def get_performance_stats(self) -> dict:
         raise NotImplementedError
 
-    def transcribe_audio(self, audio_path: str, options=None) -> dict:
+    def transcribe_audio(self, audio_path: str, options=None, hot_words=None) -> dict:
         raise NotImplementedError
 
     # ------------------------------------------------------------------
@@ -282,6 +282,7 @@ class BaseASRServer:
                     result = self.transcribe_audio(
                         command.get("audio_path"),
                         command.get("options", {}),
+                        hot_words=command.get("hot_words"),
                     )
                 elif action == "status":
                     result = self.check_status()

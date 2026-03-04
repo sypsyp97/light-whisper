@@ -2,3 +2,5 @@ pub mod ai_polish_service;
 pub mod audio_service;
 pub mod download_service;
 pub mod funasr_service;
+pub mod llm_provider;
+pub mod profile_service;

@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Brain, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -13,7 +13,14 @@ import {
   setInputMethodCommand,
   setAiPolishConfig,
   getAiPolishApiKey,
+  getUserProfile,
+  addHotWord,
+  removeHotWord,
+  setLlmProviderConfig,
+  exportUserProfile,
+  importUserProfile,
 } from "@/api/tauri";
+import type { UserProfile } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY } from "@/lib/constants";
@@ -42,6 +49,22 @@ const inputOptions = [
   { key: "clipboard" as const, icon: ClipboardPaste, label: "剪贴板粘贴", desc: "兼容中文输入法" },
 ];
 
+const llmProviderOptions = [
+  { key: "cerebras", label: "Cerebras", desc: "GPT-OSS-120B, 极速" },
+  { key: "deepseek", label: "DeepSeek", desc: "DeepSeek-Chat, 中文强" },
+  { key: "custom", label: "自定义", desc: "OpenAI 兼容端点" },
+];
+
+const sourceLabels: Record<string, string> = {
+  user: "手动",
+  learned: "学习",
+};
+
+const sourceColors: Record<string, string> = {
+  user: "var(--color-accent)",
+  learned: "#10b981",
+};
+
 export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const { isDark, theme, setTheme } = useTheme();
   const { retryModel, hotkeyDisplay, setHotkey, hotkeyError } = useRecordingContext();
@@ -59,13 +82,40 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
   const [aiPolishApiKey, setAiPolishApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
+  const apiKeySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 从系统密钥环加载 API Key
+  // Agent profile state
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [newHotWord, setNewHotWord] = useState("");
+  const [llmProvider, setLlmProvider] = useState("cerebras");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customModel, setCustomModel] = useState("");
+
+  // 从系统密钥环加载 API Key，并同步 enabled 状态到后端
   useEffect(() => {
     getAiPolishApiKey().then(key => {
-      if (key) setAiPolishApiKey(key);
+      if (key) {
+        setAiPolishApiKey(key);
+        // 启动时同步 enabled + key 到后端（后端默认 enabled=false）
+        const enabled = readLocalStorage(AI_POLISH_ENABLED_KEY) === "true";
+        setAiPolishConfig(enabled, key).catch(() => {});
+      }
     }).catch(() => {});
   }, []);
+
+  // 加载用户画像
+  const refreshProfile = useCallback(() => {
+    getUserProfile().then(p => {
+      setProfile(p);
+      setLlmProvider(p.llm_provider.active);
+      setCustomBaseUrl(p.llm_provider.custom_base_url ?? "");
+      setCustomModel(p.llm_provider.custom_model ?? "");
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshProfile();
+  }, [refreshProfile]);
 
   useEffect(() => {
     getEngine().then(e => {
@@ -346,11 +396,11 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
             </div>
           </section>
 
-          {/* AI Polish */}
+          {/* AI Polish + LLM Backend */}
           <section className="settings-card" style={{ animationDelay: "200ms" }}>
             <div className="settings-section-header">
               <Sparkles size={15} className="icon-accent" />
-              <h2 className="settings-section-title">AI 优化</h2>
+              <h2 className="settings-section-title">AI 纠错</h2>
             </div>
             <div className="settings-column" style={{ gap: 10 }}>
               <div className="settings-row">
@@ -373,16 +423,79 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   <div className="toggle-knob" style={{ transform: aiPolishEnabled ? "translateX(20px)" : "translateX(0)" }} />
                 </button>
               </div>
+
+              {/* LLM Backend Selection */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {llmProviderOptions.map(({ key, label, desc }) => (
+                  <button
+                    key={key}
+                    className="theme-btn settings-option-btn"
+                    aria-pressed={llmProvider === key}
+                    onClick={async () => {
+                      setLlmProvider(key);
+                      await setLlmProviderConfig(key, customBaseUrl || undefined, customModel || undefined).catch(() => {});
+                      // 等 provider 切换完成后再读取对应的 API Key
+                      getAiPolishApiKey().then(k => { if (k) setAiPolishApiKey(k); else setAiPolishApiKey(""); }).catch(() => {});
+                    }}
+                    style={{ flex: 1, minWidth: 90, padding: "6px 8px" }}
+                  >
+                    <span className="settings-option-label" style={{ fontSize: 12 }}>{label}</span>
+                    <span className="settings-option-desc" style={{ fontSize: 10 }}>{desc}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom endpoint fields */}
+              {llmProvider === "custom" && (
+                <>
+                  <input
+                    type="text"
+                    className="settings-input"
+                    placeholder="API Base URL (OpenAI 兼容)"
+                    value={customBaseUrl}
+                    onChange={(e) => {
+                      setCustomBaseUrl(e.target.value);
+                      setLlmProviderConfig("custom", e.target.value || undefined, customModel || undefined).catch(() => {});
+                    }}
+                    style={{
+                      padding: "8px 10px", borderRadius: 8,
+                      border: "1px solid var(--color-border)",
+                      background: "var(--color-bg-secondary)",
+                      color: "var(--color-text-primary)", fontSize: 13, outline: "none",
+                    }}
+                  />
+                  <input
+                    type="text"
+                    className="settings-input"
+                    placeholder="模型名 (如 gpt-3.5-turbo)"
+                    value={customModel}
+                    onChange={(e) => {
+                      setCustomModel(e.target.value);
+                      setLlmProviderConfig("custom", customBaseUrl || undefined, e.target.value || undefined).catch(() => {});
+                    }}
+                    style={{
+                      padding: "8px 10px", borderRadius: 8,
+                      border: "1px solid var(--color-border)",
+                      background: "var(--color-bg-secondary)",
+                      color: "var(--color-text-primary)", fontSize: 13, outline: "none",
+                    }}
+                  />
+                </>
+              )}
+
               <div className="settings-row" style={{ position: "relative" }}>
                 <input
                   type={showApiKey ? "text" : "password"}
                   className="settings-input"
-                  placeholder="Cerebras API Key"
+                  placeholder={`${llmProviderOptions.find(o => o.key === llmProvider)?.label ?? "LLM"} API Key`}
                   value={aiPolishApiKey}
                   onChange={(e) => {
                     const val = e.target.value;
                     setAiPolishApiKey(val);
-                    setAiPolishConfig(aiPolishEnabled, val).catch(() => {});
+                    if (apiKeySaveTimer.current) clearTimeout(apiKeySaveTimer.current);
+                    apiKeySaveTimer.current = setTimeout(() => {
+                      setAiPolishConfig(aiPolishEnabled, val).catch(() => {});
+                    }, 600);
                   }}
                   style={{
                     flex: 1,
@@ -405,8 +518,199 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 </button>
               </div>
               <p className="settings-hint">
-                使用 Cerebras API 对语音识别结果进行纠错润色。需在 cerebras.ai 获取 API Key。
+                AI 纠错会自动学习你的用词习惯，并将常用词汇注入热词列表提升识别准确率。
               </p>
+            </div>
+          </section>
+
+          {/* Smart Vocabulary */}
+          <section className="settings-card" style={{ animationDelay: "225ms" }}>
+            <div className="settings-section-header">
+              <BookOpen size={15} className="icon-accent" />
+              <h2 className="settings-section-title">智能词库</h2>
+              {profile && (
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                  {profile.hot_words.length} 个热词 · {profile.total_transcriptions} 次转录
+                </span>
+              )}
+            </div>
+            <div className="settings-column" style={{ gap: 8 }}>
+              {/* Add hot word */}
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  type="text"
+                  placeholder="添加热词 (如 Claude Code)"
+                  value={newHotWord}
+                  onChange={(e) => setNewHotWord(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newHotWord.trim()) {
+                      addHotWord(newHotWord.trim(), 3).then(() => {
+                        setNewHotWord("");
+                        refreshProfile();
+                        toast.success(`已添加热词: ${newHotWord.trim()}`);
+                      }).catch(() => toast.error("添加失败"));
+                    }
+                  }}
+                  style={{
+                    flex: 1, padding: "7px 10px", borderRadius: 8,
+                    border: "1px solid var(--color-border)",
+                    background: "var(--color-bg-secondary)",
+                    color: "var(--color-text-primary)", fontSize: 13, outline: "none",
+                  }}
+                />
+                <button
+                  className="test-btn"
+                  onClick={() => {
+                    if (!newHotWord.trim()) return;
+                    addHotWord(newHotWord.trim(), 3).then(() => {
+                      setNewHotWord("");
+                      refreshProfile();
+                      toast.success(`已添加热词: ${newHotWord.trim()}`);
+                    }).catch(() => toast.error("添加失败"));
+                  }}
+                  style={{ padding: "7px 12px" }}
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+
+              {/* Hot word list */}
+              {profile && profile.hot_words.length > 0 && (
+                <div style={{
+                  display: "flex", flexWrap: "wrap", gap: 4,
+                  maxHeight: 120, overflow: "auto",
+                  padding: "4px 0",
+                }}>
+                  {profile.hot_words
+                    .sort((a, b) => b.weight - a.weight || b.use_count - a.use_count)
+                    .map((hw) => (
+                    <span
+                      key={hw.text}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "3px 8px", borderRadius: 12,
+                        background: "var(--color-bg-secondary)",
+                        border: `1px solid ${sourceColors[hw.source] ?? "var(--color-border)"}`,
+                        fontSize: 12, color: "var(--color-text-secondary)",
+                      }}
+                    >
+                      <span style={{
+                        width: 6, height: 6, borderRadius: "50%",
+                        background: sourceColors[hw.source] ?? "var(--color-border)",
+                        flexShrink: 0,
+                      }} />
+                      {hw.text}
+                      <button
+                        onClick={() => {
+                          removeHotWord(hw.text).then(() => refreshProfile()).catch(() => {});
+                        }}
+                        style={{
+                          background: "none", border: "none", cursor: "pointer",
+                          color: "var(--color-text-tertiary)", padding: 0,
+                          display: "flex", alignItems: "center",
+                        }}
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Legend + actions */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                {Object.entries(sourceLabels).map(([key, label]) => (
+                  <span key={key} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: sourceColors[key] }} />
+                    {label}
+                  </span>
+                ))}
+                <span style={{ flex: 1 }} />
+              </div>
+            </div>
+          </section>
+
+          {/* Correction Patterns */}
+          {profile && profile.correction_patterns.length > 0 && (
+            <section className="settings-card" style={{ animationDelay: "240ms" }}>
+              <div className="settings-section-header">
+                <Brain size={15} className="icon-accent" />
+                <h2 className="settings-section-title">学习记录</h2>
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                  {profile.correction_patterns.length} 个纠错模式
+                </span>
+              </div>
+              <div style={{
+                display: "flex", flexDirection: "column", gap: 3,
+                maxHeight: 100, overflow: "auto",
+              }}>
+                {profile.correction_patterns
+                  .sort((a, b) => b.count - a.count)
+                  .slice(0, 15)
+                  .map((p, i) => (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    fontSize: 12, color: "var(--color-text-secondary)",
+                    padding: "2px 0",
+                  }}>
+                    <span style={{ textDecoration: "line-through", opacity: 0.6 }}>{p.original}</span>
+                    <span style={{ color: "var(--color-text-tertiary)" }}>→</span>
+                    <span style={{ color: "#10b981" }}>{p.corrected}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-text-tertiary)" }}>×{p.count}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Profile Export/Import */}
+          <section className="settings-card" style={{ animationDelay: "255ms" }}>
+            <div className="settings-section-header">
+              <Download size={15} className="icon-accent" />
+              <h2 className="settings-section-title">数据</h2>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                className="btn-ghost"
+                onClick={async () => {
+                  try {
+                    const data = await exportUserProfile();
+                    const blob = new Blob([data], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "light-whisper-profile.json";
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 200);
+                    toast.success("画像已导出");
+                  } catch { toast.error("导出失败"); }
+                }}
+                style={{ flex: 1, fontSize: 12, padding: "8px" }}
+              >
+                <Download size={13} style={{ marginRight: 4 }} />导出画像
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={() => {
+                  const input = document.createElement("input");
+                  input.type = "file";
+                  input.accept = ".json";
+                  input.onchange = async (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (!file) return;
+                    try {
+                      const text = await file.text();
+                      await importUserProfile(text);
+                      refreshProfile();
+                      toast.success("画像已导入");
+                    } catch { toast.error("导入失败，请检查文件格式"); }
+                  };
+                  input.click();
+                }}
+                style={{ flex: 1, fontSize: 12, padding: "8px" }}
+              >
+                <Upload size={13} style={{ marginRight: 4 }} />导入画像
+              </button>
             </div>
           </section>
 

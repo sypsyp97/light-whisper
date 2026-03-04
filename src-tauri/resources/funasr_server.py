@@ -92,7 +92,7 @@ class FunASRServer(BaseASRServer):
             logger.error(traceback.format_exc())
             return {"success": False, "error": error_msg, "type": "init_error", "engine": self.engine}
 
-    def transcribe_audio(self, audio_path, options=None):
+    def transcribe_audio(self, audio_path, options=None, hot_words=None):
         """转录音频文件"""
         import time
 
@@ -123,16 +123,27 @@ class FunASRServer(BaseASRServer):
             # 执行ASR识别（SenseVoiceSmall 内置 ITN 标点恢复）
             asr_start = time.time()
             import torch
+
+            # 构建热词字符串（FunASR 格式: "词1 词2 词3"）
+            hotword_str = ""
+            if hot_words and isinstance(hot_words, list) and len(hot_words) > 0:
+                hotword_str = " ".join(hot_words)
+                logger.info(f"使用热词 ({len(hot_words)} 个): {hotword_str[:100]}...")
+
+            generate_kwargs = dict(
+                input=audio_path,
+                cache={},
+                language="auto",
+                use_itn=True,
+                batch_size_s=60,
+                merge_vad=True,
+                merge_length_s=15,
+            )
+            if hotword_str:
+                generate_kwargs["hotword"] = hotword_str
+
             with self.stdout_suppressor.suppress(), torch.inference_mode():
-                asr_result = self.asr_model.generate(
-                    input=audio_path,
-                    cache={},
-                    language="auto",
-                    use_itn=True,
-                    batch_size_s=60,
-                    merge_vad=True,
-                    merge_length_s=15,
-                )
+                asr_result = self.asr_model.generate(**generate_kwargs)
             asr_elapsed = time.time() - asr_start
 
             # 提取识别文本并进行富文本后处理（去除 <|zh|><|NEUTRAL|> 等标签）

@@ -53,6 +53,9 @@ pub enum ServerCommand {
     Transcribe {
         /// 音频文件的路径
         audio_path: String,
+        /// 热词列表（可选）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hot_words: Option<Vec<String>>,
     },
     /// 查询服务器状态
     Status,
@@ -525,19 +528,21 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     if initialized {
         log::info!("FunASR 服务器初始化成功！");
         state.set_funasr_ready(true);
+
+        // 只有初始化成功才把子进程存入 state
+        {
+            let mut process_guard = state.funasr_process.lock().await;
+            *process_guard = Some(FunasrProcess {
+                child,
+                stdin,
+                stdout: stdout_reader,
+            });
+        }
     } else {
         log::error!("FunASR 初始化失败: {}", error_message);
         state.set_funasr_ready(false);
-    }
-
-    // 把子进程句柄存储到全局状态中
-    {
-        let mut process_guard = state.funasr_process.lock().await;
-        *process_guard = Some(FunasrProcess {
-            child,
-            stdin,
-            stdout: stdout_reader,
-        });
+        // 初始化失败，杀掉子进程，不存入 state，允许后续重试
+        let _ = child.kill().await;
     }
 
     // 通过 Tauri 事件系统通知前端
@@ -606,9 +611,21 @@ pub async fn transcribe(
         .await
         .map_err(|e| AppError::FunASR(format!("写入临时音频文件失败: {}", e)))?;
 
+    // 从用户画像中提取热词
+    let hot_words = {
+        match state.user_profile.lock() {
+            Ok(profile) => {
+                let words = profile.get_hot_word_texts(100);
+                if words.is_empty() { None } else { Some(words) }
+            }
+            Err(_) => None,
+        }
+    };
+
     // 构建转写命令
     let command = ServerCommand::Transcribe {
         audio_path: temp_file.to_string_lossy().to_string(),
+        hot_words,
     };
 
     // 发送命令并获取响应（无论成功与否都清理临时文件）

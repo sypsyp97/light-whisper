@@ -8,6 +8,7 @@ import type {
   FunASRStatus,
   ModelCheckResult,
   TranscriptionResult,
+  UserProfile,
 } from "@/types";
 
 type InvokeArgs = Record<string, unknown>;
@@ -77,6 +78,35 @@ export function setAiPolishConfig(enabled: boolean, apiKey: string): Promise<voi
 
 export function getAiPolishApiKey(): Promise<string> {
   return invokeCommand<string>("get_ai_polish_api_key");
+}
+
+// Profile commands
+export const getUserProfile = createNoArgCommand<UserProfile>("get_user_profile");
+
+export function addHotWord(text: string, weight: number): Promise<void> {
+  return invokeCommand<void>("add_hot_word", { text, weight });
+}
+
+export function removeHotWord(text: string): Promise<void> {
+  return invokeCommand<void>("remove_hot_word", { text });
+}
+
+export function setLlmProviderConfig(
+  active: string,
+  customBaseUrl?: string,
+  customModel?: string,
+): Promise<void> {
+  return invokeCommand<void>("set_llm_provider_config", {
+    active,
+    customBaseUrl: customBaseUrl ?? null,
+    customModel: customModel ?? null,
+  });
+}
+
+export const exportUserProfile = createNoArgCommand<string>("export_user_profile");
+
+export function importUserProfile(jsonData: string): Promise<void> {
+  return invokeCommand<void>("import_user_profile", { jsonData });
 }
 
 export { enableAutostart, disableAutostart, isAutostartEnabled };
