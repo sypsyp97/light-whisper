@@ -44,15 +44,10 @@ pub fn play_stop_sound() {
 
 #[cfg(target_os = "windows")]
 fn play_wav_async(wav: &[u8]) {
-    const SND_ASYNC: u32 = 0x0001;
-    const SND_MEMORY: u32 = 0x0004;
-
-    extern "system" {
-        fn PlaySoundW(pszsound: *const u8, hmod: isize, fdwsound: u32) -> i32;
-    }
+    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY};
 
     unsafe {
-        PlaySoundW(wav.as_ptr(), 0, SND_MEMORY | SND_ASYNC);
+        PlaySoundW(wav.as_ptr() as *const u16, std::ptr::null_mut(), SND_MEMORY | SND_ASYNC);
     }
 }
 

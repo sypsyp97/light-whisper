@@ -4,6 +4,9 @@ pub struct ForegroundApp {
 }
 
 #[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::HWND;
+
+#[cfg(target_os = "windows")]
 pub fn get_foreground_app() -> Option<ForegroundApp> {
     use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
@@ -28,7 +31,7 @@ pub fn get_foreground_app() -> Option<ForegroundApp> {
 }
 
 #[cfg(target_os = "windows")]
-unsafe fn get_window_title(hwnd: *mut core::ffi::c_void) -> String {
+unsafe fn get_window_title(hwnd: HWND) -> String {
     use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW;
 
     let mut buf = [0u16; 512];
@@ -41,7 +44,7 @@ unsafe fn get_window_title(hwnd: *mut core::ffi::c_void) -> String {
 }
 
 #[cfg(target_os = "windows")]
-unsafe fn get_process_name(hwnd: *mut core::ffi::c_void) -> String {
+unsafe fn get_process_name(hwnd: HWND) -> String {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,

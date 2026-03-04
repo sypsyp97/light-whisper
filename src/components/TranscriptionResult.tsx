@@ -35,12 +35,7 @@ export default function TranscriptionResult({
             </div>
             <p className="result-card-body">{text}</p>
             {showStats && (
-              <p style={{
-                margin: "6px 0 0",
-                fontSize: 11,
-                color: "var(--color-text-tertiary)",
-                textAlign: "right",
-              }}>{formatStats(charCount, durationSec)}</p>
+              <p className="result-card-stats">{formatStats(charCount, durationSec)}</p>
             )}
           </div>
         </div>

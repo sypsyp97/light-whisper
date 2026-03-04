@@ -78,6 +78,14 @@
   color: var(--color-text-secondary);
 }
 
+.result-card-stats {
+  margin: 6px 0 0;
+  padding: 0 12px 8px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  text-align: right;
+}
+
 /* Error banner container */
 .error-banner {
   border-radius: 8px;

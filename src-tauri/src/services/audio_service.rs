@@ -479,7 +479,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
-        emit_done(&app_handle, session_id, "", EMPTY_RESULT_HIDE_DELAY_MS, duration_sec, false);
+        emit_done(&app_handle, session_id, "", duration_sec, false);
         // 即使本次录音太短，也要把之前缓冲的待粘贴文本粘出去
         flush_pending_paste(&app_handle);
         return;
@@ -501,12 +501,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     text
                 });
             let polished = text != original;
-            let hide_delay = if text.is_empty() {
-                EMPTY_RESULT_HIDE_DELAY_MS
-            } else {
-                RESULT_HIDE_DELAY_MS
-            };
-            emit_done(&app_handle, session_id, &text, hide_delay, duration_sec, polished);
+            emit_done(&app_handle, session_id, &text, duration_sec, polished);
 
             if !text.is_empty() {
                 let app_for_paste = app_handle.clone();
@@ -534,10 +529,14 @@ fn emit_done(
     app_handle: &tauri::AppHandle,
     session_id: u64,
     text: &str,
-    hide_delay_ms: u64,
     duration_sec: f64,
     polished: bool,
 ) {
+    let hide_delay_ms = if text.is_empty() {
+        EMPTY_RESULT_HIDE_DELAY_MS
+    } else {
+        RESULT_HIDE_DELAY_MS
+    };
     let _ = app_handle.emit(
         "recording-state",
         serde_json::json!({
