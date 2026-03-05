@@ -201,7 +201,7 @@ fn stop_modifier_only_hotkey_monitor() {}
 
 #[cfg(target_os = "windows")]
 fn is_key_down(vk: i32) -> bool {
-    unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
+    unsafe { GetAsyncKeyState(vk) < 0 }
 }
 
 #[cfg(target_os = "windows")]
@@ -212,21 +212,21 @@ fn is_modifier_down(modifier: bool, left_vk: i32, right_vk: i32) -> bool {
 #[cfg(target_os = "windows")]
 fn parse_main_key_to_vk(main_key: &str) -> Option<u16> {
     match main_key {
-        "Escape" => Some(VK_ESCAPE as u16),
-        "Enter" => Some(VK_RETURN as u16),
-        "Tab" => Some(VK_TAB as u16),
-        "Space" => Some(VK_SPACE as u16),
-        "Backspace" => Some(VK_BACK as u16),
-        "Delete" => Some(VK_DELETE as u16),
-        "Insert" => Some(VK_INSERT as u16),
-        "Home" => Some(VK_HOME as u16),
-        "End" => Some(VK_END as u16),
-        "PageUp" => Some(VK_PRIOR as u16),
-        "PageDown" => Some(VK_NEXT as u16),
-        "ArrowUp" => Some(VK_UP as u16),
-        "ArrowDown" => Some(VK_DOWN as u16),
-        "ArrowLeft" => Some(VK_LEFT as u16),
-        "ArrowRight" => Some(VK_RIGHT as u16),
+        "Escape" => Some(VK_ESCAPE),
+        "Enter" => Some(VK_RETURN),
+        "Tab" => Some(VK_TAB),
+        "Space" => Some(VK_SPACE),
+        "Backspace" => Some(VK_BACK),
+        "Delete" => Some(VK_DELETE),
+        "Insert" => Some(VK_INSERT),
+        "Home" => Some(VK_HOME),
+        "End" => Some(VK_END),
+        "PageUp" => Some(VK_PRIOR),
+        "PageDown" => Some(VK_NEXT),
+        "ArrowUp" => Some(VK_UP),
+        "ArrowDown" => Some(VK_DOWN),
+        "ArrowLeft" => Some(VK_LEFT),
+        "ArrowRight" => Some(VK_RIGHT),
         _ if main_key.len() == 1 => {
             let byte = main_key.as_bytes()[0];
             if byte.is_ascii_uppercase() || byte.is_ascii_digit() {
@@ -239,7 +239,7 @@ fn parse_main_key_to_vk(main_key: &str) -> Option<u16> {
             let suffix = main_key.strip_prefix('F')?;
             let index = suffix.parse::<u16>().ok()?;
             if (1..=24).contains(&index) {
-                Some(VK_F1 as u16 + index - 1)
+                Some(VK_F1 + index - 1)
             } else {
                 None
             }

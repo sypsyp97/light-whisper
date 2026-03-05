@@ -186,6 +186,8 @@ impl Drop for StartingFlagGuard {
 
 const SERVER_INIT_TIMEOUT_SECS: u64 = 120;
 const SERVER_RESPONSE_TIMEOUT_SECS: u64 = 60;
+const SERVER_EXIT_WRITE_TIMEOUT_MS: u64 = 300;
+const SERVER_EXIT_WAIT_TIMEOUT_SECS: u64 = 2;
 
 fn to_normalized_path(path: &std::path::Path) -> String {
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -613,16 +615,11 @@ pub async fn transcribe(
 
     // 从用户画像中提取热词
     let hot_words = {
-        match state.user_profile.lock() {
-            Ok(profile) => {
-                let words = profile.get_hot_word_texts(100);
-                if words.is_empty() {
-                    None
-                } else {
-                    Some(words)
-                }
-            }
-            Err(_) => None,
+        let words = state.snapshot_profile().get_hot_word_texts(100);
+        if words.is_empty() {
+            None
+        } else {
+            Some(words)
         }
     };
 
@@ -748,6 +745,29 @@ async fn send_command_impl(
     .await
 }
 
+async fn try_send_exit_command(process: &mut FunasrProcess) -> Result<(), AppError> {
+    let command_json = serde_json::to_string(&ServerCommand::Exit)
+        .map_err(|e| AppError::FunASR(format!("序列化退出命令失败: {}", e)))?;
+    let timeout = Duration::from_millis(SERVER_EXIT_WRITE_TIMEOUT_MS);
+
+    tokio::time::timeout(
+        timeout,
+        process
+            .stdin
+            .write_all(format!("{}\n", command_json).as_bytes()),
+    )
+    .await
+    .map_err(|_| AppError::FunASR("写入退出命令超时".to_string()))?
+    .map_err(|e| AppError::FunASR(format!("写入退出命令失败: {}", e)))?;
+
+    tokio::time::timeout(timeout, process.stdin.flush())
+        .await
+        .map_err(|_| AppError::FunASR("刷新退出命令超时".to_string()))?
+        .map_err(|e| AppError::FunASR(format!("刷新退出命令失败: {}", e)))?;
+
+    Ok(())
+}
+
 /// 检查 FunASR 服务器的状态
 ///
 /// 发送 status 命令给 Python 服务器，获取当前的运行状态。
@@ -833,20 +853,20 @@ pub async fn check_status(
 /// `take()` 把 Option 中的值取出来，原位置变成 None。
 /// 这在需要获取所有权时很有用。
 pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
-    // 先尝试发送退出命令
-    let _ = send_command_to_server(state, &ServerCommand::Exit, None).await;
-
-    // 取出子进程句柄
-    let mut child = {
+    // 先取出子进程句柄，避免关闭流程被常规请求超时拖住
+    let mut process = {
         let mut guard = state.funasr_process.lock().await;
-        guard.take() // 取出 Option 中的值，留下 None
+        guard.take()
     };
 
     // 如果有子进程，确保它被终止
-    if let Some(ref mut child_process) = child {
-        // 等待 2 秒让进程自然退出
+    if let Some(ref mut child_process) = process {
+        if let Err(err) = try_send_exit_command(child_process).await {
+            log::debug!("发送 FunASR 退出命令失败，准备直接等待/终止进程: {}", err);
+        }
+
         let wait_result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(2),
+            tokio::time::Duration::from_secs(SERVER_EXIT_WAIT_TIMEOUT_SECS),
             child_process.child.wait(),
         )
         .await;

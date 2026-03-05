@@ -7,7 +7,7 @@ use std::sync::{
 use tauri::{Emitter, Manager};
 
 use crate::services::{ai_polish_service, funasr_service};
-use crate::state::{AppState, RecordingSession};
+use crate::state::{AppState, RecordingSession, RecordingSlot};
 use crate::utils::AppError;
 
 // ---------- 常量 ----------
@@ -555,6 +555,28 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     }
 }
 
+pub async fn discard_recording(session: RecordingSession) {
+    let RecordingSession {
+        session_id,
+        audio_thread,
+        interim_task,
+        ..
+    } = session;
+
+    if let Some(handle) = audio_thread {
+        let _ = tokio::task::spawn_blocking(move || {
+            let _ = handle.join();
+        })
+        .await;
+    }
+
+    if let Some(task) = interim_task {
+        let _ = task.await;
+    }
+
+    log::info!("已丢弃录音会话 (session {})", session_id);
+}
+
 /// 执行最终 ASR 转写（仅在 interim 缓存不可用时调用）
 async fn do_final_asr(
     app_handle: &tauri::AppHandle,
@@ -617,13 +639,13 @@ fn emit_error(app_handle: &tauri::AppHandle, session_id: u64, error: &str) {
 
 fn active_recording_session_id(state: &AppState) -> Option<u64> {
     match state.recording.lock() {
-        Ok(guard) => guard.as_ref().map(|session| session.session_id),
+        Ok(guard) => guard.as_ref().map(RecordingSlot::session_id),
         Err(poisoned) => {
             log::warn!("录音状态锁已污染，继续使用恢复后的状态");
             poisoned
                 .into_inner()
                 .as_ref()
-                .map(|session| session.session_id)
+                .map(RecordingSlot::session_id)
         }
     }
 }

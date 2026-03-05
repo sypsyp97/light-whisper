@@ -94,17 +94,23 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
 
+  const refreshAiPolishKey = useCallback(async (enabled = aiPolishEnabled) => {
+    try {
+      const key = (await getAiPolishApiKey()) || "";
+      setAiPolishApiKey(key);
+      await setAiPolishConfig(enabled, key).catch(() => {});
+      return key;
+    } catch {
+      setAiPolishApiKey("");
+      await setAiPolishConfig(enabled, "").catch(() => {});
+      return "";
+    }
+  }, [aiPolishEnabled]);
+
   // 从系统密钥环加载 API Key，并同步 enabled 状态到后端
   useEffect(() => {
-    getAiPolishApiKey().then(key => {
-      if (key) {
-        setAiPolishApiKey(key);
-        // 启动时同步 enabled + key 到后端（后端默认 enabled=false）
-        const enabled = readLocalStorage(AI_POLISH_ENABLED_KEY) === "true";
-        setAiPolishConfig(enabled, key).catch(() => {});
-      }
-    }).catch(() => {});
-  }, []);
+    void refreshAiPolishKey(readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
+  }, [refreshAiPolishKey]);
 
   useEffect(() => {
     return () => {
@@ -490,8 +496,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                     onClick={async () => {
                       setLlmProvider(key);
                       await setLlmProviderConfig(key, customBaseUrl || undefined, customModel || undefined).catch(() => {});
-                      // 等 provider 切换完成后再读取对应的 API Key
-                      getAiPolishApiKey().then(k => { if (k) setAiPolishApiKey(k); else setAiPolishApiKey(""); }).catch(() => {});
+                      await refreshAiPolishKey();
                     }}
                     style={{ flex: 1, minWidth: 90, padding: "6px 8px" }}
                   >
@@ -718,6 +723,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                       const text = await file.text();
                       await importUserProfile(text);
                       refreshProfile();
+                      await refreshAiPolishKey();
                       toast.success("画像已导入");
                     } catch { toast.error("导入失败，请检查文件格式"); }
                   };

@@ -7,7 +7,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 
-use super::user_profile::UserProfile;
+use super::user_profile::{LlmProviderConfig, UserProfile};
 
 /// interim 循环缓存的最近一次转写结果
 #[derive(Clone)]
@@ -31,12 +31,33 @@ pub struct RecordingSession {
     pub interim_cache: Arc<std::sync::Mutex<Option<InterimCache>>>,
 }
 
+#[derive(Clone)]
+pub struct PendingRecordingSession {
+    pub session_id: u64,
+    pub stop_flag: Arc<AtomicBool>,
+    pub stop_notify: Arc<tokio::sync::Notify>,
+}
+
+pub enum RecordingSlot {
+    Starting(PendingRecordingSession),
+    Active(RecordingSession),
+}
+
+impl RecordingSlot {
+    pub fn session_id(&self) -> u64 {
+        match self {
+            Self::Starting(session) => session.session_id,
+            Self::Active(session) => session.session_id,
+        }
+    }
+}
+
 pub struct AppState {
     pub funasr_process: Arc<Mutex<Option<FunasrProcess>>>,
     pub funasr_ready: Arc<AtomicBool>,
     pub funasr_starting: Arc<AtomicBool>,
     pub download_task: Arc<Mutex<Option<DownloadTask>>>,
-    pub recording: Arc<std::sync::Mutex<Option<RecordingSession>>>,
+    pub recording: Arc<std::sync::Mutex<Option<RecordingSlot>>>,
     pub session_counter: AtomicU64,
     pub input_method: Arc<std::sync::Mutex<String>>,
     /// 待粘贴文本队列：当粘贴时机恰逢新录音已开始，文本会暂存于此，
@@ -105,5 +126,60 @@ impl AppState {
 
     pub fn set_funasr_ready(&self, ready: bool) {
         self.funasr_ready.store(ready, Ordering::Release);
+    }
+
+    pub fn snapshot_profile(&self) -> UserProfile {
+        match self.user_profile.lock() {
+            Ok(profile) => profile.clone(),
+            Err(poisoned) => {
+                log::warn!("用户画像锁已污染，继续使用恢复后的状态");
+                poisoned.into_inner().clone()
+            }
+        }
+    }
+
+    pub fn update_profile<R, F>(&self, update: F) -> (R, UserProfile)
+    where
+        F: FnOnce(&mut UserProfile) -> R,
+    {
+        let mut profile = match self.user_profile.lock() {
+            Ok(profile) => profile,
+            Err(poisoned) => {
+                log::warn!("用户画像锁已污染，继续使用恢复后的状态");
+                poisoned.into_inner()
+            }
+        };
+
+        let result = update(&mut profile);
+        (result, profile.clone())
+    }
+
+    pub fn active_llm_provider(&self) -> String {
+        self.snapshot_profile().llm_provider.active
+    }
+
+    pub fn llm_provider_config(&self) -> LlmProviderConfig {
+        self.snapshot_profile().llm_provider
+    }
+
+    pub fn read_ai_polish_api_key(&self) -> String {
+        match self.ai_polish_api_key.lock() {
+            Ok(key) => key.clone(),
+            Err(poisoned) => {
+                log::warn!("AI 润色 API Key 锁已污染，继续使用恢复后的状态");
+                poisoned.into_inner().clone()
+            }
+        }
+    }
+
+    pub fn set_ai_polish_api_key(&self, api_key: impl Into<String>) {
+        let api_key = api_key.into();
+        match self.ai_polish_api_key.lock() {
+            Ok(mut key) => *key = api_key,
+            Err(poisoned) => {
+                log::warn!("AI 润色 API Key 锁已污染，继续使用恢复后的状态");
+                *poisoned.into_inner() = api_key;
+            }
+        }
     }
 }

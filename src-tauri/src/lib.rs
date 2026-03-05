@@ -3,7 +3,7 @@ mod services;
 mod state;
 mod utils;
 
-use state::AppState;
+use state::{AppState, RecordingSlot};
 use tauri::{Emitter, Manager};
 
 pub fn run() {
@@ -46,34 +46,20 @@ pub fn run() {
             {
                 let state = app_handle.state::<AppState>();
                 let loaded = services::profile_service::load_profile();
-                if let Ok(mut profile) = state.user_profile.lock() {
-                    *profile = loaded;
-                }
+                let _ = state.update_profile(|profile| *profile = loaded);
                 log::info!("已加载用户画像");
             }
 
             // 启动时根据活跃 provider 从系统密钥环加载对应 API Key
             {
-                use tauri_plugin_keyring::KeyringExt;
                 let state = app_handle.state::<AppState>();
-                let provider = match state.user_profile.lock() {
-                    Ok(p) => p.llm_provider.active.clone(),
-                    Err(poisoned) => poisoned.into_inner().llm_provider.active.clone(),
-                };
-                let keyring_user = services::llm_provider::keyring_user_for_provider(&provider);
-                if let Ok(Some(key)) = app_handle
-                    .keyring()
-                    .get_password("light-whisper", keyring_user)
-                {
-                    if !key.is_empty() {
-                        if let Ok(mut api_key) = state.ai_polish_api_key.lock() {
-                            *api_key = key;
-                        }
-                        log::info!(
-                            "已从系统密钥环加载 AI 润色 API Key (provider: {})",
-                            provider
-                        );
-                    }
+                let provider = state.active_llm_provider();
+                let key = services::llm_provider::sync_runtime_api_key(&app_handle, state.inner());
+                if !key.is_empty() {
+                    log::info!(
+                        "已从系统密钥环加载 AI 润色 API Key (provider: {})",
+                        provider
+                    );
                 }
             }
 
@@ -184,22 +170,15 @@ fn spawn_profile_maintenance(app_handle: tauri::AppHandle) {
 
             let profile_to_save = {
                 let state = app_handle.state::<AppState>();
-                let mut profile = match state.user_profile.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => {
-                        log::warn!("用户画像锁中毒，继续执行热词清理");
-                        poisoned.into_inner()
-                    }
-                };
-
-                let cleanup = services::profile_service::cleanup_profile(&mut profile);
+                let (cleanup, profile) =
+                    state.update_profile(services::profile_service::cleanup_profile);
                 if cleanup.removed_hot_words > 0 || cleanup.removed_corrections > 0 {
                     log::info!(
                         "定期画像清理完成：热词移除 {} 条，纠错移除 {} 条",
                         cleanup.removed_hot_words,
                         cleanup.removed_corrections
                     );
-                    Some(profile.clone())
+                    Some(profile)
                 } else {
                     None
                 }
@@ -242,13 +221,31 @@ fn stop_funasr_on_exit(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
 
     // 停止正在进行的录音
-    if let Ok(mut guard) = state.recording.lock() {
-        if let Some(session) = guard.take() {
-            session
-                .stop_flag
-                .store(true, std::sync::atomic::Ordering::Relaxed);
-            if let Some(task) = session.interim_task {
-                task.abort();
+    {
+        let mut guard = match state.recording.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                log::warn!("退出时录音状态锁已污染，继续使用恢复后的状态");
+                poisoned.into_inner()
+            }
+        };
+        if let Some(recording) = guard.take() {
+            match recording {
+                RecordingSlot::Starting(session) => {
+                    session
+                        .stop_flag
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    session.stop_notify.notify_waiters();
+                }
+                RecordingSlot::Active(session) => {
+                    session
+                        .stop_flag
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    session.stop_notify.notify_waiters();
+                    if let Some(task) = session.interim_task {
+                        task.abort();
+                    }
+                }
             }
         }
     }

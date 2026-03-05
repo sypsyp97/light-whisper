@@ -1,5 +1,3 @@
-use tauri_plugin_keyring::KeyringExt;
-
 use crate::services::{llm_provider, profile_service};
 use crate::state::user_profile::*;
 use crate::state::AppState;
@@ -13,16 +11,23 @@ pub async fn submit_user_correction(
     // 用 LLM 对比两句话，提取词级纠错
     let corrections = extract_corrections_via_llm(&state, &original, &corrected).await;
 
-    let profile_clone = {
-        let mut profile = state.user_profile.lock().map_err(|e| e.to_string())?;
-        profile_service::learn_from_structured(
-            &mut profile,
-            &corrections,
-            &[],
-            CorrectionSource::User,
-        );
-        profile.clone()
-    };
+    let (_, profile_clone) = state.update_profile(|profile| {
+        if corrections.is_empty() {
+            profile_service::learn_from_correction(
+                profile,
+                &original,
+                &corrected,
+                CorrectionSource::User,
+            );
+        } else {
+            profile_service::learn_from_structured(
+                profile,
+                &corrections,
+                &[],
+                CorrectionSource::User,
+            );
+        }
+    });
     profile_service::save_profile_async(&profile_clone)
         .await
         .map_err(|e| format!("保存用户画像失败: {}", e))
@@ -34,25 +39,12 @@ async fn extract_corrections_via_llm(
     before: &str,
     after: &str,
 ) -> Vec<(String, String)> {
-    let api_key = match state.ai_polish_api_key.lock() {
-        Ok(k) => k.clone(),
-        Err(p) => p.into_inner().clone(),
-    };
+    let api_key = state.read_ai_polish_api_key();
     if api_key.is_empty() {
-        return vec![(before.to_string(), after.to_string())];
+        return Vec::new();
     }
 
-    let endpoint = {
-        let profile = match state.user_profile.lock() {
-            Ok(p) => p.clone(),
-            Err(p) => p.into_inner().clone(),
-        };
-        llm_provider::get_endpoint(
-            &profile.llm_provider.active,
-            profile.llm_provider.custom_base_url.as_deref(),
-            profile.llm_provider.custom_model.as_deref(),
-        )
-    };
+    let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
 
     let prompt = format!(
         "对比以下两句话，提取用户修改的词级别纠错。\n\
@@ -100,11 +92,11 @@ async fn extract_corrections_via_llm(
             let status = r.status();
             let body = r.text().await.unwrap_or_default();
             log::warn!("用户纠错 LLM 请求失败 {}: {}", status, body);
-            return vec![(before.to_string(), after.to_string())];
+            return Vec::new();
         }
         Err(e) => {
             log::warn!("用户纠错 LLM 网络错误: {}", e);
-            return vec![(before.to_string(), after.to_string())];
+            return Vec::new();
         }
     };
 
@@ -112,7 +104,7 @@ async fn extract_corrections_via_llm(
         Ok(j) => j,
         Err(e) => {
             log::warn!("用户纠错 LLM 响应解析失败: {}", e);
-            return vec![(before.to_string(), after.to_string())];
+            return Vec::new();
         }
     };
 
@@ -135,7 +127,7 @@ async fn extract_corrections_via_llm(
         Some(s) => s.trim(),
         None => {
             log::warn!("用户纠错 LLM 响应中未找到文本内容");
-            return vec![(before.to_string(), after.to_string())];
+            return Vec::new();
         }
     };
 
@@ -144,8 +136,8 @@ async fn extract_corrections_via_llm(
     // 解析 JSON 数组或包含数组的对象
     let pairs = parse_correction_pairs(raw);
     if pairs.is_empty() {
-        // LLM 认为无差异，但用户确实改了，存整句兜底
-        vec![(before.to_string(), after.to_string())]
+        log::info!("LLM 未提取到词级纠错，回退到本地 diff 学习");
+        Vec::new()
     } else {
         log::info!("LLM 提取用户纠错: {:?}", pairs);
         pairs
@@ -198,8 +190,7 @@ fn parse_correction_pairs(raw: &str) -> Vec<(String, String)> {
 
 #[tauri::command]
 pub async fn get_user_profile(state: tauri::State<'_, AppState>) -> Result<UserProfile, String> {
-    let profile = state.user_profile.lock().map_err(|e| e.to_string())?;
-    Ok(profile.clone())
+    Ok(state.snapshot_profile())
 }
 
 #[tauri::command]
@@ -208,8 +199,9 @@ pub async fn add_hot_word(
     text: String,
     weight: u8,
 ) -> Result<(), String> {
-    let mut profile = state.user_profile.lock().map_err(|e| e.to_string())?;
-    profile_service::add_hot_word(&mut profile, text, weight);
+    let (_, profile) = state.update_profile(|profile| {
+        profile_service::add_hot_word(profile, text, weight);
+    });
     profile_service::save_profile(&profile)
 }
 
@@ -218,8 +210,9 @@ pub async fn remove_hot_word(
     state: tauri::State<'_, AppState>,
     text: String,
 ) -> Result<(), String> {
-    let mut profile = state.user_profile.lock().map_err(|e| e.to_string())?;
-    profile_service::remove_hot_word(&mut profile, &text);
+    let (_, profile) = state.update_profile(|profile| {
+        profile_service::remove_hot_word(profile, &text);
+    });
     profile_service::save_profile(&profile)
 }
 
@@ -231,47 +224,40 @@ pub async fn set_llm_provider_config(
     custom_base_url: Option<String>,
     custom_model: Option<String>,
 ) -> Result<(), String> {
-    {
-        let mut profile = state.user_profile.lock().map_err(|e| e.to_string())?;
+    let (_, profile) = state.update_profile(|profile| {
         profile.llm_provider = LlmProviderConfig {
             active: active.clone(),
             custom_base_url,
             custom_model,
         };
-        profile_service::save_profile(&profile)?;
-    }
+    });
+    profile_service::save_profile(&profile)?;
 
     // 从 keyring 加载新 provider 的 API Key 到内存
-    let keyring_user = llm_provider::keyring_user_for_provider(&active);
-    let new_key = app_handle
-        .keyring()
-        .get_password("light-whisper", keyring_user)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    match state.ai_polish_api_key.lock() {
-        Ok(mut key) => *key = new_key,
-        Err(poisoned) => *poisoned.into_inner() = new_key,
-    }
+    llm_provider::sync_runtime_api_key(&app_handle, state.inner());
 
     Ok(())
 }
 
 #[tauri::command]
 pub async fn export_user_profile(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let profile = state.user_profile.lock().map_err(|e| e.to_string())?;
-    serde_json::to_string_pretty(&*profile).map_err(|e| format!("序列化失败: {}", e))
+    serde_json::to_string_pretty(&state.snapshot_profile())
+        .map_err(|e| format!("序列化失败: {}", e))
 }
 
 #[tauri::command]
 pub async fn import_user_profile(
+    app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     json_data: String,
 ) -> Result<(), String> {
     let imported: UserProfile =
         serde_json::from_str(&json_data).map_err(|e| format!("解析画像数据失败: {}", e))?;
-    let mut profile = state.user_profile.lock().map_err(|e| e.to_string())?;
-    *profile = imported;
-    profile_service::cleanup_profile(&mut profile);
-    profile_service::save_profile(&profile)
+    let (_, profile) = state.update_profile(|profile| {
+        *profile = imported;
+        profile_service::cleanup_profile(profile);
+    });
+    profile_service::save_profile(&profile)?;
+    llm_provider::sync_runtime_api_key(&app_handle, state.inner());
+    Ok(())
 }

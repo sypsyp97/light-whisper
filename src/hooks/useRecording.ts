@@ -35,6 +35,7 @@ interface TranscriptionPayload {
 
 interface RecordingErrorPayload {
   message: string;
+  sessionId?: number;
 }
 
 export function useRecording(): UseRecordingReturn {
@@ -59,9 +60,6 @@ export function useRecording(): UseRecordingReturn {
         unlisten = await listen<RecordingStatePayload>("recording-state", (e) => {
           const sessionId = Number(e.payload.sessionId || 0);
           if (sessionId < latestSessionIdRef.current) {
-            if (e.payload.error) {
-              setError(e.payload.error);
-            }
             return;
           }
 
@@ -98,6 +96,10 @@ export function useRecording(): UseRecordingReturn {
     void (async () => {
       try {
         unlisten = await listen<RecordingErrorPayload>("recording-error", (e) => {
+          const sessionId = Number(e.payload?.sessionId || 0);
+          if (sessionId > 0 && sessionId < latestSessionIdRef.current) {
+            return;
+          }
           const message = e.payload?.message?.trim();
           if (message) {
             setError(message);

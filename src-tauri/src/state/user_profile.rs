@@ -12,19 +12,14 @@ pub enum HotWordSource {
 }
 
 /// 纠错来源
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum CorrectionSource {
     /// AI 润色自动学习
+    #[default]
     Ai,
     /// 用户手动纠错
     User,
-}
-
-impl Default for CorrectionSource {
-    fn default() -> Self {
-        Self::Ai
-    }
 }
 
 /// 热词条目
@@ -63,7 +58,7 @@ pub struct VocabEntry {
 }
 
 /// 用户画像
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserProfile {
     pub hot_words: Vec<HotWord>,
     pub correction_patterns: Vec<CorrectionPattern>,
@@ -92,19 +87,6 @@ impl Default for LlmProviderConfig {
             active: "cerebras".to_string(),
             custom_base_url: None,
             custom_model: None,
-        }
-    }
-}
-
-impl Default for UserProfile {
-    fn default() -> Self {
-        Self {
-            hot_words: Vec::new(),
-            correction_patterns: Vec::new(),
-            vocab_frequency: HashMap::new(),
-            total_transcriptions: 0,
-            last_updated: 0,
-            llm_provider: LlmProviderConfig::default(),
         }
     }
 }

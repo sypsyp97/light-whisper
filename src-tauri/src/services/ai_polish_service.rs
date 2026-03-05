@@ -70,10 +70,7 @@ key_terms 只列出值得记录的专有名词（2字以上的名词、术语、
 fn build_system_prompt(state: &AppState, input_text: &str) -> String {
     let mut prompt = BASE_SYSTEM_PROMPT.to_string();
 
-    let profile = match state.user_profile.lock() {
-        Ok(p) => p.clone(),
-        Err(poisoned) => poisoned.into_inner().clone(),
-    };
+    let profile = state.snapshot_profile();
 
     // 注入用户常用词汇（Top 50）
     let hot_words = profile.get_hot_word_texts(50);
@@ -124,10 +121,7 @@ pub async fn polish_text(
         return Ok(text.to_string());
     }
 
-    let api_key = match state.ai_polish_api_key.lock() {
-        Ok(key) => key.clone(),
-        Err(poisoned) => poisoned.into_inner().clone(),
-    };
+    let api_key = state.read_ai_polish_api_key();
 
     if api_key.is_empty() {
         log::warn!("AI 润色已启用但未配置 API Key，跳过润色");
@@ -135,17 +129,7 @@ pub async fn polish_text(
     }
 
     // 获取 LLM 端点配置
-    let endpoint = {
-        let profile = match state.user_profile.lock() {
-            Ok(p) => p.clone(),
-            Err(poisoned) => poisoned.into_inner().clone(),
-        };
-        llm_provider::get_endpoint(
-            &profile.llm_provider.active,
-            profile.llm_provider.custom_base_url.as_deref(),
-            profile.llm_provider.custom_model.as_deref(),
-        )
-    };
+    let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
 
     // 构建动态 prompt
     let system_prompt = build_system_prompt(state, text);
@@ -309,29 +293,26 @@ pub async fn polish_text(
         || changed;
 
     if has_learnable {
-        if let Ok(mut profile) = state.user_profile.lock() {
-            match corrections {
-                Some(corrs) => profile_service::learn_from_structured(
-                    &mut profile,
-                    &corrs,
-                    key_terms.as_deref().unwrap_or(&[]),
-                    CorrectionSource::Ai,
-                ),
-                None if changed => profile_service::learn_from_correction(
-                    &mut profile,
-                    text,
-                    &polished,
-                    CorrectionSource::Ai,
-                ),
-                _ => {}
+        let (_, profile_clone) = state.update_profile(|profile| match corrections {
+            Some(corrs) => profile_service::learn_from_structured(
+                profile,
+                &corrs,
+                key_terms.as_deref().unwrap_or(&[]),
+                CorrectionSource::Ai,
+            ),
+            None if changed => profile_service::learn_from_correction(
+                profile,
+                text,
+                &polished,
+                CorrectionSource::Ai,
+            ),
+            _ => {}
+        });
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = profile_service::save_profile_async(&profile_clone).await {
+                log::warn!("保存用户画像失败: {}", e);
             }
-            let profile_clone = profile.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = profile_service::save_profile_async(&profile_clone).await {
-                    log::warn!("保存用户画像失败: {}", e);
-                }
-            });
-        }
+        });
     }
 
     Ok(polished)
