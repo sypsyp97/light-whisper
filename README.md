@@ -34,8 +34,8 @@
   - **Faster Whisper** — Supports 99+ languages
 - **Fully offline** — All models run locally, no data leaves your machine
 - **GPU acceleration** — Automatically detects NVIDIA GPU and enables CUDA; falls back to CPU if unavailable
-- **AI text polish (optional)** — Multi-backend LLM support (Cerebras / DeepSeek / custom OpenAI-compatible endpoint) to auto-correct homophones, fix punctuation, and clean up filler words; automatically detects the foreground app (e.g., WeChat, Outlook, VS Code) and adapts tone accordingly
-- **Adaptive learning** — Automatically learns user vocabulary and correction patterns from each AI polish cycle, improving accuracy over time (see details below)
+- **AI text polish (optional)** — Multi-backend LLM support (Cerebras / DeepSeek / custom OpenAI-compatible endpoint) to auto-correct homophones, fix punctuation, convert dictated symbols, and clean up filler words; automatically detects the foreground app (e.g., WeChat, Outlook, VS Code) and adapts tone accordingly
+- **Adaptive learning** — Dual-source learning: AI polish automatically extracts correction patterns (homophones, terms, pronouns), and users can edit transcription results directly to teach the system — user-confirmed corrections take priority (see details below)
 - **Transcription statistics** — Shows character count, recording duration, and characters per minute (CPM)
 - **Recording sound feedback** — Plays start/stop tones when recording begins and ends, toggleable in settings
 - **Dual input mode** — SendInput (doesn't occupy clipboard) and clipboard paste (compatible with Chinese IME)
@@ -65,9 +65,13 @@ When AI polish is enabled, transcription results are automatically corrected by 
 | **DeepSeek** | DeepSeek Chat API |
 | **Custom** | Any OpenAI Chat Completions or Responses API compatible endpoint |
 
-**Adaptive learning** (fully automatic, no manual action needed):
+**Adaptive learning** (two sources, forming a closed loop):
 
-After each AI correction, the system compares the original ASR output with the polished text, extracts difference segments as correction patterns, and tracks word frequency. When a word has been used 5+ times, it is automatically promoted to a "hot word" and injected into both the ASR engine (to improve recognition accuracy) and the LLM prompt (to guide corrections) — forming a closed loop that gets more accurate with use.
+1. **AI auto-learning**: After each AI polish, the LLM returns structured corrections categorized by type (homophone, term, pronoun, style). Only genuine ASR recognition errors (homophones, terms, pronouns) are learned — style adjustments are excluded. Key terms are tracked and automatically promoted to hot words after reaching a usage threshold.
+
+2. **User manual correction**: Transcription results are editable — click the text to edit, and on blur the system sends both the original and edited text to the LLM to extract word-level corrections (e.g., "模糊" → "blur"). User-confirmed corrections are stored with higher priority and appear in the LLM prompt as few-shot examples.
+
+Hot words are injected into both the ASR engine (improving recognition accuracy) and the LLM prompt (guiding corrections). User corrections always take priority over AI-learned patterns.
 
 ---
 
