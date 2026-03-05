@@ -115,6 +115,14 @@ pub async fn stop_recording(
         crate::utils::sound::play_stop_sound();
     }
     log::info!("正在停止录音 (session {})", session.session_id);
+    let _ = app_handle.emit(
+        "recording-state",
+        serde_json::json!({
+            "sessionId": session.session_id,
+            "isRecording": false,
+            "isProcessing": true,
+        }),
+    );
 
     // 后台执行最终转写，不阻塞命令返回
     tokio::spawn(async move {

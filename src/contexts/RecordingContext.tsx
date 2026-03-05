@@ -90,6 +90,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
 
   const hotkeyStop = useCallback(() => {
     if (!isRecording) return;
+    cooldownUntilRef.current = Date.now() + 600;
     stopRecording();
   }, [isRecording, stopRecording]);
 

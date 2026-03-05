@@ -475,17 +475,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         let _ = task.await;
     }
 
-    // 3. 通知前端：处理中
-    let _ = app_handle.emit(
-        "recording-state",
-        serde_json::json!({
-            "sessionId": session_id,
-            "isRecording": false,
-            "isProcessing": true,
-        }),
-    );
-
-    // 4. 获取采样数据与 interim 缓存
+    // 3. 获取采样数据与 interim 缓存
     let final_sample_count = match samples.lock() {
         Ok(guard) => guard.len(),
         Err(poisoned) => poisoned.into_inner().len(),
@@ -507,7 +497,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 
     let state = app_handle.state::<AppState>();
 
-    // 5. 获取转写文本：优先复用 interim 缓存，仅在缺失或覆盖不足时重新 ASR
+    // 4. 获取转写文本：优先复用 interim 缓存，仅在缺失或覆盖不足时重新 ASR
     //    interim 每轮都转写完整音频，只要覆盖了 >=90% 的采样即可直接使用
     let asr_text = if let Some(ref cache) = cached {
         let coverage = if final_sample_count > 0 {
@@ -543,7 +533,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         return;
     }
 
-    // 6. AI 润色：失败时 fallback 返回原文
+    // 5. AI 润色：失败时 fallback 返回原文
     let original = text.clone();
     let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle)
         .await
@@ -602,14 +592,7 @@ fn emit_done(
     } else {
         RESULT_HIDE_DELAY_MS
     };
-    let _ = app_handle.emit(
-        "recording-state",
-        serde_json::json!({
-            "sessionId": session_id,
-            "isRecording": false,
-            "isProcessing": false,
-        }),
-    );
+    emit_recording_state_if_current(app_handle, session_id, false, false, None);
     let char_count = text.chars().count();
     let _ = app_handle.emit(
         "transcription-result",
@@ -627,17 +610,54 @@ fn emit_done(
 }
 
 fn emit_error(app_handle: &tauri::AppHandle, session_id: u64, error: &str) {
-    let _ = app_handle.emit(
-        "recording-state",
-        serde_json::json!({
-            "sessionId": session_id,
-            "isRecording": false,
-            "isProcessing": false,
-            "error": error,
-        }),
-    );
+    emit_recording_state_if_current(app_handle, session_id, false, false, Some(error));
 
     schedule_hide(app_handle, EMPTY_RESULT_HIDE_DELAY_MS);
+}
+
+fn active_recording_session_id(state: &AppState) -> Option<u64> {
+    match state.recording.lock() {
+        Ok(guard) => guard.as_ref().map(|session| session.session_id),
+        Err(poisoned) => {
+            log::warn!("录音状态锁已污染，继续使用恢复后的状态");
+            poisoned.into_inner().as_ref().map(|session| session.session_id)
+        }
+    }
+}
+
+fn emit_recording_state_if_current(
+    app_handle: &tauri::AppHandle,
+    session_id: u64,
+    is_recording: bool,
+    is_processing: bool,
+    error: Option<&str>,
+) {
+    let state = app_handle.state::<AppState>();
+    if let Some(active_session_id) = active_recording_session_id(state.inner()) {
+        if active_session_id != session_id {
+            log::info!(
+                "跳过过期会话状态广播 (session {}, active {})",
+                session_id,
+                active_session_id
+            );
+            return;
+        }
+    }
+
+    let payload = match error {
+        Some(err) => serde_json::json!({
+            "sessionId": session_id,
+            "isRecording": is_recording,
+            "isProcessing": is_processing,
+            "error": err,
+        }),
+        None => serde_json::json!({
+            "sessionId": session_id,
+            "isRecording": is_recording,
+            "isProcessing": is_processing,
+        }),
+    };
+    let _ = app_handle.emit("recording-state", payload);
 }
 
 fn is_recording_active(state: &AppState) -> bool {

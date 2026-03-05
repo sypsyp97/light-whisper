@@ -1,9 +1,10 @@
 use crate::utils::AppError;
-#[cfg(target_os = "windows")]
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex, OnceLock,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    OnceLock,
 };
+#[cfg(target_os = "windows")]
+use std::sync::{Arc, Mutex};
 #[cfg(target_os = "windows")]
 use std::thread::JoinHandle;
 use tauri::Emitter;
@@ -17,12 +18,70 @@ enum ShortcutRegistrationMode {
     CtrlSuperModifierOnly,
 }
 
+const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
+
 #[derive(Default)]
 struct ShortcutModifiers {
     ctrl: bool,
     alt: bool,
     shift: bool,
     super_key: bool,
+}
+
+#[derive(Default)]
+struct HotkeyEventGate {
+    is_pressed: AtomicBool,
+    last_release_ms: AtomicU64,
+}
+
+fn hotkey_event_gate() -> &'static HotkeyEventGate {
+    static GATE: OnceLock<HotkeyEventGate> = OnceLock::new();
+    GATE.get_or_init(HotkeyEventGate::default)
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn reset_hotkey_event_gate() {
+    let gate = hotkey_event_gate();
+    gate.is_pressed.store(false, Ordering::Release);
+    gate.last_release_ms.store(0, Ordering::Release);
+}
+
+fn emit_hotkey_press<R: tauri::Runtime>(app: &tauri::AppHandle<R>, pressed_log: &str) {
+    let gate = hotkey_event_gate();
+    let now_ms = now_unix_ms();
+    let last_release_ms = gate.last_release_ms.load(Ordering::Acquire);
+
+    if now_ms.saturating_sub(last_release_ms) < HOTKEY_REPRESS_DEBOUNCE_MS {
+        log::debug!(
+            "忽略热键按下抖动（距离上次松开 {}ms）",
+            now_ms.saturating_sub(last_release_ms)
+        );
+        return;
+    }
+
+    if gate
+        .is_pressed
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .is_ok()
+    {
+        log::info!("{}", pressed_log);
+        let _ = app.emit("hotkey-press", ());
+    }
+}
+
+fn emit_hotkey_release<R: tauri::Runtime>(app: &tauri::AppHandle<R>, released_log: &str) {
+    let gate = hotkey_event_gate();
+    if gate.is_pressed.swap(false, Ordering::AcqRel) {
+        gate.last_release_ms.store(now_unix_ms(), Ordering::Release);
+        log::info!("{}", released_log);
+        let _ = app.emit("hotkey-release", ());
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -82,21 +141,18 @@ fn start_ctrl_super_modifier_only_hotkey_monitor(
 
                 if is_active != was_active {
                     was_active = is_active;
-                    let _ = app_handle.emit(
-                        if is_active {
-                            "hotkey-press"
-                        } else {
-                            "hotkey-release"
-                        },
-                        (),
-                    );
+                    if is_active {
+                        emit_hotkey_press(&app_handle, "Ctrl+Win 按下，开始录音");
+                    } else {
+                        emit_hotkey_release(&app_handle, "Ctrl+Win 松开，停止录音");
+                    }
                 }
 
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
 
             if was_active {
-                let _ = app_handle.emit("hotkey-release", ());
+                emit_hotkey_release(&app_handle, "Ctrl+Win 监听结束，补发松开事件");
             }
         })
         .map_err(|e| AppError::Other(format!("启动 Ctrl+Win 热键监听失败: {}", e)))?;
@@ -181,12 +237,10 @@ fn emit_shortcut_state<R: tauri::Runtime>(
 ) {
     match state {
         tauri_plugin_global_shortcut::ShortcutState::Pressed => {
-            log::info!("{}", pressed_log);
-            let _ = app.emit("hotkey-press", ());
+            emit_hotkey_press(app, pressed_log);
         }
         tauri_plugin_global_shortcut::ShortcutState::Released => {
-            log::info!("{}", released_log);
-            let _ = app.emit("hotkey-release", ());
+            emit_hotkey_release(app, released_log);
         }
     }
 }
@@ -211,6 +265,7 @@ pub async fn register_custom_hotkey(
 
     let normalized = normalize_shortcut(&shortcut)?;
     stop_modifier_only_hotkey_monitor();
+    reset_hotkey_event_gate();
 
     // 先尝试注销已有的快捷键（忽略错误）
     let _ = app_handle.global_shortcut().unregister_all();
@@ -263,6 +318,7 @@ pub async fn register_custom_hotkey(
 pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<String, AppError> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     stop_modifier_only_hotkey_monitor();
+    reset_hotkey_event_gate();
 
     app_handle
         .global_shortcut()

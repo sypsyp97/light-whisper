@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
@@ -42,6 +42,8 @@ export function useRecording(): UseRecordingReturn {
   const [durationSec, setDurationSec] = useState<number | null>(null);
   const [charCount, setCharCount] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const latestSessionIdRef = useRef(0);
+  const latestDisplayedFinalSessionIdRef = useRef(0);
 
   // 监听 recording-state 事件
   useEffect(() => {
@@ -51,6 +53,15 @@ export function useRecording(): UseRecordingReturn {
     void (async () => {
       try {
         unlisten = await listen<RecordingStatePayload>("recording-state", (e) => {
+          const sessionId = Number(e.payload.sessionId || 0);
+          if (sessionId < latestSessionIdRef.current) {
+            if (e.payload.error) {
+              setError(e.payload.error);
+            }
+            return;
+          }
+
+          latestSessionIdRef.current = sessionId;
           setIsRecording(e.payload.isRecording);
           setIsProcessing(e.payload.isProcessing);
           if (e.payload.error) {
@@ -81,27 +92,34 @@ export function useRecording(): UseRecordingReturn {
     void (async () => {
       try {
         unlisten = await listen<TranscriptionPayload>("transcription-result", (e) => {
-          if (!e.payload.interim) {
-            const text = e.payload.text;
+          if (e.payload.interim) return;
+
+          const sessionId = Number(e.payload.sessionId || 0);
+          const text = e.payload.text;
+          const now = Date.now();
+          const historyId = sessionId > 0 ? `session-${sessionId}` : `session-local-${now}`;
+
+          if (sessionId >= latestDisplayedFinalSessionIdRef.current) {
+            latestDisplayedFinalSessionIdRef.current = sessionId;
             setTranscriptionResult(text);
             setOriginalAsrText(text);
             setDurationSec(e.payload.durationSec ?? null);
             setCharCount(e.payload.charCount ?? null);
-            if (text) {
-              const now = Date.now();
-              setHistory((prev) =>
-                [
-                  {
-                    id: now.toString(),
-                    text,
-                    originalText: text,
-                    timestamp: now,
-                    timeDisplay: new Date(now).toLocaleTimeString(),
-                  },
-                  ...prev,
-                ].slice(0, 20)
-              );
-            }
+          }
+
+          if (text.trim()) {
+            setHistory((prev) =>
+              [
+                {
+                  id: historyId,
+                  text,
+                  originalText: text,
+                  timestamp: now,
+                  timeDisplay: new Date(now).toLocaleTimeString(),
+                },
+                ...prev.filter((item) => item.id !== historyId),
+              ].slice(0, 20)
+            );
           }
         });
 
@@ -157,20 +175,30 @@ export function useRecording(): UseRecordingReturn {
   const startRecording = useCallback(async () => {
     setError(null);
     try {
-      await invoke("start_recording");
+      const sessionId = await invoke<number>("start_recording");
+      if (Number.isFinite(sessionId) && sessionId > latestSessionIdRef.current) {
+        latestSessionIdRef.current = sessionId;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
   const stopRecording = useCallback(async (): Promise<TranscriptionResult | null> => {
+    if (isRecording) {
+      setIsRecording(false);
+      setIsProcessing(true);
+    }
     try {
       await invoke("stop_recording");
     } catch (err) {
+      if (isRecording) {
+        setIsProcessing(false);
+      }
       setError(err instanceof Error ? err.message : String(err));
     }
     return null;
-  }, []);
+  }, [isRecording]);
 
   return {
     isRecording,

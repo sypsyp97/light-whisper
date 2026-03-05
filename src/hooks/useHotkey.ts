@@ -17,6 +17,8 @@ interface UseHotkeyReturn {
   error: string | null;
 }
 
+const RELEASE_REPRESS_GUARD_MS = 180;
+
 function readStoredHotkey(): string {
   const stored = readLocalStorage(HOTKEY_STORAGE_KEY);
   if (stored) return normalizeHotkey(stored);
@@ -44,6 +46,8 @@ export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotk
   const hotkeyRef = useRef(hotkeyRaw);
   const onPressRef = useRef(onPress);
   const onReleaseRef = useRef(onRelease);
+  const isPressedRef = useRef(false);
+  const suppressPressUntilRef = useRef(0);
 
   hotkeyRef.current = hotkeyRaw;
   onPressRef.current = onPress;
@@ -89,9 +93,13 @@ export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotk
   // Register on mount, unregister on unmount
   useEffect(() => {
     mountedRef.current = true;
+    isPressedRef.current = false;
+    suppressPressUntilRef.current = 0;
     void register();
     return () => {
       mountedRef.current = false;
+      isPressedRef.current = false;
+      suppressPressUntilRef.current = 0;
       void unregisterAllHotkeys().catch(() => undefined);
     };
   }, [register]);
@@ -106,9 +114,16 @@ export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotk
       try {
         const [pressUnlisten, releaseUnlisten] = await Promise.all([
           listen("hotkey-press", () => {
+            const now = Date.now();
+            if (isPressedRef.current) return;
+            if (now < suppressPressUntilRef.current) return;
+            isPressedRef.current = true;
             onPressRef.current?.();
           }),
           listen("hotkey-release", () => {
+            if (!isPressedRef.current) return;
+            isPressedRef.current = false;
+            suppressPressUntilRef.current = Date.now() + RELEASE_REPRESS_GUARD_MS;
             onReleaseRef.current?.();
           }),
         ]);
