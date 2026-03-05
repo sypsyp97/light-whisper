@@ -9,13 +9,26 @@ use tokio::sync::Mutex;
 
 use super::user_profile::UserProfile;
 
+/// interim 循环缓存的最近一次转写结果
+#[derive(Clone)]
+pub struct InterimCache {
+    /// 转写文本
+    pub text: String,
+    /// 转写时使用的采样数
+    pub sample_count: usize,
+}
+
 pub struct RecordingSession {
     pub session_id: u64,
     pub stop_flag: Arc<AtomicBool>,
+    /// 通知 interim 循环立即退出（配合 tokio::select! 打断 sleep）
+    pub stop_notify: Arc<tokio::sync::Notify>,
     pub samples: Arc<std::sync::Mutex<Vec<i16>>>,
     pub sample_rate: u32,
     pub audio_thread: Option<std::thread::JoinHandle<()>>,
     pub interim_task: Option<tokio::task::JoinHandle<()>>,
+    /// interim 循环缓存的最新转写结果，finalize 时可直接复用以跳过冗余 ASR
+    pub interim_cache: Arc<std::sync::Mutex<Option<InterimCache>>>,
 }
 
 pub struct AppState {

@@ -32,8 +32,11 @@ pub async fn start_recording(
 
     let session_id = state.session_counter.fetch_add(1, Ordering::Relaxed) + 1;
     let stop_flag = Arc::new(AtomicBool::new(false));
+    let stop_notify = Arc::new(tokio::sync::Notify::new());
     let samples: Arc<std::sync::Mutex<Vec<i16>>> =
         Arc::new(std::sync::Mutex::new(Vec::with_capacity(16000 * 30)));
+    let interim_cache: Arc<std::sync::Mutex<Option<crate::state::InterimCache>>> =
+        Arc::new(std::sync::Mutex::new(None));
 
     let (audio_thread, actual_sample_rate) =
         audio_service::spawn_audio_capture_thread(stop_flag.clone(), samples.clone())?;
@@ -42,8 +45,10 @@ pub async fn start_recording(
         app_handle.clone(),
         session_id,
         stop_flag.clone(),
+        stop_notify.clone(),
         samples.clone(),
         actual_sample_rate,
+        interim_cache.clone(),
     );
 
     {
@@ -54,10 +59,12 @@ pub async fn start_recording(
         *guard = Some(crate::state::RecordingSession {
             session_id,
             stop_flag,
+            stop_notify,
             samples,
             sample_rate: actual_sample_rate,
             audio_thread: Some(audio_thread),
             interim_task: Some(interim_task),
+            interim_cache,
         });
     }
 
@@ -103,6 +110,7 @@ pub async fn stop_recording(
     };
 
     session.stop_flag.store(true, Ordering::Relaxed);
+    session.stop_notify.notify_waiters();
     if state.sound_enabled.load(Ordering::Acquire) {
         crate::utils::sound::play_stop_sound();
     }

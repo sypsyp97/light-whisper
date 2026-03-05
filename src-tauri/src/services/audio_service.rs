@@ -336,8 +336,10 @@ pub fn spawn_interim_loop(
     app_handle: tauri::AppHandle,
     session_id: u64,
     stop_flag: Arc<AtomicBool>,
+    stop_notify: Arc<tokio::sync::Notify>,
     samples: Arc<std::sync::Mutex<Vec<i16>>>,
     sample_rate: u32,
+    interim_cache: Arc<std::sync::Mutex<Option<crate::state::InterimCache>>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let state = app_handle.state::<AppState>();
@@ -351,7 +353,11 @@ pub fn spawn_interim_loop(
         }
 
         loop {
-            tokio::time::sleep(std::time::Duration::from_millis(interval_ms)).await;
+            // 用 select! 让 stop_notify 能立即打断 sleep，避免白等几百毫秒
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(interval_ms)) => {}
+                _ = stop_notify.notified() => { break; }
+            }
 
             if stop_flag.load(Ordering::Relaxed) {
                 break;
@@ -390,10 +396,17 @@ pub fn spawn_interim_loop(
                         "transcription-result",
                         serde_json::json!({
                             "sessionId": session_id,
-                            "text": result.text,
+                            "text": &result.text,
                             "interim": true,
                         }),
                     );
+                    // 缓存 interim 结果，finalize 时可直接复用
+                    if let Ok(mut cache) = interim_cache.lock() {
+                        *cache = Some(crate::state::InterimCache {
+                            text: result.text,
+                            sample_count: current_count,
+                        });
+                    }
                     last_sample_count = current_count;
                 }
                 _ => {}
@@ -437,21 +450,28 @@ fn adjust_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
 // ---------- 最终转写 + 粘贴 ----------
 
 pub async fn finalize_recording(app_handle: tauri::AppHandle, session: RecordingSession) {
-    let session_id = session.session_id;
-    let sample_rate = session.sample_rate;
+    let RecordingSession {
+        session_id,
+        sample_rate,
+        audio_thread,
+        interim_task,
+        samples,
+        interim_cache,
+        ..
+    } = session;
 
     // 1. 等待录音线程结束（stop_flag 已在调用方设为 true）
-    if let Some(handle) = session.audio_thread {
+    if let Some(handle) = audio_thread {
         let _ = tokio::task::spawn_blocking(move || {
             let _ = handle.join();
         })
         .await;
     }
 
-    // 2. 等待中间转写任务自然结束（stop_flag 已为 true，循环会在当前转写完成后退出）
+    // 2. 等待中间转写任务自然结束（stop_notify 已打断 sleep，通常很快退出）
     //    不能 abort：如果 interim 正持有 funasr_process 锁与 Python 通信，
     //    强杀会导致 stdin/stdout 协议错乱，后续 transcribe 必定失败。
-    if let Some(task) = session.interim_task {
+    if let Some(task) = interim_task {
         let _ = task.await;
     }
 
@@ -465,8 +485,94 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         }),
     );
 
-    // 4. 获取采样数据
-    let final_samples = match session.samples.lock() {
+    // 4. 获取采样数据与 interim 缓存
+    let final_sample_count = match samples.lock() {
+        Ok(guard) => guard.len(),
+        Err(poisoned) => poisoned.into_inner().len(),
+    };
+
+    let cached = match interim_cache.lock() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+
+    let duration_sec = final_sample_count as f64 / sample_rate as f64;
+
+    if duration_sec < MIN_AUDIO_DURATION_SEC {
+        log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
+        emit_done(&app_handle, session_id, "", duration_sec, false);
+        flush_pending_paste(&app_handle);
+        return;
+    }
+
+    let state = app_handle.state::<AppState>();
+
+    // 5. 获取转写文本：优先复用 interim 缓存，仅在缺失或覆盖不足时重新 ASR
+    //    interim 每轮都转写完整音频，只要覆盖了 >=90% 的采样即可直接使用
+    let asr_text = if let Some(ref cache) = cached {
+        let coverage = if final_sample_count > 0 {
+            cache.sample_count as f64 / final_sample_count as f64
+        } else {
+            0.0
+        };
+        if coverage >= 0.90 && !cache.text.trim().is_empty() {
+            log::info!(
+                "复用 interim 缓存 (覆盖率 {:.0}%，省去最终 ASR)",
+                coverage * 100.0
+            );
+            Ok(cache.text.clone())
+        } else {
+            do_final_asr(&app_handle, state.inner(), &samples, sample_rate).await
+        }
+    } else {
+        do_final_asr(&app_handle, state.inner(), &samples, sample_rate).await
+    };
+
+    let text = match asr_text {
+        Ok(t) => t.trim().to_string(),
+        Err(e) => {
+            emit_error(&app_handle, session_id, &e);
+            flush_pending_paste(&app_handle);
+            return;
+        }
+    };
+
+    if text.is_empty() {
+        emit_done(&app_handle, session_id, "", duration_sec, false);
+        flush_pending_paste(&app_handle);
+        return;
+    }
+
+    // 6. AI 润色：失败时 fallback 返回原文
+    let original = text.clone();
+    let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle)
+        .await
+        .unwrap_or_else(|e| {
+            log::warn!("AI 润色失败，使用原文: {}", e);
+            text
+        });
+    let polished = text != original;
+    emit_done(&app_handle, session_id, &text, duration_sec, polished);
+
+    if !text.is_empty() {
+        let app_for_paste = app_handle.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
+            do_paste(&app_for_paste, &text).await;
+        });
+    } else {
+        flush_pending_paste(&app_handle);
+    }
+}
+
+/// 执行最终 ASR 转写（仅在 interim 缓存不可用时调用）
+async fn do_final_asr(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    samples: &std::sync::Mutex<Vec<i16>>,
+    sample_rate: u32,
+) -> Result<String, String> {
+    let final_samples = match samples.lock() {
         Ok(guard) => guard.clone(),
         Err(poisoned) => {
             log::warn!("采样缓冲区锁已污染，继续使用恢复后的数据");
@@ -475,61 +581,12 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     };
 
     let resampled = resample_to_16k(&final_samples, sample_rate);
-    let duration_sec = resampled.len() as f64 / TARGET_SAMPLE_RATE as f64;
-
-    if duration_sec < MIN_AUDIO_DURATION_SEC {
-        log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
-        emit_done(&app_handle, session_id, "", duration_sec, false);
-        // 即使本次录音太短，也要把之前缓冲的待粘贴文本粘出去
-        flush_pending_paste(&app_handle);
-        return;
-    }
-
     let wav_bytes = encode_wav(&resampled, TARGET_SAMPLE_RATE);
-    let state = app_handle.state::<AppState>();
 
-    // 5. 执行最终转写
-    match funasr_service::transcribe(state.inner(), wav_bytes, &app_handle).await {
-        Ok(result) if result.success => {
-            let text = result.text.trim().to_string();
-
-            // 空文本跳过 AI 润色（避免 LLM 仅收到窗口上下文后产出垃圾文本）
-            if text.is_empty() {
-                emit_done(&app_handle, session_id, "", duration_sec, false);
-                flush_pending_paste(&app_handle);
-                return;
-            }
-
-            // AI 润色：失败时 fallback 返回原文
-            let original = text.clone();
-            let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle)
-                .await
-                .unwrap_or_else(|e| {
-                    log::warn!("AI 润色失败，使用原文: {}", e);
-                    text
-                });
-            let polished = text != original;
-            emit_done(&app_handle, session_id, &text, duration_sec, polished);
-
-            if !text.is_empty() {
-                let app_for_paste = app_handle.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
-                    do_paste(&app_for_paste, &text).await;
-                });
-            } else {
-                flush_pending_paste(&app_handle);
-            }
-        }
-        Ok(result) => {
-            let msg = result.error.unwrap_or_else(|| "语音识别失败".into());
-            emit_error(&app_handle, session_id, &msg);
-            flush_pending_paste(&app_handle);
-        }
-        Err(e) => {
-            emit_error(&app_handle, session_id, &format!("语音识别失败: {}", e));
-            flush_pending_paste(&app_handle);
-        }
+    match funasr_service::transcribe(state, wav_bytes, app_handle).await {
+        Ok(result) if result.success => Ok(result.text),
+        Ok(result) => Err(result.error.unwrap_or_else(|| "语音识别失败".into())),
+        Err(e) => Err(format!("语音识别失败: {}", e)),
     }
 }
 
