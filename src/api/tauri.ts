@@ -113,4 +113,8 @@ export function importUserProfile(jsonData: string): Promise<void> {
   return invokeCommand<void>("import_user_profile", { jsonData });
 }
 
+export function submitUserCorrection(original: string, corrected: string): Promise<void> {
+  return invokeCommand<void>("submit_user_correction", { original, corrected });
+}
+
 export { enableAutostart, disableAutostart, isAutostartEnabled };

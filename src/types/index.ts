@@ -33,6 +33,7 @@ export interface ModelCheckResult {
 export interface HistoryItem {
   id: string;
   text: string;
+  originalText: string;
   timestamp: number;
   timeDisplay: string;
 }
@@ -49,12 +50,16 @@ export interface HotWord {
   last_used: number;
 }
 
+// 纠错来源
+export type CorrectionSource = "ai" | "user";
+
 // 纠错模式
 export interface CorrectionPattern {
   original: string;
   corrected: string;
   count: number;
   last_seen: number;
+  source: CorrectionSource;
 }
 
 // LLM 后端配置

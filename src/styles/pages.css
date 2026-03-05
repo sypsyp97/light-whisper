@@ -76,6 +76,11 @@
   font-size: 13px;
   line-height: 1.8;
   color: var(--color-text-secondary);
+  cursor: text;
+}
+
+.result-card-body:focus {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .result-card-stats {

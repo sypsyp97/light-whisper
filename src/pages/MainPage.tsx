@@ -3,7 +3,7 @@ import { Settings, Minus, X } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecordingContext } from "@/contexts/RecordingContext";
-import { copyToClipboard, hideMainWindow } from "@/api/tauri";
+import { copyToClipboard, hideMainWindow, submitUserCorrection } from "@/api/tauri";
 import TitleBar from "@/components/TitleBar";
 import RecordingButton from "@/components/RecordingButton";
 import StatusIndicator from "@/components/StatusIndicator";
@@ -16,7 +16,8 @@ export default function MainPage({ onNavigate }: {
 }) {
   const {
     isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, durationSec, charCount, history, stage, isReady,
+    recordingError, transcriptionResult, originalAsrText, setTranscriptionResult,
+    durationSec, charCount, history, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError,
     downloadModels: triggerDownload, cancelDownload, retryModel,
@@ -43,6 +44,15 @@ export default function MainPage({ onNavigate }: {
       toast.error("复制失败");
     }
   }, []);
+
+  const handleTextChange = useCallback((newText: string) => {
+    if (originalAsrText && newText !== originalAsrText) {
+      setTranscriptionResult(newText);
+      submitUserCorrection(originalAsrText, newText)
+        .then(() => toast.success("已学习纠错", { duration: 1500 }))
+        .catch(() => toast.error("纠错学习失败"));
+    }
+  }, [originalAsrText, setTranscriptionResult]);
 
   const handleToggleRecording = useCallback(() => {
     if (!isReady) return;
@@ -114,9 +124,11 @@ export default function MainPage({ onNavigate }: {
       <div className="results-area" style={{ padding: `0 ${PADDING}px 12px` }}>
         <TranscriptionResult
           text={transcriptionResult}
+          originalText={originalAsrText}
           isProcessing={isProcessing}
           copiedId={copiedId}
           onCopy={handleCopy}
+          onTextChange={handleTextChange}
           durationSec={durationSec}
           charCount={charCount}
         />

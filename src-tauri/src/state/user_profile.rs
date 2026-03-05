@@ -11,6 +11,22 @@ pub enum HotWordSource {
     Learned,
 }
 
+/// 纠错来源
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CorrectionSource {
+    /// AI 润色自动学习
+    Ai,
+    /// 用户手动纠错
+    User,
+}
+
+impl Default for CorrectionSource {
+    fn default() -> Self {
+        Self::Ai
+    }
+}
+
 /// 热词条目
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotWord {
@@ -34,6 +50,9 @@ pub struct CorrectionPattern {
     pub count: u32,
     /// 最近一次出现的时间戳
     pub last_seen: u64,
+    /// 纠错来源
+    #[serde(default)]
+    pub source: CorrectionSource,
 }
 
 /// 词频条目
@@ -98,10 +117,52 @@ impl UserProfile {
         words.into_iter().take(limit).map(|w| w.text.clone()).collect()
     }
 
-    /// 获取 Top N 纠错模式（用于 LLM prompt 注入）
-    pub fn get_top_corrections(&self, limit: usize) -> Vec<&CorrectionPattern> {
-        let mut patterns: Vec<&CorrectionPattern> = self.correction_patterns.iter().collect();
-        patterns.sort_by(|a, b| b.count.cmp(&a.count));
-        patterns.into_iter().take(limit).collect()
+    /// 根据输入文本动态检索相关纠错模式
+    ///
+    /// 策略：精确子串匹配优先（input 中包含 pattern.original），
+    /// 不足 limit 条时用高频纠错兜底。User 来源始终优先于 Ai。
+    pub fn get_relevant_corrections(&self, input: &str, limit: usize) -> Vec<&CorrectionPattern> {
+        let source_ord = |s: &CorrectionSource| match s {
+            CorrectionSource::User => 0,
+            CorrectionSource::Ai => 1,
+        };
+
+        // 第一轮：精确子串命中
+        let mut matched: Vec<&CorrectionPattern> = self
+            .correction_patterns
+            .iter()
+            .filter(|p| !p.original.is_empty() && input.contains(&p.original))
+            .collect();
+        matched.sort_by(|a, b| {
+            source_ord(&a.source)
+                .cmp(&source_ord(&b.source))
+                .then(b.count.cmp(&a.count))
+        });
+        matched.truncate(limit);
+
+        if matched.len() >= limit {
+            return matched;
+        }
+
+        // 第二轮：高频兜底，补足剩余名额
+        let remaining = limit - matched.len();
+        let matched_set: std::collections::HashSet<(&str, &str)> = matched
+            .iter()
+            .map(|p| (p.original.as_str(), p.corrected.as_str()))
+            .collect();
+
+        let mut fallback: Vec<&CorrectionPattern> = self
+            .correction_patterns
+            .iter()
+            .filter(|p| !matched_set.contains(&(p.original.as_str(), p.corrected.as_str())))
+            .collect();
+        fallback.sort_by(|a, b| {
+            source_ord(&a.source)
+                .cmp(&source_ord(&b.source))
+                .then(b.count.cmp(&a.count))
+        });
+
+        matched.extend(fallback.into_iter().take(remaining));
+        matched
     }
 }

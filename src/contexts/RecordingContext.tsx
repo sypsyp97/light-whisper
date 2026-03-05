@@ -15,6 +15,8 @@ interface RecordingContextValue {
   stopRecording: () => Promise<TranscriptionResult | null>;
   recordingError: string | null;
   transcriptionResult: string | null;
+  setTranscriptionResult: (text: string) => void;
+  originalAsrText: string | null;
   durationSec: number | null;
   charCount: number | null;
   history: HistoryItem[];
@@ -46,6 +48,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     stopRecording,
     error: recordingError,
     transcriptionResult,
+    setTranscriptionResult,
+    originalAsrText,
     durationSec,
     charCount,
     history,
@@ -115,6 +119,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     stopRecording,
     recordingError,
     transcriptionResult,
+    setTranscriptionResult,
+    originalAsrText,
     durationSec,
     charCount,
     history,
@@ -134,7 +140,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     setHotkey,
   }), [
     isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, durationSec, charCount, history,
+    recordingError, transcriptionResult, setTranscriptionResult, originalAsrText,
+    durationSec, charCount, history,
     stage, isReady, device, gpuName,
     downloadProgress, downloadMessage, isDownloading, modelError,
     downloadModels, cancelDownload, retryModel,

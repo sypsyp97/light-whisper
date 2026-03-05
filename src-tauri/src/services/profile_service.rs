@@ -45,7 +45,12 @@ fn now_secs() -> u64 {
 ///
 /// 对比 ASR 原始文本与 LLM 纠正后的文本，提取差异模式，
 /// 更新纠错模式记录和词频统计。
-pub fn learn_from_correction(profile: &mut UserProfile, original: &str, polished: &str) {
+pub fn learn_from_correction(
+    profile: &mut UserProfile,
+    original: &str,
+    polished: &str,
+    source: CorrectionSource,
+) {
     if original == polished || original.is_empty() || polished.is_empty() {
         return;
     }
@@ -53,6 +58,12 @@ pub fn learn_from_correction(profile: &mut UserProfile, original: &str, polished
     let now = now_secs();
     profile.total_transcriptions += 1;
     profile.last_updated = now;
+
+    // 用户纠错初始 count 设为 3，立即获得高优先级
+    let initial_count = match source {
+        CorrectionSource::User => 3,
+        CorrectionSource::Ai => 1,
+    };
 
     // 提取逐字符差异片段
     let diff_pairs = extract_diff_segments(original, polished);
@@ -68,12 +79,17 @@ pub fn learn_from_correction(profile: &mut UserProfile, original: &str, polished
         {
             pattern.count += 1;
             pattern.last_seen = now;
+            // 用户来源可以升级，但不降级
+            if source == CorrectionSource::User {
+                pattern.source = CorrectionSource::User;
+            }
         } else {
             profile.correction_patterns.push(CorrectionPattern {
                 original: orig_seg.clone(),
                 corrected: pol_seg.clone(),
-                count: 1,
+                count: initial_count,
                 last_seen: now,
+                source: source.clone(),
             });
         }
     }
@@ -118,6 +134,105 @@ pub fn learn_from_correction(profile: &mut UserProfile, original: &str, polished
         })
         .collect();
 
+    profile.hot_words.extend(new_hot_words);
+
+    // 限制纠错模式数量
+    if profile.correction_patterns.len() > 500 {
+        profile
+            .correction_patterns
+            .sort_by(|a, b| b.count.cmp(&a.count).then(b.last_seen.cmp(&a.last_seen)));
+        profile.correction_patterns.truncate(500);
+    }
+
+    // 限制热词数量
+    if profile.hot_words.len() > 300 {
+        profile
+            .hot_words
+            .sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
+        profile.hot_words.truncate(300);
+    }
+}
+
+/// 从 LLM 结构化输出中学习
+///
+/// 直接使用 LLM 提取的纠错对和术语，无需字符 diff。
+pub fn learn_from_structured(
+    profile: &mut UserProfile,
+    corrections: &[(String, String)],
+    key_terms: &[String],
+    source: CorrectionSource,
+) {
+    let now = now_secs();
+    profile.total_transcriptions += 1;
+    profile.last_updated = now;
+
+    let initial_count = match source {
+        CorrectionSource::User => 3,
+        CorrectionSource::Ai => 1,
+    };
+
+    // 写入纠错模式
+    for (orig, corrected) in corrections {
+        if orig.is_empty() || corrected.is_empty() || orig == corrected {
+            continue;
+        }
+        if let Some(pattern) = profile
+            .correction_patterns
+            .iter_mut()
+            .find(|p| p.original == *orig && p.corrected == *corrected)
+        {
+            pattern.count += 1;
+            pattern.last_seen = now;
+            if source == CorrectionSource::User {
+                pattern.source = CorrectionSource::User;
+            }
+        } else {
+            profile.correction_patterns.push(CorrectionPattern {
+                original: orig.clone(),
+                corrected: corrected.clone(),
+                count: initial_count,
+                last_seen: now,
+                source: source.clone(),
+            });
+        }
+    }
+
+    // 写入 LLM 提取的术语到词频
+    for term in key_terms {
+        if term.chars().count() < 2 || !is_potential_hot_word(term) {
+            continue;
+        }
+        let entry = profile
+            .vocab_frequency
+            .entry(term.clone())
+            .or_insert(VocabEntry {
+                count: 0,
+                last_seen: 0,
+            });
+        entry.count += 1;
+        entry.last_seen = now;
+    }
+
+    // 自动提升高频术语为热词
+    let existing_hot: std::collections::HashSet<&str> =
+        profile.hot_words.iter().map(|h| h.text.as_str()).collect();
+    let new_hot_words: Vec<HotWord> = profile
+        .vocab_frequency
+        .iter()
+        .filter(|(word, entry)| {
+            entry.count >= 3
+                && !existing_hot.contains(word.as_str())
+                && word.chars().count() >= 2
+                && is_potential_hot_word(word)
+        })
+        .map(|(word, entry)| HotWord {
+            text: word.clone(),
+            weight: 2,
+            source: HotWordSource::Learned,
+            use_count: entry.count,
+            last_used: entry.last_seen,
+        })
+        .collect();
     profile.hot_words.extend(new_hot_words);
 
     // 限制纠错模式数量

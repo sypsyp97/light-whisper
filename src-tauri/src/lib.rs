@@ -110,6 +110,7 @@ pub fn run() {
             commands::profile::set_llm_provider_config,
             commands::profile::export_user_profile,
             commands::profile::import_user_profile,
+            commands::profile::submit_user_correction,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");

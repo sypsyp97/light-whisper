@@ -11,6 +11,8 @@ interface UseRecordingReturn {
   stopRecording: () => Promise<TranscriptionResult | null>;
   error: string | null;
   transcriptionResult: string | null;
+  setTranscriptionResult: (text: string) => void;
+  originalAsrText: string | null;
   durationSec: number | null;
   charCount: number | null;
   history: HistoryItem[];
@@ -36,6 +38,7 @@ export function useRecording(): UseRecordingReturn {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transcriptionResult, setTranscriptionResult] = useState<string | null>(null);
+  const [originalAsrText, setOriginalAsrText] = useState<string | null>(null);
   const [durationSec, setDurationSec] = useState<number | null>(null);
   const [charCount, setCharCount] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -81,6 +84,7 @@ export function useRecording(): UseRecordingReturn {
           if (!e.payload.interim) {
             const text = e.payload.text;
             setTranscriptionResult(text);
+            setOriginalAsrText(text);
             setDurationSec(e.payload.durationSec ?? null);
             setCharCount(e.payload.charCount ?? null);
             if (text) {
@@ -90,6 +94,7 @@ export function useRecording(): UseRecordingReturn {
                   {
                     id: now.toString(),
                     text,
+                    originalText: text,
                     timestamp: now,
                     timeDisplay: new Date(now).toLocaleTimeString(),
                   },
@@ -174,6 +179,8 @@ export function useRecording(): UseRecordingReturn {
     stopRecording,
     error,
     transcriptionResult,
+    setTranscriptionResult,
+    originalAsrText,
     durationSec,
     charCount,
     history,
