@@ -55,7 +55,10 @@ impl Default for AppState {
             sound_enabled: Arc::new(AtomicBool::new(true)),
             ai_polish_enabled: Arc::new(AtomicBool::new(false)),
             ai_polish_api_key: Arc::new(std::sync::Mutex::new(String::new())),
-            http_client: reqwest::Client::new(),
+            http_client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(3))
+                .build()
+                .unwrap_or_default(),
             user_profile: Arc::new(std::sync::Mutex::new(UserProfile::default())),
         }
     }

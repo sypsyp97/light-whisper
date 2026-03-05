@@ -492,6 +492,14 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     match funasr_service::transcribe(state.inner(), wav_bytes, &app_handle).await {
         Ok(result) if result.success => {
             let text = result.text.trim().to_string();
+
+            // 空文本跳过 AI 润色（避免 LLM 仅收到窗口上下文后产出垃圾文本）
+            if text.is_empty() {
+                emit_done(&app_handle, session_id, "", duration_sec, false);
+                flush_pending_paste(&app_handle);
+                return;
+            }
+
             // AI 润色：失败时 fallback 返回原文
             let original = text.clone();
             let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle)

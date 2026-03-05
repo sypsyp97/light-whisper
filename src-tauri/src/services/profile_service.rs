@@ -4,7 +4,7 @@ use crate::utils::paths;
 /// 加载用户画像（从 JSON 文件）
 pub fn load_profile() -> UserProfile {
     let path = paths::get_data_dir().join("user_profile.json");
-    match std::fs::read_to_string(&path) {
+    let mut profile = match std::fs::read_to_string(&path) {
         Ok(data) => serde_json::from_str(&data).unwrap_or_else(|e| {
             log::warn!("用户画像 JSON 解析失败: {}，使用默认值", e);
             UserProfile::default()
@@ -13,6 +13,28 @@ pub fn load_profile() -> UserProfile {
             log::info!("用户画像文件不存在，使用默认值");
             UserProfile::default()
         }
+    };
+    sanitize_corrections(&mut profile);
+    profile
+}
+
+/// 清理低质量纠错模式
+fn sanitize_corrections(profile: &mut UserProfile) {
+    let before = profile.correction_patterns.len();
+    profile.correction_patterns.retain(|p| {
+        // 移除过长的整句纠错（非词/短语级别）
+        if p.original.chars().count() > 15 || p.corrected.chars().count() > 15 {
+            return false;
+        }
+        // 移除单字→单字的过于泛化纠错（如 "你"→"有"）
+        if p.original.chars().count() <= 1 && p.corrected.chars().count() <= 1 && p.source == CorrectionSource::Ai {
+            return false;
+        }
+        true
+    });
+    let removed = before - profile.correction_patterns.len();
+    if removed > 0 {
+        log::info!("清理了 {} 条低质量纠错模式", removed);
     }
 }
 
@@ -69,6 +91,10 @@ pub fn learn_from_correction(
     let diff_pairs = extract_diff_segments(original, polished);
     for (orig_seg, pol_seg) in &diff_pairs {
         if orig_seg.is_empty() || pol_seg.is_empty() {
+            continue;
+        }
+        // 跳过过长的差异片段（非词/短语级别的纠错）
+        if orig_seg.chars().count() > 12 || pol_seg.chars().count() > 12 {
             continue;
         }
         // 查找是否已有此纠错模式
@@ -171,9 +197,13 @@ pub fn learn_from_structured(
         CorrectionSource::Ai => 1,
     };
 
-    // 写入纠错模式
+    // 写入纠错模式（跳过过长的整句纠错，只保留词/短语级别）
     for (orig, corrected) in corrections {
         if orig.is_empty() || corrected.is_empty() || orig == corrected {
+            continue;
+        }
+        if orig.chars().count() > 12 || corrected.chars().count() > 12 {
+            log::debug!("跳过过长纠错模式: \"{}\" → \"{}\"", orig, corrected);
             continue;
         }
         if let Some(pattern) = profile
