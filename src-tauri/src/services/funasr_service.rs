@@ -616,7 +616,11 @@ pub async fn transcribe(
         match state.user_profile.lock() {
             Ok(profile) => {
                 let words = profile.get_hot_word_texts(100);
-                if words.is_empty() { None } else { Some(words) }
+                if words.is_empty() {
+                    None
+                } else {
+                    Some(words)
+                }
             }
             Err(_) => None,
         }

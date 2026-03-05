@@ -219,7 +219,10 @@ pub async fn polish_text(
         .await
         .map_err(|e| format!("AI 润色响应解析失败: {}", e))?;
 
-    log::debug!("AI 润色 API 响应: {}", serde_json::to_string(&json).unwrap_or_default());
+    log::debug!(
+        "AI 润色 API 响应: {}",
+        serde_json::to_string(&json).unwrap_or_default()
+    );
 
     let raw_content = if is_responses_api {
         // Responses API 的 output 可能包含 reasoning 块，需要找到 type=="message" 的项
@@ -247,30 +250,43 @@ pub async fn polish_text(
     }
 
     let elapsed_ms = start.elapsed().as_millis();
-    log::info!("AI 润色原始返回 ({}ms): {}", elapsed_ms, &raw_content[..raw_content.len().min(500)]);
+    log::info!(
+        "AI 润色原始返回 ({}ms): {}",
+        elapsed_ms,
+        &raw_content[..raw_content.len().min(500)]
+    );
 
     // 尝试解析结构化 JSON 输出，失败则回退到纯文本 + 字符 diff
     // LLM 可能返回 ```json ... ``` 包裹的 JSON，需要先剥离
     let json_content = strip_markdown_code_block(raw_content);
-    let (polished, corrections, key_terms) = match serde_json::from_str::<StructuredResponse>(&json_content) {
-        Ok(resp) => {
-            // 只学习真正的 ASR 识别错误（homophone/term/pronoun），过滤掉风格改写
-            let learnable: Vec<(String, String)> = resp.corrections.iter()
-                .filter(|c| matches!(c.r#type.as_str(), "homophone" | "term" | "pronoun"))
-                .map(|c| (c.original.clone(), c.corrected.clone()))
-                .collect();
-            let style_count = resp.corrections.len() - learnable.len();
-            log::info!(
-                "AI 润色返回结构化输出: {} 条可学习纠错, {} 条风格改写(跳过), {} 个术语",
-                learnable.len(), style_count, resp.key_terms.len()
-            );
-            (resp.polished, Some(learnable), Some(resp.key_terms))
-        }
-        Err(e) => {
-            log::warn!("AI 润色 JSON 解析失败: {}，回退到字符 diff。原始内容: {}", e, &raw_content[..raw_content.len().min(200)]);
-            (raw_content.to_string(), None, None)
-        }
-    };
+    let (polished, corrections, key_terms) =
+        match serde_json::from_str::<StructuredResponse>(&json_content) {
+            Ok(resp) => {
+                // 只学习真正的 ASR 识别错误（homophone/term/pronoun），过滤掉风格改写
+                let learnable: Vec<(String, String)> = resp
+                    .corrections
+                    .iter()
+                    .filter(|c| matches!(c.r#type.as_str(), "homophone" | "term" | "pronoun"))
+                    .map(|c| (c.original.clone(), c.corrected.clone()))
+                    .collect();
+                let style_count = resp.corrections.len() - learnable.len();
+                log::info!(
+                    "AI 润色返回结构化输出: {} 条可学习纠错, {} 条风格改写(跳过), {} 个术语",
+                    learnable.len(),
+                    style_count,
+                    resp.key_terms.len()
+                );
+                (resp.polished, Some(learnable), Some(resp.key_terms))
+            }
+            Err(e) => {
+                log::warn!(
+                    "AI 润色 JSON 解析失败: {}，回退到字符 diff。原始内容: {}",
+                    e,
+                    &raw_content[..raw_content.len().min(200)]
+                );
+                (raw_content.to_string(), None, None)
+            }
+        };
 
     let changed = polished != text;
 
@@ -302,7 +318,10 @@ pub async fn polish_text(
                     CorrectionSource::Ai,
                 ),
                 None if changed => profile_service::learn_from_correction(
-                    &mut profile, text, &polished, CorrectionSource::Ai,
+                    &mut profile,
+                    text,
+                    &polished,
+                    CorrectionSource::Ai,
                 ),
                 _ => {}
             }
@@ -345,8 +364,8 @@ fn strip_markdown_code_block(s: &str) -> String {
         };
         // 去掉末尾的 ```
         let content = after_first_line.trim_end();
-        if content.ends_with("```") {
-            return content[..content.len() - 3].trim().to_string();
+        if let Some(stripped) = content.strip_suffix("```") {
+            return stripped.trim().to_string();
         }
         return content.to_string();
     }

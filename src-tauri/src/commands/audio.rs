@@ -9,15 +9,15 @@ use crate::services::audio_service;
 use crate::state::AppState;
 use crate::utils::AppError;
 
-#[tauri::command]
-pub async fn start_recording(
+pub(crate) const RECORDING_NOT_READY_ERROR: &str = "语音识别服务尚未就绪，请等待初始化完成";
+pub(crate) const RECORDING_ALREADY_ACTIVE_ERROR: &str = "已有录音正在进行中";
+
+pub(crate) async fn start_recording_inner(
     app_handle: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
+    state: &AppState,
 ) -> Result<u64, AppError> {
     if !state.is_funasr_ready() {
-        return Err(AppError::Audio(
-            "语音识别服务尚未就绪，请等待初始化完成".into(),
-        ));
+        return Err(AppError::Audio(RECORDING_NOT_READY_ERROR.into()));
     }
 
     {
@@ -26,7 +26,7 @@ pub async fn start_recording(
             .lock()
             .map_err(|_| AppError::Audio("录音状态锁异常".into()))?;
         if guard.is_some() {
-            return Err(AppError::Audio("已有录音正在进行中".into()));
+            return Err(AppError::Audio(RECORDING_ALREADY_ACTIVE_ERROR.into()));
         }
     }
 
@@ -84,15 +84,18 @@ pub async fn start_recording(
     if state.sound_enabled.load(Ordering::Acquire) {
         crate::utils::sound::play_start_sound();
     }
-    log::info!("录音已开始 (session {}, {}Hz)", session_id, actual_sample_rate);
+    log::info!(
+        "录音已开始 (session {}, {}Hz)",
+        session_id,
+        actual_sample_rate
+    );
     Ok(session_id)
 }
 
-#[tauri::command]
-pub async fn stop_recording(
+pub(crate) async fn stop_recording_inner(
     app_handle: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), AppError> {
+    state: &AppState,
+) -> Result<Option<u64>, AppError> {
     let session = {
         let mut guard = state
             .recording
@@ -105,30 +108,47 @@ pub async fn stop_recording(
         Some(s) => s,
         None => {
             log::warn!("stop_recording 被调用但没有活跃的录音会话");
-            return Ok(());
+            return Ok(None);
         }
     };
 
+    let session_id = session.session_id;
     session.stop_flag.store(true, Ordering::Relaxed);
     session.stop_notify.notify_waiters();
     if state.sound_enabled.load(Ordering::Acquire) {
         crate::utils::sound::play_stop_sound();
     }
-    log::info!("正在停止录音 (session {})", session.session_id);
+    log::info!("正在停止录音 (session {})", session_id);
     let _ = app_handle.emit(
         "recording-state",
         serde_json::json!({
-            "sessionId": session.session_id,
+            "sessionId": session_id,
             "isRecording": false,
             "isProcessing": true,
         }),
     );
 
-    // 后台执行最终转写，不阻塞命令返回
     tokio::spawn(async move {
         audio_service::finalize_recording(app_handle, session).await;
     });
 
+    Ok(Some(session_id))
+}
+
+#[tauri::command]
+pub async fn start_recording(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<u64, AppError> {
+    start_recording_inner(app_handle, state.inner()).await
+}
+
+#[tauri::command]
+pub async fn stop_recording(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), AppError> {
+    let _ = stop_recording_inner(app_handle, state.inner()).await?;
     Ok(())
 }
 

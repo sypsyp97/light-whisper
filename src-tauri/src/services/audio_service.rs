@@ -620,7 +620,10 @@ fn active_recording_session_id(state: &AppState) -> Option<u64> {
         Ok(guard) => guard.as_ref().map(|session| session.session_id),
         Err(poisoned) => {
             log::warn!("录音状态锁已污染，继续使用恢复后的状态");
-            poisoned.into_inner().as_ref().map(|session| session.session_id)
+            poisoned
+                .into_inner()
+                .as_ref()
+                .map(|session| session.session_id)
         }
     }
 }

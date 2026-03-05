@@ -33,6 +33,10 @@ interface TranscriptionPayload {
   charCount?: number;
 }
 
+interface RecordingErrorPayload {
+  message: string;
+}
+
 export function useRecording(): UseRecordingReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -66,6 +70,37 @@ export function useRecording(): UseRecordingReturn {
           setIsProcessing(e.payload.isProcessing);
           if (e.payload.error) {
             setError(e.payload.error);
+          } else {
+            setError(null);
+          }
+        });
+
+        if (disposed && unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      } catch {
+        // 忽略事件监听初始化失败
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // 监听录音错误（主要覆盖后端热键触发路径）
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        unlisten = await listen<RecordingErrorPayload>("recording-error", (e) => {
+          const message = e.payload?.message?.trim();
+          if (message) {
+            setError(message);
           }
         });
 

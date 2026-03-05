@@ -68,8 +68,7 @@ fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64
         let screen_pos = monitor.position();
         let scale_factor = monitor.scale_factor();
         let logical_width = (screen_size.width as f64 / scale_factor).max(1.0);
-        let logical_height =
-            (screen_size.height as f64 / scale_factor).max(SUBTITLE_WINDOW_HEIGHT);
+        let logical_height = (screen_size.height as f64 / scale_factor).max(SUBTITLE_WINDOW_HEIGHT);
         let x = screen_pos.x as f64 / scale_factor;
         let y_origin = screen_pos.y as f64 / scale_factor;
         let y = y_origin

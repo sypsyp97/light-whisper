@@ -47,7 +47,11 @@ fn play_wav_async(wav: &[u8]) {
     use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY};
 
     unsafe {
-        PlaySoundW(wav.as_ptr() as *const u16, std::ptr::null_mut(), SND_MEMORY | SND_ASYNC);
+        PlaySoundW(
+            wav.as_ptr() as *const u16,
+            std::ptr::null_mut(),
+            SND_MEMORY | SND_ASYNC,
+        );
     }
 }
 

@@ -44,7 +44,11 @@ pub async fn set_ai_polish_config(
             .delete_password(KEYRING_SERVICE, keyring_user);
     }
 
-    log::info!("AI 润色配置已更新: enabled={}, provider={}", enabled, provider);
+    log::info!(
+        "AI 润色配置已更新: enabled={}, provider={}",
+        enabled,
+        provider
+    );
     Ok(())
 }
 

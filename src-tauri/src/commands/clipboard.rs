@@ -108,6 +108,16 @@ pub async fn paste_text_impl(
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app_handle;
+        let _ = text;
+        let _ = method;
+        return Err(AppError::Other(
+            "当前平台暂不支持自动输入，仅 Windows 可用".to_string(),
+        ));
+    }
+
     log::info!("已输入 {} 个字符", text.len());
     Ok("已输入".to_string())
 }

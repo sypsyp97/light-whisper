@@ -118,15 +118,15 @@ async fn extract_corrections_via_llm(
 
     // 从响应中提取文本
     let raw = if is_responses_api {
-        json["output"]
-            .as_array()
-            .and_then(|o| o.iter().find_map(|item| {
+        json["output"].as_array().and_then(|o| {
+            o.iter().find_map(|item| {
                 if item["type"].as_str() == Some("message") {
                     item["content"][0]["text"].as_str()
                 } else {
                     None
                 }
-            }))
+            })
+        })
     } else {
         json["choices"][0]["message"]["content"].as_str()
     };
@@ -272,5 +272,6 @@ pub async fn import_user_profile(
         serde_json::from_str(&json_data).map_err(|e| format!("解析画像数据失败: {}", e))?;
     let mut profile = state.user_profile.lock().map_err(|e| e.to_string())?;
     *profile = imported;
+    profile_service::cleanup_profile(&mut profile);
     profile_service::save_profile(&profile)
 }

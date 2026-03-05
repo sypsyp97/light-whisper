@@ -1,5 +1,9 @@
 use crate::state::user_profile::*;
 use crate::utils::paths;
+use std::collections::hash_map::Entry;
+
+const MAX_CORRECTION_PATTERNS: usize = 500;
+const MAX_HOT_WORDS: usize = 300;
 
 /// 加载用户画像（从 JSON 文件）
 pub fn load_profile() -> UserProfile {
@@ -14,12 +18,19 @@ pub fn load_profile() -> UserProfile {
             UserProfile::default()
         }
     };
-    sanitize_corrections(&mut profile);
+    let cleanup = cleanup_profile(&mut profile);
+    if cleanup.removed_hot_words > 0 || cleanup.removed_corrections > 0 {
+        log::info!(
+            "加载画像时完成清理：热词移除 {} 条，纠错移除 {} 条",
+            cleanup.removed_hot_words,
+            cleanup.removed_corrections
+        );
+    }
     profile
 }
 
 /// 清理低质量纠错模式
-fn sanitize_corrections(profile: &mut UserProfile) {
+fn sanitize_corrections(profile: &mut UserProfile) -> usize {
     let before = profile.correction_patterns.len();
     profile.correction_patterns.retain(|p| {
         // 移除过长的整句纠错（非词/短语级别）
@@ -27,7 +38,10 @@ fn sanitize_corrections(profile: &mut UserProfile) {
             return false;
         }
         // 移除单字→单字的过于泛化纠错（如 "你"→"有"）
-        if p.original.chars().count() <= 1 && p.corrected.chars().count() <= 1 && p.source == CorrectionSource::Ai {
+        if p.original.chars().count() <= 1
+            && p.corrected.chars().count() <= 1
+            && p.source == CorrectionSource::Ai
+        {
             return false;
         }
         true
@@ -36,21 +50,46 @@ fn sanitize_corrections(profile: &mut UserProfile) {
     if removed > 0 {
         log::info!("清理了 {} 条低质量纠错模式", removed);
     }
+    removed
+}
+
+/// 用户画像清理统计
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProfileCleanupStats {
+    pub removed_hot_words: usize,
+    pub removed_corrections: usize,
+}
+
+/// 清理整个用户画像（热词 + 纠错）
+pub fn cleanup_profile(profile: &mut UserProfile) -> ProfileCleanupStats {
+    let removed_hot_words = sanitize_hot_words(profile);
+    let removed_low_quality = sanitize_corrections(profile);
+    let removed_overflow = limit_correction_patterns(profile);
+    let removed_corrections = removed_low_quality + removed_overflow;
+
+    if removed_hot_words > 0 || removed_corrections > 0 {
+        profile.last_updated = now_secs();
+    }
+
+    ProfileCleanupStats {
+        removed_hot_words,
+        removed_corrections,
+    }
 }
 
 /// 保存用户画像到 JSON 文件
 pub fn save_profile(profile: &UserProfile) -> Result<(), String> {
     let path = paths::get_data_dir().join("user_profile.json");
-    let data = serde_json::to_string_pretty(profile)
-        .map_err(|e| format!("序列化用户画像失败: {}", e))?;
+    let data =
+        serde_json::to_string_pretty(profile).map_err(|e| format!("序列化用户画像失败: {}", e))?;
     std::fs::write(&path, data).map_err(|e| format!("写入用户画像文件失败: {}", e))
 }
 
 /// 保存用户画像（异步，用于后台保存）
 pub async fn save_profile_async(profile: &UserProfile) -> Result<(), String> {
     let path = paths::get_data_dir().join("user_profile.json");
-    let data = serde_json::to_string_pretty(profile)
-        .map_err(|e| format!("序列化用户画像失败: {}", e))?;
+    let data =
+        serde_json::to_string_pretty(profile).map_err(|e| format!("序列化用户画像失败: {}", e))?;
     tokio::fs::write(&path, data)
         .await
         .map_err(|e| format!("写入用户画像文件失败: {}", e))
@@ -61,6 +100,96 @@ fn now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+fn normalize_hot_word_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn normalize_hot_word_key(text: &str) -> Option<(String, String)> {
+    let normalized = normalize_hot_word_text(text);
+    if normalized.is_empty() {
+        None
+    } else {
+        let key = normalized.to_lowercase();
+        Some((normalized, key))
+    }
+}
+
+fn hot_word_priority(word: &HotWord) -> (u8, u8, u32, u64, usize) {
+    let source = match word.source {
+        HotWordSource::User => 1,
+        HotWordSource::Learned => 0,
+    };
+    (
+        source,
+        word.weight,
+        word.use_count,
+        word.last_used,
+        word.text.chars().count(),
+    )
+}
+
+fn merge_hot_word(existing: &mut HotWord, candidate: HotWord) {
+    if hot_word_priority(&candidate) > hot_word_priority(existing) {
+        existing.text = candidate.text.clone();
+    }
+
+    existing.weight = existing.weight.max(candidate.weight.clamp(1, 5));
+    existing.use_count = existing.use_count.max(candidate.use_count);
+    existing.last_used = existing.last_used.max(candidate.last_used);
+    if candidate.source == HotWordSource::User {
+        existing.source = HotWordSource::User;
+    }
+}
+
+fn limit_correction_patterns(profile: &mut UserProfile) -> usize {
+    let before = profile.correction_patterns.len();
+    if profile.correction_patterns.len() > MAX_CORRECTION_PATTERNS {
+        profile
+            .correction_patterns
+            .sort_by(|a, b| b.count.cmp(&a.count).then(b.last_seen.cmp(&a.last_seen)));
+        profile
+            .correction_patterns
+            .truncate(MAX_CORRECTION_PATTERNS);
+    }
+    before.saturating_sub(profile.correction_patterns.len())
+}
+
+fn limit_hot_words(profile: &mut UserProfile) {
+    profile
+        .hot_words
+        .sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
+    if profile.hot_words.len() > MAX_HOT_WORDS {
+        profile.hot_words.truncate(MAX_HOT_WORDS);
+    }
+}
+
+fn sanitize_hot_words(profile: &mut UserProfile) -> usize {
+    let before = profile.hot_words.len();
+    let mut deduped: std::collections::HashMap<String, HotWord> = std::collections::HashMap::new();
+
+    for mut hot_word in std::mem::take(&mut profile.hot_words) {
+        let Some((normalized_text, normalized_key)) = normalize_hot_word_key(&hot_word.text) else {
+            continue;
+        };
+
+        hot_word.text = normalized_text;
+        hot_word.weight = hot_word.weight.clamp(1, 5);
+
+        match deduped.entry(normalized_key) {
+            Entry::Vacant(slot) => {
+                slot.insert(hot_word);
+            }
+            Entry::Occupied(mut slot) => {
+                merge_hot_word(slot.get_mut(), hot_word);
+            }
+        }
+    }
+
+    profile.hot_words = deduped.into_values().collect();
+    limit_hot_words(profile);
+    before.saturating_sub(profile.hot_words.len())
 }
 
 /// 从纠正结果中学习
@@ -162,21 +291,9 @@ pub fn learn_from_correction(
 
     profile.hot_words.extend(new_hot_words);
 
-    // 限制纠错模式数量
-    if profile.correction_patterns.len() > 500 {
-        profile
-            .correction_patterns
-            .sort_by(|a, b| b.count.cmp(&a.count).then(b.last_seen.cmp(&a.last_seen)));
-        profile.correction_patterns.truncate(500);
-    }
-
-    // 限制热词数量
-    if profile.hot_words.len() > 300 {
-        profile
-            .hot_words
-            .sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
-        profile.hot_words.truncate(300);
-    }
+    // 限制数量并清理重复热词
+    let _ = limit_correction_patterns(profile);
+    sanitize_hot_words(profile);
 }
 
 /// 从 LLM 结构化输出中学习
@@ -265,39 +382,27 @@ pub fn learn_from_structured(
         .collect();
     profile.hot_words.extend(new_hot_words);
 
-    // 限制纠错模式数量
-    if profile.correction_patterns.len() > 500 {
-        profile
-            .correction_patterns
-            .sort_by(|a, b| b.count.cmp(&a.count).then(b.last_seen.cmp(&a.last_seen)));
-        profile.correction_patterns.truncate(500);
-    }
-
-    // 限制热词数量
-    if profile.hot_words.len() > 300 {
-        profile
-            .hot_words
-            .sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
-        profile.hot_words.truncate(300);
-    }
+    // 限制数量并清理重复热词
+    let _ = limit_correction_patterns(profile);
+    sanitize_hot_words(profile);
 }
 
 /// 判断一个词是否适合作为热词
 /// 排除常见的中文停用词和纯标点
 fn is_potential_hot_word(word: &str) -> bool {
     let stopwords = [
-        "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上",
-        "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这",
-        "他", "她", "它", "们", "那", "个", "什么", "怎么", "这个", "那个", "但是", "因为",
-        "所以", "如果", "可以", "已经", "还是", "或者", "然后", "其实", "应该", "可能",
-        "比较", "现在", "知道", "觉得", "时候", "这样", "那样",
+        "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也",
+        "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这", "他",
+        "她", "它", "们", "那", "个", "什么", "怎么", "这个", "那个", "但是", "因为", "所以",
+        "如果", "可以", "已经", "还是", "或者", "然后", "其实", "应该", "可能", "比较", "现在",
+        "知道", "觉得", "时候", "这样", "那样",
     ];
     if stopwords.contains(&word) {
         return false;
     }
     // 至少包含一个非标点字符
     word.chars()
-        .any(|c| c.is_alphanumeric() || c >= '\u{4e00}' && c <= '\u{9fff}')
+        .any(|c| c.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&c))
 }
 
 /// 简单分词：按标点和空格切分
@@ -306,12 +411,10 @@ fn simple_segment(text: &str) -> Vec<String> {
     let mut current = String::new();
 
     for ch in text.chars() {
-        if ch.is_alphanumeric() || (ch >= '\u{4e00}' && ch <= '\u{9fff}') {
+        if ch.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&ch) {
             current.push(ch);
-        } else {
-            if !current.is_empty() {
-                segments.push(std::mem::take(&mut current));
-            }
+        } else if !current.is_empty() {
+            segments.push(std::mem::take(&mut current));
         }
     }
     if !current.is_empty() {
@@ -390,27 +493,51 @@ fn extract_diff_segments(original: &str, polished: &str) -> Vec<(String, String)
 
 /// 添加用户手动热词
 pub fn add_hot_word(profile: &mut UserProfile, text: String, weight: u8) {
+    let Some((normalized_text, normalized_key)) = normalize_hot_word_key(&text) else {
+        return;
+    };
     let now = now_secs();
-    // 检查是否已存在
-    if let Some(existing) = profile.hot_words.iter_mut().find(|h| h.text == text) {
+
+    // 检查是否已存在（大小写不敏感，忽略多余空白）
+    if let Some(existing) = profile.hot_words.iter_mut().find(|h| {
+        normalize_hot_word_key(&h.text)
+            .map(|(_, key)| key == normalized_key)
+            .unwrap_or(false)
+    }) {
+        existing.text = normalized_text;
         existing.weight = weight.clamp(1, 5);
         existing.source = HotWordSource::User;
         existing.last_used = now;
     } else {
         profile.hot_words.push(HotWord {
-            text,
+            text: normalized_text,
             weight: weight.clamp(1, 5),
             source: HotWordSource::User,
             use_count: 0,
             last_used: now,
         });
     }
+    sanitize_hot_words(profile);
     profile.last_updated = now;
 }
 
 /// 删除热词
 pub fn remove_hot_word(profile: &mut UserProfile, text: &str) {
-    profile.hot_words.retain(|h| h.text != text);
-    profile.last_updated = now_secs();
-}
+    let before = profile.hot_words.len();
 
+    if let Some((_, normalized_key)) = normalize_hot_word_key(text) {
+        profile.hot_words.retain(|h| {
+            normalize_hot_word_key(&h.text)
+                .map(|(_, key)| key != normalized_key)
+                .unwrap_or(false)
+        });
+    } else {
+        profile.hot_words.retain(|h| h.text != text);
+    }
+
+    let removed_by_delete = before.saturating_sub(profile.hot_words.len());
+    let removed_by_cleanup = sanitize_hot_words(profile);
+    if removed_by_delete > 0 || removed_by_cleanup > 0 {
+        profile.last_updated = now_secs();
+    }
+}

@@ -85,6 +85,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [aiPolishApiKey, setAiPolishApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const apiKeySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const llmConfigSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Agent profile state
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -103,6 +104,19 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
         setAiPolishConfig(enabled, key).catch(() => {});
       }
     }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (apiKeySaveTimer.current) {
+        clearTimeout(apiKeySaveTimer.current);
+        apiKeySaveTimer.current = null;
+      }
+      if (llmConfigSaveTimer.current) {
+        clearTimeout(llmConfigSaveTimer.current);
+        llmConfigSaveTimer.current = null;
+      }
+    };
   }, []);
 
   // 加载用户画像
@@ -267,6 +281,26 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       setCapturingHotkey(false);
     }
   };
+
+  const scheduleCustomLlmConfigSave = useCallback((baseUrl: string, model: string) => {
+    if (llmConfigSaveTimer.current) {
+      clearTimeout(llmConfigSaveTimer.current);
+    }
+    llmConfigSaveTimer.current = setTimeout(() => {
+      setLlmProviderConfig("custom", baseUrl || undefined, model || undefined).catch(() => {});
+    }, 400);
+  }, []);
+
+  const handleAddHotWord = useCallback(() => {
+    const word = newHotWord.trim();
+    if (!word) return;
+
+    addHotWord(word, 3).then(() => {
+      setNewHotWord("");
+      refreshProfile();
+      toast.success(`已添加热词: ${word}`);
+    }).catch(() => toast.error("添加失败"));
+  }, [newHotWord, refreshProfile]);
 
   return (
     <div className="page-root">
@@ -476,8 +510,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                     placeholder="API Base URL (OpenAI 兼容)"
                     value={customBaseUrl}
                     onChange={(e) => {
-                      setCustomBaseUrl(e.target.value);
-                      setLlmProviderConfig("custom", e.target.value || undefined, customModel || undefined).catch(() => {});
+                      const nextBaseUrl = e.target.value;
+                      setCustomBaseUrl(nextBaseUrl);
+                      scheduleCustomLlmConfigSave(nextBaseUrl, customModel);
                     }}
                     style={{
                       padding: "8px 10px", borderRadius: 8,
@@ -492,8 +527,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                     placeholder="模型名 (如 gpt-3.5-turbo)"
                     value={customModel}
                     onChange={(e) => {
-                      setCustomModel(e.target.value);
-                      setLlmProviderConfig("custom", customBaseUrl || undefined, e.target.value || undefined).catch(() => {});
+                      const nextModel = e.target.value;
+                      setCustomModel(nextModel);
+                      scheduleCustomLlmConfigSave(customBaseUrl, nextModel);
                     }}
                     style={{
                       padding: "8px 10px", borderRadius: 8,
@@ -566,11 +602,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   onChange={(e) => setNewHotWord(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && newHotWord.trim()) {
-                      addHotWord(newHotWord.trim(), 3).then(() => {
-                        setNewHotWord("");
-                        refreshProfile();
-                        toast.success(`已添加热词: ${newHotWord.trim()}`);
-                      }).catch(() => toast.error("添加失败"));
+                      handleAddHotWord();
                     }
                   }}
                   style={{
@@ -583,12 +615,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 <button
                   className="test-btn"
                   onClick={() => {
-                    if (!newHotWord.trim()) return;
-                    addHotWord(newHotWord.trim(), 3).then(() => {
-                      setNewHotWord("");
-                      refreshProfile();
-                      toast.success(`已添加热词: ${newHotWord.trim()}`);
-                    }).catch(() => toast.error("添加失败"));
+                    handleAddHotWord();
                   }}
                   style={{ padding: "7px 12px" }}
                 >
@@ -603,7 +630,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                   maxHeight: 120, overflow: "auto",
                   padding: "4px 0",
                 }}>
-                  {profile.hot_words
+                  {[...profile.hot_words]
                     .sort((a, b) => b.weight - a.weight || b.use_count - a.use_count)
                     .map((hw) => (
                     <span

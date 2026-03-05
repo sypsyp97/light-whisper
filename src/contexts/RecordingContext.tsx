@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
@@ -69,36 +69,11 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     retry: retryModel,
   } = useModelStatus();
 
-  // 录音结束后的冷却期，防止快捷键误触发新录音
-  const cooldownUntilRef = useRef(0);
-
-  // isProcessing 从 true 变为 false 时设置冷却期
-  const prevProcessingRef = useRef(false);
-  useEffect(() => {
-    if (prevProcessingRef.current && !isProcessing) {
-      cooldownUntilRef.current = Date.now() + 600;
-    }
-    prevProcessingRef.current = isProcessing;
-  }, [isProcessing]);
-
-  // F2 push-to-talk: press to start, release to stop
-  const hotkeyStart = useCallback(() => {
-    if (!isReady || isRecording || isProcessing) return;
-    if (Date.now() < cooldownUntilRef.current) return;
-    startRecording();
-  }, [isReady, isRecording, isProcessing, startRecording]);
-
-  const hotkeyStop = useCallback(() => {
-    if (!isRecording) return;
-    cooldownUntilRef.current = Date.now() + 600;
-    stopRecording();
-  }, [isRecording, stopRecording]);
-
   const {
     hotkeyDisplay,
     setHotkey,
     error: hotkeyError,
-  } = useHotkey(hotkeyStart, hotkeyStop);
+  } = useHotkey();
 
   // 启动时将 localStorage 中持久化的输入方式同步到后端
   useEffect(() => {

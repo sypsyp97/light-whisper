@@ -114,7 +114,11 @@ impl UserProfile {
     pub fn get_hot_word_texts(&self, limit: usize) -> Vec<String> {
         let mut words: Vec<&HotWord> = self.hot_words.iter().collect();
         words.sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
-        words.into_iter().take(limit).map(|w| w.text.clone()).collect()
+        words
+            .into_iter()
+            .take(limit)
+            .map(|w| w.text.clone())
+            .collect()
     }
 
     /// 根据输入文本动态检索相关纠错模式

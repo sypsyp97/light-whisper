@@ -22,7 +22,9 @@ pub fn run() {
                     tauri_plugin_log::TargetKind::Stdout,
                 ))
                 .target(tauri_plugin_log::Target::new(
-                    tauri_plugin_log::TargetKind::LogDir { file_name: Some("app".into()) },
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("app".into()),
+                    },
                 ))
                 .level(log::LevelFilter::Info)
                 .build(),
@@ -59,18 +61,25 @@ pub fn run() {
                     Err(poisoned) => poisoned.into_inner().llm_provider.active.clone(),
                 };
                 let keyring_user = services::llm_provider::keyring_user_for_provider(&provider);
-                if let Ok(Some(key)) = app_handle.keyring().get_password("light-whisper", keyring_user) {
+                if let Ok(Some(key)) = app_handle
+                    .keyring()
+                    .get_password("light-whisper", keyring_user)
+                {
                     if !key.is_empty() {
                         if let Ok(mut api_key) = state.ai_polish_api_key.lock() {
                             *api_key = key;
                         }
-                        log::info!("已从系统密钥环加载 AI 润色 API Key (provider: {})", provider);
+                        log::info!(
+                            "已从系统密钥环加载 AI 润色 API Key (provider: {})",
+                            provider
+                        );
                     }
                 }
             }
 
             spawn_funasr_startup(app_handle.clone());
             spawn_subtitle_prewarm(app_handle.clone());
+            spawn_profile_maintenance(app_handle.clone());
             setup_system_tray(&app_handle)?;
 
             Ok(())
@@ -157,6 +166,54 @@ fn spawn_subtitle_prewarm(app_handle: tauri::AppHandle) {
     });
 }
 
+fn spawn_profile_maintenance(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        const HOT_WORD_CLEANUP_INTERVAL_SECS: u64 = 24 * 60 * 60;
+        log::info!(
+            "已启动定期热词清理任务，周期 {} 秒",
+            HOT_WORD_CLEANUP_INTERVAL_SECS
+        );
+
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+            HOT_WORD_CLEANUP_INTERVAL_SECS,
+        ));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+
+            let profile_to_save = {
+                let state = app_handle.state::<AppState>();
+                let mut profile = match state.user_profile.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        log::warn!("用户画像锁中毒，继续执行热词清理");
+                        poisoned.into_inner()
+                    }
+                };
+
+                let cleanup = services::profile_service::cleanup_profile(&mut profile);
+                if cleanup.removed_hot_words > 0 || cleanup.removed_corrections > 0 {
+                    log::info!(
+                        "定期画像清理完成：热词移除 {} 条，纠错移除 {} 条",
+                        cleanup.removed_hot_words,
+                        cleanup.removed_corrections
+                    );
+                    Some(profile.clone())
+                } else {
+                    None
+                }
+            };
+
+            if let Some(profile) = profile_to_save {
+                if let Err(err) = services::profile_service::save_profile_async(&profile).await {
+                    log::warn!("定期热词清理后保存用户画像失败: {}", err);
+                }
+            }
+        }
+    });
+}
+
 fn focus_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -204,9 +261,11 @@ fn stop_funasr_on_exit(app: &tauri::AppHandle) {
                 if let Some(ref mut process) = *guard {
                     log::info!("正在停止 FunASR 进程...");
                     let _ = process.child.start_kill();
-                    let _ =
-                        tokio::time::timeout(std::time::Duration::from_secs(3), process.child.wait())
-                            .await;
+                    let _ = tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        process.child.wait(),
+                    )
+                    .await;
                 }
             }
             Err(_) => {

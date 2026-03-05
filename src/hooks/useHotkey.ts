@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { listen } from "@tauri-apps/api/event";
 import {
   registerCustomHotkey,
   unregisterAllHotkeys,
@@ -17,8 +16,6 @@ interface UseHotkeyReturn {
   error: string | null;
 }
 
-const RELEASE_REPRESS_GUARD_MS = 180;
-
 function readStoredHotkey(): string {
   const stored = readLocalStorage(HOTKEY_STORAGE_KEY);
   if (stored) return normalizeHotkey(stored);
@@ -30,28 +27,20 @@ function writeStoredHotkey(shortcut: string): void {
 }
 
 /**
- * React hook that manages the global push-to-talk hotkey.
+ * Registers and manages the global push-to-talk hotkey.
  *
- * Press-to-talk: hold key to record, release to stop.
- *
- * @param onPress - Called when the hotkey is pressed (start recording).
- * @param onRelease - Called when the hotkey is released (stop recording).
+ * Recording start/stop is handled in the Rust backend so the UI only needs
+ * to keep the registration in sync and surface any registration errors.
  */
-export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotkeyReturn {
+export function useHotkey(): UseHotkeyReturn {
   const [error, setError] = useState<string | null>(null);
   const [hotkeyRaw, setHotkeyRaw] = useState<string>(() => readStoredHotkey());
   const hotkeyDisplay = formatHotkeyForDisplay(hotkeyRaw);
 
   const mountedRef = useRef(true);
   const hotkeyRef = useRef(hotkeyRaw);
-  const onPressRef = useRef(onPress);
-  const onReleaseRef = useRef(onRelease);
-  const isPressedRef = useRef(false);
-  const suppressPressUntilRef = useRef(0);
 
   hotkeyRef.current = hotkeyRaw;
-  onPressRef.current = onPress;
-  onReleaseRef.current = onRelease;
 
   const registerShortcut = useCallback(async (shortcut: string) => {
     const normalized = normalizeHotkey(shortcut);
@@ -93,62 +82,12 @@ export function useHotkey(onPress?: () => void, onRelease?: () => void): UseHotk
   // Register on mount, unregister on unmount
   useEffect(() => {
     mountedRef.current = true;
-    isPressedRef.current = false;
-    suppressPressUntilRef.current = 0;
     void register();
     return () => {
       mountedRef.current = false;
-      isPressedRef.current = false;
-      suppressPressUntilRef.current = 0;
       void unregisterAllHotkeys().catch(() => undefined);
     };
   }, [register]);
-
-  // Listen for hotkey press/release events
-  useEffect(() => {
-    let disposed = false;
-    let unlistenPress: (() => void) | null = null;
-    let unlistenRelease: (() => void) | null = null;
-
-    void (async () => {
-      try {
-        const [pressUnlisten, releaseUnlisten] = await Promise.all([
-          listen("hotkey-press", () => {
-            const now = Date.now();
-            if (isPressedRef.current) return;
-            if (now < suppressPressUntilRef.current) return;
-            isPressedRef.current = true;
-            onPressRef.current?.();
-          }),
-          listen("hotkey-release", () => {
-            if (!isPressedRef.current) return;
-            isPressedRef.current = false;
-            suppressPressUntilRef.current = Date.now() + RELEASE_REPRESS_GUARD_MS;
-            onReleaseRef.current?.();
-          }),
-        ]);
-
-        if (disposed) {
-          pressUnlisten();
-          releaseUnlisten();
-          return;
-        }
-
-        unlistenPress = pressUnlisten;
-        unlistenRelease = releaseUnlisten;
-      } catch (err) {
-        if (!mountedRef.current) return;
-        const message = err instanceof Error ? err.message : "监听热键事件失败";
-        setError(message);
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      unlistenPress?.();
-      unlistenRelease?.();
-    };
-  }, []);
 
   return {
     hotkeyDisplay,
