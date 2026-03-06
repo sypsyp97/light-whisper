@@ -2,6 +2,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
+use std::thread::JoinHandle;
+use serde::Serialize;
 use tokio::io::BufReader;
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::oneshot;
@@ -52,6 +54,45 @@ impl RecordingSlot {
     }
 }
 
+pub struct MicrophoneLevelMonitor {
+    pub stop_flag: Arc<AtomicBool>,
+    pub handle: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HotkeyDiagnosticState {
+    pub shortcut: String,
+    pub registered: bool,
+    pub backend: String,
+    pub is_pressed: bool,
+    pub last_error: Option<String>,
+    pub warning: Option<String>,
+    pub last_event: Option<String>,
+    pub last_event_at_ms: Option<u64>,
+    pub last_registered_at_ms: Option<u64>,
+    pub last_pressed_at_ms: Option<u64>,
+    pub last_released_at_ms: Option<u64>,
+}
+
+impl Default for HotkeyDiagnosticState {
+    fn default() -> Self {
+        Self {
+            shortcut: String::new(),
+            registered: false,
+            backend: "none".to_string(),
+            is_pressed: false,
+            last_error: None,
+            warning: None,
+            last_event: None,
+            last_event_at_ms: None,
+            last_registered_at_ms: None,
+            last_pressed_at_ms: None,
+            last_released_at_ms: None,
+        }
+    }
+}
+
 pub struct AppState {
     pub funasr_process: Arc<Mutex<Option<FunasrProcess>>>,
     pub funasr_ready: Arc<AtomicBool>,
@@ -67,11 +108,14 @@ pub struct AppState {
     /// schedule_hide 会在睡眠前记录当前代，醒来后若代已变则跳过隐藏，
     /// 从而避免旧 hide 任务误杀新一轮字幕。
     pub subtitle_show_gen: AtomicU64,
+    pub selected_input_device_name: Arc<std::sync::Mutex<Option<String>>>,
+    pub microphone_level_monitor: Arc<std::sync::Mutex<Option<MicrophoneLevelMonitor>>>,
     pub sound_enabled: Arc<AtomicBool>,
     pub ai_polish_enabled: Arc<AtomicBool>,
     pub ai_polish_api_key: Arc<std::sync::Mutex<String>>,
     pub http_client: reqwest::Client,
     pub user_profile: Arc<std::sync::Mutex<UserProfile>>,
+    pub hotkey_diagnostic: Arc<std::sync::Mutex<HotkeyDiagnosticState>>,
 }
 
 impl Default for AppState {
@@ -86,6 +130,8 @@ impl Default for AppState {
             input_method: Arc::new(std::sync::Mutex::new("sendInput".to_string())),
             pending_paste: Arc::new(std::sync::Mutex::new(Vec::new())),
             subtitle_show_gen: AtomicU64::new(0),
+            selected_input_device_name: Arc::new(std::sync::Mutex::new(None)),
+            microphone_level_monitor: Arc::new(std::sync::Mutex::new(None)),
             sound_enabled: Arc::new(AtomicBool::new(true)),
             ai_polish_enabled: Arc::new(AtomicBool::new(false)),
             ai_polish_api_key: Arc::new(std::sync::Mutex::new(String::new())),
@@ -94,6 +140,7 @@ impl Default for AppState {
                 .build()
                 .unwrap_or_default(),
             user_profile: Arc::new(std::sync::Mutex::new(UserProfile::default())),
+            hotkey_diagnostic: Arc::new(std::sync::Mutex::new(HotkeyDiagnosticState::default())),
         }
     }
 }
@@ -181,5 +228,60 @@ impl AppState {
                 *poisoned.into_inner() = api_key;
             }
         }
+    }
+
+    pub fn selected_input_device_name(&self) -> Option<String> {
+        match self.selected_input_device_name.lock() {
+            Ok(name) => name.clone(),
+            Err(poisoned) => {
+                log::warn!("输入设备锁已污染，继续使用恢复后的状态");
+                poisoned.into_inner().clone()
+            }
+        }
+    }
+
+    pub fn set_selected_input_device_name(&self, name: Option<String>) {
+        let normalized = name.and_then(|value| {
+            let trimmed = value.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        });
+
+        match self.selected_input_device_name.lock() {
+            Ok(mut guard) => *guard = normalized,
+            Err(poisoned) => {
+                log::warn!("输入设备锁已污染，继续使用恢复后的状态");
+                *poisoned.into_inner() = normalized;
+            }
+        }
+    }
+
+    pub fn hotkey_diagnostic_snapshot(&self) -> HotkeyDiagnosticState {
+        match self.hotkey_diagnostic.lock() {
+            Ok(state) => state.clone(),
+            Err(poisoned) => {
+                log::warn!("热键诊断锁已污染，继续使用恢复后的状态");
+                poisoned.into_inner().clone()
+            }
+        }
+    }
+
+    pub fn update_hotkey_diagnostic<R, F>(&self, update: F) -> (R, HotkeyDiagnosticState)
+    where
+        F: FnOnce(&mut HotkeyDiagnosticState) -> R,
+    {
+        let mut diagnostic = match self.hotkey_diagnostic.lock() {
+            Ok(state) => state,
+            Err(poisoned) => {
+                log::warn!("热键诊断锁已污染，继续使用恢复后的状态");
+                poisoned.into_inner()
+            }
+        };
+
+        let result = update(&mut diagnostic);
+        (result, diagnostic.clone())
     }
 }

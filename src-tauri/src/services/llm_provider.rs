@@ -12,9 +12,76 @@ pub struct LlmEndpoint {
 
 pub const KEYRING_SERVICE: &str = "light-whisper";
 
+const CEREBRAS: &str = "cerebras";
+const OPENAI: &str = "openai";
 /// 已知的 LLM 后端
 const DEEPSEEK: &str = "deepseek";
+const SILICONFLOW: &str = "siliconflow";
 const CUSTOM: &str = "custom";
+
+fn default_endpoint_parts(provider: &str) -> (&'static str, &'static str, u64) {
+    match provider {
+        OPENAI => ("https://api.openai.com", "gpt-4.1-mini", 10),
+        DEEPSEEK => ("https://api.deepseek.com", "deepseek-chat", 10),
+        SILICONFLOW => ("https://api.siliconflow.cn", "Qwen/Qwen3-32B", 10),
+        CUSTOM => ("http://127.0.0.1:8000", "gpt-4.1-mini", 10),
+        _ => ("https://api.cerebras.ai", "gpt-oss-120b", 5),
+    }
+}
+
+fn normalize_api_url(input: Option<&str>, default_base_url: &str) -> String {
+    let raw = input
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_base_url);
+
+    if let Some(explicit) = raw.strip_suffix('#') {
+        return explicit.trim_end_matches('/').to_string();
+    }
+
+    let trimmed = raw.trim_end_matches('/');
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.ends_with("/chat/completions") || lower.ends_with("/responses") {
+        return trimmed.to_string();
+    }
+
+    if lower.ends_with("/v1") || lower.ends_with("/api/v3") {
+        return format!("{trimmed}/chat/completions");
+    }
+
+    format!("{trimmed}/v1/chat/completions")
+}
+
+fn normalize_models_url(input: Option<&str>, default_base_url: &str) -> String {
+    let raw = input
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_base_url);
+
+    let trimmed = raw.trim_end_matches('#').trim_end_matches('/');
+    let lower = trimmed.to_ascii_lowercase();
+
+    if lower.ends_with("/models") {
+        return trimmed.to_string();
+    }
+    if lower.ends_with("/chat/completions") {
+        return format!(
+            "{}/models",
+            trimmed[..trimmed.len() - "/chat/completions".len()].trim_end_matches('/')
+        );
+    }
+    if lower.ends_with("/responses") {
+        return format!(
+            "{}/models",
+            trimmed[..trimmed.len() - "/responses".len()].trim_end_matches('/')
+        );
+    }
+    if lower.ends_with("/v1") || lower.ends_with("/api/v3") {
+        return format!("{trimmed}/models");
+    }
+
+    format!("{trimmed}/v1/models")
+}
 
 /// 根据后端名称和配置获取 LLM 端点
 pub fn get_endpoint(
@@ -22,25 +89,15 @@ pub fn get_endpoint(
     custom_base_url: Option<&str>,
     custom_model: Option<&str>,
 ) -> LlmEndpoint {
-    match provider {
-        DEEPSEEK => LlmEndpoint {
-            api_url: "https://api.deepseek.com/v1/chat/completions".to_string(),
-            model: "deepseek-chat".to_string(),
-            timeout_secs: 10,
-        },
-        CUSTOM => LlmEndpoint {
-            api_url: custom_base_url
-                .unwrap_or("https://api.openai.com/v1/responses")
-                .to_string(),
-            model: custom_model.unwrap_or("gpt-3.5-turbo").to_string(),
-            timeout_secs: 10,
-        },
-        // 默认 Cerebras
-        _ => LlmEndpoint {
-            api_url: "https://api.cerebras.ai/v1/chat/completions".to_string(),
-            model: "gpt-oss-120b".to_string(),
-            timeout_secs: 5,
-        },
+    let (default_base_url, default_model, timeout_secs) = default_endpoint_parts(provider);
+    LlmEndpoint {
+        api_url: normalize_api_url(custom_base_url, default_base_url),
+        model: custom_model
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(default_model)
+            .to_string(),
+        timeout_secs,
     }
 }
 
@@ -52,12 +109,20 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     )
 }
 
+pub fn models_url(provider: &str, custom_base_url: Option<&str>) -> String {
+    let (default_base_url, _, _) = default_endpoint_parts(provider);
+    normalize_models_url(custom_base_url, default_base_url)
+}
+
 /// 获取密钥环用户名（每个后端独立存储 API Key）
 pub fn keyring_user_for_provider(provider: &str) -> &str {
     match provider {
+        OPENAI => "openai-api-key",
         DEEPSEEK => "deepseek-api-key",
+        SILICONFLOW => "siliconflow-api-key",
         CUSTOM => "custom-api-key",
-        _ => "cerebras-api-key",
+        CEREBRAS => "cerebras-api-key",
+        _ => "custom-api-key",
     }
 }
 

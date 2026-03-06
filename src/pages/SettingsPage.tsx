@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -15,16 +16,21 @@ import {
   getAiPolishApiKey,
   getUserProfile,
   addHotWord,
+  listAiModels,
   removeHotWord,
   setLlmProviderConfig,
   exportUserProfile,
+  listInputDevices,
   importUserProfile,
+  setInputDevice,
   setSoundEnabled,
+  startMicrophoneLevelMonitor,
+  stopMicrophoneLevelMonitor,
 } from "@/api/tauri";
-import type { UserProfile } from "@/types";
+import type { AiModelInfo, InputDeviceInfo, UserProfile } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
-import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY } from "@/lib/constants";
+import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY } from "@/lib/constants";
 import {
   HOTKEY_MODIFIER_ORDER,
   type HotkeyModifier,
@@ -51,10 +57,49 @@ const inputOptions = [
 ];
 
 const llmProviderOptions = [
-  { key: "cerebras", label: "Cerebras", desc: "GPT-OSS-120B, 极速" },
-  { key: "deepseek", label: "DeepSeek", desc: "DeepSeek-Chat, 中文强" },
-  { key: "custom", label: "自定义", desc: "OpenAI 兼容端点" },
-];
+  {
+    key: "openai",
+    label: "OpenAI",
+    desc: "通用 Chat Completions",
+    baseUrl: "https://api.openai.com",
+    defaultModel: "gpt-4.1-mini",
+    models: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"],
+  },
+  {
+    key: "deepseek",
+    label: "DeepSeek",
+    desc: "官方兼容接口",
+    baseUrl: "https://api.deepseek.com",
+    defaultModel: "deepseek-chat",
+    models: ["deepseek-chat", "deepseek-reasoner"],
+  },
+  {
+    key: "cerebras",
+    label: "Cerebras",
+    desc: "极速推理",
+    baseUrl: "https://api.cerebras.ai",
+    defaultModel: "gpt-oss-120b",
+    models: ["gpt-oss-120b", "gpt-oss-20b"],
+  },
+  {
+    key: "siliconflow",
+    label: "SiliconFlow",
+    desc: "OpenAI 兼容",
+    baseUrl: "https://api.siliconflow.cn",
+    defaultModel: "Qwen/Qwen3-32B",
+    models: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-7B-Instruct"],
+  },
+  {
+    key: "custom",
+    label: "自定义兼容",
+    desc: "vLLM / OneAPI / New API",
+    baseUrl: "http://127.0.0.1:8000",
+    defaultModel: "gpt-4.1-mini",
+    models: ["gpt-4.1-mini", "gpt-4o-mini", "deepseek-chat"],
+  },
+] as const;
+
+const LLM_PROVIDER_DRAFTS_KEY = "light-whisper-llm-provider-drafts";
 
 const sourceLabels: Record<string, string> = {
   user: "手动",
@@ -66,15 +111,78 @@ const sourceColors: Record<string, string> = {
   learned: "#10b981",
 };
 
+const hotkeyBackendLabels: Record<string, string> = {
+  none: "未注册",
+  globalShortcut: "全局快捷键",
+  lowLevelHook: "低层键盘钩子",
+};
+
+const hotkeyEventLabels: Record<string, string> = {
+  registered: "已注册",
+  unregistered: "已注销",
+  pressed: "收到按下",
+  released: "收到松开",
+  error: "错误",
+};
+
+interface MicrophoneLevelPayload {
+  deviceName?: string;
+  level?: number;
+}
+
+interface LlmProviderDraft {
+  baseUrl: string;
+  model: string;
+}
+
+type LlmProviderDraftMap = Record<string, LlmProviderDraft>;
+
+function formatDiagnosticTime(timestampMs?: number | null): string {
+  if (!timestampMs) return "未收到";
+  return new Date(timestampMs).toLocaleTimeString();
+}
+
+function findLlmPreset(key: string) {
+  return llmProviderOptions.find((option) => option.key === key) ?? llmProviderOptions[0];
+}
+
+function resolveLlmBaseUrl(key: string, customBaseUrl?: string | null): string {
+  return customBaseUrl?.trim() || findLlmPreset(key).baseUrl;
+}
+
+function resolveLlmModel(key: string, customModel?: string | null): string {
+  return customModel?.trim() || findLlmPreset(key).defaultModel;
+}
+
+function readLlmProviderDrafts(): LlmProviderDraftMap {
+  const raw = readLocalStorage(LLM_PROVIDER_DRAFTS_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as LlmProviderDraftMap;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeLlmProviderDrafts(drafts: LlmProviderDraftMap): void {
+  writeLocalStorage(LLM_PROVIDER_DRAFTS_KEY, JSON.stringify(drafts));
+}
+
 export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
   const { isDark, theme, setTheme } = useTheme();
-  const { retryModel, hotkeyDisplay, setHotkey, hotkeyError } = useRecordingContext();
+  const { isRecording, retryModel, hotkeyDisplay, setHotkey, hotkeyError, hotkeyDiagnostic } = useRecordingContext();
   const [engine, setEngineState] = useState<string>("sensevoice");
   const [engineLoading, setEngineLoading] = useState(true);
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [hotkeySaving, setHotkeySaving] = useState(false);
+  const [inputDevices, setInputDevices] = useState<InputDeviceInfo[]>([]);
+  const [selectedInputDeviceName, setSelectedInputDeviceName] = useState<string>("");
+  const [deviceListLoading, setDeviceListLoading] = useState(true);
+  const [micLevel, setMicLevel] = useState(0);
+  const [micMonitorReady, setMicMonitorReady] = useState(false);
   const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
     return readLocalStorage(INPUT_METHOD_KEY) === "clipboard"
       ? "clipboard"
@@ -84,8 +192,22 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
   const [aiPolishApiKey, setAiPolishApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
+  const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
+  const [aiModelSearch, setAiModelSearch] = useState("");
+  const [aiModelsLoading, setAiModelsLoading] = useState(false);
+  const [aiModelsError, setAiModelsError] = useState("");
+  const [aiModelsSourceUrl, setAiModelsSourceUrl] = useState("");
+  const [providerDrafts, setProviderDrafts] = useState<LlmProviderDraftMap>(() => readLlmProviderDrafts());
+  const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+  const [providerSearch, setProviderSearch] = useState("");
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const apiKeySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const llmConfigSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aiModelsFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const providerPickerRef = useRef<HTMLDivElement | null>(null);
+  const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const modelPickerRef = useRef<HTMLDivElement | null>(null);
+  const modelSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Agent profile state
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -93,6 +215,43 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [llmProvider, setLlmProvider] = useState("cerebras");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
+
+  const clearPendingApiKeySave = useCallback(() => {
+    if (apiKeySaveTimer.current) {
+      clearTimeout(apiKeySaveTimer.current);
+      apiKeySaveTimer.current = null;
+    }
+  }, []);
+
+  const clearPendingLlmConfigSave = useCallback(() => {
+    if (llmConfigSaveTimer.current) {
+      clearTimeout(llmConfigSaveTimer.current);
+      llmConfigSaveTimer.current = null;
+    }
+  }, []);
+
+  const updateProviderDraft = useCallback((provider: string, baseUrl: string, model: string) => {
+    setProviderDrafts((prev) => {
+      const next = {
+        ...prev,
+        [provider]: {
+          baseUrl,
+          model,
+        },
+      };
+      writeLlmProviderDrafts(next);
+      return next;
+    });
+  }, []);
+
+  const resolveProviderDraft = useCallback((provider: string) => {
+    const preset = findLlmPreset(provider);
+    const draft = providerDrafts[provider];
+    return {
+      baseUrl: draft?.baseUrl ?? preset.baseUrl,
+      model: draft?.model ?? preset.defaultModel,
+    };
+  }, [providerDrafts]);
 
   const refreshAiPolishKey = useCallback(async (enabled = aiPolishEnabled) => {
     try {
@@ -122,6 +281,10 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
         clearTimeout(llmConfigSaveTimer.current);
         llmConfigSaveTimer.current = null;
       }
+      if (aiModelsFetchTimer.current) {
+        clearTimeout(aiModelsFetchTimer.current);
+        aiModelsFetchTimer.current = null;
+      }
     };
   }, []);
 
@@ -129,11 +292,15 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const refreshProfile = useCallback(() => {
     getUserProfile().then(p => {
       setProfile(p);
-      setLlmProvider(p.llm_provider.active);
-      setCustomBaseUrl(p.llm_provider.custom_base_url ?? "");
-      setCustomModel(p.llm_provider.custom_model ?? "");
+      const nextProvider = p.llm_provider.active || "cerebras";
+      const nextBaseUrl = resolveLlmBaseUrl(nextProvider, p.llm_provider.custom_base_url);
+      const nextModel = resolveLlmModel(nextProvider, p.llm_provider.custom_model);
+      setLlmProvider(nextProvider);
+      setCustomBaseUrl(nextBaseUrl);
+      setCustomModel(nextModel);
+      updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
     }).catch(() => {});
-  }, []);
+  }, [updateProviderDraft]);
 
   useEffect(() => {
     refreshProfile();
@@ -167,6 +334,97 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       setAutostartLoading(false);
     }).catch(() => setAutostartLoading(false));
   }, []);
+
+  const refreshInputDevices = useCallback(async () => {
+    setDeviceListLoading(true);
+    try {
+      const payload = await listInputDevices();
+      setInputDevices(payload.devices);
+      setSelectedInputDeviceName(payload.selectedDeviceName ?? "");
+    } catch {
+      toast.error("读取麦克风列表失败");
+    } finally {
+      setDeviceListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const stored = readLocalStorage(INPUT_DEVICE_STORAGE_KEY);
+      if (stored) {
+        await setInputDevice(stored).catch(() => {});
+      }
+      await refreshInputDevices();
+    })();
+  }, [refreshInputDevices]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: null | (() => void) = null;
+
+    const startMonitor = async () => {
+      try {
+        await stopMicrophoneLevelMonitor().catch(() => undefined);
+        if (isRecording) {
+          if (!disposed) {
+            setMicMonitorReady(false);
+            setMicLevel(0);
+          }
+          return;
+        }
+        await startMicrophoneLevelMonitor();
+        if (!disposed) setMicMonitorReady(true);
+      } catch {
+        if (!disposed) {
+          setMicMonitorReady(false);
+          setMicLevel(0);
+        }
+      }
+    };
+
+    void (async () => {
+      try {
+        unlisten = await listen<MicrophoneLevelPayload>("microphone-level", (event) => {
+          if (disposed) return;
+          const level = typeof event.payload?.level === "number" ? event.payload.level : 0;
+          setMicLevel(Math.max(0, Math.min(1, level)));
+        });
+      } catch {
+        // ignore
+      }
+
+      await startMonitor();
+
+      if (disposed && unlisten) {
+        unlisten();
+        unlisten = null;
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+      void stopMicrophoneLevelMonitor().catch(() => undefined);
+    };
+  }, [isRecording, selectedInputDeviceName]);
+
+  const handleInputDeviceChange = async (name: string) => {
+    setDeviceListLoading(true);
+    try {
+      await setInputDevice(name || null);
+      if (name) {
+        writeLocalStorage(INPUT_DEVICE_STORAGE_KEY, name);
+      } else {
+        writeLocalStorage(INPUT_DEVICE_STORAGE_KEY, "");
+      }
+      setSelectedInputDeviceName(name);
+      await refreshInputDevices();
+    } catch {
+      toast.error("切换麦克风失败");
+    } finally {
+      setDeviceListLoading(false);
+    }
+  };
 
   const handleAutostartToggle = async () => {
     if (autostartLoading) return;
@@ -288,14 +546,67 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     }
   };
 
-  const scheduleCustomLlmConfigSave = useCallback((baseUrl: string, model: string) => {
-    if (llmConfigSaveTimer.current) {
-      clearTimeout(llmConfigSaveTimer.current);
-    }
+  const scheduleCustomLlmConfigSave = useCallback((provider: string, baseUrl: string, model: string) => {
+    clearPendingLlmConfigSave();
     llmConfigSaveTimer.current = setTimeout(() => {
-      setLlmProviderConfig("custom", baseUrl || undefined, model || undefined).catch(() => {});
+      setLlmProviderConfig(provider, baseUrl || undefined, model || undefined).catch(() => {});
     }, 400);
-  }, []);
+  }, [clearPendingLlmConfigSave]);
+
+  const refreshAiModels = useCallback(async (silent = false) => {
+    const apiKey = aiPolishApiKey.trim();
+    const baseUrl = customBaseUrl.trim();
+    if (!apiKey) {
+      setAiModels([]);
+      setAiModelsSourceUrl("");
+      setAiModelsError("请先填写 API Key，再拉取模型列表。");
+      return;
+    }
+
+    setAiModelsLoading(true);
+    if (!silent) {
+      setAiModelsError("");
+    }
+
+    try {
+      const payload = await listAiModels(llmProvider, baseUrl || undefined, apiKey);
+      setAiModels(payload.models);
+      setAiModelsSourceUrl(payload.sourceUrl);
+      setAiModelsError(payload.models.length === 0 ? "模型列表为空。" : "");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "拉取模型列表失败";
+      setAiModels([]);
+      setAiModelsSourceUrl("");
+      setAiModelsError(message);
+    } finally {
+      setAiModelsLoading(false);
+    }
+  }, [aiPolishApiKey, customBaseUrl, llmProvider]);
+
+  useEffect(() => {
+    if (aiModelsFetchTimer.current) {
+      clearTimeout(aiModelsFetchTimer.current);
+    }
+
+    if (!aiPolishApiKey.trim()) {
+      setAiModels([]);
+      setAiModelsSourceUrl("");
+      setAiModelsError("");
+      setAiModelsLoading(false);
+      return;
+    }
+
+    aiModelsFetchTimer.current = setTimeout(() => {
+      void refreshAiModels(true);
+    }, 700);
+
+    return () => {
+      if (aiModelsFetchTimer.current) {
+        clearTimeout(aiModelsFetchTimer.current);
+        aiModelsFetchTimer.current = null;
+      }
+    };
+  }, [aiPolishApiKey, customBaseUrl, llmProvider, refreshAiModels]);
 
   const handleAddHotWord = useCallback(() => {
     const word = newHotWord.trim();
@@ -307,6 +618,132 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       toast.success(`已添加热词: ${word}`);
     }).catch(() => toast.error("添加失败"));
   }, [newHotWord, refreshProfile]);
+
+  const hotkeyStatusError = hotkeyError || hotkeyDiagnostic?.lastError || null;
+  const hotkeyBackendLabel = hotkeyDiagnostic
+    ? (hotkeyBackendLabels[hotkeyDiagnostic.backend] ?? hotkeyDiagnostic.backend)
+    : "加载中";
+  const hotkeyEventLabel = hotkeyDiagnostic?.lastEvent
+    ? (hotkeyEventLabels[hotkeyDiagnostic.lastEvent] ?? hotkeyDiagnostic.lastEvent)
+    : "暂无";
+  const selectedDeviceMissing = Boolean(selectedInputDeviceName)
+    && !inputDevices.some((device) => device.name === selectedInputDeviceName);
+  const currentLlmPreset = findLlmPreset(llmProvider);
+  const filteredProviderOptions = llmProviderOptions.filter(({ label, desc, baseUrl }) => {
+    const keyword = providerSearch.trim().toLowerCase();
+    if (!keyword) return true;
+    return label.toLowerCase().includes(keyword)
+      || desc.toLowerCase().includes(keyword)
+      || baseUrl.toLowerCase().includes(keyword);
+  });
+  const filteredAiModels = aiModels.filter((model) => {
+    const keyword = aiModelSearch.trim().toLowerCase();
+    if (!keyword) return true;
+    return model.id.toLowerCase().includes(keyword) || (model.ownedBy ?? "").toLowerCase().includes(keyword);
+  });
+  const selectedAiModel = aiModels.find((model) => model.id === customModel);
+
+  const handleProviderSelect = useCallback(async (nextProvider: string) => {
+    if (nextProvider === llmProvider) {
+      setProviderPickerOpen(false);
+      setProviderSearch("");
+      return;
+    }
+
+    updateProviderDraft(llmProvider, customBaseUrl, customModel);
+    clearPendingApiKeySave();
+    clearPendingLlmConfigSave();
+    await setAiPolishConfig(aiPolishEnabled, aiPolishApiKey).catch(() => {});
+
+    const nextDraft = resolveProviderDraft(nextProvider);
+    setLlmProvider(nextProvider);
+    setCustomBaseUrl(nextDraft.baseUrl);
+    setCustomModel(nextDraft.model);
+    updateProviderDraft(nextProvider, nextDraft.baseUrl, nextDraft.model);
+    setProviderPickerOpen(false);
+    setModelPickerOpen(false);
+    setProviderSearch("");
+    setAiModelSearch("");
+    await setLlmProviderConfig(nextProvider, nextDraft.baseUrl || undefined, nextDraft.model || undefined).catch(() => {});
+    await refreshAiPolishKey();
+  }, [
+    aiPolishApiKey,
+    aiPolishEnabled,
+    clearPendingApiKeySave,
+    clearPendingLlmConfigSave,
+    customBaseUrl,
+    customModel,
+    llmProvider,
+    refreshAiPolishKey,
+    resolveProviderDraft,
+    updateProviderDraft,
+  ]);
+
+  const handleModelSelect = useCallback((nextModel: string) => {
+    const normalizedModel = nextModel.trim();
+    if (!normalizedModel) return;
+    setCustomModel(normalizedModel);
+    updateProviderDraft(llmProvider, customBaseUrl, normalizedModel);
+    scheduleCustomLlmConfigSave(llmProvider, customBaseUrl, normalizedModel);
+    setModelPickerOpen(false);
+    setAiModelSearch("");
+  }, [customBaseUrl, llmProvider, scheduleCustomLlmConfigSave, updateProviderDraft]);
+
+  useEffect(() => {
+    if (providerPickerOpen) {
+      providerSearchInputRef.current?.focus();
+      providerSearchInputRef.current?.select();
+    }
+  }, [providerPickerOpen]);
+
+  useEffect(() => {
+    if (!providerPickerOpen && providerSearch) {
+      setProviderSearch("");
+    }
+  }, [providerPickerOpen, providerSearch]);
+
+  useEffect(() => {
+    if (modelPickerOpen) {
+      modelSearchInputRef.current?.focus();
+      modelSearchInputRef.current?.select();
+    }
+  }, [modelPickerOpen]);
+
+  useEffect(() => {
+    if (!modelPickerOpen && aiModelSearch) {
+      setAiModelSearch("");
+    }
+  }, [aiModelSearch, modelPickerOpen]);
+
+  useEffect(() => {
+    if (!providerPickerOpen && !modelPickerOpen) {
+      return;
+    }
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (providerPickerOpen && providerPickerRef.current && !providerPickerRef.current.contains(target)) {
+        setProviderPickerOpen(false);
+      }
+      if (modelPickerOpen && modelPickerRef.current && !modelPickerRef.current.contains(target)) {
+        setModelPickerOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setProviderPickerOpen(false);
+        setModelPickerOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [modelPickerOpen, providerPickerOpen]);
 
   return (
     <div className="page-root">
@@ -407,7 +844,102 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
               <p className="settings-hint">
                 点击上方按钮后按下新热键，支持 Win 组合（如 Ctrl+Win+R），也支持纯 Ctrl+Win。按 Esc 取消设置。
               </p>
-              {hotkeyError && <p className="settings-error">{hotkeyError}</p>}
+              <div className="diagnostic-grid">
+                <div className="diagnostic-item">
+                  <span className="settings-option-desc">注册状态</span>
+                  <strong>{hotkeyDiagnostic?.registered ? "已注册" : "未注册"}</strong>
+                </div>
+                <div className="diagnostic-item">
+                  <span className="settings-option-desc">监听后端</span>
+                  <strong>{hotkeyBackendLabel}</strong>
+                </div>
+                <div className="diagnostic-item">
+                  <span className="settings-option-desc">最近事件</span>
+                  <strong>{hotkeyEventLabel}</strong>
+                </div>
+                <div className="diagnostic-item">
+                  <span className="settings-option-desc">按住状态</span>
+                  <strong>{hotkeyDiagnostic?.isPressed ? "按下中" : "未按下"}</strong>
+                </div>
+                <div className="diagnostic-item">
+                  <span className="settings-option-desc">最近按下</span>
+                  <strong>{formatDiagnosticTime(hotkeyDiagnostic?.lastPressedAtMs)}</strong>
+                </div>
+                <div className="diagnostic-item">
+                  <span className="settings-option-desc">最近松开</span>
+                  <strong>{formatDiagnosticTime(hotkeyDiagnostic?.lastReleasedAtMs)}</strong>
+                </div>
+              </div>
+              {hotkeyDiagnostic?.warning && <p className="settings-hint">{hotkeyDiagnostic.warning}</p>}
+              {hotkeyStatusError && <p className="settings-error">{hotkeyStatusError}</p>}
+            </div>
+          </section>
+
+          {/* Microphone */}
+          <section className="settings-card" style={{ animationDelay: "125ms" }}>
+            <div className="settings-section-header">
+              <Mic size={15} className="icon-accent" />
+              <h2 className="settings-section-title">麦克风</h2>
+            </div>
+            <div className="settings-column">
+              <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
+                <select
+                  className="settings-input microphone-select"
+                  value={selectedInputDeviceName}
+                  disabled={deviceListLoading}
+                  onChange={(event) => {
+                    void handleInputDeviceChange(event.target.value);
+                  }}
+                >
+                  <option value="">跟随系统默认麦克风</option>
+                  {inputDevices.map((device) => (
+                    <option key={device.name} value={device.name}>
+                      {device.name}{device.isDefault ? "（系统默认）" : ""}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn-ghost"
+                  disabled={deviceListLoading}
+                  onClick={() => { void refreshInputDevices(); }}
+                  style={{ fontSize: 12, padding: "8px 10px", opacity: deviceListLoading ? 0.7 : 1 }}
+                >
+                  刷新
+                </button>
+                <button className="test-btn" onClick={async () => {
+                  try {
+                    setMicMonitorReady(false);
+                    setMicLevel(0);
+                    await stopMicrophoneLevelMonitor().catch(() => undefined);
+                    const msg = await testMicrophone();
+                    toast.success(msg);
+                    if (!isRecording) {
+                      await startMicrophoneLevelMonitor();
+                      setMicMonitorReady(true);
+                    }
+                  } catch {
+                    toast.error("麦克风测试失败");
+                  }
+                }}>测试</button>
+              </div>
+              <div className="mic-level-shell" aria-label="麦克风电平预览">
+                <div className="mic-level-fill" style={{ width: `${Math.round(micLevel * 100)}%` }} />
+              </div>
+              <div className="settings-row" style={{ gap: 10 }}>
+                <span className="settings-hint">
+                  {isRecording
+                    ? "录音中已暂停电平预览，避免和正式录音抢占设备。"
+                    : micMonitorReady
+                      ? "电平预览已开启，对着麦克风说话即可看到变化。"
+                      : "电平预览未启动，通常是设备忙或系统暂时拒绝访问。"}
+                </span>
+                <span className="settings-option-desc">{Math.round(micLevel * 100)}%</span>
+              </div>
+              {selectedDeviceMissing && (
+                <p className="settings-error">
+                  已保存的麦克风当前不可用，录音时会回退到系统默认设备。
+                </p>
+              )}
             </div>
           </section>
 
@@ -459,7 +991,14 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
           </section>
 
           {/* AI Polish + LLM Backend */}
-          <section className="settings-card" style={{ animationDelay: "200ms" }}>
+          <section
+            className="settings-card"
+            style={{
+              animationDelay: "200ms",
+              position: "relative",
+              zIndex: providerPickerOpen || modelPickerOpen ? 8 : 1,
+            }}
+          >
             <div className="settings-section-header">
               <Sparkles size={15} className="icon-accent" />
               <h2 className="settings-section-title">AI 纠错</h2>
@@ -486,100 +1025,215 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 </button>
               </div>
 
-              {/* LLM Backend Selection */}
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {llmProviderOptions.map(({ key, label, desc }) => (
-                  <button
-                    key={key}
-                    className="theme-btn settings-option-btn"
-                    aria-pressed={llmProvider === key}
-                    onClick={async () => {
-                      setLlmProvider(key);
-                      await setLlmProviderConfig(key, customBaseUrl || undefined, customModel || undefined).catch(() => {});
-                      await refreshAiPolishKey();
-                    }}
-                    style={{ flex: 1, minWidth: 90, padding: "6px 8px" }}
-                  >
-                    <span className="settings-option-label" style={{ fontSize: 12 }}>{label}</span>
-                    <span className="settings-option-desc" style={{ fontSize: 10 }}>{desc}</span>
-                  </button>
-                ))}
-              </div>
+              <div className="settings-column" style={{ gap: 10 }}>
+                <div className="settings-column" style={{ gap: 6 }}>
+                  <span className="settings-option-desc">服务商</span>
+                  <div className="picker-shell" ref={providerPickerRef}>
+                    <button
+                      type="button"
+                      className="picker-trigger"
+                      data-open={providerPickerOpen}
+                      onClick={() => {
+                        setProviderPickerOpen((open) => !open);
+                        setModelPickerOpen(false);
+                      }}
+                    >
+                      <span className="picker-trigger-copy">
+                        <strong>{currentLlmPreset.label}</strong>
+                        <span>{customBaseUrl || currentLlmPreset.baseUrl}</span>
+                      </span>
+                      <ChevronsUpDown size={14} className="icon-tertiary" />
+                    </button>
+                    {providerPickerOpen && (
+                      <div className="picker-popover">
+                        <input
+                          ref={providerSearchInputRef}
+                          type="text"
+                          className="settings-input picker-search-input"
+                          placeholder="搜索服务商、描述或地址"
+                          value={providerSearch}
+                          onChange={(e) => setProviderSearch(e.target.value)}
+                        />
+                        <div className="picker-list">
+                          {filteredProviderOptions.length > 0 ? filteredProviderOptions.map(({ key, label, desc, baseUrl }) => (
+                            <button
+                              key={key}
+                              type="button"
+                              className="picker-option"
+                              data-active={llmProvider === key}
+                              onClick={() => { void handleProviderSelect(key); }}
+                            >
+                              <span className="picker-option-copy">
+                                <strong>{label}</strong>
+                                <span>{desc}</span>
+                                <code>{baseUrl}</code>
+                              </span>
+                              {llmProvider === key ? <Check size={14} className="icon-accent" /> : null}
+                            </button>
+                          )) : (
+                            <div className="picker-empty">没有匹配的服务商。</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-              {/* Custom endpoint fields */}
-              {llmProvider === "custom" && (
-                <>
+                <div className="settings-column" style={{ gap: 6 }}>
+                  <span className="settings-option-desc">接口地址</span>
                   <input
                     type="text"
                     className="settings-input"
-                    placeholder="API Base URL (OpenAI 兼容)"
+                    placeholder="Base URL 或完整接口地址"
                     value={customBaseUrl}
                     onChange={(e) => {
                       const nextBaseUrl = e.target.value;
                       setCustomBaseUrl(nextBaseUrl);
-                      scheduleCustomLlmConfigSave(nextBaseUrl, customModel);
-                    }}
-                    style={{
-                      padding: "8px 10px", borderRadius: 8,
-                      border: "1px solid var(--color-border)",
-                      background: "var(--color-bg-secondary)",
-                      color: "var(--color-text-primary)", fontSize: 13, outline: "none",
+                      updateProviderDraft(llmProvider, nextBaseUrl, customModel);
+                      scheduleCustomLlmConfigSave(llmProvider, nextBaseUrl, customModel);
                     }}
                   />
-                  <input
-                    type="text"
-                    className="settings-input"
-                    placeholder="模型名 (如 gpt-3.5-turbo)"
-                    value={customModel}
-                    onChange={(e) => {
-                      const nextModel = e.target.value;
-                      setCustomModel(nextModel);
-                      scheduleCustomLlmConfigSave(customBaseUrl, nextModel);
-                    }}
-                    style={{
-                      padding: "8px 10px", borderRadius: 8,
-                      border: "1px solid var(--color-border)",
-                      background: "var(--color-bg-secondary)",
-                      color: "var(--color-text-primary)", fontSize: 13, outline: "none",
-                    }}
-                  />
-                </>
-              )}
+                  <p className="settings-hint">
+                    参考 Cherry Studio：可以直接填根地址，例如 `https://api.openai.com`；如果你填完整接口地址，末尾加 `#` 可阻止自动补全路由。
+                  </p>
+                </div>
 
-              <div className="settings-row" style={{ position: "relative" }}>
-                <input
-                  type={showApiKey ? "text" : "password"}
-                  className="settings-input"
-                  placeholder={`${llmProviderOptions.find(o => o.key === llmProvider)?.label ?? "LLM"} API Key`}
-                  value={aiPolishApiKey}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setAiPolishApiKey(val);
-                    if (apiKeySaveTimer.current) clearTimeout(apiKeySaveTimer.current);
-                    apiKeySaveTimer.current = setTimeout(() => {
-                      setAiPolishConfig(aiPolishEnabled, val).catch(() => {});
-                    }, 600);
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: "8px 36px 8px 10px",
-                    borderRadius: 8,
-                    border: "1px solid var(--color-border)",
-                    background: "var(--color-bg-secondary)",
-                    color: "var(--color-text-primary)",
-                    fontSize: 13,
-                    outline: "none",
-                  }}
-                />
-                <button
-                  className="icon-btn plain"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)" }}
-                  aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                >
-                  {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
+                <div className="settings-column" style={{ gap: 6 }}>
+                  <span className="settings-option-desc">API Key</span>
+                  <div className="settings-row" style={{ position: "relative" }}>
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      className="settings-input"
+                      placeholder={`${currentLlmPreset.label} API Key`}
+                      value={aiPolishApiKey}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAiPolishApiKey(val);
+                        clearPendingApiKeySave();
+                        apiKeySaveTimer.current = setTimeout(() => {
+                          setAiPolishConfig(aiPolishEnabled, val).catch(() => {});
+                        }, 600);
+                      }}
+                      style={{ flex: 1, padding: "8px 36px 8px 10px" }}
+                    />
+                    <button
+                      className="icon-btn plain"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)" }}
+                      aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                    >
+                      {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="settings-column" style={{ gap: 6 }}>
+                  <div className="settings-row">
+                    <span className="settings-option-desc">模型</span>
+                    <span className="settings-option-desc">{filteredAiModels.length}/{aiModels.length}</span>
+                  </div>
+                  <div className="picker-shell" ref={modelPickerRef}>
+                    <div className="picker-inline-row">
+                      <input
+                        type="text"
+                        className="settings-input"
+                        placeholder="模型名，可直接手动输入"
+                        value={customModel}
+                        onChange={(e) => {
+                          const nextModel = e.target.value;
+                          setCustomModel(nextModel);
+                          updateProviderDraft(llmProvider, customBaseUrl, nextModel);
+                          scheduleCustomLlmConfigSave(llmProvider, customBaseUrl, nextModel);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="picker-inline-button"
+                        data-open={modelPickerOpen}
+                        onClick={() => {
+                          setModelPickerOpen((open) => !open);
+                          setProviderPickerOpen(false);
+                        }}
+                        aria-label="打开模型列表"
+                        title="打开模型列表"
+                      >
+                        <ChevronsUpDown size={14} className="icon-tertiary" />
+                      </button>
+                    </div>
+                    <p className="settings-hint" style={{ margin: 0 }}>
+                      {selectedAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型，列表仅作参考，也可以直接手输完整模型名。` : "模型列表仅作参考，也可以直接手输完整模型名。")}
+                    </p>
+                    {modelPickerOpen && (
+                      <div className="picker-popover">
+                        <div className="picker-toolbar">
+                          <input
+                            ref={modelSearchInputRef}
+                            type="text"
+                            className="settings-input picker-search-input"
+                            placeholder="搜索模型，回车可直接使用当前输入"
+                            value={aiModelSearch}
+                            onChange={(e) => setAiModelSearch(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && aiModelSearch.trim()) {
+                                e.preventDefault();
+                                handleModelSelect(aiModelSearch);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="btn-ghost"
+                            onClick={() => { void refreshAiModels(); }}
+                            disabled={aiModelsLoading}
+                            style={{ fontSize: 12, padding: "8px 10px", opacity: aiModelsLoading ? 0.7 : 1 }}
+                          >
+                            {aiModelsLoading ? "拉取中..." : "刷新"}
+                          </button>
+                        </div>
+                        <p className="settings-hint" style={{ margin: 0 }}>
+                          {aiModelsSourceUrl ? `来源：${aiModelsSourceUrl}` : "填写 API Key 后会自动拉取，也可以手动刷新。"}
+                        </p>
+                        {aiModelSearch.trim() ? (
+                          <button
+                            type="button"
+                            className="picker-option picker-option-action"
+                            onClick={() => handleModelSelect(aiModelSearch)}
+                          >
+                            <span className="picker-option-copy">
+                              <strong>使用 {aiModelSearch.trim()}</strong>
+                              <span>作为当前模型名</span>
+                            </span>
+                          </button>
+                        ) : null}
+                        <div className="picker-list">
+                          {filteredAiModels.length > 0 ? filteredAiModels.map((model) => (
+                            <button
+                              key={model.id}
+                              type="button"
+                              className="picker-option"
+                              data-active={customModel === model.id}
+                              onClick={() => handleModelSelect(model.id)}
+                            >
+                              <span className="picker-option-copy">
+                                <strong>{model.id}</strong>
+                                <span>{model.ownedBy || currentLlmPreset.label}</span>
+                              </span>
+                              {customModel === model.id ? <Check size={14} className="icon-accent" /> : null}
+                            </button>
+                          )) : (
+                            <div className="picker-empty">
+                              {aiModelsLoading
+                                ? "正在从官方接口拉取模型列表..."
+                                : aiModelsError || "暂无模型列表，先填写接口地址和 API Key。"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
+
               <p className="settings-hint">
                 AI 纠错会自动学习你的用词习惯，并将常用词汇注入热词列表提升识别准确率。
               </p>
@@ -743,18 +1397,6 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
               <h2 className="settings-section-title">权限</h2>
             </div>
             <div className="permission-list">
-              <div className="settings-row">
-                <div className="permission-item">
-                  <Mic size={14} className="icon-tertiary" />
-                  <span className="permission-label">麦克风</span>
-                </div>
-                <button className="test-btn" onClick={async () => {
-                  try {
-                    const msg = await testMicrophone();
-                    toast.success(msg);
-                  } catch { toast.error("麦克风测试失败"); }
-                }}>测试</button>
-              </div>
               <div className="settings-row">
                 <div className="permission-item">
                   <Accessibility size={14} className="icon-tertiary" />

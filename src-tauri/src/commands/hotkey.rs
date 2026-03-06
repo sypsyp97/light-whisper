@@ -14,10 +14,20 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use tauri::{Emitter, Manager};
 #[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId};
+#[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT,
     VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RETURN,
     VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
+};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE,
+    PeekMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
@@ -82,6 +92,27 @@ fn emit_recording_error(app_handle: &tauri::AppHandle, message: &str) {
     );
 }
 
+fn hotkey_warning_message(shortcut_label: &str, backend: &str) -> Option<String> {
+    if backend == "lowLevelHook" && shortcut_label == "Ctrl+Win" {
+        return Some("纯 Ctrl+Win 当前走低层键盘钩子监听。".to_string());
+    }
+    if shortcut_label.contains("Win") {
+        return Some("部分 Win 组合键可能被系统或其他软件保留。".to_string());
+    }
+    None
+}
+
+fn update_hotkey_diagnostic<F>(app_handle: &tauri::AppHandle, update: F)
+where
+    F: FnOnce(&mut crate::state::HotkeyDiagnosticState),
+{
+    let state = app_handle.state::<AppState>();
+    let (_, snapshot) = state.update_hotkey_diagnostic(|diagnostic| {
+        update(diagnostic);
+    });
+    let _ = app_handle.emit("hotkey-diagnostic", snapshot);
+}
+
 fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String) {
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();
@@ -102,6 +133,12 @@ fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String) {
             Err(err) => {
                 let message = err.to_string();
                 log::warn!("热键 {} 开始录音失败: {}", shortcut_label, message);
+                update_hotkey_diagnostic(&app_handle, |diagnostic| {
+                    let now_ms = now_unix_ms();
+                    diagnostic.last_error = Some(message.clone());
+                    diagnostic.last_event = Some("error".to_string());
+                    diagnostic.last_event_at_ms = Some(now_ms);
+                });
                 emit_recording_error(&app_handle, &message);
             }
         }
@@ -125,6 +162,12 @@ fn handle_hotkey_stop(app_handle: tauri::AppHandle, shortcut_label: String) {
             Err(err) => {
                 let message = err.to_string();
                 log::warn!("热键 {} 停止录音失败: {}", shortcut_label, message);
+                update_hotkey_diagnostic(&app_handle, |diagnostic| {
+                    let now_ms = now_unix_ms();
+                    diagnostic.last_error = Some(message.clone());
+                    diagnostic.last_event = Some("error".to_string());
+                    diagnostic.last_event_at_ms = Some(now_ms);
+                });
                 emit_recording_error(&app_handle, &message);
             }
         }
@@ -151,6 +194,13 @@ fn dispatch_hotkey_press(app_handle: &tauri::AppHandle, pressed_log: &str, short
         .is_ok()
     {
         log::info!("{}", pressed_log);
+        update_hotkey_diagnostic(app_handle, |diagnostic| {
+            diagnostic.is_pressed = true;
+            diagnostic.last_error = None;
+            diagnostic.last_event = Some("pressed".to_string());
+            diagnostic.last_event_at_ms = Some(now_ms);
+            diagnostic.last_pressed_at_ms = Some(now_ms);
+        });
         handle_hotkey_start(app_handle.clone(), shortcut_label.to_string());
     }
 }
@@ -162,15 +212,23 @@ fn dispatch_hotkey_release(
 ) {
     let gate = hotkey_event_gate();
     if gate.is_pressed.swap(false, Ordering::AcqRel) {
-        gate.last_release_ms.store(now_unix_ms(), Ordering::Release);
+        let now_ms = now_unix_ms();
+        gate.last_release_ms.store(now_ms, Ordering::Release);
         log::info!("{}", released_log);
+        update_hotkey_diagnostic(app_handle, |diagnostic| {
+            diagnostic.is_pressed = false;
+            diagnostic.last_error = None;
+            diagnostic.last_event = Some("released".to_string());
+            diagnostic.last_event_at_ms = Some(now_ms);
+            diagnostic.last_released_at_ms = Some(now_ms);
+        });
         handle_hotkey_stop(app_handle.clone(), shortcut_label.to_string());
     }
 }
 
 #[cfg(target_os = "windows")]
 struct ModifierOnlyHotkeyMonitor {
-    stop_flag: Arc<AtomicBool>,
+    thread_id: u32,
     handle: JoinHandle<()>,
 }
 
@@ -178,6 +236,106 @@ struct ModifierOnlyHotkeyMonitor {
 fn modifier_monitor_slot() -> &'static Mutex<Option<ModifierOnlyHotkeyMonitor>> {
     static SLOT: OnceLock<Mutex<Option<ModifierOnlyHotkeyMonitor>>> = OnceLock::new();
     SLOT.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(target_os = "windows")]
+struct CtrlSuperHookState {
+    app_handle: tauri::AppHandle,
+    ctrl_down: AtomicBool,
+    win_down: AtomicBool,
+}
+
+#[cfg(target_os = "windows")]
+fn ctrl_super_hook_state_slot() -> &'static Mutex<Option<Arc<CtrlSuperHookState>>> {
+    static SLOT: OnceLock<Mutex<Option<Arc<CtrlSuperHookState>>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(target_os = "windows")]
+fn set_ctrl_super_hook_state(state: Option<Arc<CtrlSuperHookState>>) {
+    let mut guard = match ctrl_super_hook_state_slot().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard = state;
+}
+
+#[cfg(target_os = "windows")]
+fn ctrl_super_hook_state() -> Option<Arc<CtrlSuperHookState>> {
+    let guard = match ctrl_super_hook_state_slot().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    guard.clone()
+}
+
+#[cfg(target_os = "windows")]
+fn release_ctrl_super_if_needed(state: &CtrlSuperHookState, message: &str) {
+    state.ctrl_down.store(false, Ordering::Release);
+    state.win_down.store(false, Ordering::Release);
+    dispatch_hotkey_release(&state.app_handle, message, "Ctrl+Win");
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn ctrl_super_low_level_keyboard_proc(
+    n_code: i32,
+    w_param: WPARAM,
+    l_param: LPARAM,
+) -> LRESULT {
+    if n_code != HC_ACTION as i32 {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param) };
+    }
+
+    let Some(state) = ctrl_super_hook_state() else {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param) };
+    };
+
+    let keyboard = unsafe { &*(l_param as *const KBDLLHOOKSTRUCT) };
+    let message = w_param as u32;
+    let is_key_down = matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN);
+    let is_key_up = matches!(message, WM_KEYUP | WM_SYSKEYUP);
+    if !is_key_down && !is_key_up {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param) };
+    }
+
+    let vk = keyboard.vkCode;
+    let is_ctrl_key = vk == VK_LCONTROL as u32 || vk == VK_RCONTROL as u32;
+    let is_win_key = vk == VK_LWIN as u32 || vk == VK_RWIN as u32;
+    if !is_ctrl_key && !is_win_key {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param) };
+    }
+
+    let ctrl_before = state.ctrl_down.load(Ordering::Acquire);
+    let win_before = state.win_down.load(Ordering::Acquire);
+    let active_before = ctrl_before && win_before;
+
+    let mut ctrl_after = ctrl_before;
+    let mut win_after = win_before;
+
+    if is_ctrl_key {
+        ctrl_after = is_key_down;
+        state.ctrl_down.store(ctrl_after, Ordering::Release);
+    }
+    if is_win_key {
+        win_after = is_key_down;
+        state.win_down.store(win_after, Ordering::Release);
+    }
+
+    let active_after = ctrl_after && win_after;
+    if active_after && !active_before {
+        dispatch_hotkey_press(&state.app_handle, "Ctrl+Win 按下，开始录音", "Ctrl+Win");
+    } else if active_before && !active_after {
+        dispatch_hotkey_release(&state.app_handle, "Ctrl+Win 松开，停止录音", "Ctrl+Win");
+    }
+
+    // Pure Ctrl+Win needs Win-key suppression; otherwise Windows still handles the
+    // release and may pop system UI even though we already consumed it as a hotkey.
+    let should_swallow = is_win_key && (active_before || active_after || ctrl_before || ctrl_after);
+    if should_swallow {
+        return 1;
+    }
+
+    unsafe { CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param) }
 }
 
 #[cfg(target_os = "windows")]
@@ -191,7 +349,7 @@ fn stop_modifier_only_hotkey_monitor() {
     };
 
     if let Some(monitor) = monitor {
-        monitor.stop_flag.store(true, Ordering::Relaxed);
+        let _ = unsafe { PostThreadMessageW(monitor.thread_id, WM_QUIT, 0, 0) };
         let _ = monitor.handle.join();
     }
 }
@@ -313,43 +471,81 @@ fn start_ctrl_super_modifier_only_hotkey_monitor(
     app_handle: tauri::AppHandle,
 ) -> Result<(), AppError> {
     stop_modifier_only_hotkey_monitor();
-
-    let stop_flag = Arc::new(AtomicBool::new(false));
-    let stop_flag_clone = stop_flag.clone();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
 
     let handle = std::thread::Builder::new()
         .name("ctrl-win-hotkey-monitor".to_string())
         .spawn(move || {
-            let mut was_active = false;
+            let thread_id = unsafe { GetCurrentThreadId() };
+            let state = Arc::new(CtrlSuperHookState {
+                app_handle: app_handle.clone(),
+                ctrl_down: AtomicBool::new(false),
+                win_down: AtomicBool::new(false),
+            });
 
-            while !stop_flag_clone.load(Ordering::Relaxed) {
-                let ctrl_down = is_key_down(VK_LCONTROL as i32) || is_key_down(VK_RCONTROL as i32);
-                let win_down = is_key_down(VK_LWIN as i32) || is_key_down(VK_RWIN as i32);
-                let is_active = ctrl_down && win_down;
+            set_ctrl_super_hook_state(Some(state.clone()));
 
-                if is_active != was_active {
-                    was_active = is_active;
-                    if is_active {
-                        dispatch_hotkey_press(&app_handle, "Ctrl+Win 按下，开始录音", "Ctrl+Win");
-                    } else {
-                        dispatch_hotkey_release(&app_handle, "Ctrl+Win 松开，停止录音", "Ctrl+Win");
-                    }
+            let module = unsafe { GetModuleHandleW(std::ptr::null()) };
+            let hook = unsafe {
+                SetWindowsHookExW(
+                    WH_KEYBOARD_LL,
+                    Some(ctrl_super_low_level_keyboard_proc),
+                    module,
+                    0,
+                )
+            };
+
+            if hook.is_null() {
+                set_ctrl_super_hook_state(None);
+                let _ = ready_tx.send(Err(format!(
+                    "安装 Ctrl+Win 键盘钩子失败: {}",
+                    std::io::Error::last_os_error()
+                )));
+                return;
+            }
+
+            let mut peek_msg: MSG = unsafe { std::mem::zeroed() };
+            let _ = unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
+
+            if ready_tx.send(Ok(thread_id)).is_err() {
+                unsafe {
+                    UnhookWindowsHookEx(hook);
                 }
-
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                release_ctrl_super_if_needed(&state, "Ctrl+Win 监听结束，补发松开事件");
+                set_ctrl_super_hook_state(None);
+                return;
             }
 
-            if was_active {
-                dispatch_hotkey_release(&app_handle, "Ctrl+Win 监听结束，补发松开事件", "Ctrl+Win");
+            let mut message: MSG = unsafe { std::mem::zeroed() };
+            loop {
+                let result = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
+                if result <= 0 {
+                    break;
+                }
+                unsafe {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
             }
+
+            unsafe {
+                UnhookWindowsHookEx(hook);
+            }
+            release_ctrl_super_if_needed(&state, "Ctrl+Win 监听结束，补发松开事件");
+            set_ctrl_super_hook_state(None);
         })
         .map_err(|e| AppError::Other(format!("启动 Ctrl+Win 热键监听失败: {}", e)))?;
+
+    let thread_id = ready_rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|e| AppError::Other(format!("等待 Ctrl+Win 热键监听就绪超时: {}", e)))?
+        .map_err(AppError::Other)?;
 
     let mut guard = match modifier_monitor_slot().lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
-    *guard = Some(ModifierOnlyHotkeyMonitor { stop_flag, handle });
+    *guard = Some(ModifierOnlyHotkeyMonitor { thread_id, handle });
     Ok(())
 }
 
@@ -450,14 +646,55 @@ pub async fn register_custom_hotkey(
 ) -> Result<String, AppError> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-    let normalized = normalize_shortcut(&shortcut)?;
+    let normalized = match normalize_shortcut(&shortcut) {
+        Ok(normalized) => normalized,
+        Err(err) => {
+            let now_ms = now_unix_ms();
+            update_hotkey_diagnostic(&app_handle, |diagnostic| {
+                diagnostic.shortcut = shortcut.replace("Super", "Win");
+                diagnostic.registered = false;
+                diagnostic.backend = "none".to_string();
+                diagnostic.is_pressed = false;
+                diagnostic.last_error = Some(err.to_string());
+                diagnostic.warning = None;
+                diagnostic.last_event = Some("error".to_string());
+                diagnostic.last_event_at_ms = Some(now_ms);
+            });
+            return Err(err);
+        }
+    };
     stop_modifier_only_hotkey_monitor();
     reset_hotkey_event_gate();
 
     let _ = app_handle.global_shortcut().unregister_all();
 
     if let ShortcutRegistrationMode::CtrlSuperModifierOnly = normalized {
-        start_ctrl_super_modifier_only_hotkey_monitor(app_handle.clone())?;
+        start_ctrl_super_modifier_only_hotkey_monitor(app_handle.clone()).map_err(|err| {
+            let now_ms = now_unix_ms();
+            update_hotkey_diagnostic(&app_handle, |diagnostic| {
+                diagnostic.shortcut = "Ctrl+Win".to_string();
+                diagnostic.registered = false;
+                diagnostic.backend = "lowLevelHook".to_string();
+                diagnostic.is_pressed = false;
+                diagnostic.last_error = Some(err.to_string());
+                diagnostic.warning = hotkey_warning_message("Ctrl+Win", "lowLevelHook");
+                diagnostic.last_event = Some("error".to_string());
+                diagnostic.last_event_at_ms = Some(now_ms);
+            });
+            err
+        })?;
+        let now_ms = now_unix_ms();
+        update_hotkey_diagnostic(&app_handle, |diagnostic| {
+            diagnostic.shortcut = "Ctrl+Win".to_string();
+            diagnostic.registered = true;
+            diagnostic.backend = "lowLevelHook".to_string();
+            diagnostic.is_pressed = false;
+            diagnostic.last_error = None;
+            diagnostic.warning = hotkey_warning_message("Ctrl+Win", "lowLevelHook");
+            diagnostic.last_event = Some("registered".to_string());
+            diagnostic.last_event_at_ms = Some(now_ms);
+            diagnostic.last_registered_at_ms = Some(now_ms);
+        });
         log::info!("自定义快捷键 Ctrl+Win 已注册（纯修饰键监听）");
         return Ok("快捷键 Ctrl+Win 已注册".to_string());
     }
@@ -494,12 +731,36 @@ pub async fn register_custom_hotkey(
             if normalized_shortcut.to_ascii_lowercase().contains("super+") {
                 hint.push_str("部分 Win 组合键被系统保留，建议尝试 Ctrl+Alt/Shift+字母。");
             }
-            AppError::Other(format!(
+            let error = AppError::Other(format!(
                 "注册快捷键 {} 失败: {}。{}",
                 normalized_shortcut, e, hint
-            ))
+            ));
+            let now_ms = now_unix_ms();
+            update_hotkey_diagnostic(&app_handle, |diagnostic| {
+                diagnostic.shortcut = shortcut_label.clone();
+                diagnostic.registered = false;
+                diagnostic.backend = "globalShortcut".to_string();
+                diagnostic.is_pressed = false;
+                diagnostic.last_error = Some(error.to_string());
+                diagnostic.warning = hotkey_warning_message(&shortcut_label, "globalShortcut");
+                diagnostic.last_event = Some("error".to_string());
+                diagnostic.last_event_at_ms = Some(now_ms);
+            });
+            error
         })?;
 
+    let now_ms = now_unix_ms();
+    update_hotkey_diagnostic(&app_handle, |diagnostic| {
+        diagnostic.shortcut = shortcut_label.clone();
+        diagnostic.registered = true;
+        diagnostic.backend = "globalShortcut".to_string();
+        diagnostic.is_pressed = false;
+        diagnostic.last_error = None;
+        diagnostic.warning = hotkey_warning_message(&shortcut_label, "globalShortcut");
+        diagnostic.last_event = Some("registered".to_string());
+        diagnostic.last_event_at_ms = Some(now_ms);
+        diagnostic.last_registered_at_ms = Some(now_ms);
+    });
     log::info!("自定义快捷键 {} 已注册", normalized_shortcut);
     Ok(format!("快捷键 {} 已注册", shortcut_label))
 }
@@ -515,6 +776,22 @@ pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<Stri
         .unregister_all()
         .map_err(|e| AppError::Other(format!("注销所有快捷键失败: {}", e)))?;
 
+    let now_ms = now_unix_ms();
+    update_hotkey_diagnostic(&app_handle, |diagnostic| {
+        diagnostic.registered = false;
+        diagnostic.is_pressed = false;
+        diagnostic.last_error = None;
+        diagnostic.last_event = Some("unregistered".to_string());
+        diagnostic.last_event_at_ms = Some(now_ms);
+    });
+
     log::info!("所有全局快捷键已注销");
     Ok("所有全局快捷键已注销".to_string())
+}
+
+#[tauri::command]
+pub async fn get_hotkey_diagnostic(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::state::HotkeyDiagnosticState, AppError> {
+    Ok(state.hotkey_diagnostic_snapshot())
 }

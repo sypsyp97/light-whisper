@@ -1,6 +1,6 @@
 pub mod app_state;
 pub mod user_profile;
 pub use app_state::{
-    AppState, DownloadTask, FunasrProcess, InterimCache, PendingRecordingSession, RecordingSession,
-    RecordingSlot,
+    AppState, DownloadTask, FunasrProcess, HotkeyDiagnosticState, InterimCache,
+    MicrophoneLevelMonitor, PendingRecordingSession, RecordingSession, RecordingSlot,
 };

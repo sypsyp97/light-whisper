@@ -1,11 +1,14 @@
+import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
+  getHotkeyDiagnostic,
   registerCustomHotkey,
   unregisterAllHotkeys,
 } from "@/api/tauri";
 import { DEFAULT_HOTKEY, HOTKEY_STORAGE_KEY } from "@/lib/constants";
 import { formatHotkeyForDisplay, normalizeHotkey } from "@/lib/hotkey";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
+import type { HotkeyDiagnostic } from "@/types";
 
 interface UseHotkeyReturn {
   /** A human-readable string describing the current hotkey (e.g. "F2"). */
@@ -14,6 +17,8 @@ interface UseHotkeyReturn {
   setHotkey: (shortcut: string) => Promise<void>;
   /** Error message if registration failed. */
   error: string | null;
+  /** Runtime diagnostic state emitted by the backend hotkey layer. */
+  diagnostic: HotkeyDiagnostic | null;
 }
 
 function readStoredHotkey(): string {
@@ -35,6 +40,7 @@ function writeStoredHotkey(shortcut: string): void {
 export function useHotkey(): UseHotkeyReturn {
   const [error, setError] = useState<string | null>(null);
   const [hotkeyRaw, setHotkeyRaw] = useState<string>(() => readStoredHotkey());
+  const [diagnostic, setDiagnostic] = useState<HotkeyDiagnostic | null>(null);
   const hotkeyDisplay = formatHotkeyForDisplay(hotkeyRaw);
 
   const mountedRef = useRef(true);
@@ -89,9 +95,41 @@ export function useHotkey(): UseHotkeyReturn {
     };
   }, [register]);
 
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: null | (() => void) = null;
+
+    void getHotkeyDiagnostic()
+      .then((payload) => {
+        if (!disposed) setDiagnostic(payload);
+      })
+      .catch(() => undefined);
+
+    void (async () => {
+      try {
+        unlisten = await listen<HotkeyDiagnostic>("hotkey-diagnostic", (event) => {
+          if (!disposed) setDiagnostic(event.payload);
+        });
+
+        if (disposed && unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      } catch {
+        // 忽略热键诊断监听失败
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
   return {
     hotkeyDisplay,
     setHotkey,
     error,
+    diagnostic,
   };
 }

@@ -39,6 +39,8 @@ pub(crate) async fn start_recording_inner(
         return Err(AppError::Audio(RECORDING_NOT_READY_ERROR.into()));
     }
 
+    audio_service::stop_microphone_level_monitor(state);
+
     let (session_id, stop_flag, stop_notify) = {
         let mut guard = match state.recording.lock() {
             Ok(guard) => guard,
@@ -68,7 +70,11 @@ pub(crate) async fn start_recording_inner(
         Arc::new(std::sync::Mutex::new(None));
 
     let (audio_thread, actual_sample_rate) =
-        match audio_service::spawn_audio_capture_thread(stop_flag.clone(), samples.clone()) {
+        match audio_service::spawn_audio_capture_thread(
+            stop_flag.clone(),
+            samples.clone(),
+            state.selected_input_device_name(),
+        ) {
             Ok(result) => result,
             Err(err) => {
                 clear_pending_recording_if_current(state, session_id);
@@ -245,10 +251,46 @@ pub async fn stop_recording(
 }
 
 #[tauri::command]
-pub async fn test_microphone() -> Result<String, AppError> {
-    tokio::task::spawn_blocking(audio_service::test_microphone_sync)
+pub async fn test_microphone(state: tauri::State<'_, AppState>) -> Result<String, AppError> {
+    let selected_device_name = state.selected_input_device_name();
+    tokio::task::spawn_blocking(move || audio_service::test_microphone_sync(selected_device_name))
         .await
         .map_err(|e| AppError::Audio(format!("麦克风测试任务失败: {}", e)))?
+}
+
+#[tauri::command]
+pub async fn list_input_devices(
+    state: tauri::State<'_, AppState>,
+) -> Result<audio_service::InputDeviceListPayload, AppError> {
+    let selected_device_name = state.selected_input_device_name();
+    tokio::task::spawn_blocking(move || audio_service::list_input_devices_sync(selected_device_name))
+        .await
+        .map_err(|e| AppError::Audio(format!("设备枚举任务失败: {}", e)))?
+}
+
+#[tauri::command]
+pub async fn set_input_device(
+    state: tauri::State<'_, AppState>,
+    name: Option<String>,
+) -> Result<(), AppError> {
+    state.set_selected_input_device_name(name);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_microphone_level_monitor(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, AppError> {
+    audio_service::start_microphone_level_monitor(app_handle, state.inner())
+}
+
+#[tauri::command]
+pub async fn stop_microphone_level_monitor(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), AppError> {
+    audio_service::stop_microphone_level_monitor(state.inner());
+    Ok(())
 }
 
 #[tauri::command]

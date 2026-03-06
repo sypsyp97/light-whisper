@@ -5,7 +5,10 @@ import {
   isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
 import type {
+  AiModelListPayload,
   FunASRStatus,
+  HotkeyDiagnostic,
+  InputDeviceListPayload,
   ModelCheckResult,
   TranscriptionResult,
   UserProfile,
@@ -67,6 +70,13 @@ export function registerCustomHotkey(shortcut: string): Promise<string> {
 export const startRecording = createNoArgCommand<number>("start_recording");
 export const stopRecording = createNoArgCommand<void>("stop_recording");
 export const testMicrophone = createNoArgCommand<string>("test_microphone");
+export const listInputDevices = createNoArgCommand<InputDeviceListPayload>("list_input_devices");
+export const startMicrophoneLevelMonitor = createNoArgCommand<string>("start_microphone_level_monitor");
+export const stopMicrophoneLevelMonitor = createNoArgCommand<void>("stop_microphone_level_monitor");
+
+export function setInputDevice(name?: string | null): Promise<void> {
+  return invokeCommand<void>("set_input_device", { name: name ?? null });
+}
 
 export function setInputMethodCommand(method: string): Promise<void> {
   return invokeCommand<void>("set_input_method", { method });
@@ -82,6 +92,18 @@ export function setAiPolishConfig(enabled: boolean, apiKey: string): Promise<voi
 
 export function getAiPolishApiKey(): Promise<string> {
   return invokeCommand<string>("get_ai_polish_api_key");
+}
+
+export function listAiModels(
+  provider: string,
+  baseUrl: string | undefined,
+  apiKey: string,
+): Promise<AiModelListPayload> {
+  return invokeCommand<AiModelListPayload>("list_ai_models", {
+    provider,
+    baseUrl: baseUrl ?? null,
+    apiKey,
+  });
 }
 
 // Profile commands
@@ -108,6 +130,7 @@ export function setLlmProviderConfig(
 }
 
 export const exportUserProfile = createNoArgCommand<string>("export_user_profile");
+export const getHotkeyDiagnostic = createNoArgCommand<HotkeyDiagnostic>("get_hotkey_diagnostic");
 
 export function importUserProfile(jsonData: string): Promise<void> {
   return invokeCommand<void>("import_user_profile", { jsonData });

@@ -95,13 +95,19 @@ pub fn run() {
             commands::window::hide_subtitle_window,
             commands::hotkey::register_custom_hotkey,
             commands::hotkey::unregister_all_hotkeys,
+            commands::hotkey::get_hotkey_diagnostic,
             commands::audio::start_recording,
             commands::audio::stop_recording,
             commands::audio::test_microphone,
+            commands::audio::list_input_devices,
+            commands::audio::set_input_device,
+            commands::audio::start_microphone_level_monitor,
+            commands::audio::stop_microphone_level_monitor,
             commands::audio::set_input_method,
             commands::audio::set_sound_enabled,
             commands::ai_polish::set_ai_polish_config,
             commands::ai_polish::get_ai_polish_api_key,
+            commands::ai_polish::list_ai_models,
             commands::profile::get_user_profile,
             commands::profile::add_hot_word,
             commands::profile::remove_hot_word,
@@ -219,6 +225,7 @@ fn toggle_main_window(app: &tauri::AppHandle) {
 
 fn stop_funasr_on_exit(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
+    services::audio_service::stop_microphone_level_monitor(state.inner());
 
     // 停止正在进行的录音
     {

@@ -38,6 +38,40 @@ export interface HistoryItem {
   timeDisplay: string;
 }
 
+export interface InputDeviceInfo {
+  name: string;
+  isDefault: boolean;
+}
+
+export interface InputDeviceListPayload {
+  devices: InputDeviceInfo[];
+  selectedDeviceName?: string | null;
+}
+
+export interface HotkeyDiagnostic {
+  shortcut: string;
+  registered: boolean;
+  backend: string;
+  isPressed: boolean;
+  lastError?: string | null;
+  warning?: string | null;
+  lastEvent?: string | null;
+  lastEventAtMs?: number | null;
+  lastRegisteredAtMs?: number | null;
+  lastPressedAtMs?: number | null;
+  lastReleasedAtMs?: number | null;
+}
+
+export interface AiModelInfo {
+  id: string;
+  ownedBy?: string | null;
+}
+
+export interface AiModelListPayload {
+  models: AiModelInfo[];
+  sourceUrl: string;
+}
+
 // 热词来源
 export type HotWordSource = "user" | "learned";
 

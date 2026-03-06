@@ -1,13 +1,14 @@
 use std::borrow::Cow;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
+use serde::Serialize;
 
 use tauri::{Emitter, Manager};
 
 use crate::services::{ai_polish_service, funasr_service};
-use crate::state::{AppState, RecordingSession, RecordingSlot};
+use crate::state::{AppState, MicrophoneLevelMonitor, RecordingSession, RecordingSlot};
 use crate::utils::AppError;
 
 // ---------- 常量 ----------
@@ -28,6 +29,21 @@ const RESULT_HIDE_DELAY_MS: u64 = 2500;
 const EMPTY_RESULT_HIDE_DELAY_MS: u64 = 360;
 const PASTE_DELAY_MS: u64 = 260;
 const AUDIO_CAPTURE_INIT_TIMEOUT_SECS: u64 = 8;
+const MICROPHONE_LEVEL_EMIT_INTERVAL_MS: u64 = 70;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputDeviceInfo {
+    pub name: String,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputDeviceListPayload {
+    pub devices: Vec<InputDeviceInfo>,
+    pub selected_device_name: Option<String>,
+}
 
 // ---------- WAV 编码 ----------
 
@@ -87,10 +103,131 @@ fn resample_to_16k<'a>(input: &'a [i16], input_rate: u32) -> Cow<'a, [i16]> {
 
 // ---------- cpal 音频捕获 ----------
 
+fn resolve_input_device(
+    preferred_name: Option<&str>,
+) -> Result<(cpal::Device, String), AppError> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    let host = cpal::default_host();
+
+    if let Some(name) = preferred_name.filter(|name| !name.trim().is_empty()) {
+        if let Ok(devices) = host.input_devices() {
+            for device in devices {
+                let device_name = device.name().unwrap_or_else(|_| "未知设备".into());
+                if device_name == name {
+                    return Ok((device, device_name));
+                }
+            }
+        }
+        log::warn!("指定麦克风不可用，回退到默认设备: {}", name);
+    }
+
+    let device = host
+        .default_input_device()
+        .ok_or_else(|| AppError::Audio("未找到可用的音频输入设备".into()))?;
+    let device_name = device.name().unwrap_or_else(|_| "未知设备".into());
+    Ok((device, device_name))
+}
+
+fn load_best_input_config(device: &cpal::Device) -> Result<cpal::SupportedStreamConfig, AppError> {
+    use cpal::traits::DeviceTrait;
+
+    let supported: Vec<_> = device
+        .supported_input_configs()
+        .map_err(|e| AppError::Audio(format!("查询音频设备配置失败: {}", e)))?
+        .collect();
+
+    if supported.is_empty() {
+        return Err(AppError::Audio("音频设备不支持任何输入配置".into()));
+    }
+
+    find_best_config(&supported)
+}
+
+pub fn list_input_devices_sync(
+    selected_device_name: Option<String>,
+) -> Result<InputDeviceListPayload, AppError> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    let host = cpal::default_host();
+    let default_name = host
+        .default_input_device()
+        .and_then(|device| device.name().ok());
+
+    let mut devices = Vec::new();
+    for device in host
+        .input_devices()
+        .map_err(|e| AppError::Audio(format!("枚举音频输入设备失败: {}", e)))?
+    {
+        let name = device.name().unwrap_or_else(|_| "未知设备".into());
+        let is_default = default_name.as_deref() == Some(name.as_str());
+        devices.push(InputDeviceInfo { name, is_default });
+    }
+
+    devices.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(InputDeviceListPayload {
+        devices,
+        selected_device_name,
+    })
+}
+
+fn mono_peak_i16(data: &[i16], channels: usize) -> u32 {
+    if channels <= 1 {
+        data.iter()
+            .map(|sample| sample.unsigned_abs() as u32)
+            .max()
+            .unwrap_or(0)
+    } else {
+        data.chunks_exact(channels)
+            .map(|frame| {
+                let sum: i32 = frame.iter().map(|&sample| sample as i32).sum();
+                (sum / channels as i32).unsigned_abs()
+            })
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+fn mono_peak_f32(data: &[f32], channels: usize) -> u32 {
+    if channels <= 1 {
+        data.iter()
+            .map(|&sample| f32_to_i16(sample).unsigned_abs() as u32)
+            .max()
+            .unwrap_or(0)
+    } else {
+        data.chunks_exact(channels)
+            .map(|frame| f32_to_i16(frame.iter().sum::<f32>() / channels as f32).unsigned_abs() as u32)
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+fn mono_peak_u16(data: &[u16], channels: usize) -> u32 {
+    if channels <= 1 {
+        data.iter()
+            .map(|&sample| u16_to_i16(sample).unsigned_abs() as u32)
+            .max()
+            .unwrap_or(0)
+    } else {
+        data.chunks_exact(channels)
+            .map(|frame| {
+                let sum: u64 = frame.iter().map(|&sample| sample as u64).sum();
+                u16_to_i16((sum / channels as u64) as u16).unsigned_abs() as u32
+            })
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+fn peak_to_meter_value(peak: u32) -> u32 {
+    ((peak.min(32767) as f32 / 32767.0) * 1000.0).round() as u32
+}
+
 /// 启动音频捕获线程。全部设备逻辑在线程内完成，sample_rate 通过 channel 回传。
 pub fn spawn_audio_capture_thread(
     stop_flag: Arc<AtomicBool>,
     samples: Arc<std::sync::Mutex<Vec<i16>>>,
+    selected_device_name: Option<String>,
 ) -> Result<(std::thread::JoinHandle<()>, u32), AppError> {
     let (rate_tx, rate_rx) = std::sync::mpsc::sync_channel::<Result<u32, String>>(1);
     let stop_for_thread = stop_flag.clone();
@@ -98,34 +235,19 @@ pub fn spawn_audio_capture_thread(
     let handle = std::thread::Builder::new()
         .name("audio-capture".into())
         .spawn(move || {
-            use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+            use cpal::traits::{DeviceTrait, StreamTrait};
 
-            let host = cpal::default_host();
-            let device = match host.default_input_device() {
-                Some(d) => d,
-                None => {
-                    let _ = rate_tx.send(Err("未找到可用的音频输入设备".into()));
+            let (device, device_name) = match resolve_input_device(selected_device_name.as_deref()) {
+                Ok(result) => result,
+                Err(err) => {
+                    let _ = rate_tx.send(Err(err.to_string()));
                     return;
                 }
             };
 
-            let device_name = device.name().unwrap_or_else(|_| "未知设备".into());
             log::info!("使用音频输入设备: {}", device_name);
 
-            let supported: Vec<_> = match device.supported_input_configs() {
-                Ok(iter) => iter.collect(),
-                Err(e) => {
-                    let _ = rate_tx.send(Err(format!("查询音频设备配置失败: {}", e)));
-                    return;
-                }
-            };
-
-            if supported.is_empty() {
-                let _ = rate_tx.send(Err("音频设备不支持任何输入配置".into()));
-                return;
-            }
-
-            let config = match find_best_config(&supported) {
+            let config = match load_best_input_config(&device) {
                 Ok(c) => c,
                 Err(e) => {
                     let _ = rate_tx.send(Err(e.to_string()));
@@ -804,22 +926,180 @@ async fn do_paste(app_handle: &tauri::AppHandle, text: &str) {
     }
 }
 
-// ---------- 麦克风测试 ----------
+// ---------- 麦克风测试 / 预览 ----------
 
-pub fn test_microphone_sync() -> Result<String, AppError> {
-    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+pub fn stop_microphone_level_monitor(state: &AppState) {
+    let monitor = match state.microphone_level_monitor.lock() {
+        Ok(mut guard) => guard.take(),
+        Err(poisoned) => {
+            log::warn!("麦克风预览锁已污染，继续使用恢复后的状态");
+            poisoned.into_inner().take()
+        }
+    };
 
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| AppError::Audio("未找到可用的音频输入设备".into()))?;
+    if let Some(mut monitor) = monitor {
+        monitor.stop_flag.store(true, Ordering::Relaxed);
+        if let Some(handle) = monitor.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
 
-    let device_name = device.name().unwrap_or_else(|_| "未知设备".into());
+pub fn start_microphone_level_monitor(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, AppError> {
+    use cpal::traits::{DeviceTrait, StreamTrait};
 
-    let config = device
-        .default_input_config()
-        .map_err(|e| AppError::Audio(format!("获取默认音频配置失败: {}", e)))?;
+    stop_microphone_level_monitor(state);
 
+    let selected_device_name = state.selected_input_device_name();
+    let (device, device_name) = resolve_input_device(selected_device_name.as_deref())?;
+    let config = load_best_input_config(&device)?;
+    let sample_format = config.sample_format();
+    let channels = config.channels() as usize;
+
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let stop_for_thread = stop_flag.clone();
+
+    let handle = std::thread::Builder::new()
+        .name("microphone-level-monitor".into())
+        .spawn({
+            let app_handle = app_handle.clone();
+            let device_name = device_name.clone();
+            move || {
+                let peak_meter = Arc::new(AtomicU32::new(0));
+
+                let err_callback = |err: cpal::StreamError| {
+                    log::warn!("麦克风预览流错误: {}", err);
+                };
+
+                let stream = match sample_format {
+                    cpal::SampleFormat::I16 => {
+                        let peak_meter = peak_meter.clone();
+                        device.build_input_stream(
+                            &config.into(),
+                            move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                                let peak = peak_to_meter_value(mono_peak_i16(data, channels));
+                                peak_meter.fetch_max(peak, Ordering::AcqRel);
+                            },
+                            err_callback,
+                            None,
+                        )
+                    }
+                    cpal::SampleFormat::F32 => {
+                        let peak_meter = peak_meter.clone();
+                        device.build_input_stream(
+                            &config.into(),
+                            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                                let peak = peak_to_meter_value(mono_peak_f32(data, channels));
+                                peak_meter.fetch_max(peak, Ordering::AcqRel);
+                            },
+                            err_callback,
+                            None,
+                        )
+                    }
+                    cpal::SampleFormat::U16 => {
+                        let peak_meter = peak_meter.clone();
+                        device.build_input_stream(
+                            &config.into(),
+                            move |data: &[u16], _: &cpal::InputCallbackInfo| {
+                                let peak = peak_to_meter_value(mono_peak_u16(data, channels));
+                                peak_meter.fetch_max(peak, Ordering::AcqRel);
+                            },
+                            err_callback,
+                            None,
+                        )
+                    }
+                    other => {
+                        let _ = ready_tx.send(Err(format!("麦克风预览不支持的采样格式: {:?}", other)));
+                        return;
+                    }
+                };
+
+                let stream = match stream {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        let _ = ready_tx.send(Err(format!("创建麦克风预览流失败: {}", err)));
+                        return;
+                    }
+                };
+
+                if let Err(err) = stream.play() {
+                    let _ = ready_tx.send(Err(format!("启动麦克风预览流失败: {}", err)));
+                    return;
+                }
+
+                let _ = ready_tx.send(Ok(()));
+
+                while !stop_for_thread.load(Ordering::Relaxed) {
+                    let meter = peak_meter.swap(0, Ordering::AcqRel) as f32 / 1000.0;
+                    let _ = app_handle.emit(
+                        "microphone-level",
+                        serde_json::json!({
+                            "deviceName": device_name,
+                            "level": meter.clamp(0.0, 1.0),
+                        }),
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        MICROPHONE_LEVEL_EMIT_INTERVAL_MS,
+                    ));
+                }
+
+                let _ = app_handle.emit(
+                    "microphone-level",
+                    serde_json::json!({
+                        "deviceName": device_name,
+                        "level": 0.0,
+                    }),
+                );
+                drop(stream);
+            }
+        })
+        .map_err(|e| AppError::Audio(format!("创建麦克风预览线程失败: {}", e)))?;
+
+    match ready_rx.recv_timeout(std::time::Duration::from_secs(3)) {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            stop_flag.store(true, Ordering::Relaxed);
+            let _ = handle.join();
+            return Err(AppError::Audio(err));
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            stop_flag.store(true, Ordering::Relaxed);
+            let _ = handle.join();
+            return Err(AppError::Audio("麦克风预览启动超时".into()));
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            return Err(AppError::Audio("麦克风预览线程未返回结果".into()));
+        }
+    }
+
+    match state.microphone_level_monitor.lock() {
+        Ok(mut guard) => {
+            *guard = Some(MicrophoneLevelMonitor {
+                stop_flag,
+                handle: Some(handle),
+            });
+        }
+        Err(poisoned) => {
+            log::warn!("麦克风预览锁已污染，继续使用恢复后的状态");
+            *poisoned.into_inner() = Some(MicrophoneLevelMonitor {
+                stop_flag,
+                handle: Some(handle),
+            });
+        }
+    }
+
+    Ok(device_name)
+}
+
+pub fn test_microphone_sync(selected_device_name: Option<String>) -> Result<String, AppError> {
+    use cpal::traits::{DeviceTrait, StreamTrait};
+
+    let (device, device_name) = resolve_input_device(selected_device_name.as_deref())?;
+    let config = load_best_input_config(&device)?;
     let received = Arc::new(AtomicBool::new(false));
     let sample_format = config.sample_format();
 
@@ -864,7 +1144,7 @@ pub fn test_microphone_sync() -> Result<String, AppError> {
         .play()
         .map_err(|e| AppError::Audio(format!("启动音频流失败: {}", e)))?;
 
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    std::thread::sleep(std::time::Duration::from_millis(220));
     drop(stream);
 
     if received.load(Ordering::Relaxed) {
