@@ -183,15 +183,32 @@ pub async fn paste_text_impl(
             ];
             send_inputs(&inputs)?;
         } else {
+            const VK_RETURN: u16 = 0x0D;
+            const VK_TAB: u16 = 0x09;
             let mut inputs: Vec<INPUT> = Vec::new();
 
-            for code_unit in text.encode_utf16() {
-                inputs.push(make_key_input(0, code_unit, KEYEVENTF_UNICODE));
-                inputs.push(make_key_input(
-                    0,
-                    code_unit,
-                    KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                ));
+            for ch in text.chars() {
+                match ch {
+                    '\r' => {} // 跳过，换行统一由 '\n' 处理
+                    '\n' => {
+                        inputs.push(make_key_input(VK_RETURN, 0, 0));
+                        inputs.push(make_key_input(VK_RETURN, 0, KEYEVENTF_KEYUP));
+                    }
+                    '\t' => {
+                        inputs.push(make_key_input(VK_TAB, 0, 0));
+                        inputs.push(make_key_input(VK_TAB, 0, KEYEVENTF_KEYUP));
+                    }
+                    _ => {
+                        for code_unit in ch.encode_utf16(&mut [0; 2]) {
+                            inputs.push(make_key_input(0, *code_unit, KEYEVENTF_UNICODE));
+                            inputs.push(make_key_input(
+                                0,
+                                *code_unit,
+                                KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                            ));
+                        }
+                    }
+                }
             }
 
             if !inputs.is_empty() {

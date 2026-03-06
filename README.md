@@ -37,9 +37,12 @@
 - **AI text polish (optional)** — Multi-backend LLM support (Cerebras / DeepSeek / custom OpenAI-compatible endpoint) to auto-correct homophones, fix punctuation, convert dictated symbols, and clean up filler words; automatically detects the foreground app (e.g., WeChat, Outlook, VS Code) and adapts tone accordingly
 - **Adaptive learning** — Dual-source learning: AI polish automatically extracts correction patterns (homophones, terms, pronouns), and users can edit transcription results directly to teach the system — user-confirmed corrections take priority (see details below)
 - **Transcription statistics** — Shows character count, recording duration, and characters per minute (CPM)
+- **Edit selected text** — Select text in any app, press the hotkey, and speak an instruction (e.g., "translate to English", "make it formal") to rewrite the selection with your voice; uses Windows UI Automation to read selected text with zero side effects (no clipboard, no keystrokes)
+- **Real-time translation** — Set a target language (8 presets including English, Japanese, Korean, etc. + custom input) and transcription results are automatically translated before output
 - **Recording sound feedback** — Plays start/stop tones when recording begins and ends, toggleable in settings
 - **Dual input mode** — SendInput (doesn't occupy clipboard) and clipboard paste (compatible with Chinese IME)
 - **Floating window** — Borderless transparent window, always on top, minimizes to system tray
+- **Single instance** — Prevents duplicate launches; a second instance automatically focuses the existing window
 - **Launch at startup** — Can be enabled in settings
 
 ### Engine Comparison
@@ -261,6 +264,7 @@ The first build compiles all Rust dependencies and takes about **5–15 minutes*
 | Action | Description |
 |--------|-------------|
 | **Hold F2** | Start recording; release to transcribe |
+| **Select text then hold F2** | Enters edit mode: speak an instruction (e.g., "translate to English") and the selected text is rewritten |
 | **Rapid consecutive F2 presses** | Speak multiple segments — results are queued and typed in order |
 | **Click the circle button** | Manually start/stop recording |
 | **System tray icon** | Right-click menu (Show/Hide/Exit); double-click to toggle |
@@ -276,6 +280,7 @@ The first build compiles all Rust dependencies and takes about **5–15 minutes*
 | **Input method** | Direct input (SendInput, doesn't use clipboard) or Clipboard paste (compatible with Chinese IME) |
 | **Recording sound** | Audio feedback when recording starts/stops, toggleable |
 | **AI polish** | Enable AI text correction; supports Cerebras / DeepSeek / custom endpoint, API keys stored securely in the system keyring |
+| **Translation target** | Set a target language to automatically translate transcription results before output; 8 preset languages + custom input |
 | **Launch at startup** | Auto-run on system boot |
 
 ### Status Indicators
