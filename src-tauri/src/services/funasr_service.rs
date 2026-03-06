@@ -74,6 +74,8 @@ pub struct TranscriptionResult {
     pub success: bool,
     /// 错误信息（如果失败）
     pub error: Option<String>,
+    /// 检测到的语言
+    pub language: Option<String>,
 }
 
 /// FunASR 服务器的状态信息
@@ -136,6 +138,8 @@ struct ServerResponse {
     duration: Option<f64>,
     /// 错误信息
     error: Option<String>,
+    /// 检测到的语言
+    language: Option<String>,
     /// 附加消息
     message: Option<String>,
     /// 模型是否已加载
@@ -641,6 +645,7 @@ pub async fn transcribe(
             duration: response.duration,
             success: true,
             error: None,
+            language: response.language,
         })
     } else {
         let error_msg = response
@@ -651,6 +656,7 @@ pub async fn transcribe(
             duration: None,
             success: false,
             error: Some(error_msg),
+            language: None,
         })
     }
 }

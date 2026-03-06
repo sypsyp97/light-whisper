@@ -91,6 +91,20 @@
   text-align: right;
 }
 
+.result-lang-tag {
+  display: inline-block;
+  padding: 1px 5px;
+  margin-right: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border-radius: 3px;
+  background: var(--color-bg-tertiary, rgba(128, 128, 128, 0.12));
+  color: var(--color-text-secondary);
+  vertical-align: 1px;
+}
+
 /* Error banner container */
 .error-banner {
   border-radius: 8px;

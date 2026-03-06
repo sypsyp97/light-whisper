@@ -17,7 +17,7 @@ export default function MainPage({ onNavigate }: {
   const {
     isRecording, isProcessing, startRecording, stopRecording,
     recordingError, transcriptionResult, originalAsrText, setTranscriptionResult,
-    durationSec, charCount, history, stage, isReady,
+    durationSec, charCount, detectedLanguage, history, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError,
     downloadModels: triggerDownload, cancelDownload, retryModel,
@@ -131,6 +131,7 @@ export default function MainPage({ onNavigate }: {
           onTextChange={handleTextChange}
           durationSec={durationSec}
           charCount={charCount}
+          detectedLanguage={detectedLanguage}
         />
         <TranscriptionHistory
           history={history}

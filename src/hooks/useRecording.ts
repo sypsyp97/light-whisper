@@ -15,6 +15,7 @@ interface UseRecordingReturn {
   originalAsrText: string | null;
   durationSec: number | null;
   charCount: number | null;
+  detectedLanguage: string | null;
   history: HistoryItem[];
 }
 
@@ -31,6 +32,7 @@ interface TranscriptionPayload {
   interim: boolean;
   durationSec?: number;
   charCount?: number;
+  language?: string;
 }
 
 /** 封装 Tauri 事件监听的 useEffect 样板 */
@@ -63,6 +65,7 @@ export function useRecording(): UseRecordingReturn {
   const [originalAsrText, setOriginalAsrText] = useState<string | null>(null);
   const [durationSec, setDurationSec] = useState<number | null>(null);
   const [charCount, setCharCount] = useState<number | null>(null);
+  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const latestSessionIdRef = useRef(0);
   const latestDisplayedFinalSessionIdRef = useRef(0);
@@ -96,6 +99,7 @@ export function useRecording(): UseRecordingReturn {
       setOriginalAsrText(text);
       setDurationSec(payload.durationSec ?? null);
       setCharCount(payload.charCount ?? null);
+      setDetectedLanguage(payload.language ?? null);
     }
 
     if (text.trim()) {
@@ -145,6 +149,6 @@ export function useRecording(): UseRecordingReturn {
   return {
     isRecording, isProcessing, startRecording, stopRecording,
     error, transcriptionResult, setTranscriptionResult,
-    originalAsrText, durationSec, charCount, history,
+    originalAsrText, durationSec, charCount, detectedLanguage, history,
   };
 }

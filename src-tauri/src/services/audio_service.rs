@@ -413,10 +413,12 @@ pub fn spawn_interim_loop(
                             "sessionId": session_id,
                             "text": &result.text,
                             "interim": true,
+                            "language": &result.language,
                         }),
                     );
                     *interim_cache.lock_or_recover() = Some(crate::state::InterimCache {
                         text: result.text,
+                        language: result.language,
                         sample_count: current_count,
                     });
                     last_sample_count = current_count;
@@ -468,7 +470,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
         app_handle.state::<AppState>().edit_context.lock_or_recover().take();
-        emit_done(&app_handle, session_id, "", duration_sec, false);
+        emit_done(&app_handle, session_id, "", duration_sec, false, None);
         flush_pending_paste(&app_handle);
         return;
     }
@@ -476,15 +478,18 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let state = app_handle.state::<AppState>();
 
     // 优先复用 interim 缓存（覆盖率 >=90%），否则重新 ASR
-    let asr_text = match cached {
+    let (asr_text, detected_lang): (Result<String, String>, Option<String>) = match cached {
         Some(ref c) if final_count > 0
             && (c.sample_count as f64 / final_count as f64) >= 0.90
             && !c.text.trim().is_empty() =>
         {
             log::info!("复用 interim 缓存 (覆盖率 {:.0}%)", c.sample_count as f64 / final_count as f64 * 100.0);
-            Ok(c.text.clone())
+            (Ok(c.text.clone()), c.language.clone())
         }
-        _ => do_final_asr(&app_handle, state.inner(), &samples, sample_rate).await,
+        _ => match do_final_asr(&app_handle, state.inner(), &samples, sample_rate).await {
+            Ok(r) => (Ok(r.text), r.language),
+            Err(e) => (Err(e), None),
+        },
     };
 
     let text = match asr_text {
@@ -497,9 +502,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         }
     };
 
+    let lang_ref = detected_lang.as_deref();
+
     if text.is_empty() {
         state.edit_context.lock_or_recover().take();
-        emit_done(&app_handle, session_id, "", duration_sec, false);
+        emit_done(&app_handle, session_id, "", duration_sec, false, lang_ref);
         flush_pending_paste(&app_handle);
         return;
     }
@@ -512,7 +519,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         log::info!("编辑模式：指令=\"{}\"，选中文本长度={}", text, selected_text.len());
         match ai_polish_service::edit_text(state.inner(), &selected_text, &text, &app_handle).await {
             Ok(result) => {
-                emit_done(&app_handle, session_id, &result, duration_sec, true);
+                emit_done(&app_handle, session_id, &result, duration_sec, true, lang_ref);
                 if !result.is_empty() {
                     let app = app_handle.clone();
                     tokio::spawn(async move {
@@ -529,7 +536,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     "recording-error",
                     serde_json::json!({ "message": format!("编辑失败: {}", e) }),
                 );
-                emit_done(&app_handle, session_id, "", duration_sec, false);
+                emit_done(&app_handle, session_id, "", duration_sec, false, lang_ref);
                 flush_pending_paste(&app_handle);
             }
         }
@@ -540,7 +547,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             .await
             .unwrap_or_else(|e| { log::warn!("AI 润色失败，使用原文: {}", e); text });
         let polished = text != original;
-        emit_done(&app_handle, session_id, &text, duration_sec, polished);
+        emit_done(&app_handle, session_id, &text, duration_sec, polished, lang_ref);
 
         if !text.is_empty() {
             let app = app_handle.clone();
@@ -567,12 +574,12 @@ async fn do_final_asr(
     state: &AppState,
     samples: &std::sync::Mutex<Vec<i16>>,
     sample_rate: u32,
-) -> Result<String, String> {
+) -> Result<funasr_service::TranscriptionResult, String> {
     let data = samples.lock_or_recover().clone();
     let resampled = resample_to_16k(&data, sample_rate);
     let wav = encode_wav(&resampled, TARGET_SAMPLE_RATE);
     match funasr_service::transcribe(state, wav, app_handle).await {
-        Ok(r) if r.success => Ok(r.text),
+        Ok(r) if r.success => Ok(r),
         Ok(r) => Err(r.error.unwrap_or_else(|| "语音识别失败".into())),
         Err(e) => Err(format!("语音识别失败: {}", e)),
     }
@@ -580,7 +587,7 @@ async fn do_final_asr(
 
 // ---------- 事件发送 ----------
 
-fn emit_done(app: &tauri::AppHandle, sid: u64, text: &str, dur: f64, polished: bool) {
+fn emit_done(app: &tauri::AppHandle, sid: u64, text: &str, dur: f64, polished: bool, language: Option<&str>) {
     let delay = if text.is_empty() { EMPTY_RESULT_HIDE_DELAY_MS } else { RESULT_HIDE_DELAY_MS };
     emit_recording_state_if_current(app, sid, false, false, None);
     let _ = app.emit(
@@ -588,6 +595,7 @@ fn emit_done(app: &tauri::AppHandle, sid: u64, text: &str, dur: f64, polished: b
         serde_json::json!({
             "sessionId": sid, "text": text, "interim": false,
             "durationSec": dur, "charCount": text.chars().count(), "polished": polished,
+            "language": language,
         }),
     );
     schedule_hide(app, delay);

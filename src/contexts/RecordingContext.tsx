@@ -19,6 +19,7 @@ interface RecordingContextValue {
   originalAsrText: string | null;
   durationSec: number | null;
   charCount: number | null;
+  detectedLanguage: string | null;
   history: HistoryItem[];
   // model
   stage: ModelStage;
@@ -53,6 +54,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     originalAsrText,
     durationSec,
     charCount,
+    detectedLanguage,
     history,
   } = useRecording();
 
@@ -122,6 +124,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     originalAsrText,
     durationSec,
     charCount,
+    detectedLanguage,
     history,
     stage,
     isReady,
@@ -141,7 +144,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   }), [
     isRecording, isProcessing, startRecording, stopRecording,
     recordingError, transcriptionResult, setTranscriptionResult, originalAsrText,
-    durationSec, charCount, history,
+    durationSec, charCount, detectedLanguage, history,
     stage, isReady, device, gpuName,
     downloadProgress, downloadMessage, isDownloading, modelError,
     downloadModels, cancelDownload, retryModel,

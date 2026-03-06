@@ -10,6 +10,7 @@ interface TranscriptionResultProps {
   onTextChange?: (newText: string) => void;
   durationSec: number | null;
   charCount: number | null;
+  detectedLanguage?: string | null;
 }
 
 function formatStats(charCount: number, durationSec: number): string {
@@ -18,7 +19,7 @@ function formatStats(charCount: number, durationSec: number): string {
 }
 
 export default function TranscriptionResult({
-  text, originalText, isProcessing, copiedId, onCopy, onTextChange, durationSec, charCount,
+  text, originalText, isProcessing, copiedId, onCopy, onTextChange, durationSec, charCount, detectedLanguage,
 }: TranscriptionResultProps) {
   const bodyRef = useRef<HTMLParagraphElement>(null);
   const showStats = text && durationSec && durationSec > 0 && charCount;
@@ -60,7 +61,12 @@ export default function TranscriptionResult({
               {text}
             </p>
             {showStats && (
-              <p className="result-card-stats">{formatStats(charCount, durationSec)}</p>
+              <p className="result-card-stats">
+                {detectedLanguage && (
+                  <span className="result-lang-tag">{detectedLanguage}</span>
+                )}
+                {formatStats(charCount, durationSec)}
+              </p>
             )}
           </div>
         </div>

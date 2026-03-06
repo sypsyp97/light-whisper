@@ -16,6 +16,7 @@ use super::user_profile::{LlmProviderConfig, UserProfile};
 pub struct InterimCache {
     pub text: String,
     pub sample_count: usize,
+    pub language: Option<String>,
 }
 
 pub struct RecordingSession {

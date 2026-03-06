@@ -147,10 +147,15 @@ class FunASRServer(BaseASRServer):
             asr_elapsed = time.time() - asr_start
 
             # 提取识别文本并进行富文本后处理（去除 <|zh|><|NEUTRAL|> 等标签）
+            import re
             from funasr.utils.postprocess_utils import rich_transcription_postprocess
+            detected_lang = "zh"
             if isinstance(asr_result, list) and len(asr_result) > 0:
                 if isinstance(asr_result[0], dict) and "text" in asr_result[0]:
                     raw_text = asr_result[0]["text"]
+                    lang_match = re.match(r"<\|(\w+)\|>", raw_text)
+                    if lang_match:
+                        detected_lang = lang_match.group(1)
                     final_text = rich_transcription_postprocess(raw_text)
                 else:
                     final_text = str(asr_result[0])
@@ -173,7 +178,7 @@ class FunASRServer(BaseASRServer):
                     else 0.0
                 ),
                 "duration": duration,
-                "language": "zh-CN",
+                "language": detected_lang,
                 "model_type": "pytorch",
             }
 
