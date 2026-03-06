@@ -243,6 +243,9 @@ struct CtrlSuperHookState {
     app_handle: tauri::AppHandle,
     ctrl_down: AtomicBool,
     win_down: AtomicBool,
+    /// 标记 Ctrl+Win 组合是否曾经同时按下（激活过热键）。
+    /// 在所有键松开之前保持 true，防止 Win key-up 泄漏给 OS。
+    activated: AtomicBool,
 }
 
 #[cfg(target_os = "windows")]
@@ -322,15 +325,24 @@ unsafe extern "system" fn ctrl_super_low_level_keyboard_proc(
     }
 
     let active_after = ctrl_after && win_after;
+    let was_activated = state.activated.load(Ordering::Acquire);
+
     if active_after && !active_before {
+        state.activated.store(true, Ordering::Release);
         dispatch_hotkey_press(&state.app_handle, "Ctrl+Win 按下，开始录音", "Ctrl+Win");
     } else if active_before && !active_after {
         dispatch_hotkey_release(&state.app_handle, "Ctrl+Win 松开，停止录音", "Ctrl+Win");
     }
 
-    // Pure Ctrl+Win needs Win-key suppression; otherwise Windows still handles the
-    // release and may pop system UI even though we already consumed it as a hotkey.
-    let should_swallow = is_win_key && (active_before || active_after || ctrl_before || ctrl_after);
+    // 当两个键都松开后，清除激活标记
+    if !ctrl_after && !win_after {
+        state.activated.store(false, Ordering::Release);
+    }
+
+    // 吞噬 Win 键事件，防止泄漏给 OS 触发系统快捷键。
+    // was_activated 确保即使 Ctrl 先松开，后续的 Win key-up 也被吞噬。
+    let should_swallow =
+        is_win_key && (active_before || active_after || ctrl_before || ctrl_after || was_activated);
     if should_swallow {
         return 1;
     }
@@ -481,6 +493,7 @@ fn start_ctrl_super_modifier_only_hotkey_monitor(
                 app_handle: app_handle.clone(),
                 ctrl_down: AtomicBool::new(false),
                 win_down: AtomicBool::new(false),
+                activated: AtomicBool::new(false),
             });
 
             set_ctrl_super_hook_state(Some(state.clone()));

@@ -7,26 +7,15 @@ use tauri::Emitter;
 
 use crate::services::audio_service;
 use crate::state::{AppState, PendingRecordingSession, RecordingSession, RecordingSlot};
-use crate::utils::AppError;
+use crate::utils::{AppError, MutexRecover};
 
 pub(crate) const RECORDING_NOT_READY_ERROR: &str = "语音识别服务尚未就绪，请等待初始化完成";
 pub(crate) const RECORDING_ALREADY_ACTIVE_ERROR: &str = "已有录音正在进行中";
 pub(crate) const RECORDING_START_CANCELLED_ERROR: &str = "录音启动已取消";
 
 fn clear_pending_recording_if_current(state: &AppState, session_id: u64) {
-    let mut guard = match state.recording.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            log::warn!("录音状态锁已污染，继续使用恢复后的状态");
-            poisoned.into_inner()
-        }
-    };
-
-    let should_clear = matches!(
-        guard.as_ref(),
-        Some(RecordingSlot::Starting(session)) if session.session_id == session_id
-    );
-    if should_clear {
+    let mut guard = state.recording.lock_or_recover();
+    if matches!(guard.as_ref(), Some(RecordingSlot::Starting(s)) if s.session_id == session_id) {
         *guard = None;
     }
 }
@@ -42,17 +31,10 @@ pub(crate) async fn start_recording_inner(
     audio_service::stop_microphone_level_monitor(state);
 
     let (session_id, stop_flag, stop_notify) = {
-        let mut guard = match state.recording.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::warn!("录音状态锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = state.recording.lock_or_recover();
         if guard.is_some() {
             return Err(AppError::Audio(RECORDING_ALREADY_ACTIVE_ERROR.into()));
         }
-
         let session_id = state.session_counter.fetch_add(1, Ordering::Relaxed) + 1;
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_notify = Arc::new(tokio::sync::Notify::new());
@@ -71,66 +53,40 @@ pub(crate) async fn start_recording_inner(
 
     let (audio_thread, actual_sample_rate) =
         match audio_service::spawn_audio_capture_thread(
-            stop_flag.clone(),
-            samples.clone(),
-            state.selected_input_device_name(),
+            stop_flag.clone(), samples.clone(), state.selected_input_device_name(),
         ) {
-            Ok(result) => result,
-            Err(err) => {
-                clear_pending_recording_if_current(state, session_id);
-                return Err(err);
-            }
+            Ok(r) => r,
+            Err(e) => { clear_pending_recording_if_current(state, session_id); return Err(e); }
         };
 
     if stop_flag.load(Ordering::Relaxed) {
         clear_pending_recording_if_current(state, session_id);
-        let cancelled_session = RecordingSession {
-            session_id,
-            stop_flag,
-            stop_notify,
-            samples,
-            sample_rate: actual_sample_rate,
-            audio_thread: Some(audio_thread),
-            interim_task: None,
-            interim_cache,
-        };
-        audio_service::discard_recording(cancelled_session).await;
+        audio_service::discard_recording(RecordingSession {
+            session_id, stop_flag, stop_notify, samples, sample_rate: actual_sample_rate,
+            audio_thread: Some(audio_thread), interim_task: None, interim_cache,
+        }).await;
         return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
     }
 
     let interim_task = audio_service::spawn_interim_loop(
-        app_handle.clone(),
-        session_id,
-        stop_flag.clone(),
-        stop_notify.clone(),
-        samples.clone(),
-        actual_sample_rate,
-        interim_cache.clone(),
+        app_handle.clone(), session_id, stop_flag.clone(), stop_notify.clone(),
+        samples.clone(), actual_sample_rate, interim_cache.clone(),
     );
 
     let mut session = Some(RecordingSession {
-        session_id,
-        stop_flag,
-        stop_notify,
-        samples,
+        session_id, stop_flag, stop_notify, samples,
         sample_rate: actual_sample_rate,
         audio_thread: Some(audio_thread),
         interim_task: Some(interim_task),
         interim_cache,
     });
 
-    let cancelled_session = {
-        let mut guard = match state.recording.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::warn!("录音状态锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner()
-            }
-        };
+    let cancelled = {
+        let mut guard = state.recording.lock_or_recover();
         match guard.as_ref() {
-            Some(RecordingSlot::Starting(pending)) if pending.session_id == session_id => {
-                if let Some(active_session) = session.take() {
-                    *guard = Some(RecordingSlot::Active(active_session));
+            Some(RecordingSlot::Starting(p)) if p.session_id == session_id => {
+                if let Some(s) = session.take() {
+                    *guard = Some(RecordingSlot::Active(s));
                 }
                 None
             }
@@ -138,10 +94,10 @@ pub(crate) async fn start_recording_inner(
         }
     };
 
-    if let Some(cancelled_session) = cancelled_session {
-        cancelled_session.stop_flag.store(true, Ordering::Relaxed);
-        cancelled_session.stop_notify.notify_waiters();
-        audio_service::discard_recording(cancelled_session).await;
+    if let Some(s) = cancelled {
+        s.stop_flag.store(true, Ordering::Relaxed);
+        s.stop_notify.notify_waiters();
+        audio_service::discard_recording(s).await;
         return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
     }
 
@@ -151,21 +107,13 @@ pub(crate) async fn start_recording_inner(
 
     let _ = app_handle.emit(
         "recording-state",
-        serde_json::json!({
-            "sessionId": session_id,
-            "isRecording": true,
-            "isProcessing": false,
-        }),
+        serde_json::json!({ "sessionId": session_id, "isRecording": true, "isProcessing": false }),
     );
 
     if state.sound_enabled.load(Ordering::Acquire) {
         crate::utils::sound::play_start_sound();
     }
-    log::info!(
-        "录音已开始 (session {}, {}Hz)",
-        session_id,
-        actual_sample_rate
-    );
+    log::info!("录音已开始 (session {}, {}Hz)", session_id, actual_sample_rate);
     Ok(session_id)
 }
 
@@ -173,41 +121,25 @@ pub(crate) async fn stop_recording_inner(
     app_handle: tauri::AppHandle,
     state: &AppState,
 ) -> Result<Option<u64>, AppError> {
-    let recording = {
-        let mut guard = match state.recording.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::warn!("录音状态锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner()
-            }
-        };
-        guard.take()
-    };
+    let recording = state.recording.lock_or_recover().take();
 
     let recording = match recording {
-        Some(session) => session,
-        None => {
-            log::warn!("stop_recording 被调用但没有活跃的录音会话");
-            return Ok(None);
-        }
+        Some(s) => s,
+        None => { log::warn!("stop_recording 被调用但没有活跃的录音会话"); return Ok(None); }
     };
 
     let session = match recording {
-        RecordingSlot::Starting(pending) => {
-            pending.stop_flag.store(true, Ordering::Relaxed);
-            pending.stop_notify.notify_waiters();
-            log::info!("录音启动阶段已取消 (session {})", pending.session_id);
+        RecordingSlot::Starting(p) => {
+            p.stop_flag.store(true, Ordering::Relaxed);
+            p.stop_notify.notify_waiters();
+            log::info!("录音启动阶段已取消 (session {})", p.session_id);
             let _ = app_handle.emit(
                 "recording-state",
-                serde_json::json!({
-                    "sessionId": pending.session_id,
-                    "isRecording": false,
-                    "isProcessing": false,
-                }),
+                serde_json::json!({ "sessionId": p.session_id, "isRecording": false, "isProcessing": false }),
             );
-            return Ok(Some(pending.session_id));
+            return Ok(Some(p.session_id));
         }
-        RecordingSlot::Active(session) => session,
+        RecordingSlot::Active(s) => s,
     };
 
     let session_id = session.session_id;
@@ -219,11 +151,7 @@ pub(crate) async fn stop_recording_inner(
     log::info!("正在停止录音 (session {})", session_id);
     let _ = app_handle.emit(
         "recording-state",
-        serde_json::json!({
-            "sessionId": session_id,
-            "isRecording": false,
-            "isProcessing": true,
-        }),
+        serde_json::json!({ "sessionId": session_id, "isRecording": false, "isProcessing": true }),
     );
 
     tokio::spawn(async move {
@@ -252,8 +180,8 @@ pub async fn stop_recording(
 
 #[tauri::command]
 pub async fn test_microphone(state: tauri::State<'_, AppState>) -> Result<String, AppError> {
-    let selected_device_name = state.selected_input_device_name();
-    tokio::task::spawn_blocking(move || audio_service::test_microphone_sync(selected_device_name))
+    let name = state.selected_input_device_name();
+    tokio::task::spawn_blocking(move || audio_service::test_microphone_sync(name))
         .await
         .map_err(|e| AppError::Audio(format!("麦克风测试任务失败: {}", e)))?
 }
@@ -262,8 +190,8 @@ pub async fn test_microphone(state: tauri::State<'_, AppState>) -> Result<String
 pub async fn list_input_devices(
     state: tauri::State<'_, AppState>,
 ) -> Result<audio_service::InputDeviceListPayload, AppError> {
-    let selected_device_name = state.selected_input_device_name();
-    tokio::task::spawn_blocking(move || audio_service::list_input_devices_sync(selected_device_name))
+    let name = state.selected_input_device_name();
+    tokio::task::spawn_blocking(move || audio_service::list_input_devices_sync(name))
         .await
         .map_err(|e| AppError::Audio(format!("设备枚举任务失败: {}", e)))?
 }
@@ -307,10 +235,6 @@ pub async fn set_input_method(
     state: tauri::State<'_, AppState>,
     method: String,
 ) -> Result<(), AppError> {
-    let mut guard = state
-        .input_method
-        .lock()
-        .map_err(|_| AppError::Audio("输入方式锁异常".into()))?;
-    *guard = method;
+    *state.input_method.lock_or_recover() = method;
     Ok(())
 }

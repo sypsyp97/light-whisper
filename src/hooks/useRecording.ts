@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import type { TranscriptionResult, HistoryItem } from "@/types";
@@ -33,9 +33,26 @@ interface TranscriptionPayload {
   charCount?: number;
 }
 
-interface RecordingErrorPayload {
-  message: string;
-  sessionId?: number;
+/** 封装 Tauri 事件监听的 useEffect 样板 */
+function useTauriEvent<T>(event: string, handler: (payload: T) => void) {
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let disposed = false;
+
+    listen<T>(event, (e) => handler(e.payload))
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  // handler is intentionally excluded - callers use refs or stable callbacks
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event]);
 }
 
 export function useRecording(): UseRecordingReturn {
@@ -50,164 +67,54 @@ export function useRecording(): UseRecordingReturn {
   const latestSessionIdRef = useRef(0);
   const latestDisplayedFinalSessionIdRef = useRef(0);
 
-  // 监听 recording-state 事件
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
+  useTauriEvent<RecordingStatePayload>("recording-state", (payload) => {
+    const sessionId = Number(payload.sessionId || 0);
+    if (sessionId < latestSessionIdRef.current) return;
+    latestSessionIdRef.current = sessionId;
+    setIsRecording(payload.isRecording);
+    setIsProcessing(payload.isProcessing);
+    setError(payload.error ?? null);
+  });
 
-    void (async () => {
-      try {
-        unlisten = await listen<RecordingStatePayload>("recording-state", (e) => {
-          const sessionId = Number(e.payload.sessionId || 0);
-          if (sessionId < latestSessionIdRef.current) {
-            return;
-          }
+  useTauriEvent<{ message: string; sessionId?: number }>("recording-error", (payload) => {
+    const sessionId = Number(payload.sessionId || 0);
+    if (sessionId > 0 && sessionId < latestSessionIdRef.current) return;
+    const message = payload.message?.trim();
+    if (message) setError(message);
+  });
 
-          latestSessionIdRef.current = sessionId;
-          setIsRecording(e.payload.isRecording);
-          setIsProcessing(e.payload.isProcessing);
-          if (e.payload.error) {
-            setError(e.payload.error);
-          } else {
-            setError(null);
-          }
-        });
+  useTauriEvent<TranscriptionPayload>("transcription-result", (payload) => {
+    if (payload.interim) return;
+    const sessionId = Number(payload.sessionId || 0);
+    const { text } = payload;
+    const now = Date.now();
+    const historyId = sessionId > 0 ? `session-${sessionId}` : `session-local-${now}`;
 
-        if (disposed && unlisten) {
-          unlisten();
-          unlisten = null;
-        }
-      } catch {
-        // 忽略事件监听初始化失败
-      }
-    })();
+    if (sessionId >= latestDisplayedFinalSessionIdRef.current) {
+      latestDisplayedFinalSessionIdRef.current = sessionId;
+      setTranscriptionResult(text);
+      setOriginalAsrText(text);
+      setDurationSec(payload.durationSec ?? null);
+      setCharCount(payload.charCount ?? null);
+    }
 
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
+    if (text.trim()) {
+      setHistory((prev) =>
+        [
+          {
+            id: historyId, text, originalText: text,
+            timestamp: now, timeDisplay: new Date(now).toLocaleTimeString(),
+          },
+          ...prev.filter((item) => item.id !== historyId),
+        ].slice(0, 20)
+      );
+    }
+  });
 
-  // 监听录音错误（主要覆盖后端热键触发路径）
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-
-    void (async () => {
-      try {
-        unlisten = await listen<RecordingErrorPayload>("recording-error", (e) => {
-          const sessionId = Number(e.payload?.sessionId || 0);
-          if (sessionId > 0 && sessionId < latestSessionIdRef.current) {
-            return;
-          }
-          const message = e.payload?.message?.trim();
-          if (message) {
-            setError(message);
-          }
-        });
-
-        if (disposed && unlisten) {
-          unlisten();
-          unlisten = null;
-        }
-      } catch {
-        // 忽略事件监听初始化失败
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-
-  // 监听 transcription-result 事件
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-
-    void (async () => {
-      try {
-        unlisten = await listen<TranscriptionPayload>("transcription-result", (e) => {
-          if (e.payload.interim) return;
-
-          const sessionId = Number(e.payload.sessionId || 0);
-          const text = e.payload.text;
-          const now = Date.now();
-          const historyId = sessionId > 0 ? `session-${sessionId}` : `session-local-${now}`;
-
-          if (sessionId >= latestDisplayedFinalSessionIdRef.current) {
-            latestDisplayedFinalSessionIdRef.current = sessionId;
-            setTranscriptionResult(text);
-            setOriginalAsrText(text);
-            setDurationSec(e.payload.durationSec ?? null);
-            setCharCount(e.payload.charCount ?? null);
-          }
-
-          if (text.trim()) {
-            setHistory((prev) =>
-              [
-                {
-                  id: historyId,
-                  text,
-                  originalText: text,
-                  timestamp: now,
-                  timeDisplay: new Date(now).toLocaleTimeString(),
-                },
-                ...prev.filter((item) => item.id !== historyId),
-              ].slice(0, 20)
-            );
-          }
-        });
-
-        if (disposed && unlisten) {
-          unlisten();
-          unlisten = null;
-        }
-      } catch {
-        // 忽略事件监听初始化失败
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-
-  // 监听 AI 润色状态
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-
-    void (async () => {
-      try {
-        unlisten = await listen<{ status: string; original: string; polished: string; error: string }>(
-          "ai-polish-status",
-          (e) => {
-            const { status, error: errMsg } = e.payload;
-            if (status === "applied") {
-              toast.success("AI 润色已应用", { duration: 1500 });
-            } else if (status === "error") {
-              toast.error(`AI 润色失败: ${errMsg}`, { duration: 2500 });
-            }
-          }
-        );
-
-        if (disposed && unlisten) {
-          unlisten();
-          unlisten = null;
-        }
-      } catch {
-        // 忽略
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
+  useTauriEvent<{ status: string; error: string }>("ai-polish-status", ({ status, error: errMsg }) => {
+    if (status === "applied") toast.success("AI 润色已应用", { duration: 1500 });
+    else if (status === "error") toast.error(`AI 润色失败: ${errMsg}`, { duration: 2500 });
+  });
 
   const startRecording = useCallback(async () => {
     setError(null);
@@ -229,25 +136,15 @@ export function useRecording(): UseRecordingReturn {
     try {
       await invoke("stop_recording");
     } catch (err) {
-      if (isRecording) {
-        setIsProcessing(false);
-      }
+      if (isRecording) setIsProcessing(false);
       setError(err instanceof Error ? err.message : String(err));
     }
     return null;
   }, [isRecording]);
 
   return {
-    isRecording,
-    isProcessing,
-    startRecording,
-    stopRecording,
-    error,
-    transcriptionResult,
-    setTranscriptionResult,
-    originalAsrText,
-    durationSec,
-    charCount,
-    history,
+    isRecording, isProcessing, startRecording, stopRecording,
+    error, transcriptionResult, setTranscriptionResult,
+    originalAsrText, durationSec, charCount, history,
   };
 }

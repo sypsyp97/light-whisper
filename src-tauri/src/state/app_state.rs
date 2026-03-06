@@ -9,27 +9,23 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 
+use crate::utils::MutexRecover;
 use super::user_profile::{LlmProviderConfig, UserProfile};
 
-/// interim 循环缓存的最近一次转写结果
 #[derive(Clone)]
 pub struct InterimCache {
-    /// 转写文本
     pub text: String,
-    /// 转写时使用的采样数
     pub sample_count: usize,
 }
 
 pub struct RecordingSession {
     pub session_id: u64,
     pub stop_flag: Arc<AtomicBool>,
-    /// 通知 interim 循环立即退出（配合 tokio::select! 打断 sleep）
     pub stop_notify: Arc<tokio::sync::Notify>,
     pub samples: Arc<std::sync::Mutex<Vec<i16>>>,
     pub sample_rate: u32,
-    pub audio_thread: Option<std::thread::JoinHandle<()>>,
+    pub audio_thread: Option<JoinHandle<()>>,
     pub interim_task: Option<tokio::task::JoinHandle<()>>,
-    /// interim 循环缓存的最新转写结果，finalize 时可直接复用以跳过冗余 ASR
     pub interim_cache: Arc<std::sync::Mutex<Option<InterimCache>>>,
 }
 
@@ -48,8 +44,8 @@ pub enum RecordingSlot {
 impl RecordingSlot {
     pub fn session_id(&self) -> u64 {
         match self {
-            Self::Starting(session) => session.session_id,
-            Self::Active(session) => session.session_id,
+            Self::Starting(s) => s.session_id,
+            Self::Active(s) => s.session_id,
         }
     }
 }
@@ -80,7 +76,7 @@ impl Default for HotkeyDiagnosticState {
         Self {
             shortcut: String::new(),
             registered: false,
-            backend: "none".to_string(),
+            backend: "none".into(),
             is_pressed: false,
             last_error: None,
             warning: None,
@@ -101,12 +97,7 @@ pub struct AppState {
     pub recording: Arc<std::sync::Mutex<Option<RecordingSlot>>>,
     pub session_counter: AtomicU64,
     pub input_method: Arc<std::sync::Mutex<String>>,
-    /// 待粘贴文本队列：当粘贴时机恰逢新录音已开始，文本会暂存于此，
-    /// 等下次录音结束后一并粘贴，避免丢失。
     pub pending_paste: Arc<std::sync::Mutex<Vec<String>>>,
-    /// 字幕窗口"显示代"计数器：每次 show 时递增。
-    /// schedule_hide 会在睡眠前记录当前代，醒来后若代已变则跳过隐藏，
-    /// 从而避免旧 hide 任务误杀新一轮字幕。
     pub subtitle_show_gen: AtomicU64,
     pub selected_input_device_name: Arc<std::sync::Mutex<Option<String>>>,
     pub microphone_level_monitor: Arc<std::sync::Mutex<Option<MicrophoneLevelMonitor>>>,
@@ -121,26 +112,26 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            funasr_process: Arc::new(Mutex::new(None)),
-            funasr_ready: Arc::new(AtomicBool::new(false)),
-            funasr_starting: Arc::new(AtomicBool::new(false)),
-            download_task: Arc::new(Mutex::new(None)),
-            recording: Arc::new(std::sync::Mutex::new(None)),
+            funasr_process: Default::default(),
+            funasr_ready: Default::default(),
+            funasr_starting: Default::default(),
+            download_task: Default::default(),
+            recording: Default::default(),
             session_counter: AtomicU64::new(0),
-            input_method: Arc::new(std::sync::Mutex::new("sendInput".to_string())),
-            pending_paste: Arc::new(std::sync::Mutex::new(Vec::new())),
+            input_method: Arc::new(std::sync::Mutex::new("sendInput".into())),
+            pending_paste: Default::default(),
             subtitle_show_gen: AtomicU64::new(0),
-            selected_input_device_name: Arc::new(std::sync::Mutex::new(None)),
-            microphone_level_monitor: Arc::new(std::sync::Mutex::new(None)),
+            selected_input_device_name: Default::default(),
+            microphone_level_monitor: Default::default(),
             sound_enabled: Arc::new(AtomicBool::new(true)),
-            ai_polish_enabled: Arc::new(AtomicBool::new(false)),
-            ai_polish_api_key: Arc::new(std::sync::Mutex::new(String::new())),
+            ai_polish_enabled: Default::default(),
+            ai_polish_api_key: Default::default(),
             http_client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(3))
                 .build()
                 .unwrap_or_default(),
-            user_profile: Arc::new(std::sync::Mutex::new(UserProfile::default())),
-            hotkey_diagnostic: Arc::new(std::sync::Mutex::new(HotkeyDiagnosticState::default())),
+            user_profile: Default::default(),
+            hotkey_diagnostic: Default::default(),
         }
     }
 }
@@ -157,7 +148,6 @@ pub struct FunasrProcess {
 
 impl Drop for FunasrProcess {
     fn drop(&mut self) {
-        // 确保 Python 子进程在句柄丢弃时被终止，防止孤儿进程
         let _ = self.child.start_kill();
     }
 }
@@ -176,29 +166,13 @@ impl AppState {
     }
 
     pub fn snapshot_profile(&self) -> UserProfile {
-        match self.user_profile.lock() {
-            Ok(profile) => profile.clone(),
-            Err(poisoned) => {
-                log::warn!("用户画像锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner().clone()
-            }
-        }
+        self.user_profile.lock_or_recover().clone()
     }
 
-    pub fn update_profile<R, F>(&self, update: F) -> (R, UserProfile)
-    where
-        F: FnOnce(&mut UserProfile) -> R,
-    {
-        let mut profile = match self.user_profile.lock() {
-            Ok(profile) => profile,
-            Err(poisoned) => {
-                log::warn!("用户画像锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner()
-            }
-        };
-
-        let result = update(&mut profile);
-        (result, profile.clone())
+    pub fn update_profile<R>(&self, f: impl FnOnce(&mut UserProfile) -> R) -> (R, UserProfile) {
+        let mut guard = self.user_profile.lock_or_recover();
+        let result = f(&mut guard);
+        (result, guard.clone())
     }
 
     pub fn active_llm_provider(&self) -> String {
@@ -210,78 +184,31 @@ impl AppState {
     }
 
     pub fn read_ai_polish_api_key(&self) -> String {
-        match self.ai_polish_api_key.lock() {
-            Ok(key) => key.clone(),
-            Err(poisoned) => {
-                log::warn!("AI 润色 API Key 锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner().clone()
-            }
-        }
+        self.ai_polish_api_key.lock_or_recover().clone()
     }
 
     pub fn set_ai_polish_api_key(&self, api_key: impl Into<String>) {
-        let api_key = api_key.into();
-        match self.ai_polish_api_key.lock() {
-            Ok(mut key) => *key = api_key,
-            Err(poisoned) => {
-                log::warn!("AI 润色 API Key 锁已污染，继续使用恢复后的状态");
-                *poisoned.into_inner() = api_key;
-            }
-        }
+        *self.ai_polish_api_key.lock_or_recover() = api_key.into();
     }
 
     pub fn selected_input_device_name(&self) -> Option<String> {
-        match self.selected_input_device_name.lock() {
-            Ok(name) => name.clone(),
-            Err(poisoned) => {
-                log::warn!("输入设备锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner().clone()
-            }
-        }
+        self.selected_input_device_name.lock_or_recover().clone()
     }
 
     pub fn set_selected_input_device_name(&self, name: Option<String>) {
-        let normalized = name.and_then(|value| {
-            let trimmed = value.trim().to_string();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
+        *self.selected_input_device_name.lock_or_recover() = name.and_then(|v| {
+            let trimmed = v.trim().to_string();
+            (!trimmed.is_empty()).then_some(trimmed)
         });
-
-        match self.selected_input_device_name.lock() {
-            Ok(mut guard) => *guard = normalized,
-            Err(poisoned) => {
-                log::warn!("输入设备锁已污染，继续使用恢复后的状态");
-                *poisoned.into_inner() = normalized;
-            }
-        }
     }
 
     pub fn hotkey_diagnostic_snapshot(&self) -> HotkeyDiagnosticState {
-        match self.hotkey_diagnostic.lock() {
-            Ok(state) => state.clone(),
-            Err(poisoned) => {
-                log::warn!("热键诊断锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner().clone()
-            }
-        }
+        self.hotkey_diagnostic.lock_or_recover().clone()
     }
 
-    pub fn update_hotkey_diagnostic<R, F>(&self, update: F) -> (R, HotkeyDiagnosticState)
-    where
-        F: FnOnce(&mut HotkeyDiagnosticState) -> R,
-    {
-        let mut diagnostic = match self.hotkey_diagnostic.lock() {
-            Ok(state) => state,
-            Err(poisoned) => {
-                log::warn!("热键诊断锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner()
-            }
-        };
-
-        let result = update(&mut diagnostic);
-        (result, diagnostic.clone())
+    pub fn update_hotkey_diagnostic<R>(&self, f: impl FnOnce(&mut HotkeyDiagnosticState) -> R) -> (R, HotkeyDiagnosticState) {
+        let mut guard = self.hotkey_diagnostic.lock_or_recover();
+        let result = f(&mut guard);
+        (result, guard.clone())
     }
 }

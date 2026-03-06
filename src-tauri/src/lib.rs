@@ -5,6 +5,7 @@ mod utils;
 
 use state::{AppState, RecordingSlot};
 use tauri::{Emitter, Manager};
+use utils::MutexRecover;
 
 pub fn run() {
     tauri::Builder::default()
@@ -227,31 +228,17 @@ fn stop_funasr_on_exit(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     services::audio_service::stop_microphone_level_monitor(state.inner());
 
-    // 停止正在进行的录音
-    {
-        let mut guard = match state.recording.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::warn!("退出时录音状态锁已污染，继续使用恢复后的状态");
-                poisoned.into_inner()
+    if let Some(recording) = state.recording.lock_or_recover().take() {
+        match recording {
+            RecordingSlot::Starting(s) => {
+                s.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                s.stop_notify.notify_waiters();
             }
-        };
-        if let Some(recording) = guard.take() {
-            match recording {
-                RecordingSlot::Starting(session) => {
-                    session
-                        .stop_flag
-                        .store(true, std::sync::atomic::Ordering::Relaxed);
-                    session.stop_notify.notify_waiters();
-                }
-                RecordingSlot::Active(session) => {
-                    session
-                        .stop_flag
-                        .store(true, std::sync::atomic::Ordering::Relaxed);
-                    session.stop_notify.notify_waiters();
-                    if let Some(task) = session.interim_task {
-                        task.abort();
-                    }
+            RecordingSlot::Active(s) => {
+                s.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                s.stop_notify.notify_waiters();
+                if let Some(task) = s.interim_task {
+                    task.abort();
                 }
             }
         }
