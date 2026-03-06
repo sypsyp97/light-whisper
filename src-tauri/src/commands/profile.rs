@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use crate::services::{llm_provider, profile_service};
 use crate::state::user_profile::*;
 use crate::state::AppState;
@@ -237,6 +239,31 @@ pub async fn set_llm_provider_config(
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
 
     Ok(())
+}
+
+/// 设置翻译目标语言。返回是否自动开启了 AI 润色。
+#[tauri::command]
+pub async fn set_translation_target(
+    state: tauri::State<'_, AppState>,
+    target: Option<String>,
+) -> Result<bool, String> {
+    let target = target
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let auto_enabled_polish = target.is_some()
+        && !state.ai_polish_enabled.load(Ordering::Acquire);
+
+    if auto_enabled_polish {
+        state.ai_polish_enabled.store(true, Ordering::Release);
+    }
+
+    let (_, profile) = state.update_profile(|profile| {
+        profile.translation_target = target;
+    });
+    profile_service::save_profile(&profile)?;
+
+    Ok(auto_enabled_polish)
 }
 
 #[tauri::command]

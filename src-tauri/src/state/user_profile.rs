@@ -68,6 +68,9 @@ pub struct UserProfile {
     pub last_updated: u64,
     /// LLM 后端配置
     pub llm_provider: LlmProviderConfig,
+    /// 翻译目标语言（None = 关闭翻译，非空 = 开启并翻译为该语言）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation_target: Option<String>,
 }
 
 /// LLM 后端配置

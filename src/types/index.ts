@@ -111,5 +111,6 @@ export interface UserProfile {
   total_transcriptions: number;
   last_updated: number;
   llm_provider: LlmProviderConfig;
+  translation_target?: string | null;
 }
 

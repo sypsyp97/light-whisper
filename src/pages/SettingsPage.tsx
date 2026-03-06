@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -26,6 +26,7 @@ import {
   setSoundEnabled,
   startMicrophoneLevelMonitor,
   stopMicrophoneLevelMonitor,
+  setTranslationTarget,
 } from "@/api/tauri";
 import type { AiModelInfo, InputDeviceInfo, UserProfile } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
@@ -212,6 +213,13 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   // Agent profile state
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [newHotWord, setNewHotWord] = useState("");
+
+  // Translation state — translation_target 是唯一真相，非空即开启
+  const [translationTarget, setTranslationTargetState] = useState<string | null>(null);
+  const [translationPickerOpen, setTranslationPickerOpen] = useState(false);
+  const [customLangInput, setCustomLangInput] = useState("");
+  const [showCustomLangInput, setShowCustomLangInput] = useState(false);
+  const translationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [llmProvider, setLlmProvider] = useState("cerebras");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
@@ -285,6 +293,10 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
         clearTimeout(aiModelsFetchTimer.current);
         aiModelsFetchTimer.current = null;
       }
+      if (translationSaveTimer.current) {
+        clearTimeout(translationSaveTimer.current);
+        translationSaveTimer.current = null;
+      }
     };
   }, []);
 
@@ -299,6 +311,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       setCustomBaseUrl(nextBaseUrl);
       setCustomModel(nextModel);
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
+      setTranslationTargetState(p.translation_target ?? null);
     }).catch(() => {});
   }, [updateProviderDraft]);
 
@@ -688,6 +701,24 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     setModelPickerOpen(false);
     setAiModelSearch("");
   }, [customBaseUrl, llmProvider, scheduleCustomLlmConfigSave, updateProviderDraft]);
+
+  const handleTranslationSelect = useCallback(async (target: string | null) => {
+    setTranslationTargetState(target);
+    setTranslationPickerOpen(false);
+    setShowCustomLangInput(false);
+    setCustomLangInput("");
+    if (translationSaveTimer.current) clearTimeout(translationSaveTimer.current);
+    try {
+      const autoEnabled = await setTranslationTarget(target);
+      if (autoEnabled) {
+        setAiPolishEnabled(true);
+        writeLocalStorage(AI_POLISH_ENABLED_KEY, "true");
+        toast.success("已自动开启 AI 润色");
+      }
+    } catch {
+      toast.error("保存翻译设置失败");
+    }
+  }, []);
 
   useEffect(() => {
     if (providerPickerOpen) {
@@ -1237,6 +1268,111 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
               <p className="settings-hint">
                 AI 纠错会自动学习你的用词习惯，并将常用词汇注入热词列表提升识别准确率。
               </p>
+            </div>
+          </section>
+
+          {/* Translation */}
+          <section className="settings-card" style={{ animationDelay: "212ms" }}>
+            <div className="settings-section-header">
+              <Languages size={15} className="icon-accent" />
+              <h2 className="settings-section-title">翻译</h2>
+            </div>
+            <div className="settings-column" style={{ gap: 10 }}>
+              <div className="settings-row">
+                <span className="permission-label">{translationTarget ? `目标语言：${translationTarget}` : "未开启"}</span>
+                <button
+                  className="btn-ghost"
+                  onClick={() => {
+                    setTranslationPickerOpen(v => !v);
+                    if (!translationPickerOpen) {
+                      setShowCustomLangInput(false);
+                      setCustomLangInput("");
+                    }
+                  }}
+                  style={{ fontSize: 12, padding: "6px 10px" }}
+                >
+                  {translationPickerOpen ? "收起" : translationTarget ? "更改" : "选择语言"}
+                </button>
+              </div>
+              {translationPickerOpen && (
+                <div className="settings-column" style={{ gap: 8 }}>
+                  <p className="settings-hint" style={{ margin: 0 }}>
+                    语音输入的文本会在 AI 润色时一并翻译。技术术语和专有名词保留原文。
+                  </p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    <button
+                      type="button"
+                      className="picker-option"
+                      data-active={!translationTarget}
+                      onClick={() => void handleTranslationSelect(null)}
+                      style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
+                    >
+                      关闭
+                    </button>
+                    {["English", "日本語", "한국어", "Français", "Deutsch", "Español", "Русский", "Português"].map(lang => (
+                      <button
+                        key={lang}
+                        type="button"
+                        className="picker-option"
+                        data-active={translationTarget === lang}
+                        onClick={() => void handleTranslationSelect(lang)}
+                        style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
+                      >
+                        {lang}
+                      </button>
+                    ))}
+                    {translationTarget && !["English", "日本語", "한국어", "Français", "Deutsch", "Español", "Русский", "Português"].includes(translationTarget) && (
+                      <button
+                        type="button"
+                        className="picker-option"
+                        data-active={true}
+                        style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
+                      >
+                        {translationTarget}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="picker-option"
+                      data-active={showCustomLangInput}
+                      onClick={() => setShowCustomLangInput(v => !v)}
+                      style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
+                    >
+                      自定义…
+                    </button>
+                  </div>
+                  {showCustomLangInput && (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="text"
+                        className="settings-input"
+                        placeholder="输入语言名称，如 Italiano、العربية"
+                        value={customLangInput}
+                        onChange={e => setCustomLangInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" && customLangInput.trim()) {
+                            void handleTranslationSelect(customLangInput.trim());
+                          }
+                        }}
+                        style={{ flex: 1 }}
+                        autoFocus
+                      />
+                      <button
+                        className="test-btn"
+                        disabled={!customLangInput.trim()}
+                        onClick={() => {
+                          if (customLangInput.trim()) {
+                            void handleTranslationSelect(customLangInput.trim());
+                          }
+                        }}
+                        style={{ padding: "7px 12px" }}
+                      >
+                        <Check size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </section>
 
