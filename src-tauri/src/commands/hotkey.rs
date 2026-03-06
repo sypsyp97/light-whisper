@@ -3,7 +3,7 @@ use crate::commands::audio::{
     RECORDING_NOT_READY_ERROR,
 };
 use crate::state::AppState;
-use crate::utils::AppError;
+use crate::utils::{AppError, MutexRecover};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     OnceLock,
@@ -116,6 +116,13 @@ where
 fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String) {
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();
+
+        // 通过 UI Automation 读取选中文本，决定是否进入编辑模式
+        let selected = tokio::task::spawn_blocking(crate::commands::clipboard::grab_selected_text)
+            .await
+            .unwrap_or(None);
+        *state.edit_context.lock_or_recover() = selected;
+
         match start_recording_inner(app_handle.clone(), state.inner()).await {
             Ok(session_id) => {
                 log::info!(
@@ -128,9 +135,11 @@ fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String) {
                 if message == RECORDING_NOT_READY_ERROR
                     || message == RECORDING_ALREADY_ACTIVE_ERROR =>
             {
+                state.edit_context.lock_or_recover().take();
                 log::debug!("忽略热键 {} 的开始请求: {}", shortcut_label, message);
             }
             Err(err) => {
+                state.edit_context.lock_or_recover().take();
                 let message = err.to_string();
                 log::warn!("热键 {} 开始录音失败: {}", shortcut_label, message);
                 update_hotkey_diagnostic(&app_handle, |diagnostic| {
@@ -239,6 +248,10 @@ fn modifier_monitor_slot() -> &'static Mutex<Option<ModifierOnlyHotkeyMonitor>> 
 }
 
 #[cfg(target_os = "windows")]
+/// 合成按键标记，hook 看到此 dwExtraInfo 值时直接放行，避免重入
+const SYNTHETIC_KEY_MARKER: usize = 0x4C575F53; // "LW_S"
+
+#[cfg(target_os = "windows")]
 struct CtrlSuperHookState {
     app_handle: tauri::AppHandle,
     ctrl_down: AtomicBool,
@@ -246,6 +259,9 @@ struct CtrlSuperHookState {
     /// 标记 Ctrl+Win 组合是否曾经同时按下（激活过热键）。
     /// 在所有键松开之前保持 true，防止 Win key-up 泄漏给 OS。
     activated: AtomicBool,
+    /// 标记 Win key-down 是否曾穿透到 OS（Win 先于 Ctrl 按下时会发生）。
+    /// 热键结束后需要补发合成 Win key-up 来清理 OS 状态。
+    win_leaked_to_os: AtomicBool,
 }
 
 #[cfg(target_os = "windows")]
@@ -273,6 +289,48 @@ fn ctrl_super_hook_state() -> Option<Arc<CtrlSuperHookState>> {
 }
 
 #[cfg(target_os = "windows")]
+fn send_synthetic_win_key_up() {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+    };
+
+    let inputs = [
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VK_LWIN,
+                    wScan: 0,
+                    dwFlags: KEYEVENTF_KEYUP,
+                    time: 0,
+                    dwExtraInfo: SYNTHETIC_KEY_MARKER,
+                },
+            },
+        },
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VK_RWIN,
+                    wScan: 0,
+                    dwFlags: KEYEVENTF_KEYUP,
+                    time: 0,
+                    dwExtraInfo: SYNTHETIC_KEY_MARKER,
+                },
+            },
+        },
+    ];
+
+    unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn release_ctrl_super_if_needed(state: &CtrlSuperHookState, message: &str) {
     state.ctrl_down.store(false, Ordering::Release);
     state.win_down.store(false, Ordering::Release);
@@ -294,6 +352,12 @@ unsafe extern "system" fn ctrl_super_low_level_keyboard_proc(
     };
 
     let keyboard = unsafe { &*(l_param as *const KBDLLHOOKSTRUCT) };
+
+    // 跳过自己发出的合成按键，防止重入
+    if keyboard.dwExtraInfo == SYNTHETIC_KEY_MARKER {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param) };
+    }
+
     let message = w_param as u32;
     let is_key_down = matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN);
     let is_key_up = matches!(message, WM_KEYUP | WM_SYSKEYUP);
@@ -334,15 +398,28 @@ unsafe extern "system" fn ctrl_super_low_level_keyboard_proc(
         dispatch_hotkey_release(&state.app_handle, "Ctrl+Win 松开，停止录音", "Ctrl+Win");
     }
 
-    // 当两个键都松开后，清除激活标记
-    if !ctrl_after && !win_after {
-        state.activated.store(false, Ordering::Release);
-    }
-
     // 吞噬 Win 键事件，防止泄漏给 OS 触发系统快捷键。
     // was_activated 确保即使 Ctrl 先松开，后续的 Win key-up 也被吞噬。
     let should_swallow =
         is_win_key && (active_before || active_after || ctrl_before || ctrl_after || was_activated);
+
+    // 追踪 Win key-down 是否穿透到了 OS（Win 先于 Ctrl 按下时会发生）
+    if is_win_key && is_key_down && !should_swallow {
+        state.win_leaked_to_os.store(true, Ordering::Release);
+    }
+
+    // 当两个键都松开后，清除激活标记，并补发合成 Win key-up 修复 OS 状态
+    if !ctrl_after && !win_after {
+        let need_cleanup = was_activated
+            && state.win_leaked_to_os.swap(false, Ordering::AcqRel);
+        state.activated.store(false, Ordering::Release);
+
+        if need_cleanup {
+            log::debug!("补发合成 Win key-up 修复 OS 修饰键状态");
+            send_synthetic_win_key_up();
+        }
+    }
+
     if should_swallow {
         return 1;
     }
@@ -494,6 +571,7 @@ fn start_ctrl_super_modifier_only_hotkey_monitor(
                 ctrl_down: AtomicBool::new(false),
                 win_down: AtomicBool::new(false),
                 activated: AtomicBool::new(false),
+                win_leaked_to_os: AtomicBool::new(false),
             });
 
             set_ctrl_super_hook_state(Some(state.clone()));

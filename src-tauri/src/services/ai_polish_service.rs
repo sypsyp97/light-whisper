@@ -334,6 +334,129 @@ pub async fn polish_text(
     Ok(polished)
 }
 
+/// 编辑模式：根据语音指令改写选中文本
+pub async fn edit_text(
+    state: &AppState,
+    selected_text: &str,
+    instruction: &str,
+    app_handle: &tauri::AppHandle,
+) -> Result<String, String> {
+    let api_key = state.read_ai_polish_api_key();
+    if api_key.is_empty() {
+        return Err("AI 未配置 API Key，无法执行编辑".into());
+    }
+
+    let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
+
+    let system_prompt = "\
+你是文本编辑助手。用户在屏幕上选中了一段文本，并用语音给出了修改指令。\
+请严格按照指令修改文本。\n\n\
+规则：\n\
+1. 只输出修改后的文本，不要输出任何解释、注释或推理过程\n\
+2. 如果指令是翻译，翻译要自然流畅，技术术语和专有名词保留原文\n\
+3. 如果指令不明确，做最小改动\n\
+4. 保持原文的格式风格（缩进、换行等）\n\n\
+以 JSON 格式输出（不要 markdown 代码块）：\n\
+{\"result\":\"修改后的完整文本\"}";
+
+    let user_content = format!(
+        "选中的文本：\n{}\n\n用户语音指令：\n{}",
+        selected_text, instruction
+    );
+
+    let is_responses_api = endpoint.api_url.contains("/v1/responses");
+
+    let mut body = if is_responses_api {
+        serde_json::json!({
+            "model": endpoint.model,
+            "instructions": system_prompt,
+            "input": [
+                {"role": "developer", "content": "Output json."},
+                {"role": "user", "content": user_content},
+            ],
+            "text": { "format": { "type": "json_object" } }
+        })
+    } else {
+        serde_json::json!({
+            "model": endpoint.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            "response_format": { "type": "json_object" }
+        })
+    };
+
+    if is_responses_api {
+        body["reasoning"] = serde_json::json!({"effort": "medium"});
+    }
+
+    let start = std::time::Instant::now();
+    emit_polish_status(app_handle, "polishing", selected_text, "", "");
+
+    let response = state
+        .http_client
+        .post(&endpoint.api_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_secs(endpoint.timeout_secs))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("编辑请求失败: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        let err = format!("编辑 API 返回错误 {}: {}", status, body_text);
+        emit_polish_status(app_handle, "error", selected_text, selected_text, &err);
+        return Err(err);
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("编辑响应解析失败: {}", e))?;
+
+    let raw_content = if is_responses_api {
+        json["output"]
+            .as_array()
+            .and_then(|outputs| {
+                outputs.iter().find_map(|item| {
+                    if item["type"].as_str() == Some("message") {
+                        item["content"][0]["text"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or(selected_text)
+    } else {
+        json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or(selected_text)
+    }
+    .trim();
+
+    let elapsed_ms = start.elapsed().as_millis();
+
+    let json_content = strip_markdown_code_block(raw_content);
+    let result = serde_json::from_str::<serde_json::Value>(&json_content)
+        .ok()
+        .and_then(|v| v["result"].as_str().map(String::from))
+        .unwrap_or_else(|| raw_content.to_string());
+
+    log::info!(
+        "编辑选中文本完成 ({}ms): 指令=\"{}\"，结果长度={}",
+        elapsed_ms,
+        instruction,
+        result.len()
+    );
+    emit_polish_status(app_handle, "applied", selected_text, &result, "");
+
+    Ok(result)
+}
+
 fn build_user_content(text: &str) -> String {
     if let Some(app) = crate::utils::foreground::get_foreground_app() {
         let mut ctx_parts = Vec::new();

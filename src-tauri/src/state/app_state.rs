@@ -107,6 +107,8 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub user_profile: Arc<std::sync::Mutex<UserProfile>>,
     pub hotkey_diagnostic: Arc<std::sync::Mutex<HotkeyDiagnosticState>>,
+    /// 编辑模式：按下热键时抓取的选中文本，finalize 时消费
+    pub edit_context: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl Default for AppState {
@@ -132,6 +134,7 @@ impl Default for AppState {
                 .unwrap_or_default(),
             user_profile: Default::default(),
             hotkey_diagnostic: Default::default(),
+            edit_context: Default::default(),
         }
     }
 }

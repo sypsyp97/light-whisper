@@ -132,6 +132,7 @@ pub(crate) async fn stop_recording_inner(
         RecordingSlot::Starting(p) => {
             p.stop_flag.store(true, Ordering::Relaxed);
             p.stop_notify.notify_waiters();
+            state.edit_context.lock_or_recover().take();
             log::info!("录音启动阶段已取消 (session {})", p.session_id);
             let _ = app_handle.emit(
                 "recording-state",

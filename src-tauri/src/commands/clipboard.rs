@@ -1,5 +1,104 @@
 use crate::utils::AppError;
 
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+};
+
+#[cfg(target_os = "windows")]
+fn make_key_input(vk: u16, scan: u16, flags: u32) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: vk,
+                wScan: scan,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn send_inputs(inputs: &[INPUT]) -> Result<(), AppError> {
+    let sent =
+        unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32) };
+    if sent == 0 {
+        return Err(AppError::Other("SendInput 调用失败".to_string()));
+    }
+    Ok(())
+}
+
+/// 通过 Windows UI Automation 读取前台焦点控件中的选中文本。
+/// 不碰剪贴板，不发送按键，零副作用。
+pub fn grab_selected_text() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        grab_selected_text_uia()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn grab_selected_text_uia() -> Option<String> {
+    use uiautomation::UIAutomation;
+
+    let automation = UIAutomation::new().ok()?;
+    let focused = automation.get_focused_element().ok()?;
+
+    // 尝试从焦点元素及其祖先中找到 TextPattern 并读取选中文本
+    if let Some(text) = try_get_selection(&focused) {
+        return Some(text);
+    }
+
+    // 向上遍历父元素
+    let walker = match automation.create_tree_walker() {
+        Ok(w) => w,
+        Err(_) => return None,
+    };
+    let mut current = focused;
+    for _ in 0..5 {
+        current = match walker.get_parent(&current) {
+            Ok(parent) => parent,
+            Err(_) => break,
+        };
+        if let Some(text) = try_get_selection(&current) {
+            return Some(text);
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn try_get_selection(element: &uiautomation::UIElement) -> Option<String> {
+    use uiautomation::patterns::UITextPattern;
+
+    let pattern: UITextPattern = element.get_pattern().ok()?;
+    let ranges = pattern.get_selection().ok()?;
+
+    let mut combined = String::new();
+    for range in &ranges {
+        if let Ok(text) = range.get_text(-1) {
+            combined.push_str(&text);
+        }
+    }
+
+    let trimmed = combined.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        log::info!("UI Automation 检测到选中文本（{} 字符），进入编辑模式", trimmed.len());
+        Some(trimmed.to_string())
+    }
+}
+
 #[tauri::command]
 pub async fn copy_to_clipboard(
     app_handle: tauri::AppHandle,
@@ -34,40 +133,6 @@ pub async fn paste_text_impl(
 ) -> Result<String, AppError> {
     #[cfg(target_os = "windows")]
     {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
-            KEYEVENTF_UNICODE,
-        };
-
-        fn make_key_input(vk: u16, scan: u16, flags: u32) -> INPUT {
-            INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: vk,
-                        wScan: scan,
-                        dwFlags: flags,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            }
-        }
-
-        fn send_inputs(inputs: &[INPUT]) -> Result<(), AppError> {
-            let sent = unsafe {
-                SendInput(
-                    inputs.len() as u32,
-                    inputs.as_ptr(),
-                    std::mem::size_of::<INPUT>() as i32,
-                )
-            };
-            if sent == 0 {
-                return Err(AppError::Other("SendInput 调用失败".to_string()));
-            }
-            Ok(())
-        }
-
         let use_clipboard = method == "clipboard";
 
         if use_clipboard {

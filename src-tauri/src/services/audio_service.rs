@@ -467,6 +467,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
+        app_handle.state::<AppState>().edit_context.lock_or_recover().take();
         emit_done(&app_handle, session_id, "", duration_sec, false);
         flush_pending_paste(&app_handle);
         return;
@@ -489,6 +490,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let text = match asr_text {
         Ok(t) => t.trim().to_string(),
         Err(e) => {
+            state.edit_context.lock_or_recover().take();
             emit_error(&app_handle, session_id, &e);
             flush_pending_paste(&app_handle);
             return;
@@ -496,26 +498,59 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     };
 
     if text.is_empty() {
+        state.edit_context.lock_or_recover().take();
         emit_done(&app_handle, session_id, "", duration_sec, false);
         flush_pending_paste(&app_handle);
         return;
     }
 
-    let original = text.clone();
-    let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle)
-        .await
-        .unwrap_or_else(|e| { log::warn!("AI 润色失败，使用原文: {}", e); text });
-    let polished = text != original;
-    emit_done(&app_handle, session_id, &text, duration_sec, polished);
+    // 检查是否处于编辑模式（热键按下时抓取了选中文本）
+    let edit_context = state.edit_context.lock_or_recover().take();
 
-    if !text.is_empty() {
-        let app = app_handle.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
-            do_paste(&app, &text).await;
-        });
+    if let Some(selected_text) = edit_context {
+        // 编辑模式：ASR 结果是语音指令，用它改写选中文本
+        log::info!("编辑模式：指令=\"{}\"，选中文本长度={}", text, selected_text.len());
+        match ai_polish_service::edit_text(state.inner(), &selected_text, &text, &app_handle).await {
+            Ok(result) => {
+                emit_done(&app_handle, session_id, &result, duration_sec, true);
+                if !result.is_empty() {
+                    let app = app_handle.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
+                        do_paste(&app, &result).await;
+                    });
+                } else {
+                    flush_pending_paste(&app_handle);
+                }
+            }
+            Err(e) => {
+                log::warn!("编辑选中文本失败，不替换原文: {}", e);
+                let _ = app_handle.emit(
+                    "recording-error",
+                    serde_json::json!({ "message": format!("编辑失败: {}", e) }),
+                );
+                emit_done(&app_handle, session_id, "", duration_sec, false);
+                flush_pending_paste(&app_handle);
+            }
+        }
     } else {
-        flush_pending_paste(&app_handle);
+        // 普通听写模式
+        let original = text.clone();
+        let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle)
+            .await
+            .unwrap_or_else(|e| { log::warn!("AI 润色失败，使用原文: {}", e); text });
+        let polished = text != original;
+        emit_done(&app_handle, session_id, &text, duration_sec, polished);
+
+        if !text.is_empty() {
+            let app = app_handle.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
+                do_paste(&app, &text).await;
+            });
+        } else {
+            flush_pending_paste(&app_handle);
+        }
     }
 }
 
