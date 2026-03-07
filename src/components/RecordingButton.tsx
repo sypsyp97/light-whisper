@@ -25,7 +25,12 @@ export default function RecordingButton({
 
   return (
     <div className="record-btn-wrapper">
-      {isRecording && <span className="recording-pulse-ring" />}
+      {isRecording && (
+        <>
+          <span className="recording-pulse-ring" />
+          <span className="recording-pulse-ring-outer" />
+        </>
+      )}
       <button
         key={isRecording ? "recording" : isProcessing ? "processing" : "idle"}
         className={`record-btn${isRecording !== prevRecording.current ? " animate-record-enter" : ""}`}

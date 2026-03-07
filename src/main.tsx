@@ -66,8 +66,8 @@ function App() {
       setTimeout(() => {
         setAnimClass("");
         isTransitioning.current = false;
-      }, 150);
-    }, 120);
+      }, 280);
+    }, 200);
   }, [view]);
 
   return (

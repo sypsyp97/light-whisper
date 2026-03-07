@@ -47,6 +47,12 @@
   border: 1px solid var(--color-border-subtle);
   border-left: 3px solid var(--color-accent);
   box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.3s var(--ease-out-expo),
+              border-color 0.3s var(--ease-out-expo);
+}
+
+.result-card:hover {
+  box-shadow: var(--shadow-md);
 }
 
 /* Result card header — title row with copy button */
@@ -77,10 +83,11 @@
   line-height: 1.8;
   color: var(--color-text-secondary);
   cursor: text;
+  transition: background 0.2s var(--ease-out-expo);
 }
 
 .result-card-body:focus {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-accent-muted);
 }
 
 .result-card-stats {
@@ -112,6 +119,7 @@
   background: var(--color-error-bg);
   border: 1px solid rgba(192, 57, 43, 0.15);
   border-left: 3px solid var(--color-error);
+  backdrop-filter: blur(4px);
 }
 
 /* Error banner inner layout */
@@ -150,15 +158,26 @@
   justify-content: center;
 }
 
-/* Recording pulse ring */
+/* Recording pulse rings — dual staggered for depth */
 .recording-pulse-ring {
   position: absolute;
   width: 50px;
   height: 50px;
   border-radius: 50%;
   border: 2px solid var(--color-accent);
-  animation: recording-pulse 1.8s ease-out infinite;
+  animation: recording-pulse 2s var(--ease-out-expo) infinite;
   pointer-events: none;
+}
+
+.recording-pulse-ring-outer {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-accent);
+  animation: recording-pulse 2s var(--ease-out-expo) 0.6s infinite;
+  pointer-events: none;
+  opacity: 0.6;
 }
 
 /* Equalizer bar container */
@@ -215,6 +234,15 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  transition: background 0.2s var(--ease-out-expo),
+              border-color 0.2s var(--ease-out-expo),
+              box-shadow 0.25s var(--ease-out-expo);
+}
+
+.history-item:hover {
+  background: var(--color-bg-sunken);
+  border-color: var(--color-border);
+  box-shadow: var(--shadow-xs);
 }
 
 /* History item text container */
@@ -256,6 +284,7 @@
   gap: 10px;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-subtle);
+  box-shadow: var(--shadow-xs);
 }
 
 /* Skeleton processing text */
@@ -345,7 +374,7 @@
   align-items: center;
   gap: 6px;
   padding: 10px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
 }
 
@@ -353,6 +382,7 @@
   border: 1px solid var(--color-border-accent);
   background: var(--color-accent-subtle);
   color: var(--color-accent);
+  box-shadow: 0 0 0 1px rgba(193, 95, 60, 0.06);
 }
 
 .settings-option-btn[aria-pressed="false"] {
@@ -399,6 +429,20 @@
   background: var(--color-bg-elevated);
   color: var(--color-text-secondary);
   font-size: 12px;
+  outline: none;
+  transition: border-color 0.2s var(--ease-out-expo),
+              box-shadow 0.25s var(--ease-out-expo),
+              background 0.2s var(--ease-out-expo);
+}
+
+.settings-input:focus {
+  border-color: var(--color-border-accent);
+  box-shadow: 0 0 0 2.5px rgba(193, 95, 60, 0.08);
+}
+
+[data-theme="dark"] .settings-input:focus,
+.dark .settings-input:focus {
+  box-shadow: 0 0 0 2.5px rgba(212, 121, 78, 0.12);
 }
 
 .microphone-select {
@@ -418,7 +462,8 @@
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #22c55e 0%, #eab308 60%, #ef4444 100%);
-  transition: width 90ms linear;
+  transition: width 80ms linear;
+  will-change: width;
 }
 
 .diagnostic-grid {
@@ -435,6 +480,12 @@
   border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   background: var(--color-bg-elevated);
+  transition: background 0.2s var(--ease-out-expo),
+              border-color 0.2s var(--ease-out-expo);
+}
+
+.diagnostic-item:hover {
+  background: var(--color-bg-sunken);
 }
 
 .diagnostic-item strong {
@@ -467,7 +518,19 @@
   background: var(--color-bg-elevated);
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: border-color var(--transition-normal), background var(--transition-normal), box-shadow var(--transition-normal);
+  transition: border-color 0.2s var(--ease-out-expo),
+              background 0.2s var(--ease-out-expo),
+              box-shadow 0.25s var(--ease-out-expo),
+              transform 0.25s var(--ease-spring-soft);
+}
+
+.picker-inline-button:hover:not([data-open="true"]) {
+  border-color: var(--color-border);
+}
+
+.picker-inline-button:active {
+  transform: scale(0.93);
+  transition: transform 60ms ease-out;
 }
 
 .picker-inline-button[data-open="true"] {
@@ -489,7 +552,13 @@
   color: var(--color-text-secondary);
   cursor: pointer;
   text-align: left;
-  transition: border-color var(--transition-normal), background var(--transition-normal), box-shadow var(--transition-normal);
+  transition: border-color 0.2s var(--ease-out-expo),
+              background 0.2s var(--ease-out-expo),
+              box-shadow 0.25s var(--ease-out-expo);
+}
+
+.picker-trigger:hover:not([data-open="true"]) {
+  border-color: var(--color-border);
 }
 
 .picker-trigger[data-open="true"] {
@@ -516,6 +585,17 @@
   overflow-wrap: anywhere;
 }
 
+@keyframes popover-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .picker-popover {
   position: absolute;
   top: calc(100% + 8px);
@@ -529,7 +609,9 @@
   border: 1px solid var(--color-border-subtle);
   border-radius: 10px;
   background: var(--color-bg-primary);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
+  animation: popover-enter 0.22s var(--ease-out-expo) forwards;
+  transform-origin: top center;
 }
 
 .picker-toolbar {
@@ -563,7 +645,15 @@
   color: var(--color-text-secondary);
   cursor: pointer;
   text-align: left;
-  transition: border-color var(--transition-normal), background var(--transition-normal);
+  transition: border-color 0.18s var(--ease-out-expo),
+              background 0.18s var(--ease-out-expo),
+              transform 0.25s var(--ease-spring-soft),
+              box-shadow 0.2s var(--ease-out-expo);
+}
+
+.picker-option:active {
+  transform: scale(0.98);
+  transition: transform 60ms ease-out;
 }
 
 .picker-option:hover,
@@ -635,15 +725,20 @@
   align-items: center;
   justify-content: center;
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
+  transition: border-color 0.25s var(--ease-out-expo),
+              background 0.25s var(--ease-out-expo),
+              color 0.25s var(--ease-out-expo),
+              box-shadow 0.25s var(--ease-out-expo);
 }
 
 .hotkey-capture-btn[data-capturing="true"] {
   border: 1px solid var(--color-border-accent);
   background: var(--color-accent-subtle);
   color: var(--color-accent);
+  box-shadow: 0 0 0 2.5px rgba(193, 95, 60, 0.08);
 }
 
 .hotkey-capture-btn[data-capturing="false"] {

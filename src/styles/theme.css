@@ -69,11 +69,15 @@
   --space-xl: 32px;
   --space-2xl: 48px;
 
-  /* Transitions */
-  --transition-fast: 100ms ease;
-  --transition-normal: 180ms ease;
-  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-spring: 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Transitions — perceptually tuned curves */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring-soft: cubic-bezier(0.22, 1.2, 0.36, 1);
+  --transition-fast: 120ms var(--ease-out-expo);
+  --transition-normal: 200ms var(--ease-out-expo);
+  --transition-slow: 350ms var(--ease-out-quart);
+  --transition-spring: 450ms var(--ease-spring);
 
   /* Typography — serif for Claude's literary feel */
   --font-serif: "Georgia", "Noto Serif SC",
@@ -264,85 +268,96 @@ body {
    ============================================================ */
 
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(5px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.animate-fade-in { animation: fade-in 0.28s ease-out forwards; }
+.animate-fade-in { animation: fade-in 0.32s var(--ease-out-expo) forwards; }
 
 /* Slide-up — result card entrance */
 @keyframes slide-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.animate-slide-up { animation: slide-up 0.25s ease-out forwards; }
+.animate-slide-up { animation: slide-up 0.38s var(--ease-out-expo) forwards; }
 
 /* Success pop — model ready chip bounce */
 @keyframes success-pop {
-  0%   { opacity: 0; transform: scale(0.6); }
-  50%  { transform: scale(1.08); }
+  0%   { opacity: 0; transform: scale(0.5); }
+  60%  { transform: scale(1.06); }
+  80%  { transform: scale(0.97); }
   100% { opacity: 1; transform: scale(1); }
 }
 
-.animate-success { animation: success-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+.animate-success { animation: success-pop 0.5s var(--ease-spring) forwards; }
 
 /* Gentle shake — error prompt */
 @keyframes gentle-shake {
   0%, 100% { transform: translateX(0); }
-  15%      { transform: translateX(-4px); }
-  30%      { transform: translateX(3px); }
-  45%      { transform: translateX(-2px); }
-  60%      { transform: translateX(1px); }
+  12%      { transform: translateX(-5px); }
+  28%      { transform: translateX(4px); }
+  42%      { transform: translateX(-3px); }
+  56%      { transform: translateX(2px); }
+  70%      { transform: translateX(-1px); }
 }
 
-.animate-shake { animation: gentle-shake 0.4s ease-out; }
+.animate-shake { animation: gentle-shake 0.5s var(--ease-out-expo); }
 
-/* Recording pulse — expanding ring from button edge (scale limited to avoid overflow) */
+/* Recording pulse — dual-ring expanding with stagger */
 @keyframes recording-pulse {
-  0%   { transform: scale(1); opacity: 0.4; }
-  100% { transform: scale(1.28); opacity: 0; }
+  0%   { transform: scale(1); opacity: 0.45; }
+  70%  { opacity: 0.12; }
+  100% { transform: scale(1.35); opacity: 0; }
 }
 
 /* Record state enter — spring scale on toggle */
 @keyframes record-state-enter {
-  0%   { transform: scale(0.85); }
-  60%  { transform: scale(1.06); }
+  0%   { transform: scale(0.82); }
+  50%  { transform: scale(1.07); }
+  75%  { transform: scale(0.97); }
   100% { transform: scale(1); }
 }
 
-.animate-record-enter { animation: record-state-enter 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.animate-record-enter { animation: record-state-enter 0.45s var(--ease-spring); }
 
-/* Page transitions — directional slide with opacity */
+/* Page transitions — smooth cross-fade with subtle scale */
 @keyframes page-enter-from-right {
-  from { opacity: 0; transform: translateX(8px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateX(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
 }
 
 @keyframes page-enter-from-left {
-  from { opacity: 0; transform: translateX(-8px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateX(-16px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
 }
 
 @keyframes page-exit-to-left {
-  from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(-8px); }
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(-12px) scale(0.98); }
 }
 
 @keyframes page-exit-to-right {
-  from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(8px); }
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(12px) scale(0.98); }
 }
 
-.page-enter-right { animation: page-enter-from-right 0.15s ease-out forwards; }
-.page-enter-left  { animation: page-enter-from-left 0.15s ease-out forwards; }
-.page-exit-left   { animation: page-exit-to-left 0.12s ease-in forwards; }
-.page-exit-right  { animation: page-exit-to-right 0.12s ease-in forwards; }
+.page-enter-right,
+.page-enter-left,
+.page-exit-left,
+.page-exit-right {
+  will-change: opacity, transform;
+}
+
+.page-enter-right { animation: page-enter-from-right 0.28s var(--ease-out-expo) forwards; }
+.page-enter-left  { animation: page-enter-from-left 0.28s var(--ease-out-expo) forwards; }
+.page-exit-left   { animation: page-exit-to-left 0.2s var(--ease-out-quart) forwards; }
+.page-exit-right  { animation: page-exit-to-right 0.2s var(--ease-out-quart) forwards; }
 
 /* Settings section cascade entrance */
 @keyframes settings-section-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* Skeleton shimmer — processing state */
@@ -366,10 +381,12 @@ body {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.06) 35%,
+    rgba(255, 255, 255, 0.10) 50%,
+    rgba(255, 255, 255, 0.06) 65%,
     transparent 100%
   );
-  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+  animation: skeleton-shimmer 2s var(--ease-out-quart) infinite;
 }
 
 [data-theme="dark"] .skeleton-shimmer::after,
@@ -389,7 +406,13 @@ body {
   border: 1px solid var(--color-border-subtle);
   box-shadow: var(--shadow-card);
   padding: 14px;
-  animation: settings-section-in 0.28s ease-out both;
+  animation: settings-section-in 0.4s var(--ease-out-expo) both;
+  transition: box-shadow 0.3s var(--ease-out-expo),
+              border-color 0.3s var(--ease-out-expo);
+}
+
+.settings-card:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 /* Spin — replaces Tailwind animate-spin */
@@ -402,31 +425,34 @@ body {
 
 /* Equalizer bars — recording waveform (uses scaleY for GPU perf) */
 @keyframes eq {
-  0%   { transform: scaleY(0.25); }
-  100% { transform: scaleY(1); }
+  0%   { transform: scaleY(0.2); }
+  50%  { transform: scaleY(1); }
+  100% { transform: scaleY(0.3); }
 }
 
 .eq-bar {
-  width: 2px;
-  height: 10px;
-  border-radius: 1px;
+  width: 2.5px;
+  height: 12px;
+  border-radius: 1.5px;
   background: white;
   transform-origin: center bottom;
-  animation: eq 0.9s ease-in-out infinite alternate;
+  animation: eq 0.7s cubic-bezier(0.4, 0, 0.6, 1) infinite alternate;
+  will-change: transform;
 }
 
 /* Download progress indeterminate pulse */
 @keyframes download-pulse {
-  0%   { transform: translateX(-60%); }
-  100% { transform: translateX(120%); }
+  0%   { transform: translateX(-80%); opacity: 0.4; }
+  50%  { opacity: 1; }
+  100% { transform: translateX(140%); opacity: 0.4; }
 }
 
 .download-pulse-bar {
   height: 100%;
-  width: 50%;
-  background: var(--color-accent);
+  width: 45%;
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
   border-radius: 4px;
-  animation: download-pulse 1.2s ease-in-out infinite;
+  animation: download-pulse 1.5s var(--ease-out-quart) infinite;
 }
 
 /* ============================================================
@@ -518,7 +544,9 @@ body {
   font-size: var(--text-sm);
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: background 0.2s var(--ease-out-expo),
+              color 0.2s var(--ease-out-expo),
+              transform 0.25s var(--ease-spring-soft);
 }
 
 .btn-ghost:hover {
@@ -527,8 +555,8 @@ body {
 }
 
 .btn-ghost:active {
-  transform: scale(0.97);
-  transition-duration: 50ms;
+  transform: scale(0.95);
+  transition: transform 60ms ease-out;
 }
 
 /* Claude-style primary button */
@@ -546,19 +574,22 @@ body {
   font-family: var(--font-sans);
   cursor: pointer;
   box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,0.12);
-  transition: all var(--transition-normal);
+  transition: background 0.2s var(--ease-out-expo),
+              box-shadow 0.25s var(--ease-out-expo),
+              transform 0.3s var(--ease-spring-soft);
 }
 
 .btn-primary:hover {
   background: var(--color-accent-hover);
   box-shadow: var(--shadow-md), var(--shadow-glow), inset 0 1px 0 rgba(255,255,255,0.12);
-  transform: translateY(-0.5px);
+  transform: translateY(-1px);
 }
 
 .btn-primary:active {
   background: var(--color-accent-active);
-  transform: translateY(0);
+  transform: translateY(0) scale(0.97);
   box-shadow: var(--shadow-xs);
+  transition: transform 60ms ease-out, background 60ms ease-out;
 }
 
 /* Divider */
@@ -576,7 +607,7 @@ body {
 /* Icon button — transparent, used in title bar and toolbars */
 .icon-btn {
   padding: var(--space-sm);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   color: var(--color-text-tertiary);
@@ -584,7 +615,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color var(--transition-fast), background var(--transition-fast);
+  transition: color 0.15s var(--ease-out-expo),
+              background 0.15s var(--ease-out-expo),
+              transform 0.25s var(--ease-spring-soft);
 }
 
 .icon-btn:hover {
@@ -597,31 +630,35 @@ body {
 }
 
 .icon-btn:active {
-  transform: scale(0.85);
-  transition-duration: 50ms;
+  transform: scale(0.82);
+  transition: transform 60ms ease-out;
 }
 
 /* Test button — settings page permission tests */
 .test-btn {
   padding: 8px 16px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   font-size: var(--text-xs);
   font-weight: 500;
   background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
   border: 1px solid var(--color-border-subtle);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background 0.15s var(--ease-out-expo),
+              color 0.15s var(--ease-out-expo),
+              border-color 0.15s var(--ease-out-expo),
+              transform 0.25s var(--ease-spring-soft);
 }
 
 .test-btn:hover {
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
+  border-color: var(--color-border);
 }
 
 .test-btn:active {
-  transform: scale(0.97);
-  transition-duration: 50ms;
+  transform: scale(0.95);
+  transition: transform 60ms ease-out;
 }
 
 /* Title bar — shared between pages */
@@ -643,17 +680,23 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s ease;
+  transition: background 0.25s var(--ease-out-expo),
+              color 0.2s var(--ease-out-expo),
+              box-shadow 0.3s var(--ease-out-expo),
+              transform 0.35s var(--ease-spring-soft),
+              opacity 0.2s var(--ease-out-expo),
+              border-color 0.2s var(--ease-out-expo);
+  will-change: transform;
 }
 
 .record-btn:not(:disabled):hover {
-  transform: scale(1.05);
+  transform: scale(1.06);
   box-shadow: var(--shadow-lg) !important;
 }
 
 .record-btn:not(:disabled):active {
-  transform: scale(0.93);
-  transition-duration: 50ms;
+  transform: scale(0.91);
+  transition: transform 70ms ease-out;
 }
 
 /* Toggle switch — autostart etc. */
@@ -663,11 +706,13 @@ body {
   border-radius: 12px;
   border: none;
   padding: 2px;
-  transition: background 0.25s ease, opacity 0.2s ease;
+  transition: background 0.35s var(--ease-out-expo),
+              opacity 0.2s var(--ease-out-expo),
+              box-shadow 0.35s var(--ease-out-expo);
 }
 
 .toggle-switch:active .toggle-knob {
-  width: 23px;  /* stretch knob on press for tactile feel */
+  width: 24px;  /* stretch knob on press for tactile feel */
 }
 
 .toggle-knob {
@@ -675,24 +720,28 @@ body {
   height: 20px;
   border-radius: 50%;
   background: white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-              width 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  transition: transform 0.4s var(--ease-spring),
+              width 0.2s var(--ease-out-expo);
 }
 
 /* Theme option button — settings page theme selector */
 .theme-btn {
-  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.2s var(--ease-out-expo),
+              background-color 0.2s var(--ease-out-expo),
+              color 0.2s var(--ease-out-expo),
+              transform 0.3s var(--ease-spring-soft),
+              box-shadow 0.25s var(--ease-out-expo);
 }
 
 .theme-btn:hover {
   box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
+  transform: translateY(-1.5px);
 }
 
 .theme-btn:active {
-  transform: translateY(0) scale(0.97);
-  transition-duration: 50ms;
+  transform: translateY(0) scale(0.96);
+  transition: transform 60ms ease-out;
 }
 
 /* Font utility */
