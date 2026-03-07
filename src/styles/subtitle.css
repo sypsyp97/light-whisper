@@ -22,31 +22,49 @@ body,
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: 8px;
+  padding-bottom: 60px;
   pointer-events: none;
   background: transparent;
 }
 
-/* Capsule container — glassmorphism pill */
+/* Capsule container — glassmorphism pill, auto-expands for long content */
 .subtitle-capsule {
   pointer-events: none;
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  padding: 8px 20px;
-  border-radius: var(--radius-full);
+  padding: 10px 20px;
+  border-radius: 16px;
   background: rgba(20, 18, 14, 0.82);
   backdrop-filter: blur(16px) saturate(1.6);
   -webkit-backdrop-filter: blur(16px) saturate(1.6);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-  max-width: 90vw;
+  max-width: 72vw;
+  max-height: 60vh;
+  overflow: hidden;
   animation: subtitle-fade-in 0.2s ease-out forwards;
+}
+
+/* Single-line capsule (status hints) reverts to pill shape */
+.subtitle-capsule:has(.subtitle-hint) {
+  align-items: center;
+  border-radius: var(--radius-full);
+  padding: 8px 20px;
+  max-height: none;
+  overflow: visible;
+}
+
+/* Reset dot margins inside pill-shaped status capsule */
+.subtitle-capsule:has(.subtitle-hint) .subtitle-dot-recording,
+.subtitle-capsule:has(.subtitle-hint) .subtitle-dot-polishing,
+.subtitle-capsule:has(.subtitle-hint) .subtitle-dot-processing {
+  margin-top: 0;
 }
 
 /* Light theme capsule */
 [data-theme="light"] .subtitle-capsule {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
 }
@@ -104,6 +122,7 @@ body,
   border-radius: 50%;
   background: var(--color-accent);
   flex-shrink: 0;
+  margin-top: 6px;
   animation: subtitle-pulse 1.2s ease-in-out infinite;
 }
 
@@ -114,6 +133,7 @@ body,
   border-radius: 3px;
   background: var(--color-accent);
   flex-shrink: 0;
+  margin-top: 4px;
   animation: subtitle-sparkle 0.8s ease-in-out infinite;
 }
 
@@ -125,6 +145,7 @@ body,
   border: 2px solid rgba(255, 255, 255, 0.12);
   border-top-color: var(--color-accent);
   flex-shrink: 0;
+  margin-top: 4px;
   animation: spin 0.7s linear infinite;
 }
 

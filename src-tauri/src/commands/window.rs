@@ -31,11 +31,8 @@ fn force_window_topmost(window: &tauri::WebviewWindow) {
     }
 }
 
-const SUBTITLE_WINDOW_HEIGHT: f64 = 64.0;
-const SUBTITLE_WINDOW_BOTTOM_MARGIN: f64 = 60.0;
 const DEFAULT_SUBTITLE_WINDOW_WIDTH: f64 = 1280.0;
-const DEFAULT_SUBTITLE_WINDOW_X: f64 = 0.0;
-const DEFAULT_SUBTITLE_WINDOW_Y: f64 = 596.0;
+const DEFAULT_SUBTITLE_WINDOW_HEIGHT: f64 = 720.0;
 
 fn tauri_error(action: &str, err: impl std::fmt::Display) -> AppError {
     AppError::Tauri(format!("{}: {}", action, err))
@@ -68,20 +65,13 @@ fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64
         let screen_pos = monitor.position();
         let scale_factor = monitor.scale_factor();
         let logical_width = (screen_size.width as f64 / scale_factor).max(1.0);
-        let logical_height = (screen_size.height as f64 / scale_factor).max(SUBTITLE_WINDOW_HEIGHT);
+        let logical_height = (screen_size.height as f64 / scale_factor).max(1.0);
         let x = screen_pos.x as f64 / scale_factor;
-        let y_origin = screen_pos.y as f64 / scale_factor;
-        let y = y_origin
-            + (logical_height - SUBTITLE_WINDOW_HEIGHT - SUBTITLE_WINDOW_BOTTOM_MARGIN).max(0.0);
-        (logical_width, SUBTITLE_WINDOW_HEIGHT, x, y)
+        let y = screen_pos.y as f64 / scale_factor;
+        (logical_width, logical_height, x, y)
     } else {
         log::warn!("未获取到显示器信息，字幕窗口使用默认布局");
-        (
-            DEFAULT_SUBTITLE_WINDOW_WIDTH,
-            SUBTITLE_WINDOW_HEIGHT,
-            DEFAULT_SUBTITLE_WINDOW_X,
-            DEFAULT_SUBTITLE_WINDOW_Y,
-        )
+        (DEFAULT_SUBTITLE_WINDOW_WIDTH, DEFAULT_SUBTITLE_WINDOW_HEIGHT, 0.0, 0.0)
     }
 }
 
