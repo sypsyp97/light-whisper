@@ -124,8 +124,9 @@ export default function SubtitleOverlay() {
 
     void (async () => {
       try {
-        unlisten = await listen<{ status: string; tokens?: number }>("ai-polish-status", (event) => {
-          const { status, tokens } = event.payload;
+        unlisten = await listen<{ status: string; tokens?: number; sessionId?: number }>("ai-polish-status", (event) => {
+          const { status, tokens, sessionId } = event.payload;
+          if (typeof sessionId === "number" && sessionId < latestSessionIdRef.current) return;
           if (status === "polishing") {
             clearFadeTimer();
             setFadingOut(false);

@@ -461,7 +461,14 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     if let Some(h) = audio_thread {
         let _ = tokio::task::spawn_blocking(move || { let _ = h.join(); }).await;
     }
-    if let Some(t) = interim_task { let _ = t.await; }
+    // 等待 interim 任务自然结束；超时则 abort 以释放 funasr_process 锁
+    if let Some(t) = interim_task {
+        let abort_handle = t.abort_handle();
+        if tokio::time::timeout(std::time::Duration::from_secs(5), t).await.is_err() {
+            log::warn!("interim 任务超时 (5s)，强制中止");
+            abort_handle.abort();
+        }
+    }
 
     let final_count = samples.lock_or_recover().len();
     let cached = interim_cache.lock_or_recover().clone();
@@ -517,7 +524,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     if let Some(selected_text) = edit_context {
         // 编辑模式：ASR 结果是语音指令，用它改写选中文本
         log::info!("编辑模式：指令=\"{}\"，选中文本长度={}", text, selected_text.len());
-        match ai_polish_service::edit_text(state.inner(), &selected_text, &text, &app_handle).await {
+        match ai_polish_service::edit_text(state.inner(), &selected_text, &text, &app_handle, session_id).await {
             Ok(result) => {
                 emit_done(&app_handle, session_id, &result, duration_sec, true, lang_ref);
                 if !result.is_empty() {
@@ -543,7 +550,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     } else {
         // 普通听写模式
         let original = text.clone();
-        let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle)
+        let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle, session_id)
             .await
             .unwrap_or_else(|e| { log::warn!("AI 润色失败，使用原文: {}", e); text });
         let polished = text != original;
@@ -565,7 +572,12 @@ pub async fn discard_recording(session: RecordingSession) {
     if let Some(h) = session.audio_thread {
         let _ = tokio::task::spawn_blocking(move || { let _ = h.join(); }).await;
     }
-    if let Some(t) = session.interim_task { let _ = t.await; }
+    if let Some(t) = session.interim_task {
+        let abort_handle = t.abort_handle();
+        if tokio::time::timeout(std::time::Duration::from_secs(5), t).await.is_err() {
+            abort_handle.abort();
+        }
+    }
     log::info!("已丢弃录音会话 (session {})", session.session_id);
 }
 

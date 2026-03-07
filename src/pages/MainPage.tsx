@@ -16,7 +16,7 @@ export default function MainPage({ onNavigate }: {
 }) {
   const {
     isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, originalAsrText, setTranscriptionResult,
+    recordingError, transcriptionResult, originalAsrText, setOriginalAsrText, setTranscriptionResult,
     durationSec, charCount, detectedLanguage, history, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError,
@@ -47,12 +47,14 @@ export default function MainPage({ onNavigate }: {
 
   const handleTextChange = useCallback((newText: string) => {
     if (originalAsrText && newText !== originalAsrText) {
+      const prevText = originalAsrText;
+      setOriginalAsrText(newText);
       setTranscriptionResult(newText);
-      submitUserCorrection(originalAsrText, newText)
+      submitUserCorrection(prevText, newText)
         .then(() => toast.success("已学习纠错", { duration: 1500 }))
         .catch(() => toast.error("纠错学习失败"));
     }
-  }, [originalAsrText, setTranscriptionResult]);
+  }, [originalAsrText, setTranscriptionResult, setOriginalAsrText]);
 
   const handleToggleRecording = useCallback(() => {
     if (!isReady) return;

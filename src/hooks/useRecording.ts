@@ -13,6 +13,7 @@ interface UseRecordingReturn {
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
   originalAsrText: string | null;
+  setOriginalAsrText: (text: string | null) => void;
   durationSec: number | null;
   charCount: number | null;
   detectedLanguage: string | null;
@@ -149,6 +150,6 @@ export function useRecording(): UseRecordingReturn {
   return {
     isRecording, isProcessing, startRecording, stopRecording,
     error, transcriptionResult, setTranscriptionResult,
-    originalAsrText, durationSec, charCount, detectedLanguage, history,
+    originalAsrText, setOriginalAsrText, durationSec, charCount, detectedLanguage, history,
   };
 }

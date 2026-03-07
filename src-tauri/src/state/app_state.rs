@@ -110,6 +110,8 @@ pub struct AppState {
     pub hotkey_diagnostic: Arc<std::sync::Mutex<HotkeyDiagnosticState>>,
     /// 编辑模式：按下热键时抓取的选中文本，finalize 时消费
     pub edit_context: Arc<std::sync::Mutex<Option<String>>>,
+    /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
+    pub funasr_generation: AtomicU64,
 }
 
 impl Default for AppState {
@@ -136,6 +138,7 @@ impl Default for AppState {
             user_profile: Default::default(),
             hotkey_diagnostic: Default::default(),
             edit_context: Default::default(),
+            funasr_generation: AtomicU64::new(0),
         }
     }
 }

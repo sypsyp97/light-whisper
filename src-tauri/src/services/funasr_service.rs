@@ -398,6 +398,9 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         return Ok(());
     }
 
+    // 记录启动时的代数，后续写入 state 前比对，防止被 stop_server 取消后仍写回旧进程
+    let gen_at_start = state.funasr_generation.load(Ordering::SeqCst);
+
     // 确保无论成功还是失败，都要重置 starting 标志
     let _starting_guard = StartingFlagGuard(state.funasr_starting.clone());
     state.set_funasr_ready(false);
@@ -532,6 +535,13 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         .unwrap_or_else(|| "FunASR 初始化失败".to_string());
 
     if initialized {
+        // 检查启动期间是否被 stop_server 取消（引擎切换 / 重启）
+        if state.funasr_generation.load(Ordering::SeqCst) != gen_at_start {
+            log::warn!("FunASR 初始化完成但代数已变更，丢弃旧进程");
+            let _ = child.kill().await;
+            return Err(AppError::FunASR("启动已被取消".to_string()));
+        }
+
         log::info!("FunASR 服务器初始化成功！");
         state.set_funasr_ready(true);
 
@@ -553,7 +563,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
 
     // 通过 Tauri 事件系统通知前端
     // `emit` 会向所有窗口广播事件
-    let event_payload = if initialized {
+    let _ = app_handle.emit("funasr-status", if initialized {
         serde_json::json!({
             "status": "ready",
             "message": "FunASR 服务器已就绪"
@@ -561,12 +571,15 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     } else {
         serde_json::json!({
             "status": "error",
-            "message": error_message
+            "message": &error_message
         })
-    };
-    let _ = app_handle.emit("funasr-status", event_payload);
+    });
 
-    Ok(())
+    if initialized {
+        Ok(())
+    } else {
+        Err(AppError::FunASR(error_message))
+    }
 }
 
 /// 执行语音转写
@@ -859,6 +872,9 @@ pub async fn check_status(
 /// `take()` 把 Option 中的值取出来，原位置变成 None。
 /// 这在需要获取所有权时很有用。
 pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
+    // 递增代数，使正在进行的 start_server 感知到取消
+    state.funasr_generation.fetch_add(1, Ordering::SeqCst);
+
     // 先取出子进程句柄，避免关闭流程被常规请求超时拖住
     let mut process = {
         let mut guard = state.funasr_process.lock().await;

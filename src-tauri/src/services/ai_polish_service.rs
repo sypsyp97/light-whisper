@@ -189,6 +189,7 @@ pub async fn polish_text(
     state: &AppState,
     text: &str,
     app_handle: &tauri::AppHandle,
+    session_id: u64,
 ) -> Result<String, String> {
     if !state.ai_polish_enabled.load(Ordering::Acquire) {
         return Ok(text.to_string());
@@ -266,7 +267,7 @@ pub async fn polish_text(
     );
 
     let start = std::time::Instant::now();
-    emit_polish_status(app_handle, "polishing", text, "", "");
+    emit_polish_status(app_handle, "polishing", text, "", "", session_id);
 
     let mut request = state
         .http_client
@@ -286,13 +287,13 @@ pub async fn polish_text(
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         let err = format!("AI 润色 API 返回错误 {}: {}", status, body_text);
-        emit_polish_status(app_handle, "error", text, text, &err);
+        emit_polish_status(app_handle, "error", text, text, &err, session_id);
         return Err(err);
     }
 
     let raw_content = if use_streaming {
         let content = read_sse_stream(response, app_handle).await.map_err(|e| {
-            emit_polish_status(app_handle, "error", text, text, &e);
+            emit_polish_status(app_handle, "error", text, text, &e, session_id);
             e
         })?;
         content
@@ -376,10 +377,10 @@ pub async fn polish_text(
             text,
             polished
         );
-        emit_polish_status(app_handle, "applied", text, &polished, "");
+        emit_polish_status(app_handle, "applied", text, &polished, "", session_id);
     } else {
         log::info!("AI 润色完成 ({}ms): 文本无变化", elapsed_ms);
-        emit_polish_status(app_handle, "unchanged", text, &polished, "");
+        emit_polish_status(app_handle, "unchanged", text, &polished, "", session_id);
     }
 
     // 学习纠错模式和术语（无论文本是否变化，都记录 key_terms）
@@ -419,6 +420,7 @@ pub async fn edit_text(
     selected_text: &str,
     instruction: &str,
     app_handle: &tauri::AppHandle,
+    session_id: u64,
 ) -> Result<String, String> {
     let api_key = state.read_ai_polish_api_key();
     if api_key.is_empty() {
@@ -479,7 +481,7 @@ pub async fn edit_text(
     let timeout = dynamic_timeout(endpoint.timeout_secs, selected_text.len());
 
     let start = std::time::Instant::now();
-    emit_polish_status(app_handle, "polishing", selected_text, "", "");
+    emit_polish_status(app_handle, "polishing", selected_text, "", "", session_id);
 
     let mut request = state
         .http_client
@@ -499,13 +501,13 @@ pub async fn edit_text(
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         let err = format!("编辑 API 返回错误 {}: {}", status, body_text);
-        emit_polish_status(app_handle, "error", selected_text, selected_text, &err);
+        emit_polish_status(app_handle, "error", selected_text, selected_text, &err, session_id);
         return Err(err);
     }
 
     let raw_content = if use_streaming {
         read_sse_stream(response, app_handle).await.map_err(|e| {
-            emit_polish_status(app_handle, "error", selected_text, selected_text, &e);
+            emit_polish_status(app_handle, "error", selected_text, selected_text, &e, session_id);
             e
         })?
     } else {
@@ -544,7 +546,7 @@ pub async fn edit_text(
         instruction,
         result.len()
     );
-    emit_polish_status(app_handle, "applied", selected_text, &result, "");
+    emit_polish_status(app_handle, "applied", selected_text, &result, "", session_id);
 
     Ok(result)
 }
@@ -590,6 +592,7 @@ fn emit_polish_status(
     original: &str,
     polished: &str,
     error: &str,
+    session_id: u64,
 ) {
     let _ = app_handle.emit(
         "ai-polish-status",
@@ -598,6 +601,7 @@ fn emit_polish_status(
             "original": original,
             "polished": polished,
             "error": error,
+            "sessionId": session_id,
         }),
     );
 }
