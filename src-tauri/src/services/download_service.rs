@@ -48,7 +48,7 @@ pub async fn run_download(
     let download_script_str = paths::strip_win_prefix(&download_script);
 
     if !download_script.exists() {
-        return Err(AppError::FunASR(format!(
+        return Err(AppError::Download(format!(
             "模型下载脚本不存在: {}",
             download_script_str
         )));
@@ -61,7 +61,7 @@ pub async fn run_download(
         // 防止重复下载
         let mut guard = state.download_task.lock().await;
         if guard.is_some() {
-            return Err(AppError::FunASR(
+            return Err(AppError::Download(
                 "已有下载任务正在进行，请先取消或等待完成".to_string(),
             ));
         }
@@ -99,7 +99,7 @@ pub async fn run_download(
         Ok(child) => child,
         Err(e) => {
             clear_download_task(state).await;
-            return Err(AppError::FunASR(format!("启动模型下载脚本失败: {}", e)));
+            return Err(AppError::Download(format!("启动模型下载脚本失败: {}", e)));
         }
     };
 
@@ -107,7 +107,7 @@ pub async fn run_download(
         Some(stdout) => stdout,
         None => {
             clear_download_task(state).await;
-            return Err(AppError::FunASR("无法读取模型下载脚本输出".to_string()));
+            return Err(AppError::Download("无法读取模型下载脚本输出".to_string()));
         }
     };
 
@@ -132,7 +132,7 @@ pub async fn run_download(
                 let bytes = match bytes {
                     Ok(bytes) => bytes,
                     Err(e) => {
-                        read_error = Some(AppError::FunASR(format!("读取模型下载输出失败: {}", e)));
+                        read_error = Some(AppError::Download(format!("读取模型下载输出失败: {}", e)));
                         break;
                     }
                 };
@@ -180,7 +180,7 @@ pub async fn run_download(
         Ok(status) => status,
         Err(e) => {
             clear_download_task(state).await;
-            return Err(AppError::FunASR(format!("模型下载进程异常退出: {}", e)));
+            return Err(AppError::Download(format!("模型下载进程异常退出: {}", e)));
         }
     };
 
@@ -223,6 +223,6 @@ pub async fn run_download(
             }),
         );
 
-        Err(AppError::FunASR(error_msg))
+        Err(AppError::Download(error_msg))
     }
 }

@@ -23,7 +23,7 @@ pub async fn transcribe_audio(
     use base64::Engine;
     let audio_data = base64::engine::general_purpose::STANDARD
         .decode(&audio_base64)
-        .map_err(|e| AppError::FunASR(format!("Base64 解码失败: {}", e)))?;
+        .map_err(|e| AppError::Asr(format!("Base64 解码失败: {}", e)))?;
     funasr_service::transcribe(state.inner(), audio_data, &app_handle).await
 }
 
@@ -94,14 +94,14 @@ pub async fn set_engine(
     engine: String,
 ) -> Result<String, AppError> {
     if engine != "sensevoice" && engine != "whisper" && engine != "glm-asr" {
-        return Err(AppError::FunASR(format!(
+        return Err(AppError::Other(format!(
             "不支持的引擎类型: {}，可选值: sensevoice, whisper, glm-asr",
             engine
         )));
     }
 
     paths::write_engine_config(&engine)
-        .map_err(|e| AppError::FunASR(format!("写入引擎配置失败: {}", e)))?;
+        .map_err(|e| AppError::Other(format!("写入引擎配置失败: {}", e)))?;
     funasr_service::stop_server(state.inner()).await?;
 
     // 强制重置启动标志，确保新引擎可以立即启动。

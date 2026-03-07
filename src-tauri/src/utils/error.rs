@@ -2,10 +2,12 @@ use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
-    #[error("FunASR错误: {0}")]
-    FunASR(String),
+    #[error("ASR错误: {0}")]
+    Asr(String),
     #[error("音频错误: {0}")]
     Audio(String),
+    #[error("下载错误: {0}")]
+    Download(String),
     #[error("IO错误: {0}")]
     Io(#[from] std::io::Error),
     #[error("序列化错误: {0}")]

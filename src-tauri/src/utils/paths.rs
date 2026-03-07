@@ -45,15 +45,10 @@ pub fn get_engine_config_path() -> PathBuf {
 }
 
 pub fn read_engine_config() -> String {
-    let config_path = get_engine_config_path();
-    if let Ok(content) = std::fs::read_to_string(&config_path) {
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(engine) = value.get("engine").and_then(|v| v.as_str()) {
-                let engine = engine.to_string();
-                if engine == "whisper" || engine == "sensevoice" || engine == "glm-asr" {
-                    return engine;
-                }
-            }
+    if let Some(engine) = read_engine_json().get("engine").and_then(|v| v.as_str()) {
+        match engine {
+            "whisper" | "sensevoice" | "glm-asr" => return engine.to_string(),
+            _ => {}
         }
     }
     "sensevoice".to_string()

@@ -246,14 +246,14 @@ where
     loop {
         let remaining = timeout
             .checked_sub(start_at.elapsed())
-            .ok_or_else(|| AppError::FunASR(format!("{}超时", context)))?;
+            .ok_or_else(|| AppError::Asr(format!("{}超时", context)))?;
 
         line.clear();
         let read_result = tokio::time::timeout(remaining, reader.read_line(&mut line)).await;
 
         match read_result {
             Ok(Ok(0)) => {
-                return Err(AppError::FunASR(format!("{}失败：stdout 已关闭", context)));
+                return Err(AppError::Asr(format!("{}失败：stdout 已关闭", context)));
             }
             Ok(Ok(_)) => {
                 let trimmed = line.trim();
@@ -269,10 +269,10 @@ where
                 }
             }
             Ok(Err(e)) => {
-                return Err(AppError::FunASR(format!("{}失败：{}", context, e)));
+                return Err(AppError::Asr(format!("{}失败：{}", context, e)));
             }
             Err(_) => {
-                return Err(AppError::FunASR(format!("{}超时", context)));
+                return Err(AppError::Asr(format!("{}超时", context)));
             }
         }
     }
@@ -350,7 +350,7 @@ pub async fn find_python() -> Result<String, AppError> {
     }
 
     // 所有策略都失败了
-    Err(AppError::FunASR(
+    Err(AppError::Asr(
         "未找到可用的 Python 解释器。请安装 Python 3.8+ 或在项目目录创建 .venv 虚拟环境（推荐使用 uv）。"
             .to_string(),
     ))
@@ -438,7 +438,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     );
 
     if !server_script.exists() {
-        return Err(AppError::FunASR(format!(
+        return Err(AppError::Asr(format!(
             "FunASR 服务器脚本不存在: {}",
             server_script_str
         )));
@@ -478,7 +478,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| AppError::FunASR(format!("启动 FunASR 进程失败: {}", e)))?;
+        .map_err(|e| AppError::Asr(format!("启动 FunASR 进程失败: {}", e)))?;
 
     log::info!("FunASR 子进程已启动，等待初始化...");
 
@@ -496,7 +496,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         Some(stdin) => stdin,
         None => {
             let _ = child.kill().await;
-            return Err(AppError::FunASR(
+            return Err(AppError::Asr(
                 "无法获取 FunASR 进程的标准输入".to_string(),
             ));
         }
@@ -505,7 +505,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         Some(stdout) => stdout,
         None => {
             let _ = child.kill().await;
-            return Err(AppError::FunASR(
+            return Err(AppError::Asr(
                 "无法获取 FunASR 进程的标准输出".to_string(),
             ));
         }
@@ -544,7 +544,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         if state.funasr_generation.load(Ordering::SeqCst) != gen_at_start {
             log::warn!("FunASR 初始化完成但代数已变更，丢弃旧进程");
             let _ = child.kill().await;
-            return Err(AppError::FunASR("启动已被取消".to_string()));
+            return Err(AppError::Asr("启动已被取消".to_string()));
         }
 
         log::info!("FunASR 服务器初始化成功！");
@@ -583,7 +583,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     if initialized {
         Ok(())
     } else {
-        Err(AppError::FunASR(error_message))
+        Err(AppError::Asr(error_message))
     }
 }
 
@@ -611,7 +611,7 @@ pub async fn transcribe(
 ) -> Result<TranscriptionResult, AppError> {
     // 检查服务器是否就绪
     if !state.is_funasr_ready() {
-        return Err(AppError::FunASR(
+        return Err(AppError::Asr(
             "FunASR 服务器尚未就绪，请等待初始化完成".to_string(),
         ));
     }
@@ -633,7 +633,7 @@ pub async fn transcribe(
     // 写入音频数据到临时文件
     tokio::fs::write(&temp_file, &audio_data)
         .await
-        .map_err(|e| AppError::FunASR(format!("写入临时音频文件失败: {}", e)))?;
+        .map_err(|e| AppError::Asr(format!("写入临时音频文件失败: {}", e)))?;
 
     // 从用户画像中提取热词
     let hot_words = {
@@ -706,7 +706,7 @@ async fn send_command_to_server(
     let result = {
         let process = guard
             .as_mut()
-            .ok_or_else(|| AppError::FunASR("FunASR 进程未运行".to_string()))?;
+            .ok_or_else(|| AppError::Asr("FunASR 进程未运行".to_string()))?;
         send_command_impl(process, command).await
     };
 
@@ -743,7 +743,7 @@ async fn send_command_impl(
 ) -> Result<ServerResponse, AppError> {
     // 序列化命令为 Python 端期望的扁平 JSON 格式
     let command_json = serde_json::to_string(command)
-        .map_err(|e| AppError::FunASR(format!("序列化命令失败: {}", e)))?;
+        .map_err(|e| AppError::Asr(format!("序列化命令失败: {}", e)))?;
 
     // 写入命令到 stdin
     // `write_all` 确保所有字节都被写入
@@ -751,14 +751,14 @@ async fn send_command_impl(
         .stdin
         .write_all(format!("{}\n", command_json).as_bytes())
         .await
-        .map_err(|e| AppError::FunASR(format!("写入命令到 FunASR 失败: {}", e)))?;
+        .map_err(|e| AppError::Asr(format!("写入命令到 FunASR 失败: {}", e)))?;
 
     // `flush` 确保缓冲区的数据被立即发送
     process
         .stdin
         .flush()
         .await
-        .map_err(|e| AppError::FunASR(format!("刷新 stdin 缓冲区失败: {}", e)))?;
+        .map_err(|e| AppError::Asr(format!("刷新 stdin 缓冲区失败: {}", e)))?;
 
     // 从 stdout 读取响应（允许跳过非 JSON 行）
     read_json_response(
@@ -771,7 +771,7 @@ async fn send_command_impl(
 
 async fn try_send_exit_command(process: &mut FunasrProcess) -> Result<(), AppError> {
     let command_json = serde_json::to_string(&ServerCommand::Exit)
-        .map_err(|e| AppError::FunASR(format!("序列化退出命令失败: {}", e)))?;
+        .map_err(|e| AppError::Asr(format!("序列化退出命令失败: {}", e)))?;
     let timeout = Duration::from_millis(SERVER_EXIT_WRITE_TIMEOUT_MS);
 
     tokio::time::timeout(
@@ -781,13 +781,13 @@ async fn try_send_exit_command(process: &mut FunasrProcess) -> Result<(), AppErr
             .write_all(format!("{}\n", command_json).as_bytes()),
     )
     .await
-    .map_err(|_| AppError::FunASR("写入退出命令超时".to_string()))?
-    .map_err(|e| AppError::FunASR(format!("写入退出命令失败: {}", e)))?;
+    .map_err(|_| AppError::Asr("写入退出命令超时".to_string()))?
+    .map_err(|e| AppError::Asr(format!("写入退出命令失败: {}", e)))?;
 
     tokio::time::timeout(timeout, process.stdin.flush())
         .await
-        .map_err(|_| AppError::FunASR("刷新退出命令超时".to_string()))?
-        .map_err(|e| AppError::FunASR(format!("刷新退出命令失败: {}", e)))?;
+        .map_err(|_| AppError::Asr("刷新退出命令超时".to_string()))?
+        .map_err(|e| AppError::Asr(format!("刷新退出命令失败: {}", e)))?;
 
     Ok(())
 }
