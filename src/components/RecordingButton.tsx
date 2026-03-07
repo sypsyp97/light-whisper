@@ -32,7 +32,6 @@ export default function RecordingButton({
         </>
       )}
       <button
-        key={isRecording ? "recording" : isProcessing ? "processing" : "idle"}
         className={`record-btn${isRecording !== prevRecording.current ? " animate-record-enter" : ""}`}
         aria-label={label}
         aria-pressed={isRecording}

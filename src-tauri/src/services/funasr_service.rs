@@ -637,7 +637,7 @@ pub async fn transcribe(
 
     // 从用户画像中提取热词
     let hot_words = {
-        let words = state.snapshot_profile().get_hot_word_texts(100);
+        let words = state.with_profile(|p| p.get_hot_word_texts(100));
         if words.is_empty() {
             None
         } else {

@@ -126,17 +126,25 @@ async fn read_sse_stream(
 fn build_system_prompt(state: &AppState, input_text: &str) -> String {
     let mut prompt = BASE_SYSTEM_PROMPT.to_string();
 
-    let profile = state.snapshot_profile();
+    // 在锁内一次性提取所需数据，避免克隆整个 profile
+    let (hot_words, corrections, translation_target) = state.with_profile(|p| {
+        (
+            p.get_hot_word_texts(50),
+            p.get_relevant_corrections(input_text, 10)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            p.translation_target.clone(),
+        )
+    });
 
     // 注入用户常用词汇（Top 50）
-    let hot_words = profile.get_hot_word_texts(50);
     if !hot_words.is_empty() {
         prompt.push_str("\n\n用户常用专有名词（优先使用这些词汇）：\n");
         prompt.push_str(&hot_words.join("、"));
     }
 
     // 注入相关纠错模式（精确子串匹配优先，高频兜底）
-    let corrections = profile.get_relevant_corrections(input_text, 10);
     if !corrections.is_empty() {
         let (user_corrs, ai_corrs): (Vec<_>, Vec<_>) = corrections
             .into_iter()
@@ -166,7 +174,7 @@ fn build_system_prompt(state: &AppState, input_text: &str) -> String {
     }
 
     // 翻译指令：translation_target 非空时注入
-    if let Some(ref target_lang) = profile.translation_target {
+    if let Some(ref target_lang) = translation_target {
         prompt.push_str(&format!(
             "\n\n翻译要求：\n\
              完成校正后，将最终文本翻译为{target_lang}。\n\

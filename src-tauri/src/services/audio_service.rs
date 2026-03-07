@@ -385,6 +385,8 @@ pub fn spawn_interim_loop(
         let state = app_handle.state::<AppState>();
         let mut interval_ms = INTERIM_INTERVAL_BASE_MS;
         let mut last_sample_count: usize = 0;
+        // 增量快照缓冲区：只从共享 samples 中拷贝新增部分，追加到此处
+        let mut snapshot: Vec<i16> = Vec::new();
 
         if sample_rate == 0 {
             log::error!("中间转写启动失败：采样率为 0 (session {})", session_id);
@@ -405,7 +407,7 @@ pub fn spawn_interim_loop(
             }
             if stop_flag.load(Ordering::Relaxed) { break; }
 
-            let (current_samples, current_count) = {
+            let current_count = {
                 let guard = samples.lock();
                 let count = guard.len();
                 if count.saturating_sub(last_sample_count) < MIN_SAMPLES_GROWTH {
@@ -413,11 +415,13 @@ pub fn spawn_interim_loop(
                     continue;
                 }
                 if (count as f64 / sample_rate as f64) < MIN_AUDIO_DURATION_SEC { continue; }
-                (guard.clone(), count)
+                // 只拷贝新增的样本，锁持有时间最短
+                snapshot.extend_from_slice(&guard[snapshot.len()..]);
+                count
             };
 
             let start = std::time::Instant::now();
-            let resampled = resample_to_16k(&current_samples, sample_rate);
+            let resampled = resample_to_16k(&snapshot, sample_rate);
             let wav_bytes = encode_wav(&resampled, TARGET_SAMPLE_RATE);
 
             match funasr_service::transcribe(state.inner(), wav_bytes, &app_handle).await {

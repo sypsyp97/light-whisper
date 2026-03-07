@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe } from "lucide-react";
 import { toast } from "sonner";
@@ -672,18 +672,18 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const selectedDeviceMissing = Boolean(selectedInputDeviceName)
     && !inputDevices.some((device) => device.name === selectedInputDeviceName);
   const currentLlmPreset = findLlmPreset(llmProvider);
-  const filteredProviderOptions = llmProviderOptions.filter(({ label, desc, baseUrl }) => {
+  const filteredProviderOptions = useMemo(() => llmProviderOptions.filter(({ label, desc, baseUrl }) => {
     const keyword = providerSearch.trim().toLowerCase();
     if (!keyword) return true;
     return label.toLowerCase().includes(keyword)
       || desc.toLowerCase().includes(keyword)
       || baseUrl.toLowerCase().includes(keyword);
-  });
-  const filteredAiModels = aiModels.filter((model) => {
+  }), [llmProviderOptions, providerSearch]);
+  const filteredAiModels = useMemo(() => aiModels.filter((model) => {
     const keyword = aiModelSearch.trim().toLowerCase();
     if (!keyword) return true;
     return model.id.toLowerCase().includes(keyword) || (model.ownedBy ?? "").toLowerCase().includes(keyword);
-  });
+  }), [aiModels, aiModelSearch]);
   const selectedAiModel = aiModels.find((model) => model.id === customModel);
 
   const handleProviderSelect = useCallback(async (nextProvider: string) => {

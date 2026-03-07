@@ -6,6 +6,7 @@ FunASR模型服务器
 """
 
 import os
+import re
 import traceback
 
 from server_common import (
@@ -26,6 +27,8 @@ class FunASRServer(BaseASRServer):
     def __init__(self):
         super().__init__(engine="sensevoice", logger=logger)
         self.asr_model = None
+        self._torch = None
+        self._rich_postprocess = None
 
     def _get_model_repos(self) -> list:
         return MODEL_REPOS
@@ -45,6 +48,10 @@ class FunASRServer(BaseASRServer):
                     disable_update=True,
                     device=self.device,
                 )
+            import torch
+            from funasr.utils.postprocess_utils import rich_transcription_postprocess
+            self._torch = torch
+            self._rich_postprocess = rich_transcription_postprocess
             logger.info(f"SenseVoiceSmall 模型加载完成 (device={self.device})")
             return True
         except Exception as e:
@@ -122,7 +129,6 @@ class FunASRServer(BaseASRServer):
 
             # 执行ASR识别（SenseVoiceSmall 内置 ITN 标点恢复）
             asr_start = time.time()
-            import torch
 
             # 构建热词字符串（FunASR 格式: "词1 词2 词3"）
             hotword_str = ""
@@ -142,13 +148,11 @@ class FunASRServer(BaseASRServer):
             if hotword_str:
                 generate_kwargs["hotword"] = hotword_str
 
-            with self.stdout_suppressor.suppress(), torch.inference_mode():
+            with self.stdout_suppressor.suppress(), self._torch.inference_mode():
                 asr_result = self.asr_model.generate(**generate_kwargs)
             asr_elapsed = time.time() - asr_start
 
             # 提取识别文本并进行富文本后处理（去除 <|zh|><|NEUTRAL|> 等标签）
-            import re
-            from funasr.utils.postprocess_utils import rich_transcription_postprocess
             detected_lang = "zh"
             if isinstance(asr_result, list) and len(asr_result) > 0:
                 if isinstance(asr_result[0], dict) and "text" in asr_result[0]:
@@ -156,7 +160,7 @@ class FunASRServer(BaseASRServer):
                     lang_match = re.match(r"<\|(\w+)\|>", raw_text)
                     if lang_match:
                         detected_lang = lang_match.group(1)
-                    final_text = rich_transcription_postprocess(raw_text)
+                    final_text = self._rich_postprocess(raw_text)
                 else:
                     final_text = str(asr_result[0])
             else:
@@ -187,7 +191,7 @@ class FunASRServer(BaseASRServer):
 
         except (IndexError, RuntimeError) as e:
             err_str = str(e)
-            if "index" in err_str and "out of bounds" in err_str or "size 0" in err_str:
+            if ("index" in err_str and "out of bounds" in err_str) or "size 0" in err_str:
                 logger.warning(f"音频中未检测到有效语音: {err_str}")
                 return {"success": True, "text": "", "duration": duration}
             error_msg = f"音频转录失败: {err_str}"

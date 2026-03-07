@@ -177,18 +177,29 @@ impl AppState {
         self.user_profile.lock().clone()
     }
 
+    /// 借用 profile 执行只读操作，无需克隆
+    pub fn with_profile<R>(&self, f: impl FnOnce(&UserProfile) -> R) -> R {
+        f(&self.user_profile.lock())
+    }
+
+    /// 修改 profile 并返回克隆（用于需要持久化的场景）
     pub fn update_profile<R>(&self, f: impl FnOnce(&mut UserProfile) -> R) -> (R, UserProfile) {
         let mut guard = self.user_profile.lock();
         let result = f(&mut guard);
         (result, guard.clone())
     }
 
+    /// 修改 profile，不返回克隆（无需持久化时使用）
+    pub fn update_profile_mut<R>(&self, f: impl FnOnce(&mut UserProfile) -> R) -> R {
+        f(&mut self.user_profile.lock())
+    }
+
     pub fn active_llm_provider(&self) -> String {
-        self.snapshot_profile().llm_provider.active
+        self.with_profile(|p| p.llm_provider.active.clone())
     }
 
     pub fn llm_provider_config(&self) -> LlmProviderConfig {
-        self.snapshot_profile().llm_provider
+        self.with_profile(|p| p.llm_provider.clone())
     }
 
     pub fn read_ai_polish_api_key(&self) -> String {

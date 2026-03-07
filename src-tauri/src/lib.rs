@@ -49,7 +49,7 @@ pub fn run() {
             {
                 let state = app_handle.state::<AppState>();
                 let loaded = services::profile_service::load_profile();
-                let _ = state.update_profile(|profile| *profile = loaded);
+                state.update_profile_mut(|profile| *profile = loaded);
                 log::info!("已加载用户画像");
             }
 

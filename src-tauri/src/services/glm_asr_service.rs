@@ -30,7 +30,7 @@ fn build_form(
         .text("model", GLM_ASR_MODEL)
         .text("stream", "false");
 
-    let words = state.snapshot_profile().get_hot_word_texts(100);
+    let words = state.with_profile(|p| p.get_hot_word_texts(100));
     if !words.is_empty() {
         let json = serde_json::to_string(&words)
             .map_err(|e| AppError::Asr(format!("序列化热词失败: {}", e)))?;

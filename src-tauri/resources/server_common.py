@@ -105,7 +105,7 @@ import signal
 import traceback
 
 
-CLEANUP_EVERY_N = 5
+CLEANUP_EVERY_N = 20
 
 
 class BaseASRServer:
@@ -190,10 +190,11 @@ class BaseASRServer:
             self.logger.warning(f"内存清理失败: {e}")
 
     def _maybe_cleanup(self, duration: float) -> None:
-        """Run periodic memory cleanup after transcription."""
+        """Run periodic memory cleanup after transcription (in background thread)."""
         if self.transcription_count % CLEANUP_EVERY_N == 0 or duration > 120:
-            self._cleanup_memory()
-            self.logger.info(f"已完成 {self.transcription_count} 次转录，执行内存清理")
+            import threading
+            threading.Thread(target=self._cleanup_memory, daemon=True).start()
+            self.logger.info(f"已完成 {self.transcription_count} 次转录，后台执行内存清理")
 
     def _get_gpu_device_info(self) -> dict:
         """Return device/gpu_name/gpu_memory_total dict for status responses."""
