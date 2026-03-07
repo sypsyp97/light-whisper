@@ -255,6 +255,8 @@ pub async fn polish_text(
         body["stream"] = serde_json::json!(true);
     }
 
+    // 流式请求不设置总超时——由 read_sse_stream 的 chunk_timeout 保护；
+    // 非流式请求使用动态总超时。
     let timeout = dynamic_timeout(endpoint.timeout_secs, text.len());
     log::info!(
         "AI 润色请求: 文本长度={}, 超时={}s, 流式={}",
@@ -266,12 +268,15 @@ pub async fn polish_text(
     let start = std::time::Instant::now();
     emit_polish_status(app_handle, "polishing", text, "", "");
 
-    let response = state
+    let mut request = state
         .http_client
         .post(&endpoint.api_url)
         .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .timeout(timeout)
+        .header("Content-Type", "application/json");
+    if !use_streaming {
+        request = request.timeout(timeout);
+    }
+    let response = request
         .json(&body)
         .send()
         .await
@@ -476,12 +481,15 @@ pub async fn edit_text(
     let start = std::time::Instant::now();
     emit_polish_status(app_handle, "polishing", selected_text, "", "");
 
-    let response = state
+    let mut request = state
         .http_client
         .post(&endpoint.api_url)
         .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .timeout(timeout)
+        .header("Content-Type", "application/json");
+    if !use_streaming {
+        request = request.timeout(timeout);
+    }
+    let response = request
         .json(&body)
         .send()
         .await
