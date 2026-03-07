@@ -10,7 +10,7 @@ use tauri::{Emitter, Manager};
 use crate::services::{ai_polish_service, funasr_service, glm_asr_service};
 use crate::utils::paths;
 use crate::state::{AppState, MicrophoneLevelMonitor, RecordingSession, RecordingSlot};
-use crate::utils::{AppError, MutexRecover};
+use crate::utils::AppError;
 
 // ---------- 常量 ----------
 
@@ -49,27 +49,21 @@ pub struct InputDeviceListPayload {
 // ---------- WAV 编码 ----------
 
 pub fn encode_wav(samples: &[i16], sample_rate: u32) -> Vec<u8> {
-    let data_size = (samples.len() * 2) as u32;
-    let byte_rate = sample_rate * 2;
-    let mut buf = Vec::with_capacity(44 + data_size as usize);
-
-    buf.extend_from_slice(b"RIFF");
-    buf.extend_from_slice(&(36 + data_size).to_le_bytes());
-    buf.extend_from_slice(b"WAVE");
-    buf.extend_from_slice(b"fmt ");
-    buf.extend_from_slice(&16u32.to_le_bytes());
-    buf.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    buf.extend_from_slice(&1u16.to_le_bytes()); // mono
-    buf.extend_from_slice(&sample_rate.to_le_bytes());
-    buf.extend_from_slice(&byte_rate.to_le_bytes());
-    buf.extend_from_slice(&2u16.to_le_bytes()); // block align
-    buf.extend_from_slice(&16u16.to_le_bytes()); // bits/sample
-    buf.extend_from_slice(b"data");
-    buf.extend_from_slice(&data_size.to_le_bytes());
-    for &s in samples {
-        buf.extend_from_slice(&s.to_le_bytes());
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut cursor = std::io::Cursor::new(Vec::with_capacity(44 + samples.len() * 2));
+    {
+        let mut writer = hound::WavWriter::new(&mut cursor, spec).expect("WAV writer creation failed");
+        for &s in samples {
+            writer.write_sample(s).expect("WAV sample write failed");
+        }
+        writer.finalize().expect("WAV finalize failed");
     }
-    buf
+    cursor.into_inner()
 }
 
 // ---------- 采样格式转换 ----------
@@ -83,25 +77,38 @@ fn u16_to_i16(s: u16) -> i16 {
     (s as i32 - 32768) as i16
 }
 
-// ---------- 重采样 ----------
+// ---------- 重采样（rubato sinc 插值） ----------
 
 fn resample_to_16k(input: &[i16], input_rate: u32) -> Cow<'_, [i16]> {
     if input.is_empty() || input_rate == 0 || input_rate == TARGET_SAMPLE_RATE {
         return Cow::Borrowed(input);
     }
-    let ratio = input_rate as f64 / TARGET_SAMPLE_RATE as f64;
-    let new_len = (input.len() as f64 / ratio).round() as usize;
-    Cow::Owned(
-        (0..new_len)
-            .map(|i| {
-                let src = i as f64 * ratio;
-                let lo = src.floor() as usize;
-                let hi = (lo + 1).min(input.len().saturating_sub(1));
-                let frac = src - lo as f64;
-                (input[lo] as f64 * (1.0 - frac) + input[hi] as f64 * frac).round() as i16
-            })
-            .collect(),
-    )
+
+    use rubato::{FastFixedIn, PolynomialDegree, Resampler};
+
+    let ratio = TARGET_SAMPLE_RATE as f64 / input_rate as f64;
+    let chunk_size = input.len();
+
+    let mut resampler = match FastFixedIn::<f32>::new(ratio, 1.1, PolynomialDegree::Cubic, chunk_size, 1) {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("rubato 初始化失败，跳过重采样: {}", e);
+            return Cow::Borrowed(input);
+        }
+    };
+
+    let input_f32: Vec<f32> = input.iter().map(|&s| s as f32 / 32768.0).collect();
+
+    match resampler.process(&[&input_f32], None) {
+        Ok(output) => {
+            let resampled: Vec<i16> = output[0].iter().map(|&s| f32_to_i16(s)).collect();
+            Cow::Owned(resampled)
+        }
+        Err(e) => {
+            log::warn!("rubato 重采样失败，跳过: {}", e);
+            Cow::Borrowed(input)
+        }
+    }
 }
 
 // ---------- cpal 设备管理 ----------
@@ -280,7 +287,7 @@ fn peak_to_meter(peak: u32) -> u32 {
 
 pub fn spawn_audio_capture_thread(
     stop_flag: Arc<AtomicBool>,
-    samples: Arc<std::sync::Mutex<Vec<i16>>>,
+    samples: Arc<parking_lot::Mutex<Vec<i16>>>,
     selected_device_name: Option<String>,
 ) -> Result<(std::thread::JoinHandle<()>, u32), AppError> {
     let (rate_tx, rate_rx) = std::sync::mpsc::sync_channel::<Result<u32, String>>(1);
@@ -314,21 +321,21 @@ pub fn spawn_audio_capture_thread(
                 let buf = samples.clone(); let stop = stop_cb.clone();
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                     if stop.load(Ordering::Relaxed) { return; }
-                    mix_to_mono_i16(data, channels, &mut buf.lock_or_recover());
+                    mix_to_mono_i16(data, channels, &mut buf.lock());
                 }
             };
             let mk_f32 = {
                 let buf = samples.clone(); let stop = stop_cb.clone();
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     if stop.load(Ordering::Relaxed) { return; }
-                    mix_to_mono_f32(data, channels, &mut buf.lock_or_recover());
+                    mix_to_mono_f32(data, channels, &mut buf.lock());
                 }
             };
             let mk_u16 = {
                 let buf = samples.clone(); let stop = stop_cb.clone();
                 move |data: &[u16], _: &cpal::InputCallbackInfo| {
                     if stop.load(Ordering::Relaxed) { return; }
-                    mix_to_mono_u16(data, channels, &mut buf.lock_or_recover());
+                    mix_to_mono_u16(data, channels, &mut buf.lock());
                 }
             };
 
@@ -370,9 +377,9 @@ pub fn spawn_interim_loop(
     session_id: u64,
     stop_flag: Arc<AtomicBool>,
     stop_notify: Arc<tokio::sync::Notify>,
-    samples: Arc<std::sync::Mutex<Vec<i16>>>,
+    samples: Arc<parking_lot::Mutex<Vec<i16>>>,
     sample_rate: u32,
-    interim_cache: Arc<std::sync::Mutex<Option<crate::state::InterimCache>>>,
+    interim_cache: Arc<parking_lot::Mutex<Option<crate::state::InterimCache>>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let state = app_handle.state::<AppState>();
@@ -399,7 +406,7 @@ pub fn spawn_interim_loop(
             if stop_flag.load(Ordering::Relaxed) { break; }
 
             let (current_samples, current_count) = {
-                let guard = samples.lock_or_recover();
+                let guard = samples.lock();
                 let count = guard.len();
                 if count.saturating_sub(last_sample_count) < MIN_SAMPLES_GROWTH {
                     interval_ms = adjust_interval(interval_ms, false, 0);
@@ -424,7 +431,7 @@ pub fn spawn_interim_loop(
                             "language": &result.language,
                         }),
                     );
-                    *interim_cache.lock_or_recover() = Some(crate::state::InterimCache {
+                    *interim_cache.lock() = Some(crate::state::InterimCache {
                         text: result.text,
                         language: result.language,
                         sample_count: current_count,
@@ -478,13 +485,13 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         }
     }
 
-    let final_count = samples.lock_or_recover().len();
-    let cached = interim_cache.lock_or_recover().clone();
+    let final_count = samples.lock().len();
+    let cached = interim_cache.lock().clone();
     let duration_sec = final_count as f64 / sample_rate as f64;
 
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
-        app_handle.state::<AppState>().edit_context.lock_or_recover().take();
+        app_handle.state::<AppState>().edit_context.lock().take();
         emit_done(&app_handle, session_id, "", duration_sec, false, None);
         flush_pending_paste(&app_handle);
         return;
@@ -510,7 +517,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let text = match asr_text {
         Ok(t) => t.trim().to_string(),
         Err(e) => {
-            state.edit_context.lock_or_recover().take();
+            state.edit_context.lock().take();
             emit_error(&app_handle, session_id, &e);
             flush_pending_paste(&app_handle);
             return;
@@ -520,14 +527,14 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let lang_ref = detected_lang.as_deref();
 
     if text.is_empty() {
-        state.edit_context.lock_or_recover().take();
+        state.edit_context.lock().take();
         emit_done(&app_handle, session_id, "", duration_sec, false, lang_ref);
         flush_pending_paste(&app_handle);
         return;
     }
 
     // 检查是否处于编辑模式（热键按下时抓取了选中文本）
-    let edit_context = state.edit_context.lock_or_recover().take();
+    let edit_context = state.edit_context.lock().take();
 
     if let Some(selected_text) = edit_context {
         // 编辑模式：ASR 结果是语音指令，用它改写选中文本
@@ -592,10 +599,10 @@ pub async fn discard_recording(session: RecordingSession) {
 async fn do_final_asr(
     app_handle: &tauri::AppHandle,
     state: &AppState,
-    samples: &std::sync::Mutex<Vec<i16>>,
+    samples: &parking_lot::Mutex<Vec<i16>>,
     sample_rate: u32,
 ) -> Result<funasr_service::TranscriptionResult, String> {
-    let data = samples.lock_or_recover().clone();
+    let data = samples.lock().clone();
     let resampled = resample_to_16k(&data, sample_rate);
     let wav = encode_wav(&resampled, TARGET_SAMPLE_RATE);
 
@@ -638,7 +645,7 @@ fn emit_recording_state_if_current(
     app: &tauri::AppHandle, sid: u64, recording: bool, processing: bool, error: Option<&str>,
 ) {
     let state = app.state::<AppState>();
-    if let Some(active) = state.recording.lock_or_recover().as_ref().map(RecordingSlot::session_id) {
+    if let Some(active) = state.recording.lock().as_ref().map(RecordingSlot::session_id) {
         if active != sid {
             log::info!("跳过过期会话状态广播 (session {}, active {})", sid, active);
             return;
@@ -662,13 +669,13 @@ fn schedule_hide(app: &tauri::AppHandle, delay_ms: u64) {
         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         let state = app.state::<AppState>();
         if state.subtitle_show_gen.load(Ordering::Relaxed) != gen { return; }
-        if state.recording.lock_or_recover().is_some() { return; }
+        if state.recording.lock().is_some() { return; }
         let _ = crate::commands::window::hide_subtitle_window_inner(&app);
     });
 }
 
 fn flush_pending_paste(app: &tauri::AppHandle) {
-    let texts: Vec<String> = app.state::<AppState>().pending_paste.lock_or_recover().drain(..).collect();
+    let texts: Vec<String> = app.state::<AppState>().pending_paste.lock().drain(..).collect();
     if texts.is_empty() { return; }
     let combined: String = texts.into_iter().collect();
     let app = app.clone();
@@ -680,19 +687,19 @@ fn flush_pending_paste(app: &tauri::AppHandle) {
 
 async fn do_paste(app: &tauri::AppHandle, text: &str) {
     let state = app.state::<AppState>();
-    if state.recording.lock_or_recover().is_some() {
-        state.pending_paste.lock_or_recover().push(text.to_string());
+    if state.recording.lock().is_some() {
+        state.pending_paste.lock().push(text.to_string());
         log::info!("录音进行中，文本已加入待粘贴队列（{} 个字符）", text.len());
         return;
     }
 
     let mut full = String::new();
-    for t in state.pending_paste.lock_or_recover().drain(..) {
+    for t in state.pending_paste.lock().drain(..) {
         full.push_str(&t);
     }
     full.push_str(text);
 
-    let method = state.input_method.lock_or_recover().clone();
+    let method = state.input_method.lock().clone();
     if let Err(e) = crate::commands::clipboard::paste_text_impl(app, &full, &method).await {
         log::error!("自动粘贴失败: {}", e);
     }
@@ -701,7 +708,7 @@ async fn do_paste(app: &tauri::AppHandle, text: &str) {
 // ---------- 麦克风测试 / 预览 ----------
 
 pub fn stop_microphone_level_monitor(state: &AppState) {
-    if let Some(mut m) = state.microphone_level_monitor.lock_or_recover().take() {
+    if let Some(mut m) = state.microphone_level_monitor.lock().take() {
         m.stop_flag.store(true, Ordering::Relaxed);
         if let Some(h) = m.handle.take() { let _ = h.join(); }
     }
@@ -765,7 +772,7 @@ pub fn start_microphone_level_monitor(
         Err(_) => return Err(AppError::Audio("麦克风预览线程未返回结果".into())),
     }
 
-    *state.microphone_level_monitor.lock_or_recover() = Some(MicrophoneLevelMonitor {
+    *state.microphone_level_monitor.lock() = Some(MicrophoneLevelMonitor {
         stop_flag,
         handle: Some(handle),
     });

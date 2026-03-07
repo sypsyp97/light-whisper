@@ -7,14 +7,14 @@ use tauri::Emitter;
 
 use crate::services::audio_service;
 use crate::state::{AppState, PendingRecordingSession, RecordingSession, RecordingSlot};
-use crate::utils::{AppError, MutexRecover};
+use crate::utils::AppError;
 
 pub(crate) const RECORDING_NOT_READY_ERROR: &str = "语音识别服务尚未就绪，请等待初始化完成";
 pub(crate) const RECORDING_ALREADY_ACTIVE_ERROR: &str = "已有录音正在进行中";
 pub(crate) const RECORDING_START_CANCELLED_ERROR: &str = "录音启动已取消";
 
 fn clear_pending_recording_if_current(state: &AppState, session_id: u64) {
-    let mut guard = state.recording.lock_or_recover();
+    let mut guard = state.recording.lock();
     if matches!(guard.as_ref(), Some(RecordingSlot::Starting(s)) if s.session_id == session_id) {
         *guard = None;
     }
@@ -31,7 +31,7 @@ pub(crate) async fn start_recording_inner(
     audio_service::stop_microphone_level_monitor(state);
 
     let (session_id, stop_flag, stop_notify) = {
-        let mut guard = state.recording.lock_or_recover();
+        let mut guard = state.recording.lock();
         if guard.is_some() {
             return Err(AppError::Audio(RECORDING_ALREADY_ACTIVE_ERROR.into()));
         }
@@ -46,10 +46,10 @@ pub(crate) async fn start_recording_inner(
         (session_id, stop_flag, stop_notify)
     };
 
-    let samples: Arc<std::sync::Mutex<Vec<i16>>> =
-        Arc::new(std::sync::Mutex::new(Vec::with_capacity(16000 * 30)));
-    let interim_cache: Arc<std::sync::Mutex<Option<crate::state::InterimCache>>> =
-        Arc::new(std::sync::Mutex::new(None));
+    let samples: Arc<parking_lot::Mutex<Vec<i16>>> =
+        Arc::new(parking_lot::Mutex::new(Vec::with_capacity(16000 * 30)));
+    let interim_cache: Arc<parking_lot::Mutex<Option<crate::state::InterimCache>>> =
+        Arc::new(parking_lot::Mutex::new(None));
 
     let (audio_thread, actual_sample_rate) =
         match audio_service::spawn_audio_capture_thread(
@@ -82,7 +82,7 @@ pub(crate) async fn start_recording_inner(
     });
 
     let cancelled = {
-        let mut guard = state.recording.lock_or_recover();
+        let mut guard = state.recording.lock();
         match guard.as_ref() {
             Some(RecordingSlot::Starting(p)) if p.session_id == session_id => {
                 if let Some(s) = session.take() {
@@ -121,7 +121,7 @@ pub(crate) async fn stop_recording_inner(
     app_handle: tauri::AppHandle,
     state: &AppState,
 ) -> Result<Option<u64>, AppError> {
-    let recording = state.recording.lock_or_recover().take();
+    let recording = state.recording.lock().take();
 
     let recording = match recording {
         Some(s) => s,
@@ -132,7 +132,7 @@ pub(crate) async fn stop_recording_inner(
         RecordingSlot::Starting(p) => {
             p.stop_flag.store(true, Ordering::Relaxed);
             p.stop_notify.notify_waiters();
-            state.edit_context.lock_or_recover().take();
+            state.edit_context.lock().take();
             log::info!("录音启动阶段已取消 (session {})", p.session_id);
             let _ = app_handle.emit(
                 "recording-state",
@@ -236,6 +236,6 @@ pub async fn set_input_method(
     state: tauri::State<'_, AppState>,
     method: String,
 ) -> Result<(), AppError> {
-    *state.input_method.lock_or_recover() = method;
+    *state.input_method.lock() = method;
     Ok(())
 }

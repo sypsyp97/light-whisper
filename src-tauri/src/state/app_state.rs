@@ -9,7 +9,6 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 
-use crate::utils::MutexRecover;
 use super::user_profile::{LlmProviderConfig, UserProfile};
 
 #[derive(Clone)]
@@ -23,11 +22,11 @@ pub struct RecordingSession {
     pub session_id: u64,
     pub stop_flag: Arc<AtomicBool>,
     pub stop_notify: Arc<tokio::sync::Notify>,
-    pub samples: Arc<std::sync::Mutex<Vec<i16>>>,
+    pub samples: Arc<parking_lot::Mutex<Vec<i16>>>,
     pub sample_rate: u32,
     pub audio_thread: Option<JoinHandle<()>>,
     pub interim_task: Option<tokio::task::JoinHandle<()>>,
-    pub interim_cache: Arc<std::sync::Mutex<Option<InterimCache>>>,
+    pub interim_cache: Arc<parking_lot::Mutex<Option<InterimCache>>>,
 }
 
 #[derive(Clone)]
@@ -95,22 +94,22 @@ pub struct AppState {
     pub funasr_ready: Arc<AtomicBool>,
     pub funasr_starting: Arc<AtomicBool>,
     pub download_task: Arc<Mutex<Option<DownloadTask>>>,
-    pub recording: Arc<std::sync::Mutex<Option<RecordingSlot>>>,
+    pub recording: Arc<parking_lot::Mutex<Option<RecordingSlot>>>,
     pub session_counter: AtomicU64,
-    pub input_method: Arc<std::sync::Mutex<String>>,
-    pub pending_paste: Arc<std::sync::Mutex<Vec<String>>>,
+    pub input_method: Arc<parking_lot::Mutex<String>>,
+    pub pending_paste: Arc<parking_lot::Mutex<Vec<String>>>,
     pub subtitle_show_gen: AtomicU64,
-    pub selected_input_device_name: Arc<std::sync::Mutex<Option<String>>>,
-    pub microphone_level_monitor: Arc<std::sync::Mutex<Option<MicrophoneLevelMonitor>>>,
+    pub selected_input_device_name: Arc<parking_lot::Mutex<Option<String>>>,
+    pub microphone_level_monitor: Arc<parking_lot::Mutex<Option<MicrophoneLevelMonitor>>>,
     pub sound_enabled: Arc<AtomicBool>,
     pub ai_polish_enabled: Arc<AtomicBool>,
-    pub ai_polish_api_key: Arc<std::sync::Mutex<String>>,
+    pub ai_polish_api_key: Arc<parking_lot::Mutex<String>>,
     pub http_client: reqwest::Client,
-    pub user_profile: Arc<std::sync::Mutex<UserProfile>>,
-    pub hotkey_diagnostic: Arc<std::sync::Mutex<HotkeyDiagnosticState>>,
+    pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
+    pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
     /// 编辑模式：按下热键时抓取的选中文本，finalize 时消费
-    pub edit_context: Arc<std::sync::Mutex<Option<String>>>,
-    pub online_asr_api_key: Arc<std::sync::Mutex<String>>,
+    pub edit_context: Arc<parking_lot::Mutex<Option<String>>>,
+    pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
     /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
     pub funasr_generation: AtomicU64,
 }
@@ -124,7 +123,7 @@ impl Default for AppState {
             download_task: Default::default(),
             recording: Default::default(),
             session_counter: AtomicU64::new(0),
-            input_method: Arc::new(std::sync::Mutex::new("sendInput".into())),
+            input_method: Arc::new(parking_lot::Mutex::new("sendInput".into())),
             pending_paste: Default::default(),
             subtitle_show_gen: AtomicU64::new(0),
             selected_input_device_name: Default::default(),
@@ -175,11 +174,11 @@ impl AppState {
     }
 
     pub fn snapshot_profile(&self) -> UserProfile {
-        self.user_profile.lock_or_recover().clone()
+        self.user_profile.lock().clone()
     }
 
     pub fn update_profile<R>(&self, f: impl FnOnce(&mut UserProfile) -> R) -> (R, UserProfile) {
-        let mut guard = self.user_profile.lock_or_recover();
+        let mut guard = self.user_profile.lock();
         let result = f(&mut guard);
         (result, guard.clone())
     }
@@ -193,38 +192,38 @@ impl AppState {
     }
 
     pub fn read_ai_polish_api_key(&self) -> String {
-        self.ai_polish_api_key.lock_or_recover().clone()
+        self.ai_polish_api_key.lock().clone()
     }
 
     pub fn set_ai_polish_api_key(&self, api_key: impl Into<String>) {
-        *self.ai_polish_api_key.lock_or_recover() = api_key.into();
+        *self.ai_polish_api_key.lock() = api_key.into();
     }
 
     pub fn read_online_asr_api_key(&self) -> String {
-        self.online_asr_api_key.lock_or_recover().clone()
+        self.online_asr_api_key.lock().clone()
     }
 
     pub fn set_online_asr_api_key(&self, api_key: impl Into<String>) {
-        *self.online_asr_api_key.lock_or_recover() = api_key.into();
+        *self.online_asr_api_key.lock() = api_key.into();
     }
 
     pub fn selected_input_device_name(&self) -> Option<String> {
-        self.selected_input_device_name.lock_or_recover().clone()
+        self.selected_input_device_name.lock().clone()
     }
 
     pub fn set_selected_input_device_name(&self, name: Option<String>) {
-        *self.selected_input_device_name.lock_or_recover() = name.and_then(|v| {
+        *self.selected_input_device_name.lock() = name.and_then(|v| {
             let trimmed = v.trim().to_string();
             (!trimmed.is_empty()).then_some(trimmed)
         });
     }
 
     pub fn hotkey_diagnostic_snapshot(&self) -> HotkeyDiagnosticState {
-        self.hotkey_diagnostic.lock_or_recover().clone()
+        self.hotkey_diagnostic.lock().clone()
     }
 
     pub fn update_hotkey_diagnostic<R>(&self, f: impl FnOnce(&mut HotkeyDiagnosticState) -> R) -> (R, HotkeyDiagnosticState) {
-        let mut guard = self.hotkey_diagnostic.lock_or_recover();
+        let mut guard = self.hotkey_diagnostic.lock();
         let result = f(&mut guard);
         (result, guard.clone())
     }

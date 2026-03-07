@@ -82,47 +82,41 @@ fn dynamic_timeout(base_secs: u64, text_len: usize) -> Duration {
 
 /// 从 SSE 流中累积 Chat Completions delta 内容，并向前端推送流式进度
 async fn read_sse_stream(
-    mut response: reqwest::Response,
+    response: reqwest::Response,
     app_handle: &tauri::AppHandle,
 ) -> Result<String, String> {
+    use eventsource_stream::Eventsource;
+    use tokio_stream::StreamExt;
+
     let mut accumulated = String::new();
-    let mut buffer = String::new();
-    let chunk_timeout = Duration::from_secs(30);
     let mut token_count: usize = 0;
+    let event_timeout = Duration::from_secs(30);
+
+    let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        match tokio::time::timeout(chunk_timeout, response.chunk()).await {
-            Ok(Ok(Some(chunk))) => {
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                while let Some(pos) = buffer.find('\n') {
-                    let line = buffer[..pos].trim_end_matches('\r').to_string();
-                    buffer = buffer[pos + 1..].to_string();
-
-                    let Some(data) = line.strip_prefix("data: ") else {
-                        continue;
-                    };
-                    let data = data.trim();
-                    if data == "[DONE]" {
-                        return Ok(accumulated);
-                    }
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                        if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
-                            accumulated.push_str(content);
-                            token_count += 1;
-                            let _ = app_handle.emit(
-                                "ai-polish-status",
-                                serde_json::json!({
-                                    "status": "streaming",
-                                    "tokens": token_count,
-                                }),
-                            );
-                        }
+        match tokio::time::timeout(event_timeout, stream.next()).await {
+            Ok(Some(Ok(event))) => {
+                let data = event.data.trim();
+                if data == "[DONE]" {
+                    return Ok(accumulated);
+                }
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                    if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                        accumulated.push_str(content);
+                        token_count += 1;
+                        let _ = app_handle.emit(
+                            "ai-polish-status",
+                            serde_json::json!({
+                                "status": "streaming",
+                                "tokens": token_count,
+                            }),
+                        );
                     }
                 }
             }
-            Ok(Ok(None)) => return Ok(accumulated),
-            Ok(Err(e)) => return Err(format!("流式读取失败: {}", e)),
+            Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
+            Ok(None) => return Ok(accumulated),
             Err(_) => return Err("流式读取超时（30 秒无数据）".into()),
         }
     }
@@ -292,9 +286,8 @@ pub async fn polish_text(
     }
 
     let raw_content = if use_streaming {
-        let content = read_sse_stream(response, app_handle).await.map_err(|e| {
-            emit_polish_status(app_handle, "error", text, text, &e, session_id);
-            e
+        let content = read_sse_stream(response, app_handle).await.inspect_err(|e| {
+            emit_polish_status(app_handle, "error", text, text, e, session_id);
         })?;
         content
     } else {
@@ -506,9 +499,8 @@ pub async fn edit_text(
     }
 
     let raw_content = if use_streaming {
-        read_sse_stream(response, app_handle).await.map_err(|e| {
-            emit_polish_status(app_handle, "error", selected_text, selected_text, &e, session_id);
-            e
+        read_sse_stream(response, app_handle).await.inspect_err(|e| {
+            emit_polish_status(app_handle, "error", selected_text, selected_text, e, session_id);
         })?
     } else {
         let json: serde_json::Value = response

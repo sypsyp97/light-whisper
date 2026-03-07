@@ -3,7 +3,7 @@ use crate::commands::audio::{
     RECORDING_NOT_READY_ERROR,
 };
 use crate::state::AppState;
-use crate::utils::{AppError, MutexRecover};
+use crate::utils::AppError;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     OnceLock,
@@ -156,7 +156,7 @@ fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String) {
         let selected = tokio::task::spawn_blocking(crate::commands::clipboard::grab_selected_text)
             .await
             .unwrap_or(None);
-        *state.edit_context.lock_or_recover() = selected;
+        *state.edit_context.lock() = selected;
 
         match start_recording_inner(app_handle.clone(), state.inner()).await {
             Ok(session_id) => {
@@ -170,11 +170,11 @@ fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String) {
                 if message == RECORDING_NOT_READY_ERROR
                     || message == RECORDING_ALREADY_ACTIVE_ERROR =>
             {
-                state.edit_context.lock_or_recover().take();
+                state.edit_context.lock().take();
                 log::debug!("忽略热键 {} 的开始请求: {}", shortcut_label, message);
             }
             Err(err) => {
-                state.edit_context.lock_or_recover().take();
+                state.edit_context.lock().take();
                 let message = err.to_string();
                 log::warn!("热键 {} 开始录音失败: {}", shortcut_label, message);
                 update_hotkey_diagnostic(&app_handle, |diagnostic| {
@@ -708,10 +708,11 @@ fn handle_standard_event(
     let currently_activated = state.activated.load(Ordering::Acquire);
 
     // Track modifier leaks for Win/Alt (key-down that we won't swallow)
-    if is_key_down && !currently_activated {
-        if (is_win_vk(vk) && modifiers.super_key) || (is_alt_vk(vk) && modifiers.alt) {
-            state.modifier_leaked.store(true, Ordering::Release);
-        }
+    if is_key_down
+        && !currently_activated
+        && ((is_win_vk(vk) && modifiers.super_key) || (is_alt_vk(vk) && modifiers.alt))
+    {
+        state.modifier_leaked.store(true, Ordering::Release);
     }
 
     currently_activated && is_main_key
@@ -1053,7 +1054,7 @@ pub async fn register_custom_hotkey(
 
     let label = spec.label().to_string();
 
-    start_unified_hotkey_monitor(app_handle.clone(), spec).map_err(|err| {
+    start_unified_hotkey_monitor(app_handle.clone(), spec).inspect_err(|err| {
         let now_ms = now_unix_ms();
         update_hotkey_diagnostic(&app_handle, |diagnostic| {
             diagnostic.shortcut = label.clone();
@@ -1065,7 +1066,6 @@ pub async fn register_custom_hotkey(
             diagnostic.last_event = Some("error".to_string());
             diagnostic.last_event_at_ms = Some(now_ms);
         });
-        err
     })?;
 
     let now_ms = now_unix_ms();

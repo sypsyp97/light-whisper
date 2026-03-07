@@ -41,13 +41,24 @@ base64 = "0.22"
 cpal = "0.15"
 
 # HTTP 请求（AI 润色服务）
-reqwest = { version = "0.12", features = ["json", "multipart", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "multipart", "rustls-tls", "stream"], default-features = false }
+eventsource-stream = "0.2"
+tokio-stream = "0.1"
 
 # 系统密钥环（安全存储 API Key）
 tauri-plugin-keyring = "0.1"
 
 # 错误处理
 thiserror = "2"
+
+# 高质量音频重采样
+rubato = "0.16"
+
+# 无 poison 的高性能互斥锁
+parking_lot = "0.12"
+
+# WAV 编解码
+hound = "3.5"
 
 # Windows 键盘模拟
 [target.'cfg(target_os = "windows")'.dependencies]
