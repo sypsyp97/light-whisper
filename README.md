@@ -87,7 +87,7 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 | **AI polish** | Multi-backend LLM, bring your own key | Built-in auto-editing |
 | **Filler word removal** | ✅ Via AI polish | ✅ Built-in |
 | **App-aware tone** | ✅ Detects foreground app | ✅ Adjusts based on context |
-| **Adaptive learning** | ✅ Learns corrections & vocabulary | ❌ |
+| **Adaptive learning** | ✅ Learns corrections & vocabulary | ✅ |
 | **Edit selected text** | ✅ Voice instruction rewrite | ✅ |
 | **Real-time translation** | ✅ 8 presets + custom | ✅ |
 | **Subtitle overlay** | ✅ | ❌ |
