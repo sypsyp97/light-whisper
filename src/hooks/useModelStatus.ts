@@ -170,6 +170,12 @@ export function useModelStatus(): UseModelStatusReturn {
         return;
       }
 
+      // 在线引擎 running 但 not ready = 缺 API Key
+      if (status.running && !status.ready && status.device === "cloud") {
+        enterErrorState(status.message || "请在设置中配置在线 ASR API Key");
+        return;
+      }
+
       const modelCheck = await checkModelFiles();
       if (!mountedRef.current) return;
 
@@ -254,7 +260,21 @@ export function useModelStatus(): UseModelStatusReturn {
           if (!mountedRef.current) return;
           const { status, message } = event.payload;
 
-          if (status === "loading") {
+          if (status === "ready") {
+            setStage("ready");
+            setError(null);
+            clearPolling();
+            // 获取最新的 device/gpuName 信息
+            checkFunASRStatus().then((s) => {
+              if (!mountedRef.current) return;
+              setDevice(s.device ?? null);
+              setGpuName(s.gpu_name ?? null);
+            }).catch(() => {});
+          } else if (status === "need_api_key") {
+            setStage("error");
+            setError(message ?? "请在设置中配置在线 ASR API Key");
+            clearPolling();
+          } else if (status === "loading") {
             setStage("loading");
             setDownloadMessage(message ?? null);
           } else if (status === "crashed") {

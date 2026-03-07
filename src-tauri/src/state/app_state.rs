@@ -110,6 +110,7 @@ pub struct AppState {
     pub hotkey_diagnostic: Arc<std::sync::Mutex<HotkeyDiagnosticState>>,
     /// 编辑模式：按下热键时抓取的选中文本，finalize 时消费
     pub edit_context: Arc<std::sync::Mutex<Option<String>>>,
+    pub online_asr_api_key: Arc<std::sync::Mutex<String>>,
     /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
     pub funasr_generation: AtomicU64,
 }
@@ -138,6 +139,7 @@ impl Default for AppState {
             user_profile: Default::default(),
             hotkey_diagnostic: Default::default(),
             edit_context: Default::default(),
+            online_asr_api_key: Default::default(),
             funasr_generation: AtomicU64::new(0),
         }
     }
@@ -196,6 +198,14 @@ impl AppState {
 
     pub fn set_ai_polish_api_key(&self, api_key: impl Into<String>) {
         *self.ai_polish_api_key.lock_or_recover() = api_key.into();
+    }
+
+    pub fn read_online_asr_api_key(&self) -> String {
+        self.online_asr_api_key.lock_or_recover().clone()
+    }
+
+    pub fn set_online_asr_api_key(&self, api_key: impl Into<String>) {
+        *self.online_asr_api_key.lock_or_recover() = api_key.into();
     }
 
     pub fn selected_input_device_name(&self) -> Option<String> {

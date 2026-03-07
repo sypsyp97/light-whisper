@@ -2,7 +2,7 @@
 
 # Light-Whisper
 
-**Local Offline Speech-to-Text for Windows**
+**Local & Online Speech-to-Text for Windows**
 
 [简体中文](README.zh-CN.md) | English
 
@@ -32,14 +32,14 @@
 **One-key dictation**<br>
 Hold <kbd>F2</kbd> (configurable) to record, release to transcribe & type into the active window.
 
-**Dual ASR engine**<br>
-SenseVoice (zh/en/ja/ko/yue, built-in punctuation) or Faster Whisper (99+ languages).
+**Three ASR engines**<br>
+SenseVoice (zh/en/ja/ko/yue, built-in punctuation), Faster Whisper (99+ languages), or GLM-ASR (online, no GPU needed, Chinese dialect support).
 
-**Fully offline**<br>
-All ASR models run locally — no data leaves your machine.
+**Offline or online — your choice**<br>
+SenseVoice & Whisper run fully local. GLM-ASR calls a cloud API — just add an API key, no Python or GPU required.
 
 **GPU accelerated**<br>
-Auto-detects NVIDIA GPU for CUDA inference; falls back to CPU.
+Local engines auto-detect NVIDIA GPU for CUDA inference; fall back to CPU.
 
 **Subtitle overlay**<br>
 Transparent floating window shows real-time transcription status.
@@ -80,10 +80,10 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 | **Privacy** | Fully offline, data never leaves your machine | Cloud-based, zero-data-retention |
 | **Open source** | ✅ | ❌ |
 | **Platform** | Windows | Windows, Mac, iOS, Android |
-| **Internet required** | ❌ ASR offline; AI polish needs API | ✅ Always |
-| **ASR engines** | SenseVoice + Faster Whisper (switchable) | Proprietary cloud engine |
-| **Languages** | 5 (SenseVoice) / 99+ (Whisper) | 100+ |
-| **GPU acceleration** | Local NVIDIA CUDA | N/A (cloud) |
+| **Internet required** | ❌ Local engines offline; GLM-ASR & AI polish need API | ✅ Always |
+| **ASR engines** | SenseVoice + Faster Whisper + GLM-ASR (switchable) | Proprietary cloud engine |
+| **Languages** | 5 (SenseVoice) / 99+ (Whisper) / zh dialects (GLM-ASR) | 100+ |
+| **GPU acceleration** | Local NVIDIA CUDA; GLM-ASR needs no GPU | N/A (cloud) |
 | **AI polish** | Multi-backend LLM, bring your own key | Built-in auto-editing |
 | **Filler word removal** | ✅ Via AI polish | ✅ Built-in |
 | **App-aware tone** | ✅ Detects foreground app | ✅ Adjusts based on context |
@@ -95,16 +95,19 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 
 ## Engine Comparison
 
-| | SenseVoice (default) | Faster Whisper |
-|:--|:---:|:---:|
-| **Chinese CER** | 2.96 % (AISHELL-1) | 5.14 % |
-| **English WER** | 3.15 % (LibriSpeech) | 1.82 % |
-| **Languages** | 5 (zh/en/ja/ko/yue) | 99+ |
-| **Punctuation** | Built-in ITN | initial_prompt guided |
-| **Model size** | ~938 MB | ~1.5 GB |
+| | SenseVoice (default) | Faster Whisper | GLM-ASR (online) |
+|:--|:---:|:---:|:---:|
+| **Chinese CER** | 2.96 % (AISHELL-1) | 5.14 % | 7.17 % |
+| **English WER** | 3.15 % (LibriSpeech) | 1.82 % | — |
+| **Languages** | 5 (zh/en/ja/ko/yue) | 99+ | Chinese + dialects |
+| **Punctuation** | Built-in ITN | initial_prompt guided | Built-in |
+| **Hot words** | ✅ | ✅ | ✅ (max 100) |
+| **Model size** | ~938 MB | ~1.5 GB | Cloud (no download) |
+| **Requires** | Python + GPU/CPU | Python + GPU/CPU | API key only |
+| **Cost** | Free (local) | Free (local) | ¥0.06/min |
 
 > [!NOTE]
-> Source: [FunAudioLLM paper](https://arxiv.org/html/2407.04051v1), Table 6
+> SenseVoice/Whisper CER source: [FunAudioLLM paper](https://arxiv.org/html/2407.04051v1), Table 6. GLM-ASR CER source: Zhipu AI.
 
 ## Requirements
 
@@ -120,6 +123,9 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 | [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python env (auto-installs Python 3.11) |
 
 **GPU (optional):** NVIDIA GPU with up-to-date driver. No need to install CUDA Toolkit — PyTorch bundles CUDA 12.4.
+
+> [!TIP]
+> **GLM-ASR users:** If you only use the online GLM-ASR engine, you only need Rust, Node.js, and pnpm — no Python, uv, or GPU required. Just build and add your API key in Settings.
 
 <details>
 <summary><b>Step-by-step tool installation</b></summary>
@@ -190,6 +196,7 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 │  TypeScript  │◄──invoke/emit─►│  (Tauri 2)   │◄────JSON──────►│  SenseVoice /   │
 └──────────────┘                └──────┬───────┘                │  Faster Whisper │
                                        │                        └─────────────────┘
+                                       ├─── HTTP ──► GLM-ASR API (online ASR)
                                        ├─── HTTP ──► LLM API (AI polish & translation)
                                        └─── User Profile ──► hot words → ASR + LLM prompt
 ```
@@ -201,7 +208,7 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 |:------|:------|
 | **Frontend** | `src/pages/`, `src/components/`, `src/hooks/`, `src/styles/` |
 | **Rust commands** | `src-tauri/src/commands/` — audio, clipboard, hotkey, ai_polish, profile, window |
-| **Rust services** | `src-tauri/src/services/` — funasr_service, audio_service, ai_polish_service, llm_provider, profile_service |
+| **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, ai_polish_service, llm_provider, profile_service |
 | **State** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
 
@@ -262,6 +269,7 @@ Default is F2. If occupied by another program, change it in Settings > Speech Ho
 
 - [FunASR](https://github.com/modelscope/FunASR) & [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) — Alibaba DAMO Academy
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) & [large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2)
+- [GLM-ASR](https://bigmodel.cn/) — Zhipu AI
 - [Tauri](https://tauri.app/) / [React](https://react.dev/)
 
 ## License

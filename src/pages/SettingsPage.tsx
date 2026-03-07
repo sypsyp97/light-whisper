@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -28,6 +28,10 @@ import {
   stopMicrophoneLevelMonitor,
   setTranslationTarget,
   setRecordingMode,
+  setOnlineAsrApiKey,
+  getOnlineAsrApiKey,
+  getOnlineAsrEndpoint,
+  setOnlineAsrEndpoint,
 } from "@/api/tauri";
 import type { AiModelInfo, InputDeviceInfo, UserProfile } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
@@ -49,8 +53,9 @@ const themeOptions = [
 ] as const;
 
 const engineOptions = [
-  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", desc: "中英日韩粤，含标点" },
+  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", desc: "中英日韩粤语" },
   { key: "whisper", icon: Zap, label: "Faster Whisper", desc: "99+语言，速度快" },
+  { key: "glm-asr", icon: Globe, label: "GLM-ASR", desc: "智谱在线语音识别" },
 ] as const;
 
 const inputOptions = [
@@ -196,6 +201,11 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
   const [aiPolishApiKey, setAiPolishApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
+  const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
+  const [showOnlineAsrKey, setShowOnlineAsrKey] = useState(false);
+  const onlineAsrKeySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
+  const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
   const [aiModelSearch, setAiModelSearch] = useState("");
   const [aiModelsLoading, setAiModelsLoading] = useState(false);
@@ -327,6 +337,11 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       setEngineState(e);
       setEngineLoading(false);
     }).catch(() => setEngineLoading(false));
+    getOnlineAsrApiKey().then(k => setOnlineAsrApiKeyState(k || "")).catch(() => {});
+    getOnlineAsrEndpoint().then(ep => {
+      setOnlineAsrRegion(ep.region);
+      setOnlineAsrUrl(ep.url);
+    }).catch(() => {});
   }, []);
 
   const handleEngineSwitch = async (newEngine: string) => {
@@ -335,7 +350,8 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     try {
       await setEngine(newEngine);
       setEngineState(newEngine);
-      toast.success(`已切换为 ${newEngine === "whisper" ? "Faster Whisper" : "SenseVoice"} 引擎`);
+      const label = engineOptions.find((o) => o.key === newEngine)?.label ?? newEngine;
+      toast.success(`已切换为 ${label} 引擎`);
       retryModel();
     } catch {
       toast.error("切换引擎失败");
@@ -834,7 +850,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
               <AudioLines size={15} className="icon-accent" />
               <h2 className="settings-section-title">识别引擎</h2>
             </div>
-            <div className="settings-grid-2">
+            <div className="settings-grid-3">
               {engineOptions.map(({ key, icon: Icon, label, desc }) => (
                 <button
                   key={key}
@@ -850,6 +866,67 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 </button>
               ))}
             </div>
+            {engine === "glm-asr" && (
+              <div className="settings-column" style={{ gap: 8, marginTop: 8 }}>
+                <div className="settings-column" style={{ gap: 4 }}>
+                  <span className="settings-option-desc">API 端点</span>
+                  <div className="settings-row" style={{ gap: 6 }}>
+                    {([
+                      { region: "international", label: "国际站" },
+                      { region: "domestic", label: "国内站" },
+                    ] as const).map(({ region, label }) => (
+                      <button
+                        key={region}
+                        className={`theme-btn${onlineAsrRegion === region ? " active" : ""}`}
+                        onClick={async () => {
+                          try {
+                            const ep = await setOnlineAsrEndpoint(region);
+                            setOnlineAsrRegion(ep.region);
+                            setOnlineAsrUrl(ep.url);
+                          } catch {}
+                        }}
+                        style={{ flex: 1 }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {onlineAsrUrl && (
+                    <span className="settings-option-desc" style={{ fontSize: 11, opacity: 0.6 }}>
+                      {onlineAsrUrl}
+                    </span>
+                  )}
+                </div>
+                <div className="settings-column" style={{ gap: 4 }}>
+                  <span className="settings-option-desc">API Key</span>
+                  <div className="settings-row" style={{ position: "relative" }}>
+                    <input
+                      type={showOnlineAsrKey ? "text" : "password"}
+                      className="settings-input"
+                      placeholder="输入智谱 GLM-ASR API Key"
+                      value={onlineAsrApiKey}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setOnlineAsrApiKeyState(val);
+                        if (onlineAsrKeySaveTimer.current) clearTimeout(onlineAsrKeySaveTimer.current);
+                        onlineAsrKeySaveTimer.current = setTimeout(() => {
+                          setOnlineAsrApiKey(val).catch(() => {});
+                        }, 600);
+                      }}
+                      style={{ flex: 1, padding: "8px 36px 8px 10px" }}
+                    />
+                    <button
+                      className="icon-btn plain"
+                      onClick={() => setShowOnlineAsrKey(!showOnlineAsrKey)}
+                      style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)" }}
+                      aria-label={showOnlineAsrKey ? "隐藏 API Key" : "显示 API Key"}
+                    >
+                      {showOnlineAsrKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* Hotkey */}

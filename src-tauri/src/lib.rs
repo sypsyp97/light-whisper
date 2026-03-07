@@ -67,6 +67,23 @@ pub fn run() {
                 }
             }
 
+            // 启动时从系统密钥环加载在线 ASR API Key
+            {
+                let state = app_handle.state::<AppState>();
+                use tauri_plugin_keyring::KeyringExt;
+                if let Some(key) = app_handle
+                    .keyring()
+                    .get_password("light-whisper", "glm-asr-api-key")
+                    .ok()
+                    .flatten()
+                {
+                    if !key.is_empty() {
+                        state.set_online_asr_api_key(&key);
+                        log::info!("已从系统密钥环加载在线 ASR API Key");
+                    }
+                }
+            }
+
             spawn_funasr_startup(app_handle.clone());
             spawn_subtitle_prewarm(app_handle.clone());
             spawn_profile_maintenance(app_handle.clone());
@@ -92,6 +109,10 @@ pub fn run() {
             commands::funasr::restart_funasr,
             commands::funasr::get_engine,
             commands::funasr::set_engine,
+            commands::funasr::set_online_asr_api_key,
+            commands::funasr::get_online_asr_api_key,
+            commands::funasr::get_online_asr_endpoint,
+            commands::funasr::set_online_asr_endpoint,
             commands::clipboard::copy_to_clipboard,
             commands::clipboard::paste_text,
             commands::window::hide_main_window,
@@ -139,8 +160,24 @@ fn mark_setup_once() -> bool {
 
 fn spawn_funasr_startup(app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        log::info!("正在后台启动 FunASR 服务器...");
+        let engine = utils::paths::read_engine_config();
         let state = app_handle.state::<AppState>();
+
+        if utils::paths::is_online_engine(&engine) {
+            let has_key = !state.read_online_asr_api_key().is_empty();
+            state.set_funasr_ready(has_key);
+            let _ = app_handle.emit(
+                "funasr-status",
+                serde_json::json!({
+                    "status": if has_key { "ready" } else { "need_api_key" },
+                    "message": if has_key { "GLM-ASR 在线服务就绪" } else { "请配置 GLM-ASR API Key" },
+                }),
+            );
+            log::info!("在线引擎 {}，跳过 Python 启动 (has_key={})", engine, has_key);
+            return;
+        }
+
+        log::info!("正在后台启动 FunASR 服务器...");
         if let Err(err) = services::funasr_service::start_server(&app_handle, state.inner()).await {
             log::error!("FunASR 服务器启动失败: {}", err);
             let _ = app_handle.emit(

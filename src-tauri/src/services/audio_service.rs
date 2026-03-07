@@ -7,7 +7,8 @@ use serde::Serialize;
 
 use tauri::{Emitter, Manager};
 
-use crate::services::{ai_polish_service, funasr_service};
+use crate::services::{ai_polish_service, funasr_service, glm_asr_service};
+use crate::utils::paths;
 use crate::state::{AppState, MicrophoneLevelMonitor, RecordingSession, RecordingSlot};
 use crate::utils::{AppError, MutexRecover};
 
@@ -383,6 +384,13 @@ pub fn spawn_interim_loop(
             return;
         }
 
+        // 在线引擎不做中间转写（每次请求花钱且有网络延迟）
+        if paths::is_online_engine(&paths::read_engine_config()) {
+            log::info!("在线引擎，跳过中间转写 (session {})", session_id);
+            stop_notify.notified().await;
+            return;
+        }
+
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_millis(interval_ms)) => {}
@@ -590,7 +598,15 @@ async fn do_final_asr(
     let data = samples.lock_or_recover().clone();
     let resampled = resample_to_16k(&data, sample_rate);
     let wav = encode_wav(&resampled, TARGET_SAMPLE_RATE);
-    match funasr_service::transcribe(state, wav, app_handle).await {
+
+    let engine = paths::read_engine_config();
+    let result = if paths::is_online_engine(&engine) {
+        glm_asr_service::transcribe(state, wav).await
+    } else {
+        funasr_service::transcribe(state, wav, app_handle).await
+    };
+
+    match result {
         Ok(r) if r.success => Ok(r),
         Ok(r) => Err(r.error.unwrap_or_else(|| "语音识别失败".into())),
         Err(e) => Err(format!("语音识别失败: {}", e)),

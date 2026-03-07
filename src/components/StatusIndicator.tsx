@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Cpu, Loader2, Download } from "lucide-react";
+import { Cpu, Globe, Loader2, Download } from "lucide-react";
 import type { ModelStage } from "@/hooks/useModelStatus";
 
 interface StatusIndicatorProps {
@@ -54,8 +54,8 @@ export default function StatusIndicator({
       <div className="chip-container">
         {isReady && device && (
           <span className="chip animate-success">
-            <Cpu size={10} strokeWidth={1.8} />
-            {device === "cuda" || device === "gpu" ? (gpuName || "GPU") : "CPU"}
+            {device === "cloud" ? <Globe size={10} strokeWidth={1.8} /> : <Cpu size={10} strokeWidth={1.8} />}
+            {device === "cloud" ? "在线" : device === "cuda" || device === "gpu" ? (gpuName || "GPU") : "CPU"}
           </span>
         )}
         {!isReady && stage !== "need_download" && (

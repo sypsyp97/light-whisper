@@ -149,4 +149,20 @@ export function setTranslationTarget(target: string | null): Promise<boolean> {
   return invokeCommand<boolean>("set_translation_target", { target });
 }
 
+export function setOnlineAsrApiKey(apiKey: string): Promise<void> {
+  return invokeCommand<void>("set_online_asr_api_key", { apiKey });
+}
+
+export function getOnlineAsrApiKey(): Promise<string> {
+  return invokeCommand<string>("get_online_asr_api_key");
+}
+
+export function getOnlineAsrEndpoint(): Promise<{ region: string; url: string }> {
+  return invokeCommand<{ region: string; url: string }>("get_online_asr_endpoint");
+}
+
+export function setOnlineAsrEndpoint(region: string): Promise<{ region: string; url: string }> {
+  return invokeCommand<{ region: string; url: string }>("set_online_asr_endpoint", { region });
+}
+
 export { enableAutostart, disableAutostart, isAutostartEnabled };

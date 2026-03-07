@@ -376,6 +376,11 @@ pub async fn find_python() -> Result<String, AppError> {
 /// 为什么要用异步？因为启动进程和等待初始化可能需要几秒钟，
 /// 如果用同步方式，整个 UI 线程会被阻塞，导致界面卡死。
 pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Result<(), AppError> {
+    // 在线引擎不需要 Python 子进程
+    if paths::is_online_engine(&paths::read_engine_config()) {
+        return Ok(());
+    }
+
     // 先检查是否已经有运行中的服务器或正在启动中
     {
         let process_guard = state.funasr_process.lock().await;
@@ -802,6 +807,25 @@ pub async fn check_status(
 
     // 如果进程句柄不存在，检查是否正在启动中
     if !has_process {
+        let engine = paths::read_engine_config();
+        if paths::is_online_engine(&engine) {
+            let has_key = !state.read_online_asr_api_key().is_empty();
+            return Ok(FunASRStatus {
+                running: true,
+                ready: has_key,
+                model_loaded: true,
+                device: Some("cloud".into()),
+                gpu_name: None,
+                gpu_memory_total: None,
+                message: if has_key {
+                    "GLM-ASR 在线服务就绪".into()
+                } else {
+                    "请配置 GLM-ASR API Key".into()
+                },
+                engine: Some(engine),
+            });
+        }
+
         use std::sync::atomic::Ordering;
         if state.funasr_starting.load(Ordering::SeqCst) {
             // 正在启动中（模型加载中），告诉前端"正在运行但还没准备好"
@@ -997,6 +1021,19 @@ fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool 
 /// 注：SenseVoiceSmall 内置 ITN 标点恢复，不再需要独立的 ct-punc 模型
 pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
     let engine = paths::read_engine_config();
+
+    if paths::is_online_engine(&engine) {
+        return Ok(ModelCheckResult {
+            all_present: true,
+            asr_model: true,
+            vad_model: true,
+            punc_model: true,
+            engine,
+            cache_path: String::new(),
+            missing_models: Vec::new(),
+        });
+    }
+
     let cache_root = get_hf_cache_root();
     let cache_path = cache_root.to_string_lossy().to_string();
 
