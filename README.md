@@ -6,58 +6,113 @@
 
 [简体中文](README.zh-CN.md) | English
 
-[![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24c8db?style=flat-square&logo=tauri)](https://tauri.app/)
-[![React 19](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react)](https://react.dev/)
-[![Rust](https://img.shields.io/badge/Rust-2021-f74c00?style=flat-square&logo=rust)](https://www.rust-lang.org/)
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey?style=flat-square)](LICENSE)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24c8db?style=for-the-badge&logo=tauri)](https://tauri.app/)
+[![React 19](https://img.shields.io/badge/React-19-61dafb?style=for-the-badge&logo=react)](https://react.dev/)
+[![Rust](https://img.shields.io/badge/Rust-2021-f74c00?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
+[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey?style=for-the-badge)](LICENSE)
 
-<img src="assets/icon.png" alt="Light-Whisper" width="120" />
+<br>
 
-*Press a hotkey, speak, release — text appears at your cursor.*
+<img src="assets/icon.png" alt="Light-Whisper" width="128" />
+
+<br>
+
+**Press a hotkey, speak, release — text appears at your cursor.**
 
 </div>
 
----
+<br>
 
 ## Highlights
 
-| | |
-|---|---|
-| **One-key dictation** | Hold F2 (configurable) to record, release to transcribe & type into the active window |
-| **Dual ASR engine** | SenseVoice (zh/en/ja/ko/yue, built-in punctuation) or Faster Whisper (99+ languages) |
-| **Fully offline** | All ASR models run locally — no data leaves your machine |
-| **GPU accelerated** | Auto-detects NVIDIA GPU for CUDA inference; falls back to CPU |
-| **AI polish** | Optional LLM post-processing: fix homophones, punctuation, filler words; adapts tone to the foreground app |
-| **Multi-backend LLM** | Built-in presets for OpenAI, DeepSeek, Cerebras, SiliconFlow — or any OpenAI-compatible endpoint |
-| **Adaptive learning** | Auto-extracts correction patterns from AI polish; user edits to transcription results are learned with higher priority |
-| **Edit selected text** | Select text anywhere, press the hotkey, speak an instruction ("translate to English", "make it formal") to rewrite in-place |
-| **Real-time translation** | Set a target language (8 presets + custom) — transcription results are translated before output |
-| **Subtitle overlay** | Transparent floating subtitle window shows real-time transcription status |
-| **Hold or toggle** | Recording mode: hold-to-talk or press-to-start / press-to-stop |
-| **Input queue** | Rapid consecutive dictations are queued and typed in order — nothing is lost |
+<table>
+<tr>
+<td width="50%">
 
----
+**One-key dictation**<br>
+Hold <kbd>F2</kbd> (configurable) to record, release to transcribe & type into the active window.
+
+**Dual ASR engine**<br>
+SenseVoice (zh/en/ja/ko/yue, built-in punctuation) or Faster Whisper (99+ languages).
+
+**Fully offline**<br>
+All ASR models run locally — no data leaves your machine.
+
+**GPU accelerated**<br>
+Auto-detects NVIDIA GPU for CUDA inference; falls back to CPU.
+
+**Subtitle overlay**<br>
+Transparent floating window shows real-time transcription status.
+
+**Hold or toggle**<br>
+Recording mode: hold-to-talk or press-to-start / press-to-stop.
+
+</td>
+<td width="50%">
+
+**AI polish**<br>
+Optional LLM post-processing: fix homophones, punctuation, filler words; adapts tone to the foreground app.
+
+**Multi-backend LLM**<br>
+Built-in presets for OpenAI, DeepSeek, Cerebras, SiliconFlow — or any OpenAI-compatible endpoint.
+
+**Adaptive learning**<br>
+Auto-extracts correction patterns from AI polish; user edits are learned with higher priority.
+
+**Edit selected text**<br>
+Select text anywhere, press the hotkey, speak an instruction ("translate to English", "make it formal") to rewrite in-place.
+
+**Real-time translation**<br>
+Set a target language (8 presets + custom) — transcription results are translated before output.
+
+**Input queue**<br>
+Rapid consecutive dictations are queued and typed in order — nothing is lost.
+
+</td>
+</tr>
+</table>
+
+## Light-Whisper vs Typeless
+
+| Feature | Light-Whisper | Typeless |
+|:--------|:---:|:---:|
+| **Pricing** | Free & open-source | Free tier (4k words/week); $12–30/mo |
+| **Privacy** | Fully offline, data never leaves your machine | Cloud-based, zero-data-retention |
+| **Open source** | ✅ | ❌ |
+| **Platform** | Windows | Windows, Mac, iOS, Android |
+| **Internet required** | ❌ ASR offline; AI polish needs API | ✅ Always |
+| **ASR engines** | SenseVoice + Faster Whisper (switchable) | Proprietary cloud engine |
+| **Languages** | 5 (SenseVoice) / 99+ (Whisper) | 100+ |
+| **GPU acceleration** | Local NVIDIA CUDA | N/A (cloud) |
+| **AI polish** | Multi-backend LLM, bring your own key | Built-in auto-editing |
+| **Filler word removal** | ✅ Via AI polish | ✅ Built-in |
+| **App-aware tone** | ✅ Detects foreground app | ✅ Adjusts based on context |
+| **Adaptive learning** | ✅ Learns corrections & vocabulary | ❌ |
+| **Edit selected text** | ✅ Voice instruction rewrite | ❌ |
+| **Real-time translation** | ✅ 8 presets + custom | ❌ |
+| **Subtitle overlay** | ✅ | ❌ |
+| **Input queue** | ✅ | ❌ |
 
 ## Engine Comparison
 
 | | SenseVoice (default) | Faster Whisper |
-|---|:---:|:---:|
+|:--|:---:|:---:|
 | **Chinese CER** | 2.96 % (AISHELL-1) | 5.14 % |
 | **English WER** | 3.15 % (LibriSpeech) | 1.82 % |
 | **Languages** | 5 (zh/en/ja/ko/yue) | 99+ |
 | **Punctuation** | Built-in ITN | initial_prompt guided |
 | **Model size** | ~938 MB | ~1.5 GB |
 
+> [!NOTE]
 > Source: [FunAudioLLM paper](https://arxiv.org/html/2407.04051v1), Table 6
-
----
 
 ## Requirements
 
+> [!IMPORTANT]
 > **Windows 10/11 (x64) only.** Disk: ~10 GB free.
 
 | Tool | Version | Purpose |
-|------|---------|---------|
+|:-----|:--------|:--------|
 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) | 2019+ | MSVC C++ toolchain |
 | [Rust](https://www.rust-lang.org/tools/install) | >= 1.75 | Backend |
 | [Node.js](https://nodejs.org/) | >= 18 | Frontend build |
@@ -89,11 +144,10 @@ pnpm --version      # >= 8
 uv --version        # >= 0.4
 ```
 
+> [!TIP]
 > Python is managed by `uv` — no manual install required.
 
 </details>
-
----
 
 ## Quick Start
 
@@ -117,6 +171,7 @@ uv run python -c "from huggingface_hub import snapshot_download; snapshot_downlo
 
 Models are cached in `~/.cache/huggingface/hub/`.
 
+> [!TIP]
 > **China mainland:** set `$env:HF_ENDPOINT = "https://hf-mirror.com"` before downloading.
 
 ### Build & Run
@@ -127,29 +182,30 @@ pnpm tauri build      # First build ~5-15 min (compiles Rust deps)
 
 The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/target/release/light-whisper.exe` directly.
 
----
-
 ## Architecture
 
 ```
-┌──────────────┐     Tauri IPC      ┌──────────────┐   stdin/stdout   ┌───────────────────┐
-│  React UI    │ <── invoke/emit ──>│  Rust Core   │ <──── JSON ────> │  Python ASR       │
-│  (TypeScript)│                    │  (Tauri 2)   │                  │  SenseVoice /     │
-└──────────────┘                    └──────┬───────┘                  │  Faster Whisper   │
-                                          │                          └───────────────────┘
-                                          ├── HTTP ──> LLM API (AI polish & translation)
-                                          └── User Profile ──> hot words -> ASR + LLM prompt
+┌──────────────┐                ┌──────────────┐                ┌─────────────────┐
+│   React UI   │  Tauri IPC     │  Rust Core   │  stdin/stdout  │   Python ASR    │
+│  TypeScript  │◄──invoke/emit─►│  (Tauri 2)   │◄────JSON──────►│  SenseVoice /   │
+└──────────────┘                └──────┬───────┘                │  Faster Whisper │
+                                       │                        └─────────────────┘
+                                       ├─── HTTP ──► LLM API (AI polish & translation)
+                                       └─── User Profile ──► hot words → ASR + LLM prompt
 ```
 
-| Layer | Key paths |
-|-------|-----------|
+<details>
+<summary><b>Key paths</b></summary>
+
+| Layer | Paths |
+|:------|:------|
 | **Frontend** | `src/pages/`, `src/components/`, `src/hooks/`, `src/styles/` |
 | **Rust commands** | `src-tauri/src/commands/` — audio, clipboard, hotkey, ai_polish, profile, window |
 | **Rust services** | `src-tauri/src/services/` — funasr_service, audio_service, ai_polish_service, llm_provider, profile_service |
 | **State** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
 
----
+</details>
 
 ## Dev Commands
 
@@ -160,8 +216,6 @@ pnpm build              # Frontend only
 uv sync                 # Sync Python deps
 cd src-tauri && cargo check   # Rust type check
 ```
-
----
 
 ## FAQ
 
@@ -203,8 +257,6 @@ Default is F2. If occupied by another program, change it in Settings > Speech Ho
 - `%APPDATA%\com.light-whisper.app\logs\whisper_server.log`
 
 </details>
-
----
 
 ## Acknowledgements
 

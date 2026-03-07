@@ -6,58 +6,113 @@
 
 简体中文 | [English](README.md)
 
-[![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24c8db?style=flat-square&logo=tauri)](https://tauri.app/)
-[![React 19](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react)](https://react.dev/)
-[![Rust](https://img.shields.io/badge/Rust-2021-f74c00?style=flat-square&logo=rust)](https://www.rust-lang.org/)
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey?style=flat-square)](LICENSE)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24c8db?style=for-the-badge&logo=tauri)](https://tauri.app/)
+[![React 19](https://img.shields.io/badge/React-19-61dafb?style=for-the-badge&logo=react)](https://react.dev/)
+[![Rust](https://img.shields.io/badge/Rust-2021-f74c00?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
+[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey?style=for-the-badge)](LICENSE)
 
-<img src="assets/icon.png" alt="Light-Whisper" width="120" />
+<br>
 
-*按下热键，开口说话，松开即得文字。*
+<img src="assets/icon.png" alt="Light-Whisper" width="128" />
+
+<br>
+
+**按下热键，开口说话，松开即得文字。**
 
 </div>
 
----
+<br>
 
 ## 功能亮点
 
-| | |
-|---|---|
-| **一键听写** | 按住 F2（可自定义）录音，松开自动转写并输入到当前活动窗口 |
-| **双 ASR 引擎** | SenseVoice（中/英/日/韩/粤，内置标点恢复）或 Faster Whisper（99+ 语言） |
-| **完全离线** | 所有模型本地运行，数据不出本机 |
-| **GPU 加速** | 自动检测 NVIDIA GPU 启用 CUDA 推理，无 GPU 则回退 CPU |
-| **AI 润色** | 可选 LLM 后处理：修正同音字、标点、口头禅；自动检测前台应用适配语气 |
-| **多 LLM 后端** | 内置 OpenAI、DeepSeek、Cerebras、SiliconFlow 预设，也可接入任意 OpenAI 兼容端点 |
-| **自适应学习** | AI 润色自动提取纠错模式；用户手动编辑转写结果以更高优先级学习 |
-| **编辑选中文本** | 选中文字后按热键，说出指令（"翻译成英文"、"改成正式语气"），原地改写 |
-| **实时翻译** | 设置目标语言（8 种预设 + 自定义），转写结果自动翻译后输出 |
-| **字幕悬浮窗** | 透明浮窗实时显示转写状态 |
-| **按住 / 切换** | 录音模式：按住说话 或 按一下开始/再按一下结束 |
-| **输入队列** | 连续快速说多段，结果按顺序输入，不会丢字 |
+<table>
+<tr>
+<td width="50%">
 
----
+**一键听写**<br>
+按住 <kbd>F2</kbd>（可自定义）录音，松开自动转写并输入到当前活动窗口。
+
+**双 ASR 引擎**<br>
+SenseVoice（中/英/日/韩/粤，内置标点恢复）或 Faster Whisper（99+ 语言）。
+
+**完全离线**<br>
+所有模型本地运行，数据不出本机。
+
+**GPU 加速**<br>
+自动检测 NVIDIA GPU 启用 CUDA 推理，无 GPU 则回退 CPU。
+
+**字幕悬浮窗**<br>
+透明浮窗实时显示转写状态。
+
+**按住 / 切换**<br>
+录音模式：按住说话 或 按一下开始/再按一下结束。
+
+</td>
+<td width="50%">
+
+**AI 润色**<br>
+可选 LLM 后处理：修正同音字、标点、口头禅；自动检测前台应用适配语气。
+
+**多 LLM 后端**<br>
+内置 OpenAI、DeepSeek、Cerebras、SiliconFlow 预设，也可接入任意 OpenAI 兼容端点。
+
+**自适应学习**<br>
+AI 润色自动提取纠错模式；用户手动编辑转写结果以更高优先级学习。
+
+**编辑选中文本**<br>
+选中文字后按热键，说出指令（"翻译成英文"、"改成正式语气"），原地改写。
+
+**实时翻译**<br>
+设置目标语言（8 种预设 + 自定义），转写结果自动翻译后输出。
+
+**输入队列**<br>
+连续快速说多段，结果按顺序输入，不会丢字。
+
+</td>
+</tr>
+</table>
+
+## Light-Whisper vs Typeless
+
+| 功能 | Light-Whisper | Typeless |
+|:-----|:---:|:---:|
+| **价格** | 免费开源 | 免费版 (4k 词/周)；$12–30/月 |
+| **隐私** | 完全离线，数据不出本机 | 云端处理，零数据留存 |
+| **开源** | ✅ | ❌ |
+| **平台** | Windows | Windows、Mac、iOS、Android |
+| **需要联网** | ❌ ASR 离线；AI 润色需 API | ✅ 始终 |
+| **ASR 引擎** | SenseVoice + Faster Whisper（可切换） | 自研云端引擎 |
+| **语言数** | 5 (SenseVoice) / 99+ (Whisper) | 100+ |
+| **GPU 加速** | 本地 NVIDIA CUDA | 不适用（云端） |
+| **AI 润色** | 多 LLM 后端，自带 key | 内置自动编辑 |
+| **去口头禅** | ✅ 通过 AI 润色 | ✅ 内置 |
+| **应用感知语气** | ✅ 检测前台应用 | ✅ 根据上下文调整 |
+| **自适应学习** | ✅ 自动学习纠错 & 词库 | ❌ |
+| **编辑选中文本** | ✅ 语音指令改写 | ❌ |
+| **实时翻译** | ✅ 8 种预设 + 自定义 | ❌ |
+| **字幕悬浮窗** | ✅ | ❌ |
+| **输入队列** | ✅ | ❌ |
 
 ## 引擎对比
 
 | | SenseVoice（默认） | Faster Whisper |
-|---|:---:|:---:|
+|:--|:---:|:---:|
 | **中文 CER** | 2.96 %（AISHELL-1） | 5.14 % |
 | **英文 WER** | 3.15 %（LibriSpeech） | 1.82 % |
 | **语言数** | 5（中/英/日/韩/粤） | 99+ |
 | **标点** | 内置 ITN | initial_prompt 引导 |
 | **模型大小** | ~938 MB | ~1.5 GB |
 
+> [!NOTE]
 > 数据来源：[FunAudioLLM 论文](https://arxiv.org/html/2407.04051v1) Table 6
-
----
 
 ## 环境要求
 
+> [!IMPORTANT]
 > **Windows 10/11（x64）**，磁盘空间 ≥ 10 GB。
 
 | 工具 | 版本 | 用途 |
-|------|------|------|
+|:-----|:-----|:-----|
 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) | 2019+ | MSVC C++ 编译链 |
 | [Rust](https://www.rust-lang.org/tools/install) | >= 1.75 | 后端编译 |
 | [Node.js](https://nodejs.org/) | >= 18 | 前端构建 |
@@ -89,11 +144,10 @@ pnpm --version      # >= 8
 uv --version        # >= 0.4
 ```
 
+> [!TIP]
 > Python 由 `uv` 自动管理，无需手动安装。
 
 </details>
-
----
 
 ## 快速开始
 
@@ -117,6 +171,7 @@ uv run python -c "from huggingface_hub import snapshot_download; snapshot_downlo
 
 模型缓存在 `~/.cache/huggingface/hub/`，只需下载一次。
 
+> [!TIP]
 > **国内用户：** 下载前设置 `$env:HF_ENDPOINT = "https://hf-mirror.com"`。
 
 ### 构建运行
@@ -127,29 +182,30 @@ pnpm tauri build      # 首次编译 Rust 依赖约 5-15 分钟
 
 安装包位于 `src-tauri/target/release/bundle/nsis/`，也可直接运行 `src-tauri/target/release/light-whisper.exe`。
 
----
-
 ## 架构
 
 ```
-┌──────────────┐     Tauri IPC      ┌──────────────┐   stdin/stdout   ┌───────────────────┐
-│  React 前端  │ <── invoke/emit ──>│  Rust 核心   │ <──── JSON ────> │  Python ASR       │
-│  (TypeScript)│                    │  (Tauri 2)   │                  │  SenseVoice /     │
-└──────────────┘                    └──────┬───────┘                  │  Faster Whisper   │
-                                          │                          └───────────────────┘
-                                          ├── HTTP ──> LLM API（AI 润色 & 翻译）
-                                          └── 用户画像 ──> 热词 -> ASR + LLM prompt
+┌──────────────┐                ┌──────────────┐                ┌─────────────────┐
+│   React 前端  │  Tauri IPC     │   Rust 核心   │  stdin/stdout  │   Python ASR    │
+│  TypeScript  │◄──invoke/emit─►│  (Tauri 2)   │◄────JSON──────►│  SenseVoice /   │
+└──────────────┘                └──────┬───────┘                │  Faster Whisper │
+                                       │                        └─────────────────┘
+                                       ├─── HTTP ──► LLM API（AI 润色 & 翻译）
+                                       └─── 用户画像 ──► 热词 → ASR + LLM prompt
 ```
 
-| 层 | 关键路径 |
-|----|---------|
+<details>
+<summary><b>关键路径</b></summary>
+
+| 层 | 路径 |
+|:---|:-----|
 | **前端** | `src/pages/`, `src/components/`, `src/hooks/`, `src/styles/` |
 | **Rust 命令** | `src-tauri/src/commands/` — audio, clipboard, hotkey, ai_polish, profile, window |
 | **Rust 服务** | `src-tauri/src/services/` — funasr_service, audio_service, ai_polish_service, llm_provider, profile_service |
 | **状态** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
 
----
+</details>
 
 ## 开发命令
 
@@ -160,8 +216,6 @@ pnpm build              # 仅构建前端
 uv sync                 # 同步 Python 依赖
 cd src-tauri && cargo check   # Rust 类型检查
 ```
-
----
 
 ## 常见问题
 
@@ -203,8 +257,6 @@ cd src-tauri && cargo check   # Rust 类型检查
 - `%APPDATA%\com.light-whisper.app\logs\whisper_server.log`
 
 </details>
-
----
 
 ## 致谢
 
