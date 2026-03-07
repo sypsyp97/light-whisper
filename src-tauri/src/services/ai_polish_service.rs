@@ -1,4 +1,5 @@
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use tauri::Emitter;
 
@@ -71,6 +72,61 @@ corrections 的 type 取值：
 重要：corrections 只记录词/短语级别的替换（2-8字），不要把整句改写拆成 correction。
 key_terms 只列出值得记录的专有名词（2字以上的名词、术语、人名、品牌等）。
 如文本无需修改，polished 与输入相同，corrections 和 key_terms 为空数组。";
+
+/// 根据文本长度动态计算超时时间
+fn dynamic_timeout(base_secs: u64, text_len: usize) -> Duration {
+    // 每 200 字符额外 1 秒，封顶 120 秒
+    let extra = (text_len / 200) as u64;
+    Duration::from_secs(base_secs.saturating_add(extra).min(120))
+}
+
+/// 从 SSE 流中累积 Chat Completions delta 内容，并向前端推送流式进度
+async fn read_sse_stream(
+    mut response: reqwest::Response,
+    app_handle: &tauri::AppHandle,
+) -> Result<String, String> {
+    let mut accumulated = String::new();
+    let mut buffer = String::new();
+    let chunk_timeout = Duration::from_secs(30);
+    let mut token_count: usize = 0;
+
+    loop {
+        match tokio::time::timeout(chunk_timeout, response.chunk()).await {
+            Ok(Ok(Some(chunk))) => {
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                while let Some(pos) = buffer.find('\n') {
+                    let line = buffer[..pos].trim_end_matches('\r').to_string();
+                    buffer = buffer[pos + 1..].to_string();
+
+                    let Some(data) = line.strip_prefix("data: ") else {
+                        continue;
+                    };
+                    let data = data.trim();
+                    if data == "[DONE]" {
+                        return Ok(accumulated);
+                    }
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                            accumulated.push_str(content);
+                            token_count += 1;
+                            let _ = app_handle.emit(
+                                "ai-polish-status",
+                                serde_json::json!({
+                                    "status": "streaming",
+                                    "tokens": token_count,
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+            Ok(Ok(None)) => return Ok(accumulated),
+            Ok(Err(e)) => return Err(format!("流式读取失败: {}", e)),
+            Err(_) => return Err("流式读取超时（30 秒无数据）".into()),
+        }
+    }
+}
 
 /// 构建动态 system prompt，注入用户画像中的热词和纠错模式
 fn build_system_prompt(state: &AppState, input_text: &str) -> String {
@@ -193,6 +249,20 @@ pub async fn polish_text(
         body["reasoning_effort"] = serde_json::json!("low");
     }
 
+    // Chat Completions API 使用流式输出，避免长文本超时
+    let use_streaming = !is_responses_api;
+    if use_streaming {
+        body["stream"] = serde_json::json!(true);
+    }
+
+    let timeout = dynamic_timeout(endpoint.timeout_secs, text.len());
+    log::info!(
+        "AI 润色请求: 文本长度={}, 超时={}s, 流式={}",
+        text.len(),
+        timeout.as_secs(),
+        use_streaming
+    );
+
     let start = std::time::Instant::now();
     emit_polish_status(app_handle, "polishing", text, "", "");
 
@@ -201,7 +271,7 @@ pub async fn polish_text(
         .post(&endpoint.api_url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
-        .timeout(std::time::Duration::from_secs(endpoint.timeout_secs))
+        .timeout(timeout)
         .json(&body)
         .send()
         .await
@@ -215,36 +285,39 @@ pub async fn polish_text(
         return Err(err);
     }
 
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("AI 润色响应解析失败: {}", e))?;
+    let raw_content = if use_streaming {
+        let content = read_sse_stream(response, app_handle).await.map_err(|e| {
+            emit_polish_status(app_handle, "error", text, text, &e);
+            e
+        })?;
+        content
+    } else {
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("AI 润色响应解析失败: {}", e))?;
 
-    log::debug!(
-        "AI 润色 API 响应: {}",
-        serde_json::to_string(&json).unwrap_or_default()
-    );
+        log::debug!(
+            "AI 润色 API 响应: {}",
+            serde_json::to_string(&json).unwrap_or_default()
+        );
 
-    let raw_content = if is_responses_api {
         // Responses API 的 output 可能包含 reasoning 块，需要找到 type=="message" 的项
         json["output"]
             .as_array()
             .and_then(|outputs| {
                 outputs.iter().find_map(|item| {
                     if item["type"].as_str() == Some("message") {
-                        item["content"][0]["text"].as_str()
+                        item["content"][0]["text"].as_str().map(String::from)
                     } else {
                         None
                     }
                 })
             })
-            .unwrap_or(text)
-    } else {
-        json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or(text)
-    }
-    .trim();
+            .unwrap_or_else(|| text.to_string())
+    };
+
+    let raw_content = raw_content.trim();
 
     if raw_content.is_empty() {
         return Ok(text.to_string());
@@ -393,6 +466,13 @@ pub async fn edit_text(
         body["reasoning"] = serde_json::json!({"effort": "medium"});
     }
 
+    let use_streaming = !is_responses_api;
+    if use_streaming {
+        body["stream"] = serde_json::json!(true);
+    }
+
+    let timeout = dynamic_timeout(endpoint.timeout_secs, selected_text.len());
+
     let start = std::time::Instant::now();
     emit_polish_status(app_handle, "polishing", selected_text, "", "");
 
@@ -401,7 +481,7 @@ pub async fn edit_text(
         .post(&endpoint.api_url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
-        .timeout(std::time::Duration::from_secs(endpoint.timeout_secs))
+        .timeout(timeout)
         .json(&body)
         .send()
         .await
@@ -415,30 +495,32 @@ pub async fn edit_text(
         return Err(err);
     }
 
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("编辑响应解析失败: {}", e))?;
+    let raw_content = if use_streaming {
+        read_sse_stream(response, app_handle).await.map_err(|e| {
+            emit_polish_status(app_handle, "error", selected_text, selected_text, &e);
+            e
+        })?
+    } else {
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("编辑响应解析失败: {}", e))?;
 
-    let raw_content = if is_responses_api {
         json["output"]
             .as_array()
             .and_then(|outputs| {
                 outputs.iter().find_map(|item| {
                     if item["type"].as_str() == Some("message") {
-                        item["content"][0]["text"].as_str()
+                        item["content"][0]["text"].as_str().map(String::from)
                     } else {
                         None
                     }
                 })
             })
-            .unwrap_or(selected_text)
-    } else {
-        json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or(selected_text)
-    }
-    .trim();
+            .unwrap_or_else(|| selected_text.to_string())
+    };
+
+    let raw_content = raw_content.trim();
 
     let elapsed_ms = start.elapsed().as_millis();
 

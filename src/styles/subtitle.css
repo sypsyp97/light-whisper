@@ -81,6 +81,20 @@ body,
   color: rgba(200, 190, 175, 0.9);
 }
 
+/* Streaming token counter badge */
+.subtitle-stream-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(200, 190, 175, 0.7);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-theme="light"] .subtitle-stream-badge {
+  color: var(--color-text-tertiary, rgba(0, 0, 0, 0.4));
+}
+
 /* ---- Indicator dots ---- */
 
 /* Recording dot — pulsing terracotta */

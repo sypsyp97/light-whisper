@@ -115,19 +115,25 @@ export default function SubtitleOverlay() {
     };
   }, [clearFadeTimer]);
 
-  // 监听 AI 润色状态
+  // 监听 AI 润色状态（含流式进度）
+  const [streamTokens, setStreamTokens] = useState(0);
+
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
 
     void (async () => {
       try {
-        unlisten = await listen<{ status: string }>("ai-polish-status", (event) => {
-          if (event.payload.status === "polishing") {
+        unlisten = await listen<{ status: string; tokens?: number }>("ai-polish-status", (event) => {
+          const { status, tokens } = event.payload;
+          if (status === "polishing") {
             clearFadeTimer();
             setFadingOut(false);
             setPolishFlash(false);
+            setStreamTokens(0);
             setPhase("polishing");
+          } else if (status === "streaming" && typeof tokens === "number") {
+            setStreamTokens(tokens);
           }
         });
 
@@ -224,7 +230,9 @@ export default function SubtitleOverlay() {
       : phase === "processing"
         ? "识别中..."
         : phase === "polishing"
-          ? "优化中..."
+          ? streamTokens > 0
+            ? `优化中... ${streamTokens} tokens`
+            : "优化中..."
           : null;
 
   return (
@@ -238,6 +246,9 @@ export default function SubtitleOverlay() {
           >
             {text}
           </span>
+        )}
+        {hasText && phase === "polishing" && streamTokens > 0 && (
+          <span className="subtitle-stream-badge">{streamTokens}</span>
         )}
         {!hasText && hintText && <span className="subtitle-hint">{hintText}</span>}
       </div>
