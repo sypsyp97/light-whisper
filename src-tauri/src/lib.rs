@@ -9,7 +9,6 @@ use utils::MutexRecover;
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -100,6 +99,7 @@ pub fn run() {
             commands::window::hide_subtitle_window,
             commands::hotkey::register_custom_hotkey,
             commands::hotkey::unregister_all_hotkeys,
+            commands::hotkey::set_recording_mode,
             commands::hotkey::get_hotkey_diagnostic,
             commands::audio::start_recording,
             commands::audio::stop_recording,

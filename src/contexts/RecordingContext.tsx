@@ -2,9 +2,9 @@ import { createContext, useContext, useEffect, useMemo, type ReactNode } from "r
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
-import { setInputMethodCommand, setAiPolishConfig, getAiPolishApiKey, setInputDevice, setSoundEnabled } from "@/api/tauri";
+import { setInputMethodCommand, setAiPolishConfig, getAiPolishApiKey, setInputDevice, setSoundEnabled, setRecordingMode } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
-import { INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY } from "@/lib/constants";
+import { INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import type { HotkeyDiagnostic, TranscriptionResult, HistoryItem } from "@/types";
 
 interface RecordingContextValue {
@@ -100,6 +100,14 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     const stored = readLocalStorage(SOUND_ENABLED_KEY);
     if (stored === "false") {
       setSoundEnabled(false).catch(() => {});
+    }
+  }, []);
+
+  // 启动时将录音模式同步到后端（默认按住模式）
+  useEffect(() => {
+    const stored = readLocalStorage(RECORDING_MODE_KEY);
+    if (stored === "toggle") {
+      setRecordingMode(true).catch(() => {});
     }
   }, []);
 

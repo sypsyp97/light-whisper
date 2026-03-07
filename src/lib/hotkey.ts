@@ -28,12 +28,8 @@ const NAMED_KEY_ALIASES: Record<string, string> = {
   right: "ArrowRight",
 };
 
-function isCtrlSuperOnly(modifiers: HotkeyModifier[]): boolean {
-  return (
-    modifiers.length === 2 &&
-    modifiers[0] === "Ctrl" &&
-    modifiers[1] === "Super"
-  );
+function isModifierOnlyCombo(modifiers: HotkeyModifier[]): boolean {
+  return modifiers.length > 0;
 }
 
 function normalizeMainKeyToken(token: string): string {
@@ -97,7 +93,7 @@ export function normalizeHotkey(raw: string, fallback = DEFAULT_HOTKEY): string 
   );
 
   if (!mainKey) {
-    return isCtrlSuperOnly(orderedModifiers) ? "Ctrl+Super" : fallback;
+    return isModifierOnlyCombo(orderedModifiers) ? orderedModifiers.join("+") : fallback;
   }
 
   return [...orderedModifiers, mainKey].join("+");

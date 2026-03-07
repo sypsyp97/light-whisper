@@ -27,11 +27,12 @@ import {
   startMicrophoneLevelMonitor,
   stopMicrophoneLevelMonitor,
   setTranslationTarget,
+  setRecordingMode,
 } from "@/api/tauri";
 import type { AiModelInfo, InputDeviceInfo, UserProfile } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
-import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY } from "@/lib/constants";
+import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import {
   HOTKEY_MODIFIER_ORDER,
   type HotkeyModifier,
@@ -114,7 +115,6 @@ const sourceColors: Record<string, string> = {
 
 const hotkeyBackendLabels: Record<string, string> = {
   none: "未注册",
-  globalShortcut: "全局快捷键",
   lowLevelHook: "低层键盘钩子",
 };
 
@@ -179,6 +179,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [autostartLoading, setAutostartLoading] = useState(true);
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [hotkeySaving, setHotkeySaving] = useState(false);
+  const [recordingMode, setRecordingModeState] = useState<"hold" | "toggle">(() => {
+    return readLocalStorage(RECORDING_MODE_KEY) === "toggle" ? "toggle" : "hold";
+  });
   const [inputDevices, setInputDevices] = useState<InputDeviceInfo[]>([]);
   const [selectedInputDeviceName, setSelectedInputDeviceName] = useState<string>("");
   const [deviceListLoading, setDeviceListLoading] = useState(true);
@@ -465,9 +468,14 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     if (!capturingHotkey) return;
 
     const activeModifiers = new Set<HotkeyModifier>();
+    // Track the peak set of modifiers held simultaneously (for modifier-only hotkeys)
+    const peakModifiers = new Set<HotkeyModifier>();
+    let mainKeyPressed = false;
     let applied = false;
     const clearModifiers = () => {
       activeModifiers.clear();
+      peakModifiers.clear();
+      mainKeyPressed = false;
     };
 
     const applyShortcut = (shortcut: string) => {
@@ -502,9 +510,12 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       const modifier = modifierFromKeyboardEvent(event);
       if (modifier) {
         activeModifiers.add(modifier);
+        // Update peak: snapshot of all modifiers currently held
+        for (const m of activeModifiers) peakModifiers.add(m);
         return;
       }
 
+      mainKeyPressed = true;
       const shortcut = keyboardEventToHotkey(event, activeModifiers);
       if (!shortcut) return;
 
@@ -515,14 +526,17 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       const modifier = modifierFromKeyboardEvent(event);
       if (!modifier || applied) return;
 
-      const beforeRelease = HOTKEY_MODIFIER_ORDER
-        .filter((key) => activeModifiers.has(key))
-        .join("+");
       activeModifiers.delete(modifier);
 
-      // Support modifier-only Ctrl+Win capture.
-      if (beforeRelease === "Ctrl+Super") {
-        applyShortcut("Ctrl+Super");
+      // When all modifiers are released and no main key was pressed,
+      // apply the peak modifier set as a modifier-only hotkey.
+      if (activeModifiers.size === 0 && !mainKeyPressed && peakModifiers.size > 0) {
+        const combo = HOTKEY_MODIFIER_ORDER
+          .filter((key) => peakModifiers.has(key))
+          .join("+");
+        if (combo) {
+          applyShortcut(combo);
+        }
       }
     };
 
@@ -873,8 +887,25 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 </button>
               </div>
               <p className="settings-hint">
-                点击上方按钮后按下新热键，支持 Win 组合（如 Ctrl+Win+R），也支持纯 Ctrl+Win。按 Esc 取消设置。
+                点击上方按钮后按下新热键，支持任意组合键（如 Ctrl+Win、独立 Alt、F2）。按 Esc 取消设置。
               </p>
+              <div className="settings-row" style={{ alignItems: "center", gap: 10, marginTop: 8 }}>
+                <span className="settings-option-desc" style={{ whiteSpace: "nowrap" }}>录音模式</span>
+                <select
+                  className="settings-input"
+                  style={{ width: "auto", minWidth: 140 }}
+                  value={recordingMode}
+                  onChange={(e) => {
+                    const mode = e.target.value as "hold" | "toggle";
+                    setRecordingModeState(mode);
+                    writeLocalStorage(RECORDING_MODE_KEY, mode);
+                    setRecordingMode(mode === "toggle").catch(() => {});
+                  }}
+                >
+                  <option value="hold">按住说话</option>
+                  <option value="toggle">按一下开始 / 再按一下结束</option>
+                </select>
+              </div>
               <div className="diagnostic-grid">
                 <div className="diagnostic-item">
                   <span className="settings-option-desc">注册状态</span>

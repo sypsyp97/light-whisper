@@ -140,6 +140,10 @@ export function submitUserCorrection(original: string, corrected: string): Promi
   return invokeCommand<void>("submit_user_correction", { original, corrected });
 }
 
+export function setRecordingMode(toggle: boolean): Promise<void> {
+  return invokeCommand<void>("set_recording_mode", { toggle });
+}
+
 /** 设置翻译目标语言。返回是否自动开启了 AI 润色。 */
 export function setTranslationTarget(target: string | null): Promise<boolean> {
   return invokeCommand<boolean>("set_translation_target", { target });
