@@ -12,17 +12,31 @@ INSTALLER="src-tauri/target/release/bundle/nsis/轻语 Whisper_${VERSION}_x64-se
 
 echo "=== 发布 ${TAG} ==="
 
+# 前置检查
+if [ ! -f "$TAURI_CONF" ]; then
+    echo "错误: 请在项目根目录下运行此脚本"
+    exit 1
+fi
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "错误: 工作区有未提交的改动，请先 commit 或 stash"
+    exit 1
+fi
+
 # 1. 更新版本号（tauri.conf.json + Cargo.toml）
 echo "[1/6] 更新版本号 → ${VERSION}"
 python -c "
-import json, sys
-with open('${TAURI_CONF}', 'r', encoding='utf-8') as f:
+import json, os, sys
+conf_path = sys.argv[1]
+version = sys.argv[2]
+with open(conf_path, 'r', encoding='utf-8') as f:
     conf = json.load(f)
-conf['version'] = '${VERSION}'
-with open('${TAURI_CONF}', 'w', encoding='utf-8') as f:
+conf['version'] = version
+with open(conf_path, 'w', encoding='utf-8') as f:
     json.dump(conf, f, indent=2, ensure_ascii=False)
     f.write('\n')
-"
+" "$TAURI_CONF" "$VERSION"
+
 sed -i "0,/^version = \".*\"/s//version = \"${VERSION}\"/" "$CARGO_TOML"
 
 # 2. 构建 Python 引擎
@@ -34,6 +48,7 @@ echo "[3/6] 构建 Tauri 安装包"
 pnpm tauri build
 
 # 4. 验证安装包
+echo "[4/6] 验证安装包"
 if [ ! -f "$INSTALLER" ]; then
     echo "错误: 安装包不存在: ${INSTALLER}"
     exit 1
@@ -42,7 +57,7 @@ SIZE=$(du -h "$INSTALLER" | cut -f1)
 echo "安装包: ${SIZE}"
 
 # 5. 提交 + tag + push
-echo "[5/6] 提交版本变更"
+echo "[5/6] 提交 + 推送"
 git add "$TAURI_CONF" "$CARGO_TOML" src-tauri/Cargo.lock
 git commit -m "chore: bump version to ${VERSION}"
 git tag "$TAG"
