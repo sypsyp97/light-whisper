@@ -168,3 +168,5 @@ src-tauri/resources/engine.zip
 RELEASE_GUIDE.md
 
 .claude/
+
+models/
