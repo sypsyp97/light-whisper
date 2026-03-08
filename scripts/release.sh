@@ -6,14 +6,24 @@ set -euo pipefail
 
 VERSION="${1:?用法: bash scripts/release.sh <version> (例如 1.1.0)}"
 TAG="v${VERSION}"
-CONF="src-tauri/tauri.conf.json"
+TAURI_CONF="src-tauri/tauri.conf.json"
+CARGO_TOML="src-tauri/Cargo.toml"
 INSTALLER="src-tauri/target/release/bundle/nsis/轻语 Whisper_${VERSION}_x64-setup.exe"
 
 echo "=== 发布 ${TAG} ==="
 
-# 1. 更新版本号
+# 1. 更新版本号（tauri.conf.json + Cargo.toml）
 echo "[1/6] 更新版本号 → ${VERSION}"
-sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$CONF"
+python -c "
+import json, sys
+with open('${TAURI_CONF}', 'r', encoding='utf-8') as f:
+    conf = json.load(f)
+conf['version'] = '${VERSION}'
+with open('${TAURI_CONF}', 'w', encoding='utf-8') as f:
+    json.dump(conf, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+"
+sed -i "0,/^version = \".*\"/s//version = \"${VERSION}\"/" "$CARGO_TOML"
 
 # 2. 构建 Python 引擎
 echo "[2/6] 构建 Python 引擎"
@@ -32,12 +42,10 @@ SIZE=$(du -h "$INSTALLER" | cut -f1)
 echo "安装包: ${SIZE}"
 
 # 5. 提交 + tag + push
-echo "[4/6] 提交版本变更"
-git add "$CONF"
+echo "[5/6] 提交版本变更"
+git add "$TAURI_CONF" "$CARGO_TOML" src-tauri/Cargo.lock
 git commit -m "chore: bump version to ${VERSION}"
 git tag "$TAG"
-
-echo "[5/6] 推送到远程"
 git push && git push --tags
 
 # 6. 上传 Release
