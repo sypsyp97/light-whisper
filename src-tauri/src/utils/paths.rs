@@ -104,6 +104,49 @@ pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
     write_engine_json(&obj)
 }
 
+/// 查找已解压的 engine.exe
+///
+/// 优先检查数据目录（从 engine.zip 解压后的位置），
+/// 再检查资源目录（开发时直接放置 python-dist 的情况）。
+pub fn get_engine_exe_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    // 策略1：数据目录（engine.zip 解压到此处）
+    let data_engine = get_data_dir().join("engine").join("engine.exe");
+    if data_engine.exists() {
+        return Some(data_engine);
+    }
+
+    // 策略2：资源目录（开发时直接 PyInstaller 输出）
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let resource_engine = resource_dir
+            .join("resources")
+            .join("python-dist")
+            .join("engine")
+            .join("engine.exe");
+        if resource_engine.exists() {
+            return Some(resource_engine);
+        }
+    }
+    None
+}
+
+/// 查找打包的 engine.zip（NSIS 安装后存在于资源目录）
+///
+/// 跳过空文件（build.rs 为 dev 模式创建的占位文件）。
+pub fn get_engine_archive_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let archive = resource_dir.join("resources").join("engine.zip");
+        if archive.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+            return Some(archive);
+        }
+    }
+    None
+}
+
+/// 获取 engine 解压目标目录
+pub fn get_engine_dir() -> PathBuf {
+    get_data_dir().join("engine")
+}
+
 pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
     let mut obj = read_engine_json();
     obj.as_object_mut()

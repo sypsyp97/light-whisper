@@ -38,12 +38,18 @@
     "icon": [
       "icons/icon.ico"
     ],
+    "windows": {
+      "nsis": {
+        "compression": "none"
+      }
+    },
     "resources": [
       "resources/funasr_server.py",
       "resources/whisper_server.py",
       "resources/download_models.py",
       "resources/hf_cache_utils.py",
-      "resources/server_common.py"
+      "resources/server_common.py",
+      "resources/engine.zip"
     ]
   }
 }

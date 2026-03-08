@@ -33,6 +33,14 @@ use crate::state::{AppState, FunasrProcess};
 use crate::utils::paths;
 use crate::utils::AppError;
 
+/// 引擎运行模式
+pub enum EngineRuntime {
+    /// 生产模式：直接运行打包的 engine.exe
+    Bundled { exe_path: String },
+    /// 开发模式：使用系统 Python 解释器 + .py 脚本
+    Development { python_path: String },
+}
+
 // ============================================================
 // 数据结构定义
 // ============================================================
@@ -282,16 +290,117 @@ where
 // 核心功能实现
 // ============================================================
 
-/// 查找可用的 Python 解释器
+/// 查找引擎运行时
 ///
-/// 按以下优先级搜索 Python：
-/// 1. 项目虚拟环境中的 Python（.venv/Scripts/python.exe）
-/// 2. 系统 PATH 中的 python / python3
-///
-/// # 返回值
-/// - `Ok(String)`：找到的 Python 可执行文件路径
-/// - `Err(AppError)`：没有找到任何可用的 Python
-pub async fn find_python() -> Result<String, AppError> {
+/// 按优先级：
+/// 1. 已解压的 engine.exe（数据目录或资源目录）
+/// 2. 未解压的 engine.zip → 解压后使用
+/// 3. 系统 Python（开发模式）
+pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime, AppError> {
+    // 策略1：已解压的 engine.exe
+    if let Some(engine_path) = paths::get_engine_exe_path(app_handle) {
+        let path_str = paths::strip_win_prefix(&engine_path);
+        log::info!("找到引擎: {}", path_str);
+        return Ok(EngineRuntime::Bundled { exe_path: path_str });
+    }
+
+    // 策略2：存在 engine.zip，需要解压（首次启动）
+    if let Some(archive_path) = paths::get_engine_archive_path(app_handle) {
+        log::info!("找到引擎压缩包，准备解压: {}", archive_path.display());
+        let engine_exe = extract_engine_archive(&archive_path, app_handle).await?;
+        let path_str = paths::strip_win_prefix(&engine_exe);
+        log::info!("引擎解压完成: {}", path_str);
+        return Ok(EngineRuntime::Bundled { exe_path: path_str });
+    }
+
+    // 策略3：开发模式
+    let python_path = find_python().await?;
+    Ok(EngineRuntime::Development { python_path })
+}
+
+/// 解压 engine.zip 到数据目录
+async fn extract_engine_archive(
+    archive_path: &std::path::Path,
+    app_handle: &tauri::AppHandle,
+) -> Result<std::path::PathBuf, AppError> {
+    let _ = app_handle.emit(
+        "funasr-status",
+        serde_json::json!({
+            "status": "loading",
+            "message": "首次启动，正在解压引擎文件..."
+        }),
+    );
+
+    let engine_dir = paths::get_engine_dir();
+    let archive = archive_path.to_path_buf();
+    let handle = app_handle.clone();
+
+    // 解压是 CPU 密集型 + IO 密集型，放到阻塞线程
+    tokio::task::spawn_blocking(move || {
+        // 清理可能残留的不完整解压
+        if engine_dir.exists() {
+            let _ = std::fs::remove_dir_all(&engine_dir);
+        }
+        std::fs::create_dir_all(&engine_dir)
+            .map_err(|e| AppError::Asr(format!("创建引擎目录失败: {}", e)))?;
+
+        let file = std::fs::File::open(&archive)
+            .map_err(|e| AppError::Asr(format!("打开引擎压缩包失败: {}", e)))?;
+        let mut zip = zip::ZipArchive::new(file)
+            .map_err(|e| AppError::Asr(format!("读取引擎压缩包失败: {}", e)))?;
+
+        let total = zip.len();
+        log::info!("开始解压引擎: {} 个文件", total);
+
+        for i in 0..total {
+            let mut entry = zip.by_index(i)
+                .map_err(|e| AppError::Asr(format!("读取压缩条目失败: {}", e)))?;
+
+            let entry_path = engine_dir.join(
+                entry.enclosed_name()
+                    .ok_or_else(|| AppError::Asr("压缩包含不安全路径".to_string()))?
+            );
+
+            if entry.is_dir() {
+                std::fs::create_dir_all(&entry_path)
+                    .map_err(|e| AppError::Asr(format!("创建目录失败: {}", e)))?;
+            } else {
+                if let Some(parent) = entry_path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| AppError::Asr(format!("创建父目录失败: {}", e)))?;
+                }
+                let mut outfile = std::fs::File::create(&entry_path)
+                    .map_err(|e| AppError::Asr(format!("创建文件失败: {}", e)))?;
+                std::io::copy(&mut entry, &mut outfile)
+                    .map_err(|e| AppError::Asr(format!("写入文件失败: {}", e)))?;
+            }
+
+            // 每 200 个文件报告一次进度
+            if (i + 1) % 200 == 0 || i + 1 == total {
+                let pct = (i + 1) * 100 / total;
+                let _ = handle.emit(
+                    "funasr-status",
+                    serde_json::json!({
+                        "status": "loading",
+                        "message": format!("正在解压引擎文件... {}%", pct)
+                    }),
+                );
+            }
+        }
+
+        // 写入版本标记，用于后续升级检测
+        let version = env!("CARGO_PKG_VERSION");
+        let _ = std::fs::write(engine_dir.join(".version"), version);
+
+        log::info!("引擎解压完成: {} 个文件", total);
+        Ok(engine_dir.join("engine.exe"))
+    })
+    .await
+    .map_err(|e| AppError::Asr(format!("解压任务异常: {}", e)))?
+}
+
+/// 查找可用的 Python 解释器（开发模式回退）
+async fn find_python() -> Result<String, AppError> {
     // ---- 策略1：检查项目 .venv 虚拟环境 ----
     let mut venv_candidates = vec![PathBuf::from(".venv"), PathBuf::from("..").join(".venv")];
     if let Ok(exe_path) = std::env::current_exe() {
@@ -410,52 +519,57 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     let _starting_guard = StartingFlagGuard(state.funasr_starting.clone());
     state.set_funasr_ready(false);
 
-    // 通知前端：正在启动 Python 服务
+    // 通知前端：正在查找引擎环境
     let _ = app_handle.emit(
         "funasr-status",
         serde_json::json!({
             "status": "loading",
-            "message": "正在查找 Python 环境..."
+            "message": "正在查找引擎环境..."
         }),
     );
 
-    // 查找 Python 解释器
-    let python_path = find_python().await?;
-    log::info!("使用 Python: {}", python_path);
-
-    // 根据引擎配置选择对应的 Python 脚本
+    // 查找引擎运行时
+    let runtime = find_engine(app_handle).await?;
     let engine = paths::read_engine_config();
-    let server_script = if engine == "whisper" {
-        paths::get_whisper_server_path(app_handle)
-    } else {
-        paths::get_funasr_server_path(app_handle)
-    };
-    let server_script_str = paths::strip_win_prefix(&server_script);
-    log::info!(
-        "语音识别脚本路径 (engine={}): {}",
-        engine,
-        server_script_str
-    );
-
-    if !server_script.exists() {
-        return Err(AppError::Asr(format!(
-            "FunASR 服务器脚本不存在: {}",
-            server_script_str
-        )));
-    }
 
     // 构建子进程命令
     let data_dir = paths::strip_win_prefix(&paths::get_data_dir());
-    let mut cmd = Command::new(&python_path);
-    cmd.arg("-u")
-        .arg(&server_script_str)
-        .env("PYTHONIOENCODING", "utf-8")
+    let mut cmd = match &runtime {
+        EngineRuntime::Bundled { exe_path } => {
+            log::info!("使用打包引擎: {} (engine={})", exe_path, engine);
+            let mut c = Command::new(exe_path);
+            c.arg("serve").arg("--engine").arg(&engine);
+            c
+        }
+        EngineRuntime::Development { python_path } => {
+            log::info!("使用开发模式 Python: {}", python_path);
+            let server_script = if engine == "whisper" {
+                paths::get_whisper_server_path(app_handle)
+            } else {
+                paths::get_funasr_server_path(app_handle)
+            };
+            let server_script_str = paths::strip_win_prefix(&server_script);
+            log::info!("语音识别脚本路径 (engine={}): {}", engine, server_script_str);
+
+            if !server_script.exists() {
+                return Err(AppError::Asr(format!(
+                    "FunASR 服务器脚本不存在: {}",
+                    server_script_str
+                )));
+            }
+
+            let mut c = Command::new(python_path);
+            c.arg("-u").arg(&server_script_str);
+            c
+        }
+    };
+
+    cmd.env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr({
-            // 将 stderr 重定向到日志文件，便于调试 Python 错误
             let log_path = paths::get_data_dir().join("funasr_stderr.log");
             match std::fs::File::create(&log_path) {
                 Ok(file) => {

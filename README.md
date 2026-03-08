@@ -19,9 +19,24 @@
 
 **Press a hotkey, speak, release — text appears at your cursor.**
 
+[Download Installer](https://github.com/sypsyp97/light-whisper/releases/latest)
+
 </div>
 
 <br>
+
+## Installation
+
+### Option A: Installer (recommended)
+
+Download `轻语.Whisper_x.x.x_x64-setup.exe` from the [Releases](https://github.com/sypsyp97/light-whisper/releases/latest) page. Run the installer — everything is bundled, no Python or build tools needed. ASR models will be downloaded on first use (~1–1.5 GB).
+
+> [!NOTE]
+> **GPU (optional):** NVIDIA GPU with up-to-date driver for CUDA acceleration. No GPU → automatic CPU fallback.
+
+### Option B: Build from source
+
+See [Quick Start](#quick-start) below.
 
 ## Highlights
 
@@ -103,16 +118,16 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 | **Punctuation** | Built-in ITN | initial_prompt guided | Built-in |
 | **Hot words** | ✅ | ✅ | ✅ (max 100) |
 | **Model size** | ~938 MB | ~1.5 GB | Cloud (no download) |
-| **Requires** | Python + GPU/CPU | Python + GPU/CPU | API key only |
+| **Requires** | GPU/CPU (bundled) | GPU/CPU (bundled) | API key only |
 | **Cost** | Free (local) | Free (local) | ¥0.06/min |
 
 > [!NOTE]
 > SenseVoice/Whisper CER source: [FunAudioLLM paper](https://arxiv.org/html/2407.04051v1), Table 6. GLM-ASR CER source: Zhipu AI.
 
-## Requirements
+## Build from Source — Requirements
 
 > [!IMPORTANT]
-> **Windows 10/11 (x64) only.** Disk: ~10 GB free.
+> **Windows 10/11 (x64) only.** Disk: ~10 GB free. These requirements are only needed for building from source — the [installer](#installation) bundles everything.
 
 | Tool | Version | Purpose |
 |:-----|:--------|:--------|

@@ -60,6 +60,9 @@ parking_lot = "0.12"
 # WAV 编解码
 hound = "3.5"
 
+# ZIP 解压（首次启动解压 engine.zip）
+zip = "2"
+
 # Windows 键盘模拟
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Media_Audio"] }

@@ -40,14 +40,15 @@ pub async fn run_download(
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<String, AppError> {
-    // 查找 Python
-    let python_path = funasr_service::find_python().await?;
+    // 查找引擎运行时
+    let runtime = funasr_service::find_engine(app_handle).await?;
 
     // 获取下载脚本路径，清理 Windows \\?\ 前缀
     let download_script = paths::get_download_script_path(app_handle);
     let download_script_str = paths::strip_win_prefix(&download_script);
 
-    if !download_script.exists() {
+    // 仅开发模式需要检查脚本是否存在
+    if matches!(runtime, funasr_service::EngineRuntime::Development { .. }) && !download_script.exists() {
         return Err(AppError::Download(format!(
             "模型下载脚本不存在: {}",
             download_script_str
@@ -80,22 +81,28 @@ pub async fn run_download(
     // 启动下载脚本（逐行读取 stdout 以转发进度）
     // 模型从 HuggingFace 下载，使用 HF 默认缓存目录
     let engine = paths::read_engine_config();
-    let mut child = match Command::new(&python_path)
-        .arg("-u")
-        .arg(&download_script_str)
-        .arg("--engine")
-        .arg(if engine == "whisper" {
-            "whisper"
-        } else {
-            "sensevoice"
-        })
-        .env("PYTHONIOENCODING", "utf-8")
+    let engine_arg = if engine == "whisper" { "whisper" } else { "sensevoice" };
+
+    let mut cmd = match &runtime {
+        funasr_service::EngineRuntime::Bundled { exe_path } => {
+            let mut c = Command::new(exe_path);
+            c.arg("download").arg("--engine").arg(engine_arg);
+            c
+        }
+        funasr_service::EngineRuntime::Development { python_path } => {
+            let mut c = Command::new(python_path);
+            c.arg("-u").arg(&download_script_str).arg("--engine").arg(engine_arg);
+            c
+        }
+    };
+
+    cmd.env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-    {
+        .stderr(Stdio::inherit());
+
+    let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
             clear_download_task(state).await;

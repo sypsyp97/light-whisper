@@ -160,4 +160,8 @@ temp/
 
 python
 
+# PyInstaller 构建产物
+src-tauri/resources/python-dist/
+src-tauri/resources/engine.zip
+
 .claude/
