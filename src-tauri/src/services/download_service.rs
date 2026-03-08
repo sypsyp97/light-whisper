@@ -100,7 +100,14 @@ pub async fn run_download(
         .env("PYTHONUTF8", "1")
         .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
+        .stderr(Stdio::piped());
+
+    // Windows 上隐藏控制台窗口
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
 
     let mut child = match cmd.spawn() {
         Ok(child) => child,
@@ -139,8 +146,9 @@ pub async fn run_download(
                 let bytes = match bytes {
                     Ok(bytes) => bytes,
                     Err(e) => {
-                        read_error = Some(AppError::Download(format!("读取模型下载输出失败: {}", e)));
-                        break;
+                        // 非 UTF-8 输出（如 tqdm 进度条）跳过，不终止下载
+                        log::warn!("下载输出解码错误（跳过）: {}", e);
+                        continue;
                     }
                 };
                 if bytes == 0 {
