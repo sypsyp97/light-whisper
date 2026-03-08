@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
@@ -27,6 +28,7 @@ import {
   startMicrophoneLevelMonitor,
   stopMicrophoneLevelMonitor,
   setTranslationTarget,
+  setCustomPrompt,
   setRecordingMode,
   setOnlineAsrApiKey,
   getOnlineAsrApiKey,
@@ -233,6 +235,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [customLangInput, setCustomLangInput] = useState("");
   const [showCustomLangInput, setShowCustomLangInput] = useState(false);
   const translationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [customPromptState, setCustomPromptState] = useState<string>("");
+  const customPromptSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [appVersion, setAppVersion] = useState("");
   const [llmProvider, setLlmProvider] = useState("cerebras");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
@@ -310,6 +315,10 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
         clearTimeout(translationSaveTimer.current);
         translationSaveTimer.current = null;
       }
+      if (customPromptSaveTimer.current) {
+        clearTimeout(customPromptSaveTimer.current);
+        customPromptSaveTimer.current = null;
+      }
     };
   }, []);
 
@@ -325,12 +334,15 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       setCustomModel(nextModel);
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
       setTranslationTargetState(p.translation_target ?? null);
+      setCustomPromptState(p.custom_prompt ?? "");
     }).catch(() => {});
   }, [updateProviderDraft]);
 
   useEffect(() => {
     refreshProfile();
   }, [refreshProfile]);
+
+  useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
   useEffect(() => {
     getEngine().then(e => {
@@ -748,6 +760,16 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     } catch {
       toast.error("保存翻译设置失败");
     }
+  }, []);
+
+  const handleCustomPromptChange = useCallback((value: string) => {
+    setCustomPromptState(value);
+    if (customPromptSaveTimer.current) clearTimeout(customPromptSaveTimer.current);
+    customPromptSaveTimer.current = setTimeout(() => {
+      setCustomPrompt(value.trim() || null).catch(() => {
+        toast.error("保存自定义指令失败");
+      });
+    }, 800);
   }, []);
 
   useEffect(() => {
@@ -1373,6 +1395,21 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 </div>
               </div>
 
+              <div className="settings-column" style={{ gap: 6 }}>
+                <span className="settings-option-desc">自定义指令</span>
+                <textarea
+                  className="settings-input"
+                  placeholder="例如：我是程序员，保留所有英文技术术语不翻译；遇到「光语」一律改为「轻语」"
+                  value={customPromptState}
+                  onChange={(e) => handleCustomPromptChange(e.target.value)}
+                  rows={3}
+                  style={{ resize: "vertical", minHeight: 60, fontFamily: "inherit" }}
+                />
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  自定义的校正规则，优先级高于内置规则。留空则不启用。
+                </p>
+              </div>
+
               <p className="settings-hint">
                 AI 纠错会自动学习你的用词习惯，并将常用词汇注入热词列表提升识别准确率。
               </p>
@@ -1684,7 +1721,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       {/* Footer */}
       <div className="settings-footer" style={{ padding: `10px ${PADDING}px` }}>
         <p className="settings-footer-text">
-          轻语 Whisper <span className="settings-footer-version">v1.0.0</span>
+          轻语 Whisper <span className="settings-footer-version">v{appVersion}</span>
           <span style={{ margin: "0 6px" }}>·</span>
           本地语音转文字
         </p>

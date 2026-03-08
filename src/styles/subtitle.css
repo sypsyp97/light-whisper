@@ -107,7 +107,7 @@ body,
   color: rgba(200, 190, 175, 0.7);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  align-self: flex-end;
+  align-self: center;
 }
 
 [data-theme="light"] .subtitle-stream-badge {

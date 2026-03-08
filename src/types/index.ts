@@ -112,5 +112,6 @@ export interface UserProfile {
   last_updated: number;
   llm_provider: LlmProviderConfig;
   translation_target?: string | null;
+  custom_prompt?: string | null;
 }
 

@@ -46,32 +46,19 @@ const BASE_SYSTEM_PROMPT: &str = "\
    邮件客户端 → 正式书面语，段落分明；\
    文档/笔记 → 完整结构化格式，列表和段落都保留；\
    代码编辑器/终端 → 保留技术术语和原始格式
-8. 口述符号转换：当用户明确口述符号名称时，转换为对应符号。常见映射：\
-   大于→>、小于→<、等于→=、不等于→≠、大于等于→>=、小于等于→<=\
-   加/加上→+、减/减去→-、乘/乘以→×、除/除以→/\
-   左括号→(、右括号→)、左方括号→[、右方括号→]、左花括号→{、右花括号→}\
-   百分号→%、井号→#、at→@、下划线→_、斜杠→/、反斜杠→\\、竖线→|、波浪号→~\
-   句号→。、逗号→，、问号→？、感叹号→！、冒号→：、分号→；、省略号→……\
-   换行/新行→实际换行\
-   注意：只在用户明确口述符号名称时转换，不要把正常用作动词的词（如「大于」表示比较）也转换
+8. 口述符号转换：当用户明确口述符号名称时转为对应符号（如「大于」→>、「左括号」→(、「百分号」→%、「逗号」→，、「换行」→实际换行），以此类推。\
+   注意：只在明确口述符号名称时转换，正常用作动词的词不转换
 
 禁止事项：
 - 禁止添加原文没有的信息
 - 禁止改变原文的意思和意图
 - 禁止输出任何解释、注释或推理过程
+- 优先保留原文：拿不准是否需要修改时，保持原文不变。宁可漏纠，不要过度修正
 
-以 JSON 格式输出（不要 markdown 代码块）：
-{\"polished\":\"校正后的完整文本\",\"corrections\":[{\"original\":\"ASR原文片段\",\"corrected\":\"纠正后片段\",\"type\":\"类型\"}],\"key_terms\":[\"重要专有名词或术语\"]}
-
-corrections 的 type 取值：
-- homophone: 同音字/近音字错误（如「视野」→「事业」）—— ASR 听错了字
-- term: 专有名词/术语识别错误（如「赛博」→「Cerebras」）—— ASR 不认识这个词
-- pronoun: 人称代词错误（如「他」→「它」）
-- style: 口语化改写、去口头禅、标点修正等风格调整
-
-重要：corrections 只记录词/短语级别的替换（2-8字），不要把整句改写拆成 correction。
-key_terms 只列出值得记录的专有名词（2字以上的名词、术语、人名、品牌等）。
-如文本无需修改，polished 与输入相同，corrections 和 key_terms 为空数组。";
+以 JSON 输出（无 markdown 代码块）：
+{\"polished\":\"校正后文本\",\"corrections\":[{\"original\":\"原片段\",\"corrected\":\"纠正片段\",\"type\":\"homophone|term|pronoun|style\"}],\"key_terms\":[\"专有名词\"]}
+corrections 只记录词/短语级替换（2-8字），不记录整句改写。key_terms 只列重要专有名词。
+无需修改时 polished 与输入相同，corrections 和 key_terms 为空数组。";
 
 /// 根据文本长度动态计算超时时间
 fn dynamic_timeout(base_secs: u64, text_len: usize) -> Duration {
@@ -127,7 +114,7 @@ fn build_system_prompt(state: &AppState, input_text: &str) -> String {
     let mut prompt = BASE_SYSTEM_PROMPT.to_string();
 
     // 在锁内一次性提取所需数据，避免克隆整个 profile
-    let (hot_words, corrections, translation_target) = state.with_profile(|p| {
+    let (hot_words, corrections, translation_target, custom_prompt) = state.with_profile(|p| {
         (
             p.get_hot_word_texts(50),
             p.get_relevant_corrections(input_text, 10)
@@ -135,6 +122,7 @@ fn build_system_prompt(state: &AppState, input_text: &str) -> String {
                 .cloned()
                 .collect::<Vec<_>>(),
             p.translation_target.clone(),
+            p.custom_prompt.clone(),
         )
     });
 
@@ -182,6 +170,11 @@ fn build_system_prompt(state: &AppState, input_text: &str) -> String {
              翻译要求自然流畅，符合{target_lang}的母语表达习惯，不要逐字直译。\n\
              技术术语、专有名词、品牌名、代码标识符等保留原文，不要翻译。"
         ));
+    }
+
+    if let Some(ref custom) = custom_prompt {
+        prompt.push_str("\n\n用户自定义指令（最高优先级）：\n");
+        prompt.push_str(custom);
     }
 
     prompt

@@ -267,6 +267,16 @@ pub async fn set_translation_target(
 }
 
 #[tauri::command]
+pub async fn set_custom_prompt(
+    state: tauri::State<'_, AppState>,
+    prompt: Option<String>,
+) -> Result<(), String> {
+    let prompt = prompt.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let (_, profile) = state.update_profile(|p| { p.custom_prompt = prompt; });
+    profile_service::save_profile(&profile)
+}
+
+#[tauri::command]
 pub async fn export_user_profile(state: tauri::State<'_, AppState>) -> Result<String, String> {
     serde_json::to_string_pretty(&state.snapshot_profile())
         .map_err(|e| format!("序列化失败: {}", e))

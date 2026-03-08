@@ -149,6 +149,10 @@ export function setTranslationTarget(target: string | null): Promise<boolean> {
   return invokeCommand<boolean>("set_translation_target", { target });
 }
 
+export function setCustomPrompt(prompt: string | null): Promise<void> {
+  return invokeCommand<void>("set_custom_prompt", { prompt });
+}
+
 export function setOnlineAsrApiKey(apiKey: string): Promise<void> {
   return invokeCommand<void>("set_online_asr_api_key", { apiKey });
 }
