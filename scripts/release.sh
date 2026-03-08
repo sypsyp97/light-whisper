@@ -26,18 +26,25 @@ fi
 # 1. 更新版本号（tauri.conf.json + Cargo.toml）
 echo "[1/6] 更新版本号 → ${VERSION}"
 python -c "
-import json, os, sys
-conf_path = sys.argv[1]
-version = sys.argv[2]
-with open(conf_path, 'r', encoding='utf-8') as f:
+import json, re, sys
+
+version = sys.argv[1]
+
+# tauri.conf.json
+with open('$TAURI_CONF', 'r', encoding='utf-8') as f:
     conf = json.load(f)
 conf['version'] = version
-with open(conf_path, 'w', encoding='utf-8') as f:
+with open('$TAURI_CONF', 'w', encoding='utf-8') as f:
     json.dump(conf, f, indent=2, ensure_ascii=False)
     f.write('\n')
-" "$TAURI_CONF" "$VERSION"
 
-sed -i "0,/^version = \".*\"/s//version = \"${VERSION}\"/" "$CARGO_TOML"
+# Cargo.toml — 只替换 [package] 下的第一个 version
+with open('$CARGO_TOML', 'r', encoding='utf-8') as f:
+    text = f.read()
+text = re.sub(r'^(version = \").*?\"', rf'\g<1>{version}\"', text, count=1, flags=re.MULTILINE)
+with open('$CARGO_TOML', 'w', encoding='utf-8') as f:
+    f.write(text)
+" "$VERSION"
 
 # 2. 构建 Python 引擎
 echo "[2/6] 构建 Python 引擎"

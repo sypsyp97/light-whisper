@@ -81,45 +81,21 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     diagnostic: hotkeyDiagnostic,
   } = useHotkey();
 
-  // 启动时将 localStorage 中持久化的输入方式同步到后端
+  // 启动时将 localStorage 持久化的各项设置同步到后端
   useEffect(() => {
-    const stored = readLocalStorage(INPUT_METHOD_KEY);
-    if (stored === "clipboard") {
-      setInputMethodCommand("clipboard").catch(() => {});
+    const syncs: Array<{ key: string; test: (v: string | null) => boolean; run: () => Promise<unknown> }> = [
+      { key: INPUT_METHOD_KEY, test: v => v === "clipboard", run: () => setInputMethodCommand("clipboard") },
+      { key: INPUT_DEVICE_STORAGE_KEY, test: v => v != null, run: () => setInputDevice(readLocalStorage(INPUT_DEVICE_STORAGE_KEY)!) },
+      { key: SOUND_ENABLED_KEY, test: v => v === "false", run: () => setSoundEnabled(false) },
+      { key: RECORDING_MODE_KEY, test: v => v === "toggle", run: () => setRecordingMode(true) },
+    ];
+    for (const { key, test, run } of syncs) {
+      if (test(readLocalStorage(key))) run().catch(() => {});
     }
-  }, []);
-
-  // 启动时将持久化的麦克风选择同步到后端
-  useEffect(() => {
-    const stored = readLocalStorage(INPUT_DEVICE_STORAGE_KEY);
-    if (stored) {
-      setInputDevice(stored).catch(() => {});
-    }
-  }, []);
-
-  // 启动时将音效开关同步到后端（默认开启）
-  useEffect(() => {
-    const stored = readLocalStorage(SOUND_ENABLED_KEY);
-    if (stored === "false") {
-      setSoundEnabled(false).catch(() => {});
-    }
-  }, []);
-
-  // 启动时将录音模式同步到后端（默认按住模式）
-  useEffect(() => {
-    const stored = readLocalStorage(RECORDING_MODE_KEY);
-    if (stored === "toggle") {
-      setRecordingMode(true).catch(() => {});
-    }
-  }, []);
-
-  // 启动时将 AI 润色开关同步到后端（API Key 已在后端 setup 从密钥环加载）
-  useEffect(() => {
+    // AI 润色需要先异步获取 API Key
     const enabled = readLocalStorage(AI_POLISH_ENABLED_KEY) === "true";
     if (enabled) {
-      getAiPolishApiKey()
-        .then(apiKey => setAiPolishConfig(enabled, apiKey))
-        .catch(() => {});
+      getAiPolishApiKey().then(apiKey => setAiPolishConfig(enabled, apiKey)).catch(() => {});
     }
   }, []);
 

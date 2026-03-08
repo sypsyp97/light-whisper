@@ -183,15 +183,17 @@ def download_model(model_config):
     return {"success": True, "model": model_type}
 
 
-def main():
+def main(engine=None):
     global _total_count
 
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--engine", default="sensevoice", choices=["sensevoice", "whisper"])
-    args = parser.parse_args()
+    if engine is None:
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--engine", default="sensevoice", choices=["sensevoice", "whisper"])
+        args = parser.parse_args()
+        engine = args.engine
 
-    if args.engine == "whisper":
+    if engine == "whisper":
         models = [
             {"name": WHISPER_REPO_ID, "type": "asr"},
         ]

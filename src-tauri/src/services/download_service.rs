@@ -134,8 +134,6 @@ pub async fn run_download(
     let mut reader = BufReader::new(stdout);
     let mut final_result: Option<DownloadLine> = None;
     let mut cancelled = false;
-    let read_error: Option<AppError> = None;
-
     loop {
         let mut line = String::new();
         tokio::select! {
@@ -212,10 +210,6 @@ pub async fn run_download(
 
     // 清理下载任务
     clear_download_task(state).await;
-
-    if let Some(err) = read_error {
-        return Err(err);
-    }
 
     if cancelled {
         return Ok("模型下载已取消".to_string());

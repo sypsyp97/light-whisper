@@ -2,6 +2,7 @@ use tauri::Emitter;
 use tauri_plugin_keyring::KeyringExt;
 
 use crate::services::funasr_service;
+use crate::services::llm_provider;
 use crate::state::AppState;
 use crate::utils::{paths, AppError};
 
@@ -119,7 +120,6 @@ pub async fn set_engine(
     Ok(engine)
 }
 
-const KEYRING_SERVICE: &str = "light-whisper";
 const ONLINE_ASR_KEYRING_USER: &str = "glm-asr-api-key";
 
 #[tauri::command]
@@ -130,10 +130,10 @@ pub async fn set_online_asr_api_key(
 ) -> Result<(), AppError> {
     let keyring = app_handle.keyring();
     if api_key.is_empty() {
-        let _ = keyring.delete_password(KEYRING_SERVICE, ONLINE_ASR_KEYRING_USER);
+        let _ = keyring.delete_password(llm_provider::KEYRING_SERVICE, ONLINE_ASR_KEYRING_USER);
     } else {
         keyring
-            .set_password(KEYRING_SERVICE, ONLINE_ASR_KEYRING_USER, &api_key)
+            .set_password(llm_provider::KEYRING_SERVICE, ONLINE_ASR_KEYRING_USER, &api_key)
             .map_err(|e| AppError::Other(format!("保存在线 ASR API Key 失败: {}", e)))?;
     }
     state.set_online_asr_api_key(&api_key);

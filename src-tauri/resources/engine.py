@@ -35,10 +35,8 @@ def cmd_serve(engine: str):
 
 
 def cmd_download(engine: str):
-    # download_models.main() 内部用 argparse 解析 sys.argv
-    sys.argv = [sys.argv[0], "--engine", engine]
     from download_models import main
-    main()
+    main(engine=engine)
 
 
 def main():
