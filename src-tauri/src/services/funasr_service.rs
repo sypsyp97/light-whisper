@@ -297,14 +297,27 @@ where
 /// 2. 未解压的 engine.zip → 解压后使用
 /// 3. 系统 Python（开发模式）
 pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime, AppError> {
-    // 策略1：已解压的 engine.exe
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    // 策略1：已解压的 engine.exe（版本匹配时使用）
     if let Some(engine_path) = paths::get_engine_exe_path(app_handle) {
-        let path_str = paths::strip_win_prefix(&engine_path);
-        log::info!("找到引擎: {}", path_str);
-        return Ok(EngineRuntime::Bundled { exe_path: path_str });
+        let version_file = paths::get_engine_dir().join(".version");
+        let installed_version = std::fs::read_to_string(&version_file).unwrap_or_default();
+
+        if installed_version.trim() == current_version {
+            let path_str = paths::strip_win_prefix(&engine_path);
+            log::info!("找到引擎: {} (v{})", path_str, current_version);
+            return Ok(EngineRuntime::Bundled { exe_path: path_str });
+        }
+
+        log::info!(
+            "引擎版本不匹配 (已安装: {:?}, 当前: {}), 需要重新解压",
+            installed_version.trim(),
+            current_version
+        );
     }
 
-    // 策略2：存在 engine.zip，需要解压（首次启动）
+    // 策略2：存在 engine.zip，需要解压（首次启动或版本升级）
     if let Some(archive_path) = paths::get_engine_archive_path(app_handle) {
         log::info!("找到引擎压缩包，准备解压: {}", archive_path.display());
         let engine_exe = extract_engine_archive(&archive_path, app_handle).await?;
