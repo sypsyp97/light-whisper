@@ -1,45 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-FunASR SenseVoiceSmall 模型下载脚本
-从 HuggingFace 顺序下载 SenseVoiceSmall + VAD 模型文件
+ASR 模型下载脚本
+使用 requests 直接从 HuggingFace 下载，绕过 huggingface_hub 库的 Windows 文件锁 bug。
 """
 
 import sys
 import json
-import threading
 import os
+import requests
 
-# 防止 snapshot_download 在 Windows 上无限期挂起
-os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "60")
-os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "600")
-os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-
-from huggingface_hub import snapshot_download
-from tqdm import tqdm
 from hf_cache_utils import is_hf_repo_ready, get_hf_cache_root, ASR_REPO_ID, VAD_REPO_ID, WHISPER_REPO_ID
-import glob
 
+HF_ENDPOINT = os.environ.get("HF_ENDPOINT", "https://huggingface.co")
 
-def _cleanup_incomplete_blobs(repo_id):
-    """清理 HF 缓存中残留的 .incomplete 文件，防止续传卡死"""
-    cache_root = get_hf_cache_root()
-    dir_name = "models--" + repo_id.replace("/", "--")
-    blobs_dir = os.path.join(cache_root, dir_name, "blobs")
-    if not os.path.isdir(blobs_dir):
-        return
-    for f in glob.glob(os.path.join(blobs_dir, "*.incomplete")):
-        try:
-            os.remove(f)
-        except OSError:
-            pass
-
-
-# ---------------------------------------------------------------------------
-# 进度输出
-# ---------------------------------------------------------------------------
-
-_progress_lock = threading.Lock()
 _progress = {}
 _completed_count = 0
 _total_count = 0
@@ -48,25 +22,23 @@ _total_count = 0
 def _emit(model_type, stage, percent, error=None, message=None):
     global _completed_count
 
-    with _progress_lock:
-        if stage == "downloading":
-            _progress[model_type] = percent
-        elif stage == "completed":
-            _progress[model_type] = 100
-            _completed_count += 1
-        elif stage == "error":
-            _progress[model_type] = 0
-            _completed_count += 1
+    if stage == "downloading":
+        _progress[model_type] = percent
+    elif stage == "completed":
+        _progress[model_type] = 100
+        _completed_count += 1
+    elif stage == "error":
+        _progress[model_type] = 0
+        _completed_count += 1
 
-        overall = sum(_progress.values()) / _total_count if _total_count else 0
-        completed_snapshot = _completed_count
+    overall = sum(_progress.values()) / _total_count if _total_count else 0
 
     status = {
         "stage": stage,
         "model": model_type,
         "progress": percent,
         "overall_progress": round(overall, 1),
-        "completed": completed_snapshot,
+        "completed": _completed_count,
         "total": _total_count,
     }
     if error:
@@ -78,141 +50,137 @@ def _emit(model_type, stage, percent, error=None, message=None):
     sys.stdout.flush()
 
 
-class _ProgressTqdm(tqdm):
-    """自定义 tqdm 子类，将真实下载进度转发到 JSON 输出。"""
-
-    _model_type = "asr"
-    _model_name = ""
-    _last_pct = -1
-
-    def display(self, msg=None, pos=None):
-        self._report_progress()
-
-    def update(self, n=1):
-        super().update(n)
-        self._report_progress()
-
-    def _report_progress(self):
-        if self.total and self.total > 0:
-            pct = int(self.n * 100 / self.total)
-        else:
-            pct = 0
-        # 避免过于频繁地输出（相同百分比不重复发）
-        if pct != _ProgressTqdm._last_pct:
-            _ProgressTqdm._last_pct = pct
-            _emit(
-                _ProgressTqdm._model_type,
-                "downloading",
-                pct,
-                message=f"{_ProgressTqdm._model_name} 下载中... {pct}%",
-            )
+def _get_repo_info(repo_id):
+    """通过 HF API 获取仓库文件列表"""
+    url = f"{HF_ENDPOINT}/api/models/{repo_id}"
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    info = resp.json()
+    commit_hash = info.get("sha", "main")
+    siblings = info.get("siblings", [])
+    files = [s["rfilename"] for s in siblings]
+    return commit_hash, files
 
 
-# ---------------------------------------------------------------------------
-# 下载逻辑
-# ---------------------------------------------------------------------------
+def _download_file(repo_id, filename, dest_path, model_type, file_idx, file_total):
+    """下载单个文件，支持断点续传和进度上报"""
+    url = f"{HF_ENDPOINT}/{repo_id}/resolve/main/{filename}"
+
+    dest_dir = os.path.dirname(dest_path)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    # 断点续传
+    downloaded = 0
+    if os.path.exists(dest_path):
+        downloaded = os.path.getsize(dest_path)
+
+    headers = {}
+    if downloaded > 0:
+        headers["Range"] = f"bytes={downloaded}-"
+
+    resp = requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True)
+
+    if resp.status_code == 416:
+        # 已经下完了
+        return
+
+    resp.raise_for_status()
+
+    total_size = downloaded
+    content_length = resp.headers.get("Content-Length")
+    if content_length:
+        total_size += int(content_length)
+
+    mode = "ab" if downloaded > 0 else "wb"
+    current = downloaded
+    last_pct = -1
+
+    with open(dest_path, mode) as f:
+        for chunk in resp.iter_content(chunk_size=1024 * 1024):
+            f.write(chunk)
+            current += len(chunk)
+            if total_size > 0:
+                pct = int(current * 100 / total_size)
+                if pct != last_pct:
+                    last_pct = pct
+                    _emit(model_type, "downloading", pct,
+                          message=f"[{file_idx}/{file_total}] {filename} {pct}%")
+
+
+def _cleanup_locks(repo_id):
+    """清理残留的 .lock 和 .incomplete 文件"""
+    cache_root = get_hf_cache_root()
+    dir_name = "models--" + repo_id.replace("/", "--")
+
+    import glob
+    blobs_dir = os.path.join(cache_root, dir_name, "blobs")
+    if os.path.isdir(blobs_dir):
+        for f in glob.glob(os.path.join(blobs_dir, "*.incomplete")):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+    locks_dir = os.path.join(cache_root, ".locks", dir_name)
+    if os.path.isdir(locks_dir):
+        for f in glob.glob(os.path.join(locks_dir, "*.lock")):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
 
 def download_model(model_config):
-    """下载模型，已缓存则直接跳过"""
+    """下载模型到 HF 缓存结构"""
     model_name = model_config["name"]
     model_type = model_config["type"]
-    revision = model_config.get("revision")
-    fallback_name = model_config.get("fallback_name")
-    fallback_revision = model_config.get("fallback_revision", revision)
 
-    # 清理可能残留的 .incomplete 文件（断点续传在 Windows 上容易卡死）
-    _cleanup_incomplete_blobs(model_name)
+    _cleanup_locks(model_name)
 
-    # 已缓存的模型直接跳过，不调用 snapshot_download（避免 Windows 上缓慢的完整性校验）
     if is_hf_repo_ready(model_name):
         _emit(model_type, "completed", 100,
               message=f"{model_name} 已缓存，跳过下载")
         return {"success": True, "model": model_type}
 
-    _emit(model_type, "downloading", 0, message=f"准备下载 {model_name}")
+    _emit(model_type, "downloading", 0, message=f"正在获取 {model_name} 文件列表...")
 
-    # 设置真实进度回调的上下文
-    _ProgressTqdm._model_type = model_type
-    _ProgressTqdm._model_name = model_name
-    _ProgressTqdm._last_pct = -1
+    try:
+        commit_hash, files = _get_repo_info(model_name)
+    except Exception as e:
+        _emit(model_type, "error", 0, str(e),
+              message=f"获取 {model_name} 文件列表失败")
+        return {"success": False, "model": model_type, "error": str(e)}
 
-    result_box = {}
-    done_event = threading.Event()
+    # 构建 HF 缓存目录结构
+    cache_root = get_hf_cache_root()
+    dir_name = "models--" + model_name.replace("/", "--")
+    repo_dir = os.path.join(cache_root, dir_name)
+    snapshot_dir = os.path.join(repo_dir, "snapshots", commit_hash)
+    refs_dir = os.path.join(repo_dir, "refs")
+    os.makedirs(snapshot_dir, exist_ok=True)
+    os.makedirs(refs_dir, exist_ok=True)
 
-    def _snapshot(repo_id, repo_revision):
-        if repo_revision:
-            snapshot_download(repo_id=repo_id, revision=repo_revision,
-                              tqdm_class=_ProgressTqdm)
-        else:
-            snapshot_download(repo_id=repo_id, tqdm_class=_ProgressTqdm)
+    # 写入 refs/main
+    with open(os.path.join(refs_dir, "main"), "w") as f:
+        f.write(commit_hash)
 
-    def _try_download(repo_id, repo_revision):
+    file_total = len(files)
+    for idx, filename in enumerate(files, 1):
+        dest_path = os.path.join(snapshot_dir, filename.replace("/", os.sep))
+
+        # 跳过已存在且非空的文件
+        if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+            continue
+
         try:
-            _snapshot(repo_id, repo_revision)
-            return True, repo_id, None
+            _download_file(model_name, filename, dest_path, model_type, idx, file_total)
         except Exception as e:
-            if repo_revision:
-                try:
-                    _snapshot(repo_id, None)
-                    return True, repo_id, None
-                except Exception as e2:
-                    return False, repo_id, str(e2)
-            return False, repo_id, str(e)
+            _emit(model_type, "error", 0, str(e),
+                  message=f"{filename} 下载失败: {e}")
+            return {"success": False, "model": model_type, "error": str(e)}
 
-    def _worker():
-        try:
-            ok, name, err = _try_download(model_name, revision)
-            if ok:
-                result_box["ok"] = True
-                result_box["name"] = name
-            elif fallback_name:
-                ok, name, err = _try_download(fallback_name, fallback_revision)
-                if ok:
-                    result_box["ok"] = True
-                    result_box["name"] = name
-                else:
-                    result_box["ok"] = False
-                    result_box["error"] = err
-            else:
-                result_box["ok"] = False
-                result_box["error"] = err
-        finally:
-            done_event.set()
-
-    t = threading.Thread(target=_worker, daemon=True)
-    t.start()
-
-    # 每 2 秒发一次心跳保活（最长等待 30 分钟）
-    # 真实进度由 _ProgressTqdm 回调输出，心跳仅防止前端判定超时
-    tick = 0
-    max_ticks = 900  # 900 * 2s = 1800s = 30 min
-    while not done_event.wait(timeout=2.0):
-        tick += 1
-        if tick > max_ticks:
-            _emit(model_type, "error", 0, "下载超时（超过30分钟）",
-                  message=f"{model_name} 下载超时")
-            return {"success": False, "model": model_type, "error": "下载超时（超过30分钟）"}
-        # 心跳：用当前已记录的进度值重新发送，保持 UI 活跃
-        with _progress_lock:
-            current_pct = _progress.get(model_type, 0)
-        if current_pct == 0 and tick <= 15:
-            # 前 30 秒无进度时提示正在连接
-            _emit(model_type, "downloading", 0,
-                  message=f"正在连接 HuggingFace 下载 {model_name}...")
-        else:
-            _emit(model_type, "downloading", current_pct,
-                  message=f"{model_name} 下载中...")
-
-    if result_box.get("ok"):
-        finished_name = result_box.get("name", model_name)
-        _emit(model_type, "completed", 100,
-              message=f"{finished_name} 下载完成")
-        return {"success": True, "model": model_type}
-    else:
-        err = result_box.get("error", "unknown error")
-        _emit(model_type, "error", 0, err,
-              message=f"{model_name} 下载失败")
-        return {"success": False, "model": model_type, "error": err}
+    _emit(model_type, "completed", 100, message=f"{model_name} 下载完成")
+    return {"success": True, "model": model_type}
 
 
 def main():
@@ -223,7 +191,6 @@ def main():
     parser.add_argument("--engine", default="sensevoice", choices=["sensevoice", "whisper"])
     args = parser.parse_args()
 
-    # 根据引擎选择要下载的模型
     if args.engine == "whisper":
         models = [
             {"name": WHISPER_REPO_ID, "type": "asr"},
