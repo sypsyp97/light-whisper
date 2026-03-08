@@ -56,6 +56,7 @@ HIDDEN_IMPORTS = [
 # funasr 用 pkgutil.walk_packages 动态注册所有模型类，必须收集全部子模块
 COLLECT_ALL = [
     "funasr",
+    "faster_whisper",
 ]
 
 EXCLUDE_MODULES = [
