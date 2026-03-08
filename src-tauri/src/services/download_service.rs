@@ -128,7 +128,7 @@ pub async fn run_download(
     let mut reader = BufReader::new(stdout);
     let mut final_result: Option<DownloadLine> = None;
     let mut cancelled = false;
-    let mut read_error: Option<AppError> = None;
+    let read_error: Option<AppError> = None;
 
     loop {
         let mut line = String::new();
