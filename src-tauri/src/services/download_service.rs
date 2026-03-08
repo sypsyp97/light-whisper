@@ -100,7 +100,13 @@ pub async fn run_download(
         .env("PYTHONUTF8", "1")
         .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr({
+            let log_path = paths::get_data_dir().join("download_stderr.log");
+            match std::fs::File::create(&log_path) {
+                Ok(file) => Stdio::from(file),
+                Err(_) => Stdio::null(),
+            }
+        });
 
     // Windows 上隐藏控制台窗口
     #[cfg(target_os = "windows")]
