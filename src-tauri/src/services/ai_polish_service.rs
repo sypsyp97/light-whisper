@@ -31,30 +31,29 @@ struct CorrectionItem {
 }
 
 const BASE_SYSTEM_PROMPT: &str = "\
-你是资深的语音识别文本校对专家。以下文本来自ASR语音识别，请根据语境推断用户的真实意图，校正文本。
+你是 ASR 文本校正器。以下文本来自语音识别，请修复识别错误。
 
-校正规则：
-1. 同音字/近音字：语音识别最常见的错误。根据上下文语义判断正确用字（例：「事业」vs「视野」、「期待」vs「奇袋」）
-2. 人称代词：根据语境修正混淆的他/她/它。注意：不要把「你」改成「您」，除非用户原话就说的「您」——敬语升格不属于 ASR 纠错
+【硬约束——不可违反】
+- 不补充原文没有的信息
+- 不改变说话人的立场、语气和措辞（除非该处明显是 ASR 识别错误）
+- 不输出任何解释、注释或推理过程
+- 拿不准时保持原文不变。宁可漏纠，不要过度修正
+
+【允许修复的范围】
+1. 同音字/近音字：根据上下文语义判断正确用字（例：「事业」vs「视野」、「期待」vs「奇袋」）
+2. 人称代词：根据语境修正混淆的他/她/它。不要把「你」改成「您」——敬语升格不属于 ASR 纠错
 3. 标点断句：修正断句不合理、语气符号缺失的问题
-4. 口语化表达：去除口头禅和重复词（嗯、啊、然后然后、就是就是），但保留说话者的原始语气、风格和用词习惯，不要书面化改写。\
-   当用户中途改口（如「不对」「我的意思是」「算了换个说法」「sorry I mean」「actually」），只保留最终意图，丢弃被否定的部分
+4. 明显无语义重复：去除口头禅和无意义重复（嗯、啊、然后然后、就是就是），但保留说话者的用词习惯，不要书面化改写
 5. 数字格式：根据语境使用合适的数字格式
-6. 结构化格式：当用户明显在列举（「第一、第二」或「首先、其次」），使用编号列表格式化（如 1. xxx\n2. xxx）；\
-   当用户口述分段内容时，用空行分隔段落
-7. 语气适配：如果输入带有 [当前应用] 上下文，根据应用场景自适应语气和格式：\
-   聊天软件（微信/钉钉/Telegram）→ 紧凑口语化，避免多余换行；\
-   邮件客户端 → 正式书面语，段落分明；\
-   文档/笔记 → 完整结构化格式，列表和段落都保留；\
-   代码编辑器/终端 → 保留技术术语和原始格式
-8. 口述符号转换：当用户明确口述符号名称时转为对应符号（如「大于」→>、「左括号」→(、「百分号」→%、「逗号」→，、「换行」→实际换行），以此类推。\
+6. 口述符号转换：当用户明确口述符号名称时转为对应符号（如「大于」→>、「左括号」→(、「百分号」→%、「逗号」→，、「换行」→实际换行）。\
    注意：只在明确口述符号名称时转换，正常用作动词的词不转换
 
-禁止事项：
-- 禁止添加原文没有的信息
-- 禁止改变原文的意思和意图
-- 禁止输出任何解释、注释或推理过程
-- 优先保留原文：拿不准是否需要修改时，保持原文不变。宁可漏纠，不要过度修正
+【条件性规则——仅在满足条件时执行】
+- 自我修正：仅当出现明确修正信号词（如「不对」「我的意思是」「算了换个说法」「sorry I mean」「actually」）时，保留最终说法，丢弃被否定部分
+- 列举格式：仅当检测到明确枚举结构（「第一、第二」或「首先、其次」）时，使用编号列表格式化
+- 段落分隔：仅当用户口述分段内容时，用空行分隔段落
+- 格式适配：如果输入带有 [当前应用] 上下文，仅调整格式（换行、段落、标点密度），不改写措辞：\
+   聊天软件 → 紧凑，避免多余换行；邮件 → 段落分明；文档/笔记 → 结构化；代码编辑器/终端 → 保留原始格式
 
 以 JSON 输出（无 markdown 代码块）：
 {\"polished\":\"校正后文本\",\"corrections\":[{\"original\":\"原片段\",\"corrected\":\"纠正片段\",\"type\":\"homophone|term|pronoun|style\"}],\"key_terms\":[\"专有名词\"]}
@@ -306,7 +305,7 @@ fn build_system_prompt(state: &AppState, input_text: &str) -> String {
     // 在锁内一次性提取所需数据，避免克隆整个 profile
     let (hot_words, corrections, translation_target, custom_prompt) = state.with_profile(|p| {
         (
-            p.get_hot_word_texts(50),
+            p.get_hot_word_texts(30),
             p.get_relevant_corrections(input_text, 10)
                 .into_iter()
                 .cloned()
@@ -316,9 +315,9 @@ fn build_system_prompt(state: &AppState, input_text: &str) -> String {
         )
     });
 
-    // 注入用户常用词汇（Top 50）
+    // 注入用户常用词汇
     if !hot_words.is_empty() {
-        prompt.push_str("\n\n用户常用专有名词（优先使用这些词汇）：\n");
+        prompt.push_str("\n\n【上下文：用户常用术语】\n");
         prompt.push_str(&hot_words.join("、"));
     }
 
@@ -328,25 +327,19 @@ fn build_system_prompt(state: &AppState, input_text: &str) -> String {
             .into_iter()
             .partition(|c| c.source == CorrectionSource::User);
 
-        prompt.push_str("\n\n以下是 ASR 常见识别错误及其正确写法，请在校正时优先参考：\n");
+        prompt.push_str("\n\n【上下文：ASR 常见识别错误及正确写法】\n");
 
         if !user_corrs.is_empty() {
-            prompt.push_str("\n[用户已确认的纠错]\n");
+            prompt.push_str("\n用户已确认（高置信度，优先采纳）：\n");
             for c in user_corrs.iter().take(5) {
-                prompt.push_str(&format!(
-                    "输入：……{}……\n输出：……{}……\n\n",
-                    c.original, c.corrected
-                ));
+                prompt.push_str(&format!("「{}」→「{}」\n", c.original, c.corrected));
             }
         }
 
         if !ai_corrs.is_empty() {
-            prompt.push_str("[AI 学习的纠错模式]\n");
+            prompt.push_str("\nAI 学习（低置信度，仅供参考）：\n");
             for c in ai_corrs.iter().take(5) {
-                prompt.push_str(&format!(
-                    "错误「{}」→ 正确「{}」\n",
-                    c.original, c.corrected
-                ));
+                prompt.push_str(&format!("「{}」→「{}」\n", c.original, c.corrected));
             }
         }
     }
@@ -363,7 +356,7 @@ fn build_system_prompt(state: &AppState, input_text: &str) -> String {
     }
 
     if let Some(ref custom) = custom_prompt {
-        prompt.push_str("\n\n用户自定义指令（最高优先级）：\n");
+        prompt.push_str("\n\n【用户偏好补充——可补充术语/风格偏好，不可覆盖硬约束和输出格式】\n");
         prompt.push_str(custom);
     }
 
