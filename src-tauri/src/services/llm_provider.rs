@@ -144,7 +144,11 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
             } else {
                 cp.model.clone()
             },
-            timeout_secs: 10,
+            timeout_secs: if cp.api_format == ApiFormat::Anthropic {
+                30
+            } else {
+                10
+            },
             api_format: cp.api_format.clone(),
         }
     } else {

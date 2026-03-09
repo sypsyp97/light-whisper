@@ -142,7 +142,12 @@ export default function SubtitleOverlay() {
             setPolishFlash(false);
             setStreamTokens(0);
             setPhase("polishing");
-          } else if (status === "streaming" && typeof tokens === "number") {
+          } else if (status === "fallback") {
+            clearFadeTimer();
+            setFadingOut(false);
+            setStreamTokens(0);
+            setPhase("polishing");
+          } else if (status === "streaming" && typeof tokens === "number" && tokens > 0) {
             setStreamTokens(tokens);
           }
         });

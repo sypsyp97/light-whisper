@@ -7,6 +7,8 @@ use crate::services::llm_provider;
 use crate::services::llm_provider::LlmEndpoint;
 use crate::state::user_profile::ApiFormat;
 
+const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
+
 #[derive(Debug, Clone, Copy)]
 pub struct LlmRequestOptions<'a> {
     pub stream: bool,
@@ -101,6 +103,26 @@ fn emit_stream_chunk(
         let mut payload = serde_json::json!({
             "status": "streaming",
             "chunk": chunk,
+        });
+        if tokens > 0 {
+            payload["tokens"] = serde_json::json!(tokens);
+        }
+        if let Some(session_id) = session_id {
+            payload["sessionId"] = serde_json::json!(session_id);
+        }
+        let _ = app_handle.emit(event_name, payload);
+    }
+}
+
+fn emit_stream_tokens(
+    app_handle: &tauri::AppHandle,
+    event_name: Option<&str>,
+    session_id: Option<u64>,
+    tokens: usize,
+) {
+    if let Some(event_name) = event_name {
+        let mut payload = serde_json::json!({
+            "status": "streaming",
             "tokens": tokens,
         });
         if let Some(session_id) = session_id {
@@ -108,6 +130,13 @@ fn emit_stream_chunk(
         }
         let _ = app_handle.emit(event_name, payload);
     }
+}
+
+fn anthropic_output_tokens(json: &Value) -> Option<usize> {
+    json["usage"]["output_tokens"]
+        .as_u64()
+        .or_else(|| json["message"]["usage"]["output_tokens"].as_u64())
+        .map(|value| value as usize)
 }
 
 pub async fn read_sse_stream(
@@ -121,7 +150,7 @@ pub async fn read_sse_stream(
 
     let mut accumulated = String::new();
     let mut token_count: usize = 0;
-    let event_timeout = Duration::from_secs(30);
+    let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
@@ -141,7 +170,12 @@ pub async fn read_sse_stream(
             }
             Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
             Ok(None) => return Ok(accumulated),
-            Err(_) => return Err("流式读取超时（30 秒无数据）".into()),
+            Err(_) => {
+                return Err(format!(
+                    "流式读取超时（{} 秒无数据）",
+                    STREAM_EVENT_TIMEOUT_SECS
+                ))
+            }
         }
     }
 }
@@ -156,22 +190,39 @@ pub async fn read_anthropic_sse_stream(
     use tokio_stream::StreamExt;
 
     let mut accumulated = String::new();
-    let mut token_count: usize = 0;
-    let event_timeout = Duration::from_secs(30);
+    let mut output_tokens: usize = 0;
+    let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
         match tokio::time::timeout(event_timeout, stream.next()).await {
             Ok(Some(Ok(event))) => match event.event.as_str() {
-                "content_block_delta" => {
+                "message_start" | "message_delta" => {
                     if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
-                        if let Some(text) = json["delta"]["text"].as_str() {
-                            accumulated.push_str(text);
-                            token_count += 1;
-                            emit_stream_chunk(app_handle, event_name, session_id, text, token_count);
+                        if let Some(tokens) = anthropic_output_tokens(&json) {
+                            output_tokens = tokens;
+                            emit_stream_tokens(app_handle, event_name, session_id, output_tokens);
                         }
                     }
                 }
+                "content_block_delta" => {
+                    if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
+                        let delta_type = json["delta"]["type"].as_str();
+                        if matches!(delta_type, Some("text_delta") | None) {
+                            if let Some(text) = json["delta"]["text"].as_str() {
+                                accumulated.push_str(text);
+                                emit_stream_chunk(
+                                    app_handle,
+                                    event_name,
+                                    session_id,
+                                    text,
+                                    output_tokens,
+                                );
+                            }
+                        }
+                    }
+                }
+                "ping" => {}
                 "message_stop" => return Ok(accumulated),
                 "error" => {
                     let message = serde_json::from_str::<Value>(&event.data)
@@ -184,7 +235,12 @@ pub async fn read_anthropic_sse_stream(
             },
             Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
             Ok(None) => return Ok(accumulated),
-            Err(_) => return Err("流式读取超时（30 秒无数据）".into()),
+            Err(_) => {
+                return Err(format!(
+                    "流式读取超时（{} 秒无数据）",
+                    STREAM_EVENT_TIMEOUT_SECS
+                ))
+            }
         }
     }
 }

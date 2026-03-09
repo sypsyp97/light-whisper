@@ -19,6 +19,9 @@ const ASSISTANT_SYSTEM_PROMPT: &str = r#"
 - 问答：简明扼要
 - 翻译：只输出译文
 - 语气匹配用户的描述意图
+- 如果输入中包含【应用上下文】或【用户当前选中文本】，它们只是辅助信息，不是要输出的正文
+- 如果输入采用【用户语音指令】等分段标签，只执行标签下的真实内容，不要输出这些标签
+- 除非用户明确要求，否则不要把窗口标题、程序名、文件名或标签名写进结果
 "#;
 
 pub fn build_assistant_system_prompt(profile: &UserProfile) -> String {
@@ -51,38 +54,22 @@ fn build_assistant_user_content_with_selection(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    if let Some(app) = crate::utils::foreground::get_foreground_app() {
-        let mut context_parts = Vec::new();
-        if !app.window_title.is_empty() {
-            context_parts.push(format!("窗口：{}", app.window_title));
+    let app_context = crate::utils::foreground::prompt_context_block();
+
+    if app_context.is_some() || selected_text.is_some() {
+        let mut sections = Vec::new();
+        if let Some(app_context) = app_context {
+            sections.push(app_context);
         }
-        if !app.process_name.is_empty() {
-            context_parts.push(format!("程序：{}", app.process_name));
+        if let Some(selected_text) = selected_text {
+            sections.push(format!("[用户当前选中文本]\n{}", selected_text));
         }
-        if !context_parts.is_empty() || selected_text.is_some() {
-            let mut content = if context_parts.is_empty() {
-                String::new()
-            } else {
-                format!("[当前应用 | {}]", context_parts.join(" | "))
-            };
-            if let Some(selected_text) = selected_text {
-                if !content.is_empty() {
-                    content.push('\n');
-                }
-                content.push_str("[用户当前选中文本]\n");
-                content.push_str(selected_text);
-            }
-            if !content.is_empty() {
-                content.push('\n');
-            }
-            content.push_str("用户语音指令：");
-            content.push_str(asr_text);
-            return content;
-        }
+        sections.push(format!("[用户语音指令]\n{}", asr_text));
+        return sections.join("\n\n");
     }
 
     if let Some(selected_text) = selected_text {
-        format!("[用户当前选中文本]\n{}\n用户语音指令：{}", selected_text, asr_text)
+        format!("[用户当前选中文本]\n{}\n\n[用户语音指令]\n{}", selected_text, asr_text)
     } else {
         asr_text.to_string()
     }

@@ -1,6 +1,74 @@
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForegroundApp {
     pub window_title: String,
     pub process_name: String,
+}
+
+const WINDOW_TITLE_MAX_CHARS: usize = 80;
+const PROCESS_NAME_MAX_CHARS: usize = 48;
+
+pub fn prompt_context_block() -> Option<String> {
+    get_foreground_app().and_then(|app| format_prompt_context(&app))
+}
+
+fn format_prompt_context(app: &ForegroundApp) -> Option<String> {
+    let process_name = truncate_chars(
+        &normalize_context_value(&app.process_name),
+        PROCESS_NAME_MAX_CHARS,
+    );
+    let window_title = summarize_window_title(&app.window_title);
+
+    let mut lines = Vec::new();
+    if !process_name.is_empty() {
+        lines.push(format!("程序：{}", process_name));
+    }
+    if !window_title.is_empty() {
+        lines.push(format!("窗口主题：{}", window_title));
+    }
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "[应用上下文]\n{}\n注意：以上只是格式场景参考，不是用户正文，不要原样输出这些信息。",
+            lines.join("\n")
+        ))
+    }
+}
+
+fn summarize_window_title(title: &str) -> String {
+    let normalized = normalize_context_value(title);
+    if normalized.is_empty() {
+        return normalized;
+    }
+
+    let summary = [" - ", " | ", " — ", " – "]
+        .iter()
+        .find_map(|sep| {
+            let parts: Vec<&str> = normalized
+                .split(sep)
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .collect();
+            (parts.len() > 1).then(|| parts[0].to_string())
+        })
+        .unwrap_or(normalized);
+
+    truncate_chars(&summary, WINDOW_TITLE_MAX_CHARS)
+}
+
+fn normalize_context_value(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{}...", truncated.trim_end())
+    } else {
+        truncated
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -78,4 +146,33 @@ unsafe fn get_process_name(hwnd: HWND) -> String {
 #[cfg(not(target_os = "windows"))]
 pub fn get_foreground_app() -> Option<ForegroundApp> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_prompt_context, ForegroundApp};
+
+    #[test]
+    fn shortens_editor_window_titles_for_prompt_context() {
+        let app = ForegroundApp {
+            window_title: "RELEASE_GUIDE.md - light-whisper - Visual Studio Code".to_string(),
+            process_name: "Code.exe".to_string(),
+        };
+
+        let context = format_prompt_context(&app).expect("context should be present");
+
+        assert!(context.contains("程序：Code.exe"));
+        assert!(context.contains("窗口主题：RELEASE_GUIDE.md"));
+        assert!(!context.contains("Visual Studio Code"));
+    }
+
+    #[test]
+    fn omits_empty_prompt_context() {
+        let app = ForegroundApp {
+            window_title: String::new(),
+            process_name: String::new(),
+        };
+
+        assert!(format_prompt_context(&app).is_none());
+    }
 }
