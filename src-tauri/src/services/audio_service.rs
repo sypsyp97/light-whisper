@@ -7,9 +7,9 @@ use serde::Serialize;
 
 use tauri::{Emitter, Manager};
 
-use crate::services::{ai_polish_service, funasr_service, glm_asr_service};
+use crate::services::{ai_polish_service, assistant_service, funasr_service, glm_asr_service};
 use crate::utils::paths;
-use crate::state::{AppState, MicrophoneLevelMonitor, RecordingSession, RecordingSlot};
+use crate::state::{AppState, MicrophoneLevelMonitor, RecordingMode, RecordingSession, RecordingSlot};
 use crate::utils::AppError;
 
 // ---------- 常量 ----------
@@ -473,7 +473,7 @@ fn adjust_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
 
 pub async fn finalize_recording(app_handle: tauri::AppHandle, session: RecordingSession) {
     let RecordingSession {
-        session_id, sample_rate, audio_thread, interim_task,
+        session_id, mode, sample_rate, audio_thread, interim_task,
         samples, interim_cache, ..
     } = session;
 
@@ -496,7 +496,16 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
         app_handle.state::<AppState>().edit_context.lock().take();
-        emit_done(&app_handle, session_id, "", duration_sec, false, None);
+        emit_done(
+            &app_handle,
+            session_id,
+            mode,
+            "",
+            "",
+            duration_sec,
+            false,
+            None,
+        );
         flush_pending_paste(&app_handle);
         return;
     }
@@ -522,7 +531,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         Ok(t) => t.trim().to_string(),
         Err(e) => {
             state.edit_context.lock().take();
-            emit_error(&app_handle, session_id, &e);
+            emit_error(&app_handle, session_id, mode, &e);
             flush_pending_paste(&app_handle);
             return;
         }
@@ -532,7 +541,16 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 
     if text.is_empty() {
         state.edit_context.lock().take();
-        emit_done(&app_handle, session_id, "", duration_sec, false, lang_ref);
+        emit_done(
+            &app_handle,
+            session_id,
+            mode,
+            "",
+            "",
+            duration_sec,
+            false,
+            lang_ref,
+        );
         flush_pending_paste(&app_handle);
         return;
     }
@@ -540,12 +558,22 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     // 检查是否处于编辑模式（热键按下时抓取了选中文本）
     let edit_context = state.edit_context.lock().take();
 
-    if let Some(selected_text) = edit_context {
+    if mode == RecordingMode::Dictation && edit_context.is_some() {
+        let selected_text = edit_context.unwrap_or_default();
         // 编辑模式：ASR 结果是语音指令，用它改写选中文本
         log::info!("编辑模式：指令=\"{}\"，选中文本长度={}", text, selected_text.len());
         match ai_polish_service::edit_text(state.inner(), &selected_text, &text, &app_handle, session_id).await {
             Ok(result) => {
-                emit_done(&app_handle, session_id, &result, duration_sec, true, lang_ref);
+                emit_done(
+                    &app_handle,
+                    session_id,
+                    mode,
+                    &result,
+                    &result,
+                    duration_sec,
+                    true,
+                    lang_ref,
+                );
                 if !result.is_empty() {
                     let app = app_handle.clone();
                     tokio::spawn(async move {
@@ -562,7 +590,48 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     "recording-error",
                     serde_json::json!({ "message": format!("编辑失败: {}", e) }),
                 );
-                emit_done(&app_handle, session_id, "", duration_sec, false, lang_ref);
+                emit_done(
+                    &app_handle,
+                    session_id,
+                    mode,
+                    "",
+                    &selected_text,
+                    duration_sec,
+                    false,
+                    lang_ref,
+                );
+                flush_pending_paste(&app_handle);
+            }
+        }
+    } else if mode == RecordingMode::Assistant {
+        match assistant_service::generate_content(
+            state.inner(),
+            &text,
+            edit_context.as_deref(),
+            &app_handle,
+            session_id,
+        )
+        .await
+        {
+            Ok(result) => {
+                emit_done(
+                    &app_handle,
+                    session_id,
+                    mode,
+                    &result,
+                    &text,
+                    duration_sec,
+                    false,
+                    lang_ref,
+                );
+                if let Err(err) =
+                    crate::commands::window::set_subtitle_window_interactive(&app_handle, true)
+                {
+                    log::warn!("助手结果显示时切换字幕窗口交互态失败: {}", err);
+                }
+            }
+            Err(err) => {
+                emit_error(&app_handle, session_id, mode, &err.to_string());
                 flush_pending_paste(&app_handle);
             }
         }
@@ -573,7 +642,16 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             .await
             .unwrap_or_else(|e| { log::warn!("AI 润色失败，使用原文: {}", e); text });
         let polished = text != original;
-        emit_done(&app_handle, session_id, &text, duration_sec, polished, lang_ref);
+        emit_done(
+            &app_handle,
+            session_id,
+            mode,
+            &text,
+            &original,
+            duration_sec,
+            polished,
+            lang_ref,
+        );
 
         if !text.is_empty() {
             let app = app_handle.clone();
@@ -626,27 +704,43 @@ async fn do_final_asr(
 
 // ---------- 事件发送 ----------
 
-fn emit_done(app: &tauri::AppHandle, sid: u64, text: &str, dur: f64, polished: bool, language: Option<&str>) {
+fn emit_done(
+    app: &tauri::AppHandle,
+    sid: u64,
+    mode: RecordingMode,
+    text: &str,
+    original_text: &str,
+    dur: f64,
+    polished: bool,
+    language: Option<&str>,
+) {
     let delay = if text.is_empty() { EMPTY_RESULT_HIDE_DELAY_MS } else { RESULT_HIDE_DELAY_MS };
-    emit_recording_state_if_current(app, sid, false, false, None);
+    emit_recording_state_if_current(app, sid, mode, false, false, None);
     let _ = app.emit(
         "transcription-result",
         serde_json::json!({
             "sessionId": sid, "text": text, "interim": false,
             "durationSec": dur, "charCount": text.chars().count(), "polished": polished,
-            "language": language,
+            "language": language, "mode": mode.as_str(), "originalText": original_text,
         }),
     );
-    schedule_hide(app, delay);
+    if mode != RecordingMode::Assistant || text.is_empty() {
+        schedule_hide(app, delay);
+    }
 }
 
-fn emit_error(app: &tauri::AppHandle, sid: u64, error: &str) {
-    emit_recording_state_if_current(app, sid, false, false, Some(error));
+fn emit_error(app: &tauri::AppHandle, sid: u64, mode: RecordingMode, error: &str) {
+    emit_recording_state_if_current(app, sid, mode, false, false, Some(error));
     schedule_hide(app, EMPTY_RESULT_HIDE_DELAY_MS);
 }
 
 fn emit_recording_state_if_current(
-    app: &tauri::AppHandle, sid: u64, recording: bool, processing: bool, error: Option<&str>,
+    app: &tauri::AppHandle,
+    sid: u64,
+    mode: RecordingMode,
+    recording: bool,
+    processing: bool,
+    error: Option<&str>,
 ) {
     let state = app.state::<AppState>();
     if let Some(active) = state.recording.lock().as_ref().map(RecordingSlot::session_id) {
@@ -657,6 +751,7 @@ fn emit_recording_state_if_current(
     }
     let mut payload = serde_json::json!({
         "sessionId": sid, "isRecording": recording, "isProcessing": processing,
+        "mode": mode.as_str(),
     });
     if let Some(err) = error {
         payload["error"] = serde_json::json!(err);

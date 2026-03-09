@@ -94,7 +94,7 @@ fn try_get_selection(element: &uiautomation::UIElement) -> Option<String> {
     if trimmed.is_empty() {
         None
     } else {
-        log::info!("UI Automation 检测到选中文本（{} 字符），进入编辑模式", trimmed.len());
+        log::info!("UI Automation 检测到选中文本（{} 字符）", trimmed.len());
         Some(trimmed.to_string())
     }
 }
@@ -104,16 +104,21 @@ pub async fn copy_to_clipboard(
     app_handle: tauri::AppHandle,
     text: String,
 ) -> Result<String, AppError> {
-    use tauri_plugin_clipboard_manager::ClipboardExt;
-
-    // 使用 Tauri 剪贴板插件写入文本
-    app_handle
-        .clipboard()
-        .write_text(&text)
-        .map_err(|e| AppError::Other(format!("写入剪贴板失败: {}", e)))?;
-
+    write_text_to_clipboard(&app_handle, &text)?;
     log::info!("已复制 {} 个字符到剪贴板", text.len());
     Ok("已复制到剪贴板".to_string())
+}
+
+pub fn write_text_to_clipboard(
+    app_handle: &tauri::AppHandle,
+    text: &str,
+) -> Result<(), AppError> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+
+    app_handle
+        .clipboard()
+        .write_text(text)
+        .map_err(|e| AppError::Other(format!("写入剪贴板失败: {}", e)))
 }
 
 #[tauri::command]

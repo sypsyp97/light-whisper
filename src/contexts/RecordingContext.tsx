@@ -5,7 +5,7 @@ import { useHotkey } from "@/hooks/useHotkey";
 import { setInputMethodCommand, setAiPolishConfig, getAiPolishApiKey, setInputDevice, setSoundEnabled, setRecordingMode } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
 import { INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
-import type { HotkeyDiagnostic, TranscriptionResult, HistoryItem } from "@/types";
+import type { HistoryItem, HotkeyDiagnostic, RecordingMode, TranscriptionResult } from "@/types";
 
 interface RecordingContextValue {
   // recording
@@ -22,6 +22,7 @@ interface RecordingContextValue {
   charCount: number | null;
   detectedLanguage: string | null;
   history: HistoryItem[];
+  recordingMode: RecordingMode;
   // model
   stage: ModelStage;
   isReady: boolean;
@@ -58,6 +59,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     charCount,
     detectedLanguage,
     history,
+    resultMode,
   } = useRecording();
 
   const {
@@ -113,6 +115,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     charCount,
     detectedLanguage,
     history,
+    recordingMode: resultMode,
     stage,
     isReady,
     device,

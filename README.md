@@ -57,7 +57,10 @@ SenseVoice & Whisper run fully local. GLM-ASR calls a cloud API — just add an 
 Local engines auto-detect NVIDIA GPU for CUDA inference; fall back to CPU.
 
 **Subtitle overlay**<br>
-Transparent floating window shows real-time transcription status.
+Transparent floating window shows live dictation status and assistant output.
+
+**Voice assistant mode**<br>
+Set a separate hotkey for assistant mode: speak a task, get a floating answer card with manual copy.
 
 **Hold or toggle**<br>
 Recording mode: hold-to-talk or press-to-start / press-to-stop.
@@ -72,10 +75,13 @@ Optional LLM post-processing: fix homophones, punctuation, filler words; adapts 
 Built-in presets for OpenAI, DeepSeek, Cerebras, SiliconFlow — or any OpenAI-compatible endpoint.
 
 **Adaptive learning**<br>
-Auto-extracts correction patterns from AI polish; user edits are learned with higher priority.
+Learns structured ASR corrections and key terms; manually deleted hot words are blocked from coming back automatically.
 
 **Edit selected text**<br>
 Select text anywhere, press the hotkey, speak an instruction ("translate to English", "make it formal") to rewrite in-place.
+
+**Context-aware assistant**<br>
+If text is selected, assistant mode includes the selection and foreground app as context before generating.
 
 **Real-time translation**<br>
 Set a target language (8 presets + custom) — transcription results are translated before output.
@@ -102,8 +108,9 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 | **AI polish** | Multi-backend LLM, bring your own key | Built-in auto-editing |
 | **Filler word removal** | ✅ Via AI polish | ✅ Built-in |
 | **App-aware tone** | ✅ Detects foreground app | ✅ Adjusts based on context |
-| **Adaptive learning** | ✅ Learns corrections & vocabulary | ✅ |
+| **Adaptive learning** | ✅ Learns structured corrections; supports hot-word blacklist | ✅ |
 | **Edit selected text** | ✅ Voice instruction rewrite | ✅ |
+| **Voice assistant mode** | ✅ Separate hotkey + floating answer card | ✅ |
 | **Real-time translation** | ✅ 8 presets + custom | ✅ |
 | **Subtitle overlay** | ✅ | ❌ |
 | **Input queue** | ✅ | ❌ |
@@ -212,8 +219,8 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 └──────────────┘                └──────┬───────┘                │  Faster Whisper │
                                        │                        └─────────────────┘
                                        ├─── HTTP ──► GLM-ASR API (online ASR)
-                                       ├─── HTTP ──► LLM API (AI polish & translation)
-                                       └─── User Profile ──► hot words → ASR + LLM prompt
+                                       ├─── HTTP ──► LLM API (AI polish / assistant / translation)
+                                       └─── User Profile ──► hot words + blacklist → ASR + LLM prompt
 ```
 
 <details>
@@ -222,8 +229,8 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 | Layer | Paths |
 |:------|:------|
 | **Frontend** | `src/pages/`, `src/components/`, `src/hooks/`, `src/styles/` |
-| **Rust commands** | `src-tauri/src/commands/` — audio, clipboard, hotkey, ai_polish, profile, window |
-| **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, ai_polish_service, llm_provider, profile_service |
+| **Rust commands** | `src-tauri/src/commands/` — audio, assistant, clipboard, hotkey, ai_polish, profile, window |
+| **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service |
 | **State** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
 
@@ -268,7 +275,21 @@ This happens when a Chinese IME intercepts `SendInput` Unicode events. Fix: swit
 <details>
 <summary><b>Hotkey not working</b></summary>
 
-Default is F2. If occupied by another program, change it in Settings > Speech Hotkey. Supports any key combo (e.g., `Ctrl+Win+R`).
+Default dictation hotkey is F2. Assistant mode supports a separate hotkey in Settings. If either is occupied by another program, change it to another combo (for example `Ctrl+Win+R`).
+
+</details>
+
+<details>
+<summary><b>Why does assistant mode not type automatically?</b></summary>
+
+Assistant mode now uses a floating answer card instead of auto-typing. This avoids writing generated content into the wrong place. Click `Copy` in the overlay if you want to paste it manually.
+
+</details>
+
+<details>
+<summary><b>Why did a deleted hot word come back before?</b></summary>
+
+Older builds only removed the item from the current hot-word list. New builds also remove its learning frequency and add it to a hot-word blacklist, so manually deleted noise should not come back automatically.
 
 </details>
 

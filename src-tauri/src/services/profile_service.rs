@@ -5,7 +5,7 @@ use std::collections::hash_map::Entry;
 const MAX_CORRECTION_PATTERNS: usize = 500;
 const MAX_HOT_WORDS: usize = 300;
 const MAX_SEGMENT_CHARS: usize = 12;
-const AUTO_PROMOTE_THRESHOLD: u32 = 5;
+const MAX_HOT_WORD_CHARS: usize = 24;
 
 // ============================================================
 // 持久化
@@ -82,6 +82,7 @@ pub struct ProfileCleanupStats {
 }
 
 pub fn cleanup_profile(profile: &mut UserProfile) -> ProfileCleanupStats {
+    sanitize_blocked_hot_words(profile);
     let removed_hot_words = sanitize_hot_words(profile);
     let removed_corrections = sanitize_corrections(profile) + limit_correction_patterns(profile);
     if removed_hot_words > 0 || removed_corrections > 0 {
@@ -141,6 +142,21 @@ fn normalize_hot_word_key(text: &str) -> Option<(String, String)> {
     })
 }
 
+fn sanitize_blocked_hot_words(profile: &mut UserProfile) {
+    let mut deduped = std::collections::HashSet::new();
+    profile.blocked_hot_words = std::mem::take(&mut profile.blocked_hot_words)
+        .into_iter()
+        .filter_map(|text| normalize_hot_word_key(&text).map(|(_, key)| key))
+        .filter(|key| deduped.insert(key.clone()))
+        .collect();
+}
+
+fn is_blocked_hot_word(profile: &UserProfile, text: &str) -> bool {
+    normalize_hot_word_key(text)
+        .map(|(_, key)| profile.blocked_hot_words.iter().any(|blocked| blocked == &key))
+        .unwrap_or(false)
+}
+
 fn hot_word_priority(w: &HotWord) -> (u8, u8, u32, u64, usize) {
     let src = if w.source == HotWordSource::User { 1 } else { 0 };
     (src, w.weight, w.use_count, w.last_used, w.text.chars().count())
@@ -158,6 +174,40 @@ fn merge_hot_word(existing: &mut HotWord, candidate: HotWord) {
     }
 }
 
+fn contains_sentence_punctuation(text: &str) -> bool {
+    text.chars().any(|ch| {
+        matches!(
+            ch,
+            '，' | '。' | '！' | '？' | '；' | '：' | '、' | ',' | '.' | '!' | '?' | ';' | ':'
+                | '\n' | '\r' | '\t'
+        )
+    })
+}
+
+fn learned_hot_word_looks_like_sentence(text: &str) -> bool {
+    let action_like_chars = ['请', '帮', '写', '说', '问', '想', '要', '给', '把', '做', '发', '改'];
+    let action_count = text.chars().filter(|ch| action_like_chars.contains(ch)).count();
+    let has_ascii = text.chars().any(|ch| ch.is_ascii_alphanumeric());
+    !has_ascii && text.chars().count() >= 6 && action_count >= 2
+}
+
+fn is_reasonable_hot_word(text: &str, source: HotWordSource) -> bool {
+    let char_count = text.chars().count();
+    if !(2..=MAX_HOT_WORD_CHARS).contains(&char_count) {
+        return false;
+    }
+    if contains_sentence_punctuation(text) {
+        return false;
+    }
+    if text.split_whitespace().count() > 3 {
+        return false;
+    }
+    if source == HotWordSource::Learned && learned_hot_word_looks_like_sentence(text) {
+        return false;
+    }
+    is_potential_hot_word(text)
+}
+
 fn sanitize_hot_words(profile: &mut UserProfile) -> usize {
     let before = profile.hot_words.len();
     let mut deduped = std::collections::HashMap::new();
@@ -166,6 +216,12 @@ fn sanitize_hot_words(profile: &mut UserProfile) -> usize {
         let Some((text, key)) = normalize_hot_word_key(&hw.text) else { continue };
         hw.text = text;
         hw.weight = hw.weight.clamp(1, 5);
+        if profile.blocked_hot_words.iter().any(|blocked| blocked == &key) {
+            continue;
+        }
+        if !is_reasonable_hot_word(&hw.text, hw.source.clone()) {
+            continue;
+        }
         match deduped.entry(key) {
             Entry::Vacant(slot) => { slot.insert(hw); }
             Entry::Occupied(mut slot) => merge_hot_word(slot.get_mut(), hw),
@@ -183,6 +239,7 @@ fn sanitize_hot_words(profile: &mut UserProfile) -> usize {
 pub fn add_hot_word(profile: &mut UserProfile, text: String, weight: u8) {
     let Some((normalized_text, normalized_key)) = normalize_hot_word_key(&text) else { return };
     let now = now_secs();
+    profile.blocked_hot_words.retain(|blocked| blocked != &normalized_key);
 
     if let Some(existing) = profile.hot_words.iter_mut().find(|h| {
         normalize_hot_word_key(&h.text)
@@ -208,14 +265,23 @@ pub fn add_hot_word(profile: &mut UserProfile, text: String, weight: u8) {
 
 pub fn remove_hot_word(profile: &mut UserProfile, text: &str) {
     if let Some((_, key)) = normalize_hot_word_key(text) {
+        if !profile.blocked_hot_words.iter().any(|blocked| blocked == &key) {
+            profile.blocked_hot_words.push(key.clone());
+        }
         profile.hot_words.retain(|h| {
             normalize_hot_word_key(&h.text)
                 .map(|(_, k)| k != key)
                 .unwrap_or(false)
         });
+        profile.vocab_frequency.retain(|word, _| {
+            normalize_hot_word_key(word)
+                .map(|(_, k)| k != key)
+                .unwrap_or(true)
+        });
     } else {
         profile.hot_words.retain(|h| h.text != text);
     }
+    sanitize_blocked_hot_words(profile);
     sanitize_hot_words(profile);
     profile.last_updated = now_secs();
 }
@@ -288,6 +354,7 @@ fn promote_vocab_to_hot_words(profile: &mut UserProfile, threshold: u32) {
         .filter(|(w, e)| {
             e.count >= threshold
                 && !existing.contains(w.as_str())
+                && !is_blocked_hot_word(profile, w)
                 && w.chars().count() >= 2
                 && is_potential_hot_word(w)
         })
@@ -335,13 +402,6 @@ pub fn learn_from_correction(
             now,
         );
     }
-
-    update_vocab_frequency(
-        &mut profile.vocab_frequency,
-        simple_segment(polished).into_iter(),
-        now,
-    );
-    promote_vocab_to_hot_words(profile, AUTO_PROMOTE_THRESHOLD);
     finalize_learning(profile);
 }
 
@@ -370,7 +430,13 @@ pub fn learn_from_structured(
 
     update_vocab_frequency(
         &mut profile.vocab_frequency,
-        key_terms.iter().cloned(),
+        key_terms
+            .iter()
+            .filter_map(|term| {
+                let normalized = normalize_hot_word_text(term);
+                is_reasonable_hot_word(&normalized, HotWordSource::Learned)
+                    .then_some(normalized)
+            }),
         now,
     );
     promote_vocab_to_hot_words(profile, 3);
@@ -393,22 +459,6 @@ fn is_potential_hot_word(word: &str) -> bool {
         && word
             .chars()
             .any(|c| c.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&c))
-}
-
-fn simple_segment(text: &str) -> Vec<String> {
-    let mut segments = Vec::new();
-    let mut current = String::new();
-    for ch in text.chars() {
-        if ch.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&ch) {
-            current.push(ch);
-        } else if !current.is_empty() {
-            segments.push(std::mem::take(&mut current));
-        }
-    }
-    if !current.is_empty() {
-        segments.push(current);
-    }
-    segments
 }
 
 fn extract_diff_segments(original: &str, polished: &str) -> Vec<(String, String)> {

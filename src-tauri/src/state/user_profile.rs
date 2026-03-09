@@ -74,6 +74,15 @@ pub struct UserProfile {
     /// 用户自定义润色指令
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_prompt: Option<String>,
+    /// 助手模式独立热键
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_hotkey: Option<String>,
+    /// 助手模式附加系统提示词
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_system_prompt: Option<String>,
+    /// 用户手动删除后，不再自动学习回来的热词黑名单
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_hot_words: Vec<String>,
 }
 
 /// API 协议格式

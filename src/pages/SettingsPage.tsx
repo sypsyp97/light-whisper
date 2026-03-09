@@ -36,6 +36,8 @@ import {
   setOnlineAsrEndpoint,
   addCustomProvider,
   removeCustomProvider,
+  setAssistantHotkey,
+  setAssistantSystemPrompt,
 } from "@/api/tauri";
 import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
@@ -188,6 +190,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [autostartLoading, setAutostartLoading] = useState(true);
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [hotkeySaving, setHotkeySaving] = useState(false);
+  const [assistantHotkey, setAssistantHotkeyState] = useState("");
+  const [capturingAssistantHotkey, setCapturingAssistantHotkey] = useState(false);
+  const [assistantHotkeySaving, setAssistantHotkeySaving] = useState(false);
   const [recordingMode, setRecordingModeState] = useState<"hold" | "toggle">(() => {
     return readLocalStorage(RECORDING_MODE_KEY) === "toggle" ? "toggle" : "hold";
   });
@@ -239,6 +244,8 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const translationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customPromptState, setCustomPromptState] = useState<string>("");
   const customPromptSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [assistantPromptState, setAssistantPromptState] = useState<string>("");
+  const assistantPromptSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [llmProvider, setLlmProvider] = useState("cerebras");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
@@ -336,6 +343,10 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
         clearTimeout(customPromptSaveTimer.current);
         customPromptSaveTimer.current = null;
       }
+      if (assistantPromptSaveTimer.current) {
+        clearTimeout(assistantPromptSaveTimer.current);
+        assistantPromptSaveTimer.current = null;
+      }
     };
   }, []);
 
@@ -361,6 +372,8 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
       setTranslationTargetState(p.translation_target ?? null);
       setCustomPromptState(p.custom_prompt ?? "");
+      setAssistantHotkeyState(p.assistant_hotkey ? formatHotkeyForDisplay(p.assistant_hotkey) : "");
+      setAssistantPromptState(p.assistant_system_prompt ?? "");
     } catch { /* ignore */ }
   }, [updateProviderDraft]);
 
@@ -612,6 +625,92 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     };
   }, [capturingHotkey, setHotkey]);
 
+  useEffect(() => {
+    if (!capturingAssistantHotkey) return;
+
+    const activeModifiers = new Set<HotkeyModifier>();
+    const peakModifiers = new Set<HotkeyModifier>();
+    let mainKeyPressed = false;
+    let applied = false;
+    const clearModifiers = () => {
+      activeModifiers.clear();
+      peakModifiers.clear();
+      mainKeyPressed = false;
+    };
+
+    const applyShortcut = (shortcut: string) => {
+      if (applied) return;
+      applied = true;
+      setAssistantHotkeySaving(true);
+      const normalized = formatHotkeyForDisplay(shortcut);
+      void setAssistantHotkey(shortcut)
+        .then(() => {
+          setAssistantHotkeyState(normalized);
+          toast.success(`助手热键已设置为 ${normalized}`);
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : "设置助手热键失败";
+          toast.error(message);
+        })
+        .finally(() => {
+          setAssistantHotkeySaving(false);
+          setCapturingAssistantHotkey(false);
+          clearModifiers();
+        });
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === "Escape") {
+        setCapturingAssistantHotkey(false);
+        clearModifiers();
+        return;
+      }
+
+      const modifier = modifierFromKeyboardEvent(event);
+      if (modifier) {
+        activeModifiers.add(modifier);
+        for (const key of activeModifiers) peakModifiers.add(key);
+        return;
+      }
+
+      mainKeyPressed = true;
+      const shortcut = keyboardEventToHotkey(event, activeModifiers);
+      if (!shortcut) return;
+      applyShortcut(shortcut);
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      const modifier = modifierFromKeyboardEvent(event);
+      if (!modifier || applied) return;
+
+      activeModifiers.delete(modifier);
+      if (activeModifiers.size === 0 && !mainKeyPressed && peakModifiers.size > 0) {
+        const combo = HOTKEY_MODIFIER_ORDER
+          .filter((key) => peakModifiers.has(key))
+          .join("+");
+        if (combo) applyShortcut(combo);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) clearModifiers();
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", clearModifiers);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", clearModifiers);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [capturingAssistantHotkey]);
+
   const handleResetHotkey = async () => {
     if (hotkeySaving) return;
     setHotkeySaving(true);
@@ -624,6 +723,22 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     } finally {
       setHotkeySaving(false);
       setCapturingHotkey(false);
+    }
+  };
+
+  const handleClearAssistantHotkey = async () => {
+    if (assistantHotkeySaving) return;
+    setAssistantHotkeySaving(true);
+    try {
+      await setAssistantHotkey(null);
+      setAssistantHotkeyState("");
+      toast.success("已清除助手热键");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "清除助手热键失败";
+      toast.error(message);
+    } finally {
+      setAssistantHotkeySaving(false);
+      setCapturingAssistantHotkey(false);
     }
   };
 
@@ -810,6 +925,16 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     customPromptSaveTimer.current = setTimeout(() => {
       setCustomPrompt(value.trim() || null).catch(() => {
         toast.error("保存自定义指令失败");
+      });
+    }, 800);
+  }, []);
+
+  const handleAssistantPromptChange = useCallback((value: string) => {
+    setAssistantPromptState(value);
+    if (assistantPromptSaveTimer.current) clearTimeout(assistantPromptSaveTimer.current);
+    assistantPromptSaveTimer.current = setTimeout(() => {
+      setAssistantSystemPrompt(value.trim() || null).catch(() => {
+        toast.error("保存助手提示词失败");
       });
     }, 800);
   }, []);
@@ -1075,6 +1200,61 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
               </div>
               {hotkeyDiagnostic?.warning && <p className="settings-hint">{hotkeyDiagnostic.warning}</p>}
               {hotkeyStatusError && <p className="settings-error">{hotkeyStatusError}</p>}
+            </div>
+          </section>
+
+          <section className="settings-card" style={{ animationDelay: "112ms" }}>
+            <div className="settings-section-header">
+              <Sparkles size={15} className="icon-accent" />
+              <h2 className="settings-section-title">语音助手</h2>
+            </div>
+            <div className="settings-column" style={{ gap: 10 }}>
+              <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
+                <button
+                  className="theme-btn hotkey-capture-btn"
+                  onClick={() => setCapturingAssistantHotkey(true)}
+                  disabled={assistantHotkeySaving}
+                  data-capturing={capturingAssistantHotkey}
+                  style={{
+                    cursor: assistantHotkeySaving ? "wait" : "pointer",
+                    opacity: assistantHotkeySaving ? 0.7 : 1,
+                  }}
+                >
+                  {capturingAssistantHotkey
+                    ? "请按下助手热键..."
+                    : assistantHotkey || "未设置助手热键"}
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={handleClearAssistantHotkey}
+                  disabled={assistantHotkeySaving}
+                  style={{
+                    fontSize: 12,
+                    padding: "8px 10px",
+                    cursor: assistantHotkeySaving ? "wait" : "pointer",
+                    opacity: assistantHotkeySaving ? 0.7 : 1,
+                  }}
+                >
+                  清除
+                </button>
+              </div>
+              <p className="settings-hint" style={{ margin: 0 }}>
+                助手模式会把你的语音当成任务指令，直接生成邮件、消息、翻译或回答并粘贴到当前窗口。
+              </p>
+              <div className="settings-column" style={{ gap: 6 }}>
+                <span className="settings-option-desc">自定义助手提示词</span>
+                <textarea
+                  className="settings-input"
+                  placeholder="例如：默认用简洁口吻；写邮件时偏正式；回复 IM 时保持自然口语"
+                  value={assistantPromptState}
+                  onChange={(e) => handleAssistantPromptChange(e.target.value)}
+                  rows={4}
+                  style={{ resize: "vertical", minHeight: 84, fontFamily: "inherit" }}
+                />
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  这段提示词只作用于助手模式，不影响普通听写与润色。
+                </p>
+              </div>
             </div>
           </section>
 

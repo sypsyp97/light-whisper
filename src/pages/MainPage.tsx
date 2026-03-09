@@ -17,7 +17,7 @@ export default function MainPage({ onNavigate }: {
   const {
     isRecording, isProcessing, startRecording, stopRecording,
     recordingError, transcriptionResult, originalAsrText, setOriginalAsrText, setTranscriptionResult,
-    durationSec, charCount, detectedLanguage, history, stage, isReady,
+    durationSec, charCount, detectedLanguage, history, recordingMode, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError,
     downloadModels: triggerDownload, cancelDownload, retryModel,
@@ -46,6 +46,10 @@ export default function MainPage({ onNavigate }: {
   }, []);
 
   const handleTextChange = useCallback((newText: string) => {
+    if (recordingMode !== "dictation") {
+      setTranscriptionResult(newText);
+      return;
+    }
     if (originalAsrText && newText !== originalAsrText) {
       const prevText = originalAsrText;
       setOriginalAsrText(newText);
@@ -54,7 +58,7 @@ export default function MainPage({ onNavigate }: {
         .then(() => toast.success("已学习纠错", { duration: 1500 }))
         .catch(() => toast.error("纠错学习失败"));
     }
-  }, [originalAsrText, setTranscriptionResult, setOriginalAsrText]);
+  }, [originalAsrText, recordingMode, setTranscriptionResult, setOriginalAsrText]);
 
   const handleToggleRecording = useCallback(() => {
     if (!isReady) return;

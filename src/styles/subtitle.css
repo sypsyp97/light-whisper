@@ -27,6 +27,10 @@ body,
   background: transparent;
 }
 
+.subtitle-root-interactive {
+  pointer-events: auto;
+}
+
 /* Capsule container — glassmorphism pill, auto-expands for long content */
 .subtitle-capsule {
   pointer-events: none;
@@ -44,6 +48,24 @@ body,
   max-height: 60vh;
   overflow: hidden;
   animation: subtitle-fade-in 0.2s ease-out forwards;
+  transition:
+    padding 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    max-height 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.26s ease,
+    box-shadow 0.26s ease;
+}
+
+.subtitle-capsule-assistant {
+  position: relative;
+  padding: 16px 84px 18px 18px;
+  max-width: min(760px, 78vw);
+  max-height: min(70vh, 720px);
+}
+
+.subtitle-capsule-interactive {
+  pointer-events: auto;
 }
 
 /* Single-line capsule (status hints) reverts to pill shape */
@@ -57,6 +79,7 @@ body,
 
 /* Reset dot margins inside pill-shaped status capsule */
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-recording,
+.subtitle-capsule:has(.subtitle-hint) .subtitle-dot-assistant,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-polishing,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-processing {
   margin-top: 0;
@@ -92,6 +115,13 @@ body,
   word-break: break-word;
 }
 
+.subtitle-capsule-assistant .subtitle-text {
+  display: block;
+  max-height: calc(min(70vh, 720px) - 44px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 /* Status hint text */
 .subtitle-hint {
   font-family: var(--font-sans);
@@ -114,6 +144,76 @@ body,
   color: var(--color-text-tertiary, rgba(0, 0, 0, 0.4));
 }
 
+.subtitle-assistant-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 1;
+}
+
+.subtitle-copy-status {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(200, 190, 175, 0.76);
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity 0.18s ease, transform 0.22s ease;
+}
+
+.subtitle-copy-status.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+[data-theme="light"] .subtitle-copy-status {
+  color: var(--color-text-tertiary, rgba(0, 0, 0, 0.42));
+}
+
+.subtitle-copy-button {
+  position: static;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f4efe6;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: default;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.22s ease, background 0.16s ease;
+}
+
+.subtitle-copy-button.is-ready {
+  opacity: 1;
+  transform: translateY(0);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.subtitle-copy-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.subtitle-copy-button:active {
+  transform: translateY(1px);
+}
+
+[data-theme="light"] .subtitle-copy-button {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--color-text-primary);
+}
+
+[data-theme="light"] .subtitle-copy-button:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
 /* ---- Indicator dots ---- */
 
 /* Recording dot — pulsing terracotta */
@@ -125,6 +225,17 @@ body,
   flex-shrink: 0;
   margin-top: 6px;
   animation: subtitle-pulse 1.2s ease-in-out infinite;
+}
+
+.subtitle-dot-assistant {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: #8b5cf6;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
+  flex-shrink: 0;
+  margin-top: 5px;
+  animation: subtitle-sparkle 0.9s ease-in-out infinite;
 }
 
 /* Polishing dot — sparkle shimmer */
@@ -249,6 +360,7 @@ body,
   .subtitle-capsule,
   .subtitle-capsule.subtitle-fade-out,
   .subtitle-dot-recording,
+  .subtitle-dot-assistant,
   .subtitle-dot-polishing,
   .subtitle-dot-processing,
   .subtitle-polish-flash {

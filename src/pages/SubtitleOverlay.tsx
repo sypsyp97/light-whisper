@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type MouseEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { copyToClipboard, hideSubtitleWindow } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
 import { THEME_STORAGE_KEY } from "@/lib/constants";
 import "../styles/theme.css";
@@ -9,6 +10,7 @@ interface RecordingState {
   sessionId?: number;
   isRecording: boolean;
   isProcessing: boolean;
+  mode?: "dictation" | "assistant";
 }
 
 interface TranscriptionResult {
@@ -16,6 +18,7 @@ interface TranscriptionResult {
   text: string;
   interim?: boolean;
   polished?: boolean;
+  mode?: "dictation" | "assistant";
 }
 
 type Phase = "idle" | "recording" | "processing" | "polishing" | "result";
@@ -27,8 +30,12 @@ export default function SubtitleOverlay() {
   const [text, setText] = useState("");
   const [fadingOut, setFadingOut] = useState(false);
   const [polishFlash, setPolishFlash] = useState(false);
+  const [mode, setMode] = useState<"dictation" | "assistant">("dictation");
+  const [assistantCopied, setAssistantCopied] = useState(false);
   const latestSessionIdRef = useRef(0);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const assistantPanelActive = mode === "assistant" && (phase === "polishing" || phase === "result");
+  const interactiveAssistantResult = mode === "assistant" && phase === "result" && text.trim().length > 0;
 
   const clearFadeTimer = useCallback(() => {
     if (fadeTimerRef.current) {
@@ -78,16 +85,18 @@ export default function SubtitleOverlay() {
     void (async () => {
       try {
         unlisten = await listen<RecordingState>("recording-state", (event) => {
-          const { sessionId, isRecording, isProcessing } = event.payload;
+          const { sessionId, isRecording, isProcessing, mode } = event.payload;
           if (typeof sessionId === "number") {
             if (sessionId < latestSessionIdRef.current) return;
             latestSessionIdRef.current = sessionId;
           }
+          setMode(mode ?? "dictation");
 
           if (isRecording) {
             clearFadeTimer();
             setFadingOut(false);
             setText("");
+            setAssistantCopied(false);
             setPhase("recording");
             return;
           }
@@ -153,6 +162,53 @@ export default function SubtitleOverlay() {
     };
   }, [clearFadeTimer]);
 
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        unlisten = await listen<{ sessionId?: number; chunk?: string; status?: string }>("assistant-stream", (event) => {
+          const { sessionId, chunk, status } = event.payload;
+          if (typeof sessionId === "number") {
+            if (sessionId < latestSessionIdRef.current) return;
+            latestSessionIdRef.current = sessionId;
+          }
+
+          setMode("assistant");
+
+          if (status === "started") {
+            clearFadeTimer();
+            setFadingOut(false);
+            setText("");
+            setAssistantCopied(false);
+            setPhase("polishing");
+            return;
+          }
+
+          if (chunk) {
+            clearFadeTimer();
+            setFadingOut(false);
+            setPhase("polishing");
+            setText((prev) => prev + chunk);
+          }
+        });
+
+        if (disposed && unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [clearFadeTimer]);
+
   // 监听转写结果（中间结果 interim=true，最终结果 interim=false）
   useEffect(() => {
     let disposed = false;
@@ -166,6 +222,7 @@ export default function SubtitleOverlay() {
             if (sessionId < latestSessionIdRef.current) return;
             latestSessionIdRef.current = sessionId;
           }
+          setMode(event.payload.mode ?? "dictation");
 
           const incomingText = event.payload.text || "";
           setText(incomingText);
@@ -192,12 +249,14 @@ export default function SubtitleOverlay() {
           setFadingOut(false);
           setPolishFlash(!!event.payload.polished);
 
-          const expectedSessionId = latestSessionIdRef.current;
-          fadeTimerRef.current = setTimeout(() => {
-            if (latestSessionIdRef.current !== expectedSessionId) return;
-            setFadingOut(true);
-            fadeTimerRef.current = null;
-          }, RESULT_FADE_DELAY_MS);
+          if (event.payload.mode !== "assistant") {
+            const expectedSessionId = latestSessionIdRef.current;
+            fadeTimerRef.current = setTimeout(() => {
+              if (latestSessionIdRef.current !== expectedSessionId) return;
+              setFadingOut(true);
+              fadeTimerRef.current = null;
+            }, RESULT_FADE_DELAY_MS);
+          }
         });
 
         if (disposed && unlisten) {
@@ -219,26 +278,78 @@ export default function SubtitleOverlay() {
   const hasText = text.length > 0;
   const indicatorClass =
     phase === "recording"
-      ? "subtitle-dot-recording"
+      ? mode === "assistant"
+        ? "subtitle-dot-assistant"
+        : "subtitle-dot-recording"
       : phase === "processing"
         ? "subtitle-dot-processing"
         : phase === "polishing"
-          ? "subtitle-dot-polishing"
+          ? mode === "assistant"
+            ? "subtitle-dot-assistant"
+            : "subtitle-dot-polishing"
           : null;
   const hintText =
     phase === "recording"
-      ? "正在聆听..."
+      ? mode === "assistant"
+        ? "AI 助手聆听中..."
+        : "正在聆听..."
       : phase === "processing"
-        ? "识别中..."
+        ? mode === "assistant"
+          ? "AI 生成中..."
+          : "识别中..."
         : phase === "polishing"
-          ? streamTokens > 0
-            ? `优化中... ${streamTokens} tokens`
-            : "优化中..."
+          ? mode === "assistant"
+            ? text
+              ? null
+              : "AI 生成中..."
+            : streamTokens > 0
+              ? `优化中... ${streamTokens} tokens`
+              : "优化中..."
           : null;
 
+  const closeAssistantOverlay = useCallback(() => {
+    clearFadeTimer();
+    setFadingOut(false);
+    setText("");
+    setAssistantCopied(false);
+    setPhase("idle");
+    void hideSubtitleWindow().catch(() => undefined);
+  }, [clearFadeTimer]);
+
+  const handleAssistantCopy = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (!text.trim()) return;
+    void copyToClipboard(text)
+      .then(() => setAssistantCopied(true))
+      .catch(() => undefined);
+  }, [text]);
+
   return (
-    <div className="subtitle-root">
-      <div className={`subtitle-capsule${fadingOut ? " subtitle-fade-out" : ""}`}>
+    <div
+      className={`subtitle-root${interactiveAssistantResult ? " subtitle-root-interactive" : ""}`}
+      onClick={interactiveAssistantResult ? closeAssistantOverlay : undefined}
+    >
+      <div
+        className={
+          `subtitle-capsule${fadingOut ? " subtitle-fade-out" : ""}${assistantPanelActive ? " subtitle-capsule-assistant" : ""}${interactiveAssistantResult ? " subtitle-capsule-interactive" : ""}`
+        }
+        onClick={interactiveAssistantResult ? (event) => event.stopPropagation() : undefined}
+      >
+        {assistantPanelActive && (
+          <div className="subtitle-assistant-actions">
+            <span className={`subtitle-copy-status${assistantCopied ? " is-visible" : ""}`}>
+              已复制
+            </span>
+            <button
+              type="button"
+              className={`subtitle-copy-button${interactiveAssistantResult ? " is-ready" : ""}`}
+              onClick={handleAssistantCopy}
+              tabIndex={interactiveAssistantResult ? 0 : -1}
+            >
+              复制
+            </button>
+          </div>
+        )}
         {indicatorClass && <div className={indicatorClass} />}
         {hasText && (
           <span

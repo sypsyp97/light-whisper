@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-import type { TranscriptionResult, HistoryItem } from "@/types";
+import type { HistoryItem, RecordingMode, TranscriptionResult } from "@/types";
 
 interface UseRecordingReturn {
   isRecording: boolean;
@@ -18,6 +18,7 @@ interface UseRecordingReturn {
   charCount: number | null;
   detectedLanguage: string | null;
   history: HistoryItem[];
+  resultMode: RecordingMode;
 }
 
 interface RecordingStatePayload {
@@ -25,6 +26,7 @@ interface RecordingStatePayload {
   isRecording: boolean;
   isProcessing: boolean;
   error?: string;
+  mode?: RecordingMode;
 }
 
 interface TranscriptionPayload {
@@ -34,6 +36,8 @@ interface TranscriptionPayload {
   durationSec?: number;
   charCount?: number;
   language?: string;
+  mode?: RecordingMode;
+  originalText?: string;
 }
 
 /** 封装 Tauri 事件监听的 useEffect 样板 */
@@ -68,6 +72,7 @@ export function useRecording(): UseRecordingReturn {
   const [charCount, setCharCount] = useState<number | null>(null);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [resultMode, setResultMode] = useState<RecordingMode>("dictation");
   const latestSessionIdRef = useRef(0);
   const latestDisplayedFinalSessionIdRef = useRef(0);
 
@@ -78,6 +83,7 @@ export function useRecording(): UseRecordingReturn {
     setIsRecording(payload.isRecording);
     setIsProcessing(payload.isProcessing);
     setError(payload.error ?? null);
+    setResultMode(payload.mode ?? "dictation");
   });
 
   useTauriEvent<{ message: string; sessionId?: number }>("recording-error", (payload) => {
@@ -97,17 +103,20 @@ export function useRecording(): UseRecordingReturn {
     if (sessionId >= latestDisplayedFinalSessionIdRef.current) {
       latestDisplayedFinalSessionIdRef.current = sessionId;
       setTranscriptionResult(text);
-      setOriginalAsrText(text);
+      setOriginalAsrText(payload.originalText ?? text);
       setDurationSec(payload.durationSec ?? null);
       setCharCount(payload.charCount ?? null);
       setDetectedLanguage(payload.language ?? null);
+      setResultMode(payload.mode ?? "dictation");
     }
 
     if (text.trim()) {
       setHistory((prev) =>
         [
           {
-            id: historyId, text, originalText: text,
+            id: historyId,
+            text,
+            originalText: payload.originalText ?? text,
             timestamp: now, timeDisplay: new Date(now).toLocaleTimeString(),
           },
           ...prev.filter((item) => item.id !== historyId),
@@ -151,5 +160,6 @@ export function useRecording(): UseRecordingReturn {
     isRecording, isProcessing, startRecording, stopRecording,
     error, transcriptionResult, setTranscriptionResult,
     originalAsrText, setOriginalAsrText, durationSec, charCount, detectedLanguage, history,
+    resultMode,
   };
 }

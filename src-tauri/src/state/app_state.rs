@@ -11,6 +11,22 @@ use tokio::sync::Mutex;
 
 use super::user_profile::{LlmProviderConfig, UserProfile};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingMode {
+    Dictation,
+    Assistant,
+}
+
+impl RecordingMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Dictation => "dictation",
+            Self::Assistant => "assistant",
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct InterimCache {
     pub text: String,
@@ -20,6 +36,7 @@ pub struct InterimCache {
 
 pub struct RecordingSession {
     pub session_id: u64,
+    pub mode: RecordingMode,
     pub stop_flag: Arc<AtomicBool>,
     pub stop_notify: Arc<tokio::sync::Notify>,
     pub samples: Arc<parking_lot::Mutex<Vec<i16>>>,
@@ -32,6 +49,7 @@ pub struct RecordingSession {
 #[derive(Clone)]
 pub struct PendingRecordingSession {
     pub session_id: u64,
+    pub mode: RecordingMode,
     pub stop_flag: Arc<AtomicBool>,
     pub stop_notify: Arc<tokio::sync::Notify>,
 }
@@ -46,6 +64,13 @@ impl RecordingSlot {
         match self {
             Self::Starting(s) => s.session_id,
             Self::Active(s) => s.session_id,
+        }
+    }
+
+    pub fn mode(&self) -> RecordingMode {
+        match self {
+            Self::Starting(s) => s.mode,
+            Self::Active(s) => s.mode,
         }
     }
 }
@@ -107,7 +132,7 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
     pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
-    /// 编辑模式：按下热键时抓取的选中文本，finalize 时消费
+    /// 热键按下时抓取的选中文本，听写模式可用于编辑，助手模式可用于上下文理解
     pub edit_context: Arc<parking_lot::Mutex<Option<String>>>,
     pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
     /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消

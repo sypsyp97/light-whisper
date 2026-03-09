@@ -67,6 +67,10 @@ export function registerCustomHotkey(shortcut: string): Promise<string> {
   return invokeCommand<string>("register_custom_hotkey", { shortcut });
 }
 
+export function registerAssistantHotkey(shortcut: string): Promise<string> {
+  return invokeCommand<string>("register_assistant_hotkey", { shortcut });
+}
+
 export const startRecording = createNoArgCommand<number>("start_recording");
 export const stopRecording = createNoArgCommand<void>("stop_recording");
 export const testMicrophone = createNoArgCommand<string>("test_microphone");
@@ -151,6 +155,14 @@ export function setTranslationTarget(target: string | null): Promise<boolean> {
 
 export function setCustomPrompt(prompt: string | null): Promise<void> {
   return invokeCommand<void>("set_custom_prompt", { prompt });
+}
+
+export function setAssistantHotkey(shortcut: string | null): Promise<void> {
+  return invokeCommand<void>("set_assistant_hotkey", { shortcut });
+}
+
+export function setAssistantSystemPrompt(prompt: string | null): Promise<void> {
+  return invokeCommand<void>("set_assistant_system_prompt", { prompt });
 }
 
 export function addCustomProvider(

@@ -71,6 +71,21 @@ pub fn run() {
                 log::info!("已加载用户画像");
             }
 
+            {
+                let state = app_handle.state::<AppState>();
+                if let Some(shortcut) = state
+                    .with_profile(|profile| profile.assistant_hotkey.clone())
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    if let Err(err) = commands::hotkey::register_assistant_hotkey_inner(
+                        app_handle.clone(),
+                        Some(shortcut),
+                    ) {
+                        log::warn!("注册助手热键失败: {}", err);
+                    }
+                }
+            }
+
             // 启动时根据活跃 provider 从系统密钥环加载对应 API Key
             {
                 let state = app_handle.state::<AppState>();
@@ -136,6 +151,7 @@ pub fn run() {
             commands::window::show_subtitle_window,
             commands::window::hide_subtitle_window,
             commands::hotkey::register_custom_hotkey,
+            commands::hotkey::register_assistant_hotkey,
             commands::hotkey::unregister_all_hotkeys,
             commands::hotkey::set_recording_mode,
             commands::hotkey::get_hotkey_diagnostic,
@@ -163,6 +179,8 @@ pub fn run() {
             commands::profile::add_custom_provider,
             commands::profile::update_custom_provider,
             commands::profile::remove_custom_provider,
+            commands::assistant::set_assistant_hotkey,
+            commands::assistant::set_assistant_system_prompt,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");

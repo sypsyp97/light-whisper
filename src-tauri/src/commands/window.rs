@@ -92,6 +92,18 @@ fn apply_subtitle_layout(
     Ok(())
 }
 
+pub(crate) fn set_subtitle_window_interactive(
+    app_handle: &tauri::AppHandle,
+    interactive: bool,
+) -> Result<(), AppError> {
+    if let Some(window) = app_handle.get_webview_window("subtitle") {
+        window
+            .set_ignore_cursor_events(!interactive)
+            .map_err(|e| tauri_error("设置字幕窗口交互状态失败", e))?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn hide_main_window(app_handle: tauri::AppHandle) -> Result<String, AppError> {
     let window = require_window(&app_handle, "main", "主窗口不存在")?;
@@ -159,7 +171,7 @@ pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String
     #[cfg(target_os = "windows")]
     force_window_topmost(&window);
 
-    if let Err(err) = window.set_ignore_cursor_events(true) {
+    if let Err(err) = set_subtitle_window_interactive(&app_handle, false) {
         log::warn!("重新设置字幕窗口鼠标穿透失败: {}", err);
     }
 
@@ -177,6 +189,7 @@ pub async fn hide_subtitle_window(app_handle: tauri::AppHandle) -> Result<String
 
 pub fn hide_subtitle_window_inner(app_handle: &tauri::AppHandle) -> Result<String, AppError> {
     if let Some(window) = app_handle.get_webview_window("subtitle") {
+        let _ = set_subtitle_window_interactive(app_handle, false);
         window
             .hide()
             .map_err(|e| tauri_error("隐藏字幕窗口失败", e))?;

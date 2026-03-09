@@ -6,6 +6,8 @@ export interface TranscriptionResult {
   error?: string;
 }
 
+export type RecordingMode = "dictation" | "assistant";
+
 // 与 Rust 后端 funasr_service::FunASRStatus 对应
 export interface FunASRStatus {
   running: boolean;
@@ -126,5 +128,8 @@ export interface UserProfile {
   llm_provider: LlmProviderConfig;
   translation_target?: string | null;
   custom_prompt?: string | null;
+  assistant_hotkey?: string | null;
+  assistant_system_prompt?: string | null;
+  blocked_hot_words?: string[];
 }
 
