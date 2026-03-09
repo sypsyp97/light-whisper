@@ -6,8 +6,9 @@ use tauri::Emitter;
 use serde::Deserialize;
 
 use crate::services::llm_provider;
+use crate::services::llm_provider::LlmEndpoint;
 use crate::services::profile_service;
-use crate::state::user_profile::CorrectionSource;
+use crate::state::user_profile::{ApiFormat, CorrectionSource};
 use crate::state::AppState;
 
 /// LLM 结构化输出
@@ -109,6 +110,195 @@ async fn read_sse_stream(
     }
 }
 
+/// 从 Anthropic SSE 流中累积文本内容
+async fn read_anthropic_sse_stream(
+    response: reqwest::Response,
+    app_handle: &tauri::AppHandle,
+) -> Result<String, String> {
+    use eventsource_stream::Eventsource;
+    use tokio_stream::StreamExt;
+
+    let mut accumulated = String::new();
+    let mut token_count: usize = 0;
+    let event_timeout = Duration::from_secs(30);
+
+    let mut stream = response.bytes_stream().eventsource();
+
+    loop {
+        match tokio::time::timeout(event_timeout, stream.next()).await {
+            Ok(Some(Ok(event))) => {
+                match event.event.as_str() {
+                    "content_block_delta" => {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&event.data) {
+                            if let Some(text) = json["delta"]["text"].as_str() {
+                                accumulated.push_str(text);
+                                token_count += 1;
+                                let _ = app_handle.emit(
+                                    "ai-polish-status",
+                                    serde_json::json!({
+                                        "status": "streaming",
+                                        "tokens": token_count,
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                    "message_stop" => return Ok(accumulated),
+                    "error" => {
+                        let msg = serde_json::from_str::<serde_json::Value>(&event.data)
+                            .ok()
+                            .and_then(|j| j["error"]["message"].as_str().map(String::from))
+                            .unwrap_or_else(|| event.data.clone());
+                        return Err(format!("Anthropic 流式错误: {}", msg));
+                    }
+                    // message_start, content_block_start, content_block_stop, message_delta, ping
+                    _ => {}
+                }
+            }
+            Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
+            Ok(None) => return Ok(accumulated),
+            Err(_) => return Err("流式读取超时（30 秒无数据）".into()),
+        }
+    }
+}
+
+/// 构建 LLM 请求 body，返回 (body, use_streaming)
+fn build_llm_body(
+    endpoint: &LlmEndpoint,
+    system_prompt: &str,
+    user_content: &str,
+) -> (serde_json::Value, bool) {
+    match endpoint.api_format {
+        ApiFormat::Anthropic => {
+            let body = serde_json::json!({
+                "model": endpoint.model,
+                "max_tokens": 4096,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": user_content}],
+                "stream": true,
+            });
+            (body, true)
+        }
+        ApiFormat::OpenaiCompat => {
+            let is_responses_api = endpoint.api_url.contains("/v1/responses");
+            let use_streaming = !is_responses_api;
+
+            let mut body = if is_responses_api {
+                serde_json::json!({
+                    "model": endpoint.model,
+                    "instructions": system_prompt,
+                    "input": [
+                        {"role": "developer", "content": "Output json."},
+                        {"role": "user", "content": user_content},
+                    ],
+                    "text": { "format": { "type": "json_object" } }
+                })
+            } else {
+                serde_json::json!({
+                    "model": endpoint.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                    "response_format": { "type": "json_object" }
+                })
+            };
+
+            if is_responses_api {
+                body["reasoning"] = serde_json::json!({"effort": "medium"});
+            } else if endpoint.api_url.contains("cerebras") {
+                body["reasoning_effort"] = serde_json::json!("low");
+            }
+            if use_streaming {
+                body["stream"] = serde_json::json!(true);
+            }
+
+            (body, use_streaming)
+        }
+    }
+}
+
+/// 从非流式响应中提取文本内容
+fn extract_content(endpoint: &LlmEndpoint, json: &serde_json::Value) -> Option<String> {
+    match endpoint.api_format {
+        ApiFormat::Anthropic => json["content"]
+            .as_array()
+            .and_then(|arr| arr.iter().find_map(|b| b["text"].as_str().map(String::from))),
+        ApiFormat::OpenaiCompat => {
+            if endpoint.api_url.contains("/v1/responses") {
+                json["output"].as_array().and_then(|outputs| {
+                    outputs.iter().find_map(|item| {
+                        if item["type"].as_str() == Some("message") {
+                            item["content"][0]["text"].as_str().map(String::from)
+                        } else {
+                            None
+                        }
+                    })
+                })
+            } else {
+                json["choices"][0]["message"]["content"]
+                    .as_str()
+                    .map(String::from)
+            }
+        }
+    }
+}
+
+/// 发送请求并获取响应文本
+async fn send_llm_request(
+    state: &AppState,
+    endpoint: &LlmEndpoint,
+    api_key: &str,
+    system_prompt: &str,
+    user_content: &str,
+    text_len: usize,
+    app_handle: &tauri::AppHandle,
+) -> Result<String, String> {
+    let (body, use_streaming) = build_llm_body(endpoint, system_prompt, user_content);
+    let headers = llm_provider::build_auth_headers(&endpoint.api_format, api_key)
+        .map_err(|e| format!("构建请求头失败: {e}"))?;
+    let timeout = dynamic_timeout(endpoint.timeout_secs, text_len);
+
+    let mut request = state.http_client.post(&endpoint.api_url).headers(headers);
+    if !use_streaming {
+        request = request.timeout(timeout);
+    }
+
+    let response = request
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        // Anthropic 错误格式
+        let err_msg = if endpoint.api_format == ApiFormat::Anthropic {
+            serde_json::from_str::<serde_json::Value>(&body_text)
+                .ok()
+                .and_then(|j| j["error"]["message"].as_str().map(String::from))
+                .unwrap_or(body_text)
+        } else {
+            body_text
+        };
+        return Err(format!("API 返回错误 {}: {}", status, err_msg));
+    }
+
+    if use_streaming {
+        match endpoint.api_format {
+            ApiFormat::Anthropic => read_anthropic_sse_stream(response, app_handle).await,
+            ApiFormat::OpenaiCompat => read_sse_stream(response, app_handle).await,
+        }
+    } else {
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("响应解析失败: {}", e))?;
+        Ok(extract_content(endpoint, &json).unwrap_or_default())
+    }
+}
+
 /// 构建动态 system prompt，注入用户画像中的热词和纠错模式
 fn build_system_prompt(state: &AppState, input_text: &str) -> String {
     let mut prompt = BASE_SYSTEM_PROMPT.to_string();
@@ -197,125 +387,22 @@ pub async fn polish_text(
         return Ok(text.to_string());
     }
 
-    // 获取 LLM 端点配置
     let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
-
-    // 构建动态 prompt
     let system_prompt = build_system_prompt(state, text);
-
-    // 注入前台应用上下文到 user message
     let user_content = build_user_content(text);
 
-    let is_responses_api = endpoint.api_url.contains("/v1/responses");
-
-    let mut body = if is_responses_api {
-        // OpenAI Responses API 格式，强制 JSON 输出
-        // input 必须包含 "json" 一词才能启用 json_object 格式，
-        // 用 developer message 注入以避免污染用户文本
-        serde_json::json!({
-            "model": endpoint.model,
-            "instructions": system_prompt,
-            "input": [
-                {"role": "developer", "content": "Output json."},
-                {"role": "user", "content": user_content},
-            ],
-            "text": {
-                "format": {
-                    "type": "json_object"
-                }
-            }
-        })
-    } else {
-        // OpenAI Chat Completions 兼容格式
-        let messages = vec![
-            serde_json::json!({ "role": "system", "content": system_prompt }),
-            serde_json::json!({ "role": "user", "content": user_content }),
-        ];
-        serde_json::json!({
-            "model": endpoint.model,
-            "messages": messages,
-            "response_format": { "type": "json_object" }
-        })
-    };
-
-    // 文本校对不需要深度推理，降低 reasoning effort 节省时间和 token
-    if is_responses_api {
-        body["reasoning"] = serde_json::json!({"effort": "medium"});
-    } else if endpoint.api_url.contains("cerebras") {
-        body["reasoning_effort"] = serde_json::json!("low");
-    }
-
-    // Chat Completions API 使用流式输出，避免长文本超时
-    let use_streaming = !is_responses_api;
-    if use_streaming {
-        body["stream"] = serde_json::json!(true);
-    }
-
-    // 流式请求不设置总超时——由 read_sse_stream 的 chunk_timeout 保护；
-    // 非流式请求使用动态总超时。
-    let timeout = dynamic_timeout(endpoint.timeout_secs, text.len());
-    log::info!(
-        "AI 润色请求: 文本长度={}, 超时={}s, 流式={}",
-        text.len(),
-        timeout.as_secs(),
-        use_streaming
-    );
+    log::info!("AI 润色请求: 文本长度={}, format={:?}", text.len(), endpoint.api_format);
 
     let start = std::time::Instant::now();
     emit_polish_status(app_handle, "polishing", text, "", "", session_id);
 
-    let mut request = state
-        .http_client
-        .post(&endpoint.api_url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json");
-    if !use_streaming {
-        request = request.timeout(timeout);
-    }
-    let response = request
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("AI 润色请求失败: {}", e))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body_text = response.text().await.unwrap_or_default();
-        let err = format!("AI 润色 API 返回错误 {}: {}", status, body_text);
-        emit_polish_status(app_handle, "error", text, text, &err, session_id);
-        return Err(err);
-    }
-
-    let raw_content = if use_streaming {
-        let content = read_sse_stream(response, app_handle).await.inspect_err(|e| {
-            emit_polish_status(app_handle, "error", text, text, e, session_id);
-        })?;
-        content
-    } else {
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| format!("AI 润色响应解析失败: {}", e))?;
-
-        log::debug!(
-            "AI 润色 API 响应: {}",
-            serde_json::to_string(&json).unwrap_or_default()
-        );
-
-        // Responses API 的 output 可能包含 reasoning 块，需要找到 type=="message" 的项
-        json["output"]
-            .as_array()
-            .and_then(|outputs| {
-                outputs.iter().find_map(|item| {
-                    if item["type"].as_str() == Some("message") {
-                        item["content"][0]["text"].as_str().map(String::from)
-                    } else {
-                        None
-                    }
-                })
-            })
-            .unwrap_or_else(|| text.to_string())
-    };
+    let raw_content = send_llm_request(
+        state, &endpoint, &api_key, &system_prompt, &user_content, text.len(), app_handle,
+    )
+    .await
+    .inspect_err(|e| {
+        emit_polish_status(app_handle, "error", text, text, e, session_id);
+    })?;
 
     let raw_content = raw_content.trim();
 
@@ -440,88 +527,16 @@ pub async fn edit_text(
         selected_text, instruction
     );
 
-    let is_responses_api = endpoint.api_url.contains("/v1/responses");
-
-    let mut body = if is_responses_api {
-        serde_json::json!({
-            "model": endpoint.model,
-            "instructions": system_prompt,
-            "input": [
-                {"role": "developer", "content": "Output json."},
-                {"role": "user", "content": user_content},
-            ],
-            "text": { "format": { "type": "json_object" } }
-        })
-    } else {
-        serde_json::json!({
-            "model": endpoint.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            "response_format": { "type": "json_object" }
-        })
-    };
-
-    if is_responses_api {
-        body["reasoning"] = serde_json::json!({"effort": "medium"});
-    }
-
-    let use_streaming = !is_responses_api;
-    if use_streaming {
-        body["stream"] = serde_json::json!(true);
-    }
-
-    let timeout = dynamic_timeout(endpoint.timeout_secs, selected_text.len());
-
     let start = std::time::Instant::now();
     emit_polish_status(app_handle, "polishing", selected_text, "", "", session_id);
 
-    let mut request = state
-        .http_client
-        .post(&endpoint.api_url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json");
-    if !use_streaming {
-        request = request.timeout(timeout);
-    }
-    let response = request
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("编辑请求失败: {}", e))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body_text = response.text().await.unwrap_or_default();
-        let err = format!("编辑 API 返回错误 {}: {}", status, body_text);
-        emit_polish_status(app_handle, "error", selected_text, selected_text, &err, session_id);
-        return Err(err);
-    }
-
-    let raw_content = if use_streaming {
-        read_sse_stream(response, app_handle).await.inspect_err(|e| {
-            emit_polish_status(app_handle, "error", selected_text, selected_text, e, session_id);
-        })?
-    } else {
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| format!("编辑响应解析失败: {}", e))?;
-
-        json["output"]
-            .as_array()
-            .and_then(|outputs| {
-                outputs.iter().find_map(|item| {
-                    if item["type"].as_str() == Some("message") {
-                        item["content"][0]["text"].as_str().map(String::from)
-                    } else {
-                        None
-                    }
-                })
-            })
-            .unwrap_or_else(|| selected_text.to_string())
-    };
+    let raw_content = send_llm_request(
+        state, &endpoint, &api_key, system_prompt, &user_content, selected_text.len(), app_handle,
+    )
+    .await
+    .inspect_err(|e| {
+        emit_polish_status(app_handle, "error", selected_text, selected_text, e, session_id);
+    })?;
 
     let raw_content = raw_content.trim();
 

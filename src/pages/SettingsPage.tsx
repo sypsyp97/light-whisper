@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -34,8 +34,10 @@ import {
   getOnlineAsrApiKey,
   getOnlineAsrEndpoint,
   setOnlineAsrEndpoint,
+  addCustomProvider,
+  removeCustomProvider,
 } from "@/api/tauri";
-import type { AiModelInfo, InputDeviceInfo, UserProfile } from "@/types";
+import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
@@ -241,6 +243,13 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [llmProvider, setLlmProvider] = useState("cerebras");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
+  // 自定义 provider 相关
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
+  const [addingProvider, setAddingProvider] = useState(false);
+  const [newProviderName, setNewProviderName] = useState("");
+  const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
+  const [newProviderModel, setNewProviderModel] = useState("");
+  const [newProviderFormat, setNewProviderFormat] = useState<ApiFormat>("openai_compat");
 
   const clearPendingApiKeySave = useCallback(() => {
     if (apiKeySaveTimer.current) {
@@ -271,13 +280,21 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   }, []);
 
   const resolveProviderDraft = useCallback((provider: string) => {
-    const preset = findLlmPreset(provider);
     const draft = providerDrafts[provider];
+    // 先查自定义 provider
+    const cp = customProviders.find((p) => p.id === provider);
+    if (cp) {
+      return {
+        baseUrl: draft?.baseUrl ?? cp.base_url,
+        model: draft?.model ?? cp.model,
+      };
+    }
+    const preset = findLlmPreset(provider);
     return {
       baseUrl: draft?.baseUrl ?? preset.baseUrl,
       model: draft?.model ?? preset.defaultModel,
     };
-  }, [providerDrafts]);
+  }, [providerDrafts, customProviders]);
 
   const refreshAiPolishKey = useCallback(async (enabled = aiPolishEnabled) => {
     try {
@@ -323,19 +340,28 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   }, []);
 
   // 加载用户画像
-  const refreshProfile = useCallback(() => {
-    getUserProfile().then(p => {
+  const refreshProfile = useCallback(async () => {
+    try {
+      const p = await getUserProfile();
       setProfile(p);
+      const cps = p.llm_provider.custom_providers ?? [];
+      setCustomProviders(cps);
       const nextProvider = p.llm_provider.active || "cerebras";
-      const nextBaseUrl = resolveLlmBaseUrl(nextProvider, p.llm_provider.custom_base_url);
-      const nextModel = resolveLlmModel(nextProvider, p.llm_provider.custom_model);
+      // 查自定义 provider
+      const cp = cps.find((c) => c.id === nextProvider);
+      const nextBaseUrl = cp
+        ? cp.base_url
+        : resolveLlmBaseUrl(nextProvider, p.llm_provider.custom_base_url);
+      const nextModel = cp
+        ? cp.model
+        : resolveLlmModel(nextProvider, p.llm_provider.custom_model);
       setLlmProvider(nextProvider);
       setCustomBaseUrl(nextBaseUrl);
       setCustomModel(nextModel);
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
       setTranslationTargetState(p.translation_target ?? null);
       setCustomPromptState(p.custom_prompt ?? "");
-    }).catch(() => {});
+    } catch { /* ignore */ }
   }, [updateProviderDraft]);
 
   useEffect(() => {
@@ -604,6 +630,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const scheduleCustomLlmConfigSave = useCallback((provider: string, baseUrl: string, model: string) => {
     clearPendingLlmConfigSave();
     llmConfigSaveTimer.current = setTimeout(() => {
+      // 后端 set_llm_provider_config 已自动同步 custom_providers
       setLlmProviderConfig(provider, baseUrl || undefined, model || undefined).catch(() => {});
     }, 400);
   }, [clearPendingLlmConfigSave]);
@@ -683,14 +710,29 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     : "暂无";
   const selectedDeviceMissing = Boolean(selectedInputDeviceName)
     && !inputDevices.some((device) => device.name === selectedInputDeviceName);
-  const currentLlmPreset = findLlmPreset(llmProvider);
-  const filteredProviderOptions = useMemo(() => llmProviderOptions.filter(({ label, desc, baseUrl }) => {
+  const currentLlmPreset = useMemo(() => {
+    const cp = customProviders.find((p) => p.id === llmProvider);
+    if (cp) return { key: cp.id, label: cp.name, desc: cp.api_format === "anthropic" ? "Anthropic" : "OpenAI 兼容", baseUrl: cp.base_url, defaultModel: cp.model, models: [] as string[] };
+    return findLlmPreset(llmProvider);
+  }, [llmProvider, customProviders]);
+  const allProviderOptions = useMemo(() => {
+    const presets = llmProviderOptions.map(({ key, label, desc, baseUrl }) => ({ key, label, desc, baseUrl, isCustom: false as const }));
+    const customs = customProviders.map((cp) => ({
+      key: cp.id,
+      label: cp.name,
+      desc: cp.api_format === "anthropic" ? "Anthropic" : "OpenAI 兼容",
+      baseUrl: cp.base_url,
+      isCustom: true as const,
+    }));
+    return [...presets, ...customs];
+  }, [customProviders]);
+  const filteredProviderOptions = useMemo(() => allProviderOptions.filter(({ label, desc, baseUrl }) => {
     const keyword = providerSearch.trim().toLowerCase();
     if (!keyword) return true;
     return label.toLowerCase().includes(keyword)
       || desc.toLowerCase().includes(keyword)
       || baseUrl.toLowerCase().includes(keyword);
-  }), [llmProviderOptions, providerSearch]);
+  }), [allProviderOptions, providerSearch]);
   const filteredAiModels = useMemo(() => aiModels.filter((model) => {
     const keyword = aiModelSearch.trim().toLowerCase();
     if (!keyword) return true;
@@ -1216,7 +1258,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                           onChange={(e) => setProviderSearch(e.target.value)}
                         />
                         <div className="picker-list">
-                          {filteredProviderOptions.length > 0 ? filteredProviderOptions.map(({ key, label, desc, baseUrl }) => (
+                          {filteredProviderOptions.length > 0 ? filteredProviderOptions.map(({ key, label, desc, baseUrl, isCustom }) => (
                             <button
                               key={key}
                               type="button"
@@ -1229,10 +1271,85 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                                 <span>{desc}</span>
                                 <code>{baseUrl}</code>
                               </span>
-                              {llmProvider === key ? <Check size={14} className="icon-accent" /> : null}
+                              <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                                {llmProvider === key ? <Check size={14} className="icon-accent" /> : null}
+                                {isCustom && (
+                                  <span
+                                    role="button"
+                                    tabIndex={0}
+                                    style={{ padding: 2, cursor: "pointer", opacity: 0.5 }}
+                                    title="删除此服务商"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void removeCustomProvider(key).then(async () => { await refreshProfile(); await refreshAiPolishKey(); });
+                                    }}
+                                  >
+                                    <Trash2 size={12} />
+                                  </span>
+                                )}
+                              </span>
                             </button>
                           )) : (
                             <div className="picker-empty">没有匹配的服务商。</div>
+                          )}
+                          {/* 添加自定义服务商 */}
+                          {!addingProvider ? (
+                            <button
+                              type="button"
+                              className="picker-option"
+                              style={{ borderTop: "1px solid var(--color-border)", opacity: 0.8 }}
+                              onClick={(e) => { e.stopPropagation(); setAddingProvider(true); }}
+                            >
+                              <span className="picker-option-copy">
+                                <strong><Plus size={12} style={{ verticalAlign: -1, marginRight: 4 }} />添加自定义服务商</strong>
+                              </span>
+                            </button>
+                          ) : (
+                            <div
+                              style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid var(--color-border)" }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <input className="settings-input" placeholder="名称" value={newProviderName} onChange={(e) => setNewProviderName(e.target.value)} style={{ fontSize: 12 }} />
+                              <input className="settings-input" placeholder="Base URL" value={newProviderBaseUrl} onChange={(e) => setNewProviderBaseUrl(e.target.value)} style={{ fontSize: 12 }} />
+                              <input className="settings-input" placeholder="默认模型" value={newProviderModel} onChange={(e) => setNewProviderModel(e.target.value)} style={{ fontSize: 12 }} />
+                              <select
+                                className="settings-input"
+                                value={newProviderFormat}
+                                onChange={(e) => setNewProviderFormat(e.target.value as ApiFormat)}
+                                style={{ fontSize: 12 }}
+                              >
+                                <option value="openai_compat">OpenAI 兼容</option>
+                                <option value="anthropic">Anthropic</option>
+                              </select>
+                              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                <button className="btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => { setAddingProvider(false); setNewProviderName(""); setNewProviderBaseUrl(""); setNewProviderModel(""); setNewProviderFormat("openai_compat"); }}>取消</button>
+                                <button
+                                  className="btn-ghost"
+                                  style={{ fontSize: 11, padding: "4px 8px" }}
+                                  disabled={!newProviderName.trim() || !newProviderBaseUrl.trim()}
+                                  onClick={() => {
+                                    void addCustomProvider(newProviderName.trim(), newProviderBaseUrl.trim(), newProviderModel.trim(), newProviderFormat).then(async (id) => {
+                                      setAddingProvider(false);
+                                      const baseUrl = newProviderBaseUrl.trim();
+                                      const model = newProviderModel.trim();
+                                      setNewProviderName("");
+                                      setNewProviderBaseUrl("");
+                                      setNewProviderModel("");
+                                      setNewProviderFormat("openai_compat");
+                                      // 先刷新 profile 拿到最新 customProviders，再切换
+                                      await refreshProfile();
+                                      // 直接设置状态，不依赖 resolveProviderDraft（避免竞态）
+                                      setLlmProvider(id);
+                                      setCustomBaseUrl(baseUrl);
+                                      setCustomModel(model);
+                                      updateProviderDraft(id, baseUrl, model);
+                                      await setLlmProviderConfig(id, baseUrl || undefined, model || undefined).catch(() => {});
+                                      await refreshAiPolishKey();
+                                    });
+                                  }}
+                                >确定</button>
+                              </div>
+                            </div>
                           )}
                         </div>
                       </div>

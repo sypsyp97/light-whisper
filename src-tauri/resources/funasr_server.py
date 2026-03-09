@@ -11,11 +11,13 @@ import traceback
 
 from server_common import (
     apply_hf_env_defaults,
+    ensure_safe_cuda_env,
     setup_rotating_logger,
     BaseASRServer,
 )
 
 apply_hf_env_defaults()
+ensure_safe_cuda_env()
 logger = setup_rotating_logger(__name__, "funasr_server.log", "FunASR服务器")
 
 from hf_cache_utils import MODEL_REPOS

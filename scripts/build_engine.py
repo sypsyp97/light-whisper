@@ -81,7 +81,7 @@ STRIP_CUDA_PATTERNS = [
     "cudnn_engines_precompiled*.dll",   # ~562M cuDNN 预编译融合引擎
     "cusparse*.dll",                     # ~263M 稀疏矩阵运算
     "cufft*.dll",                        # ~279M GPU FFT（音频用 librosa CPU FFT）
-    "cusolverMg*.dll",                   # ~75M  多 GPU 求解器
+    "cusolver*.dll",                     # ~150M 线性代数求解器（含单 GPU + 多 GPU，推理不需要）
     "curand*.dll",                       # ~61M  随机数生成（仅训练）
 ]
 

@@ -13,6 +13,44 @@ import threading
 from logging.handlers import RotatingFileHandler
 
 
+def _has_nvidia_gpu() -> bool:
+    """Quick probe for NVIDIA GPU without importing torch.
+
+    On Windows, loads nvcuda.dll (NVIDIA CUDA driver).
+    If absent, the machine has no NVIDIA GPU and we should prevent
+    PyTorch from initializing CUDA (which would crash on missing DLLs).
+    """
+    if sys.platform != "win32":
+        # On Linux, just check for /dev/nvidia*
+        import glob as _glob
+        return bool(_glob.glob("/dev/nvidia[0-9]*"))
+    try:
+        import ctypes
+        ctypes.WinDLL("nvcuda.dll")
+        return True
+    except OSError:
+        return False
+
+
+def ensure_safe_cuda_env() -> None:
+    """Hint CUDA runtime to skip GPU init when no NVIDIA GPU is present.
+
+    NOTE: On Windows, PyTorch eagerly loads ALL DLLs in torch/lib/ via
+    LoadLibraryExW at import time. CUDA_VISIBLE_DEVICES does NOT prevent
+    this. The real fix for missing CUDA DLLs (e.g. cusolver64_11.dll) is
+    to physically strip them at build time (see build_engine.py).
+
+    This function still helps by making torch.cuda.is_available() return
+    False, so our runtime code takes the CPU path instead of attempting
+    CUDA operations.
+    """
+    if not _has_nvidia_gpu():
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+        logging.getLogger(__name__).info(
+            "未检测到 NVIDIA GPU，已设置 CUDA_VISIBLE_DEVICES='' 禁用 CUDA"
+        )
+
+
 def apply_hf_env_defaults() -> None:
     """Apply safe default HF env flags for Windows/offline-first runtime."""
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")

@@ -20,6 +20,7 @@ pub fn load_profile() -> UserProfile {
             log::info!("用户画像文件不存在或解析失败，使用默认值");
             UserProfile::default()
         });
+    migrate_custom_provider(&mut profile);
     let stats = cleanup_profile(&mut profile);
     if stats.removed_hot_words > 0 || stats.removed_corrections > 0 {
         log::info!(
@@ -29,6 +30,31 @@ pub fn load_profile() -> UserProfile {
         );
     }
     profile
+}
+
+/// 迁移旧版单 custom provider 到 custom_providers 列表
+fn migrate_custom_provider(profile: &mut UserProfile) {
+    let config = &mut profile.llm_provider;
+    if config.active != "custom" || !config.custom_providers.is_empty() {
+        return;
+    }
+    let base_url = config.custom_base_url.clone().unwrap_or_default();
+    let model = config.custom_model.clone().unwrap_or_default();
+    if base_url.is_empty() && model.is_empty() {
+        return;
+    }
+    let provider = CustomProvider {
+        id: "custom_migrated".to_string(),
+        name: "自定义兼容".to_string(),
+        base_url,
+        model,
+        api_format: ApiFormat::default(),
+    };
+    config.custom_providers.push(provider);
+    config.active = "custom_migrated".to_string();
+    config.custom_base_url = None;
+    config.custom_model = None;
+    log::info!("已迁移旧版 custom provider 到 custom_providers");
 }
 
 pub fn save_profile(profile: &UserProfile) -> Result<(), String> {

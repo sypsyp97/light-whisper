@@ -46,7 +46,8 @@ async fn extract_corrections_via_llm(
         return Vec::new();
     }
 
-    let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
+    let config = state.llm_provider_config();
+    let endpoint = llm_provider::endpoint_for_config(&config);
 
     let prompt = format!(
         "对比以下两句话，提取用户修改的词级别纠错。\n\
@@ -56,34 +57,45 @@ async fn extract_corrections_via_llm(
         before, after
     );
 
-    let is_responses_api = endpoint.api_url.contains("/v1/responses");
-    let body = if is_responses_api {
-        serde_json::json!({
+    let system = "你是文本差异提取工具，只输出 JSON。";
+
+    let body = match endpoint.api_format {
+        ApiFormat::Anthropic => serde_json::json!({
             "model": endpoint.model,
-            "instructions": "你是文本差异提取工具，只输出 JSON。",
-            "input": [
-                {"role": "developer", "content": "Output json."},
-                {"role": "user", "content": prompt},
-            ],
-            "text": { "format": { "type": "json_object" } },
-            "reasoning": { "effort": "medium" },
-        })
-    } else {
-        serde_json::json!({
-            "model": endpoint.model,
-            "messages": [
-                {"role": "system", "content": "你是文本差异提取工具，只输出 JSON。"},
-                {"role": "user", "content": prompt},
-            ],
-            "response_format": { "type": "json_object" },
-        })
+            "max_tokens": 2048,
+            "system": system,
+            "messages": [{"role": "user", "content": prompt}],
+        }),
+        ApiFormat::OpenaiCompat => {
+            let is_responses_api = endpoint.api_url.contains("/v1/responses");
+            if is_responses_api {
+                serde_json::json!({
+                    "model": endpoint.model,
+                    "instructions": system,
+                    "input": [
+                        {"role": "developer", "content": "Output json."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "text": { "format": { "type": "json_object" } },
+                    "reasoning": { "effort": "medium" },
+                })
+            } else {
+                serde_json::json!({
+                    "model": endpoint.model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "response_format": { "type": "json_object" },
+                })
+            }
+        }
     };
 
     let resp = match state
         .http_client
         .post(&endpoint.api_url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
+        .headers(llm_provider::build_auth_headers(&endpoint.api_format, &api_key).unwrap_or_default())
         .timeout(std::time::Duration::from_secs(endpoint.timeout_secs))
         .json(&body)
         .send()
@@ -111,18 +123,25 @@ async fn extract_corrections_via_llm(
     };
 
     // 从响应中提取文本
-    let raw = if is_responses_api {
-        json["output"].as_array().and_then(|o| {
-            o.iter().find_map(|item| {
-                if item["type"].as_str() == Some("message") {
-                    item["content"][0]["text"].as_str()
-                } else {
-                    None
-                }
-            })
-        })
-    } else {
-        json["choices"][0]["message"]["content"].as_str()
+    let raw = match endpoint.api_format {
+        ApiFormat::Anthropic => json["content"]
+            .as_array()
+            .and_then(|arr| arr.iter().find_map(|b| b["text"].as_str())),
+        ApiFormat::OpenaiCompat => {
+            if endpoint.api_url.contains("/v1/responses") {
+                json["output"].as_array().and_then(|o| {
+                    o.iter().find_map(|item| {
+                        if item["type"].as_str() == Some("message") {
+                            item["content"][0]["text"].as_str()
+                        } else {
+                            None
+                        }
+                    })
+                })
+            } else {
+                json["choices"][0]["message"]["content"].as_str()
+            }
+        }
     };
 
     let raw = match raw {
@@ -227,17 +246,109 @@ pub async fn set_llm_provider_config(
     custom_model: Option<String>,
 ) -> Result<(), String> {
     let (_, profile) = state.update_profile(|profile| {
-        profile.llm_provider = LlmProviderConfig {
-            active: active.clone(),
-            custom_base_url,
-            custom_model,
-        };
+        profile.llm_provider.active = active.clone();
+        // 自定义 provider → 同步到 custom_providers，不污染旧字段
+        if let Some(cp) = profile
+            .llm_provider
+            .custom_providers
+            .iter_mut()
+            .find(|p| p.id == active)
+        {
+            if let Some(ref url) = custom_base_url {
+                cp.base_url = url.clone();
+            }
+            if let Some(ref model) = custom_model {
+                cp.model = model.clone();
+            }
+        } else {
+            // 预置 provider → 更新旧字段
+            profile.llm_provider.custom_base_url = custom_base_url;
+            profile.llm_provider.custom_model = custom_model;
+        }
     });
     profile_service::save_profile(&profile)?;
-
-    // 从 keyring 加载新 provider 的 API Key 到内存
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
+    Ok(())
+}
 
+#[tauri::command]
+pub async fn add_custom_provider(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    base_url: String,
+    model: String,
+    api_format: ApiFormat,
+) -> Result<String, String> {
+    let id = format!(
+        "custom_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    let provider = CustomProvider {
+        id: id.clone(),
+        name,
+        base_url,
+        model,
+        api_format,
+    };
+    let (_, profile) = state.update_profile(|profile| {
+        profile.llm_provider.custom_providers.push(provider);
+    });
+    profile_service::save_profile(&profile)?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn update_custom_provider(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    base_url: Option<String>,
+    model: Option<String>,
+    api_format: Option<ApiFormat>,
+) -> Result<(), String> {
+    let (found, profile) = state.update_profile(|profile| {
+        if let Some(cp) = profile
+            .llm_provider
+            .custom_providers
+            .iter_mut()
+            .find(|p| p.id == id)
+        {
+            if let Some(n) = name { cp.name = n; }
+            if let Some(u) = base_url { cp.base_url = u; }
+            if let Some(m) = model { cp.model = m; }
+            if let Some(f) = api_format { cp.api_format = f; }
+            true
+        } else {
+            false
+        }
+    });
+    if !found {
+        return Err(format!("找不到自定义服务商: {}", id));
+    }
+    profile_service::save_profile(&profile)
+}
+
+#[tauri::command]
+pub async fn remove_custom_provider(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let (_, profile) = state.update_profile(|profile| {
+        profile
+            .llm_provider
+            .custom_providers
+            .retain(|p| p.id != id);
+        // 如果删除的是当前活跃 provider，回退到 cerebras
+        if profile.llm_provider.active == id {
+            profile.llm_provider.active = "cerebras".to_string();
+        }
+    });
+    profile_service::save_profile(&profile)?;
+    llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
 }
 

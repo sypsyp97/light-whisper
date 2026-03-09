@@ -49,6 +49,24 @@ pub fn run() {
             {
                 let state = app_handle.state::<AppState>();
                 let loaded = services::profile_service::load_profile();
+                // 迁移旧版 custom API key 到新 keyring key（仅在目标 key 不存在时执行）
+                if loaded.llm_provider.active == "custom_migrated" {
+                    use tauri_plugin_keyring::KeyringExt;
+                    let new_user = services::llm_provider::keyring_user_for_provider("custom_migrated");
+                    let existing = app_handle.keyring().get_password("light-whisper", &new_user).ok().flatten();
+                    if existing.as_deref().unwrap_or("").is_empty() {
+                        if let Some(old_key) = app_handle
+                            .keyring()
+                            .get_password("light-whisper", "custom-api-key")
+                            .ok()
+                            .flatten()
+                            .filter(|k| !k.is_empty())
+                        {
+                            let _ = app_handle.keyring().set_password("light-whisper", &new_user, &old_key);
+                            log::info!("已迁移 custom API key 到 {}", new_user);
+                        }
+                    }
+                }
                 state.update_profile_mut(|profile| *profile = loaded);
                 log::info!("已加载用户画像");
             }
@@ -142,6 +160,9 @@ pub fn run() {
             commands::profile::submit_user_correction,
             commands::profile::set_translation_target,
             commands::profile::set_custom_prompt,
+            commands::profile::add_custom_provider,
+            commands::profile::update_custom_provider,
+            commands::profile::remove_custom_provider,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");

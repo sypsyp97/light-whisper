@@ -153,6 +153,35 @@ export function setCustomPrompt(prompt: string | null): Promise<void> {
   return invokeCommand<void>("set_custom_prompt", { prompt });
 }
 
+export function addCustomProvider(
+  name: string,
+  baseUrl: string,
+  model: string,
+  apiFormat: "openai_compat" | "anthropic",
+): Promise<string> {
+  return invokeCommand<string>("add_custom_provider", { name, baseUrl, model, apiFormat });
+}
+
+export function updateCustomProvider(
+  id: string,
+  name?: string,
+  baseUrl?: string,
+  model?: string,
+  apiFormat?: "openai_compat" | "anthropic",
+): Promise<void> {
+  return invokeCommand<void>("update_custom_provider", {
+    id,
+    name: name ?? null,
+    baseUrl: baseUrl ?? null,
+    model: model ?? null,
+    apiFormat: apiFormat ?? null,
+  });
+}
+
+export function removeCustomProvider(id: string): Promise<void> {
+  return invokeCommand<void>("remove_custom_provider", { id });
+}
+
 export function setOnlineAsrApiKey(apiKey: string): Promise<void> {
   return invokeCommand<void>("set_online_asr_api_key", { apiKey });
 }

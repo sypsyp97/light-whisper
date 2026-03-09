@@ -96,11 +96,24 @@ export interface CorrectionPattern {
   source: CorrectionSource;
 }
 
+// API 协议格式
+export type ApiFormat = "openai_compat" | "anthropic";
+
+// 用户自定义 LLM 服务商
+export interface CustomProvider {
+  id: string;
+  name: string;
+  base_url: string;
+  model: string;
+  api_format: ApiFormat;
+}
+
 // LLM 后端配置
 export interface LlmProviderConfig {
   active: string;
   custom_base_url?: string;
   custom_model?: string;
+  custom_providers?: CustomProvider[];
 }
 
 // 用户画像

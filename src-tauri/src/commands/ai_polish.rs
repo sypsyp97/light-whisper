@@ -4,6 +4,7 @@ use serde::Serialize;
 use tauri_plugin_keyring::KeyringExt;
 
 use crate::services::llm_provider;
+use crate::state::user_profile::ApiFormat;
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -32,22 +33,20 @@ pub async fn set_ai_polish_config(
     let provider = state.active_llm_provider();
     let keyring_user = llm_provider::keyring_user_for_provider(&provider);
 
-    // 存入 AppState（运行时使用）
     state.set_ai_polish_api_key(api_key.clone());
 
-    // 持久化到系统密钥环
     if !api_key.is_empty() {
         if let Err(e) =
             app_handle
                 .keyring()
-                .set_password(llm_provider::KEYRING_SERVICE, keyring_user, &api_key)
+                .set_password(llm_provider::KEYRING_SERVICE, &keyring_user, &api_key)
         {
             log::warn!("保存 API Key 到系统密钥环失败: {}", e);
         }
     } else {
         let _ = app_handle
             .keyring()
-            .delete_password(llm_provider::KEYRING_SERVICE, keyring_user);
+            .delete_password(llm_provider::KEYRING_SERVICE, &keyring_user);
     }
 
     log::info!(
@@ -69,6 +68,23 @@ pub async fn get_ai_polish_api_key(
     ))
 }
 
+/// Anthropic 硬编码模型列表
+fn anthropic_models() -> Vec<AiModelInfo> {
+    [
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-5-20250929",
+        "claude-sonnet-4-20250514",
+    ]
+    .into_iter()
+    .map(|id| AiModelInfo {
+        id: id.to_string(),
+        owned_by: Some("anthropic".to_string()),
+    })
+    .collect()
+}
+
 #[tauri::command]
 pub async fn list_ai_models(
     state: tauri::State<'_, AppState>,
@@ -81,22 +97,57 @@ pub async fn list_ai_models(
         return Err("请先填写 API Key".to_string());
     }
 
-    let source_url = llm_provider::models_url(&provider, base_url.as_deref());
-    let response = state
+    let config = state.llm_provider_config();
+    let is_anthropic = config
+        .custom_providers
+        .iter()
+        .find(|p| p.id == provider)
+        .is_some_and(|p| p.api_format == ApiFormat::Anthropic);
+
+    let source_url = llm_provider::models_url(&config, &provider, base_url.as_deref());
+    if source_url.is_empty() {
+        if is_anthropic {
+            return Ok(AiModelListPayload {
+                models: anthropic_models(),
+                source_url,
+            });
+        }
+        return Ok(AiModelListPayload {
+            models: vec![],
+            source_url,
+        });
+    }
+
+    // 构建请求（Anthropic 用 x-api-key，其他用 Bearer）
+    let mut req = state
         .http_client
         .get(&source_url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .timeout(std::time::Duration::from_secs(12))
-        .send()
-        .await
-        .map_err(|e| format!("拉取模型列表失败: {}", e))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!("模型列表接口返回 {}: {}", status, body));
+        .timeout(std::time::Duration::from_secs(12));
+    if is_anthropic {
+        req = req
+            .header("x-api-key", &api_key)
+            .header("anthropic-version", "2023-06-01");
+    } else {
+        req = req.header("Authorization", format!("Bearer {}", api_key));
     }
+    req = req.header("Content-Type", "application/json");
+
+    let response = match req.send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ if is_anthropic => {
+            // Anthropic API 查询失败（代理不支持等），回退硬编码
+            return Ok(AiModelListPayload {
+                models: anthropic_models(),
+                source_url,
+            });
+        }
+        Ok(r) => {
+            let status = r.status();
+            let body = r.text().await.unwrap_or_default();
+            return Err(format!("模型列表接口返回 {}: {}", status, body));
+        }
+        Err(e) => return Err(format!("拉取模型列表失败: {}", e)),
+    };
 
     let payload: serde_json::Value = response
         .json()

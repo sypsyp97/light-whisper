@@ -76,15 +76,39 @@ pub struct UserProfile {
     pub custom_prompt: Option<String>,
 }
 
+/// API 协议格式
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiFormat {
+    #[default]
+    OpenaiCompat,
+    Anthropic,
+}
+
+/// 用户自定义的 LLM 服务商
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomProvider {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub model: String,
+    #[serde(default)]
+    pub api_format: ApiFormat,
+}
+
 /// LLM 后端配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmProviderConfig {
-    /// 当前使用的后端: "cerebras", "deepseek", "custom"
+    /// 当前使用的后端: 预置 key 或 custom provider id
     pub active: String,
-    /// 自定义 OpenAI 兼容端点 URL
+    /// 旧字段，迁移兼容
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_base_url: Option<String>,
-    /// 自定义模型名
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_model: Option<String>,
+    /// 用户自定义服务商列表
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_providers: Vec<CustomProvider>,
 }
 
 impl Default for LlmProviderConfig {
@@ -93,6 +117,7 @@ impl Default for LlmProviderConfig {
             active: "cerebras".to_string(),
             custom_base_url: None,
             custom_model: None,
+            custom_providers: Vec::new(),
         }
     }
 }
