@@ -6,6 +6,7 @@ const MAX_CORRECTION_PATTERNS: usize = 500;
 const MAX_HOT_WORDS: usize = 300;
 const MAX_SEGMENT_CHARS: usize = 12;
 const MAX_HOT_WORD_CHARS: usize = 24;
+const MAX_USER_HOT_WORD_CHARS: usize = 80;
 
 // ============================================================
 // 持久化
@@ -193,6 +194,10 @@ fn learned_hot_word_looks_like_sentence(text: &str) -> bool {
 
 fn is_reasonable_hot_word(text: &str, source: HotWordSource) -> bool {
     let char_count = text.chars().count();
+    if source == HotWordSource::User {
+        return (1..=MAX_USER_HOT_WORD_CHARS).contains(&char_count)
+            && !text.chars().any(|ch| matches!(ch, '\n' | '\r' | '\t'));
+    }
     if !(2..=MAX_HOT_WORD_CHARS).contains(&char_count) {
         return false;
     }
