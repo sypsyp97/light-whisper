@@ -39,6 +39,8 @@ HIDDEN_IMPORTS = [
     "funasr.utils.postprocess_utils",
     "faster_whisper",
     "ctranslate2",
+    "requests",
+    "certifi",
     "torch",
     "torchaudio",
     "transformers",
