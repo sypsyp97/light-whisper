@@ -1,5 +1,6 @@
 use tauri::Emitter;
 use tauri_plugin_keyring::KeyringExt;
+use std::sync::atomic::Ordering;
 
 use crate::services::funasr_service;
 use crate::services::llm_provider;
@@ -75,6 +76,12 @@ pub async fn restart_funasr(
         let has_key = !state.read_online_asr_api_key().is_empty();
         state.set_funasr_ready(has_key);
         return Ok("在线引擎状态已刷新".to_string());
+    }
+
+    // 首次启动可能仍在解压 engine.zip 或加载模型，自动重启不应打断这一过程。
+    if state.funasr_starting.load(Ordering::SeqCst) {
+        log::info!("FunASR 正在启动中，跳过本次重启请求");
+        return Ok("FunASR 正在启动中，跳过重启".to_string());
     }
 
     log::info!("正在重启 FunASR 服务器...");

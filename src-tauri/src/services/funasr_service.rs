@@ -545,6 +545,12 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     let runtime = find_engine(app_handle).await?;
     let engine = paths::read_engine_config();
 
+    // 解压或查找运行时期间可能被 stop_server 取消（例如用户切换引擎）。
+    if state.funasr_generation.load(Ordering::SeqCst) != gen_at_start {
+        log::warn!("引擎运行时已就绪但代数已变更，取消本次启动");
+        return Err(AppError::Asr("启动已被取消".to_string()));
+    }
+
     // 构建子进程命令
     let data_dir = paths::strip_win_prefix(&paths::get_data_dir());
     let mut cmd = match &runtime {

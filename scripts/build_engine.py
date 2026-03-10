@@ -145,7 +145,7 @@ def create_zip(engine_dir: Path, output: Path) -> float:
     files = [f for f in engine_dir.rglob("*") if f.is_file()]
     total = len(files)
 
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_LZMA, allowZip64=True) as zf:
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_BZIP2, allowZip64=True) as zf:
         for i, filepath in enumerate(files, 1):
             arcname = filepath.relative_to(engine_dir)
             zf.write(filepath, arcname)
