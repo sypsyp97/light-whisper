@@ -80,6 +80,7 @@ body,
 /* Reset dot margins inside pill-shaped status capsule */
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-recording,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-assistant,
+.subtitle-capsule:has(.subtitle-hint) .subtitle-dot-assistant-processing,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-polishing,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-processing {
   margin-top: 0;
@@ -261,9 +262,27 @@ body,
   animation: spin 0.7s linear infinite;
 }
 
+.subtitle-dot-assistant-processing {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(139, 92, 246, 0.18);
+  border-top-color: #8b5cf6;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.28);
+  flex-shrink: 0;
+  margin-top: 4px;
+  animation: spin 0.7s linear infinite;
+}
+
 [data-theme="light"] .subtitle-dot-processing {
   border-color: rgba(0, 0, 0, 0.06);
   border-top-color: var(--color-accent);
+}
+
+[data-theme="light"] .subtitle-dot-assistant-processing {
+  border-color: rgba(139, 92, 246, 0.14);
+  border-top-color: #8b5cf6;
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.18);
 }
 
 /* ---- Animations ---- */
@@ -361,6 +380,7 @@ body,
   .subtitle-capsule.subtitle-fade-out,
   .subtitle-dot-recording,
   .subtitle-dot-assistant,
+  .subtitle-dot-assistant-processing,
   .subtitle-dot-polishing,
   .subtitle-dot-processing,
   .subtitle-polish-flash {

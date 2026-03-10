@@ -1239,7 +1239,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                 </button>
               </div>
               <p className="settings-hint" style={{ margin: 0 }}>
-                助手模式会把你的语音当成任务指令，直接生成邮件、消息、翻译或回答并粘贴到当前窗口。
+                助手模式会把你的语音当成任务指令，生成邮件、消息、翻译或回答，并显示在结果浮层中供你复制使用。
               </p>
               <div className="settings-column" style={{ gap: 6 }}>
                 <span className="settings-option-desc">自定义助手提示词</span>

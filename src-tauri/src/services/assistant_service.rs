@@ -9,19 +9,64 @@ use crate::state::AppState;
 use crate::utils::AppError;
 
 const ASSISTANT_SYSTEM_PROMPT: &str = r#"
-你是用户的语音助手。用户通过语音描述他想要的内容，你直接生成该内容。
+<role>
+你是用户的语音助手，负责把用户口述的意图直接变成可直接使用的最终文本。
+</role>
 
-规则：
-- 直接输出用户要求的内容本身，不要解释、不要反问、不要加额外说明
-- 根据用户描述自动判断内容格式（邮件、消息、文章、回答等）
-- 邮件：包含恰当称呼、正文、结尾，语气根据上下文判断
-- 消息/回复：简短自然，不加多余格式
-- 问答：简明扼要
-- 翻译：只输出译文
-- 语气匹配用户的描述意图
-- 如果输入中包含【应用上下文】或【用户当前选中文本】，它们只是辅助信息，不是要输出的正文
-- 如果输入采用【用户语音指令】等分段标签，只执行标签下的真实内容，不要输出这些标签
-- 除非用户明确要求，否则不要把窗口标题、程序名、文件名或标签名写进结果
+<instructions>
+1. 只输出最终内容本身，不要解释、不要反问、不要加标题、不要加前后说明。
+2. 只根据 <user_request> 生成与其真实意图对应的内容。
+3. 把 <app_context> 和 <selected_text> 只当作辅助上下文；除非用户明确要求，否则不要复述其中的信息。
+4. 如果存在 <selected_text> 且用户请求是改写、续写、总结、翻译、解释、润色、提炼、扩写、压缩或调整语气，默认只处理 <selected_text>。
+5. 如果不存在 <selected_text>，就仅根据 <user_request> 生成目标内容，不要假设还有隐藏上下文。
+6. 根据用户意图自动匹配格式：
+   - 邮件：包含合适称呼、正文、结尾。
+   - 消息/回复：简短自然，不加多余格式。
+   - 问答：直接回答，简明扼要。
+   - 翻译：只输出译文。
+   - 清单/标题/摘要：按用户要求输出对应形式。
+7. 语气、详略、语言和格式优先匹配用户请求，而不是匹配你的默认风格。
+8. 除非用户明确要求，否则不要把窗口标题、程序名、文件名、标签名或示例内容写进结果。
+</instructions>
+
+<edge_cases>
+- 如果用户请求本身就是一段要直接使用的内容，直接输出它的最终版本。
+- 如果用户请求引用了已选中文本，但 <selected_text> 为空，就仅根据 <user_request> 做最小安全推断，不要编造额外事实。
+- 如果用户请求是翻译，只输出译文，不附加说明。
+- 如果用户请求是“回复一句”“写一句”“帮我发一句”，默认输出一段可直接使用的自然文本。
+</edge_cases>
+
+<examples>
+  <example>
+    <input>
+      <user_request><![CDATA[帮我回一句：我今天晚点到，大概七点半。]]></user_request>
+    </input>
+    <output><![CDATA[我今天会晚点到，大概七点半。]]></output>
+  </example>
+  <example>
+    <input>
+      <selected_text><![CDATA[这个方案不太行，你再想想。]]></selected_text>
+      <user_request><![CDATA[改得更礼貌一些]]></user_request>
+    </input>
+    <output><![CDATA[这个方案目前还不够理想，麻烦你再想想。]]></output>
+  </example>
+  <example>
+    <input>
+      <user_request><![CDATA[把“我们明天下午两点开会”翻成英文]]></user_request>
+    </input>
+    <output><![CDATA[We have a meeting tomorrow at 2 PM.]]></output>
+  </example>
+  <example>
+    <input>
+      <app_context>
+        <process_name><![CDATA[Code.exe]]></process_name>
+        <window_title><![CDATA[RELEASE_GUIDE.md]]></window_title>
+      </app_context>
+      <user_request><![CDATA[写一句提交版本说明的备注：补充发版步骤和注意事项]]></user_request>
+    </input>
+    <output><![CDATA[补充了发版步骤和注意事项。]]></output>
+  </example>
+</examples>
 "#;
 
 pub fn build_assistant_system_prompt(profile: &UserProfile) -> String {
@@ -29,8 +74,12 @@ pub fn build_assistant_system_prompt(profile: &UserProfile) -> String {
     let hot_words = profile.get_hot_word_texts(20);
 
     if !hot_words.is_empty() {
-        prompt.push_str("\n\n【用户常用术语】\n");
-        prompt.push_str(&hot_words.join("、"));
+        prompt.push_str("\n\n<user_terms>\n");
+        for hot_word in hot_words {
+            prompt.push_str(&crate::utils::foreground::wrap_xml_cdata("term", &hot_word));
+            prompt.push('\n');
+        }
+        prompt.push_str("</user_terms>");
     }
 
     if let Some(custom_prompt) = profile
@@ -39,8 +88,12 @@ pub fn build_assistant_system_prompt(profile: &UserProfile) -> String {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        prompt.push_str("\n\n【用户附加助手规则（优先级更高）】\n");
-        prompt.push_str(custom_prompt);
+        prompt.push_str("\n\n<user_overrides priority=\"high\">\n");
+        prompt.push_str(&crate::utils::foreground::wrap_xml_cdata(
+            "override",
+            custom_prompt,
+        ));
+        prompt.push_str("\n</user_overrides>");
     }
 
     prompt
@@ -50,28 +103,67 @@ fn build_assistant_user_content_with_selection(
     asr_text: &str,
     selected_text: Option<&str>,
 ) -> String {
+    let app_context = crate::utils::foreground::prompt_context_block();
+    render_assistant_user_content(app_context.as_deref(), asr_text, selected_text)
+}
+
+fn render_assistant_user_content(
+    app_context: Option<&str>,
+    asr_text: &str,
+    selected_text: Option<&str>,
+) -> String {
     let selected_text = selected_text
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let app_context = crate::utils::foreground::prompt_context_block();
-
     if app_context.is_some() || selected_text.is_some() {
         let mut sections = Vec::new();
         if let Some(app_context) = app_context {
-            sections.push(app_context);
+            sections.push(app_context.to_string());
         }
         if let Some(selected_text) = selected_text {
-            sections.push(format!("[用户当前选中文本]\n{}", selected_text));
+            sections.push(crate::utils::foreground::wrap_xml_cdata(
+                "selected_text",
+                selected_text,
+            ));
         }
-        sections.push(format!("[用户语音指令]\n{}", asr_text));
+        sections.push(crate::utils::foreground::wrap_xml_cdata(
+            "user_request",
+            asr_text,
+        ));
         return sections.join("\n\n");
     }
 
     if let Some(selected_text) = selected_text {
-        format!("[用户当前选中文本]\n{}\n\n[用户语音指令]\n{}", selected_text, asr_text)
+        format!(
+            "{}\n\n{}",
+            crate::utils::foreground::wrap_xml_cdata("selected_text", selected_text),
+            crate::utils::foreground::wrap_xml_cdata("user_request", asr_text)
+        )
     } else {
-        asr_text.to_string()
+        crate::utils::foreground::wrap_xml_cdata("user_request", asr_text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_assistant_user_content;
+
+    #[test]
+    fn assistant_input_preserves_symbols_and_splits_cdata() {
+        let content = render_assistant_user_content(
+            Some("<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"),
+            "如果 a > b 并且文本里有 ]]> 这个片段",
+            Some("原文里有 <tag> 和 >"),
+        );
+
+        assert!(content.contains(
+            "<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"
+        ));
+        assert!(content.contains("<selected_text><![CDATA[原文里有 <tag> 和 >]]></selected_text>"));
+        assert!(content.contains(
+            "<user_request><![CDATA[如果 a > b 并且文本里有 ]]]]><![CDATA[> 这个片段]]></user_request>"
+        ));
     }
 }
 

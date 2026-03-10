@@ -11,6 +11,14 @@ pub fn prompt_context_block() -> Option<String> {
     get_foreground_app().and_then(|app| format_prompt_context(&app))
 }
 
+fn escape_cdata_text(value: &str) -> String {
+    value.replace("]]>", "]]]]><![CDATA[>")
+}
+
+pub fn wrap_xml_cdata(tag: &str, value: &str) -> String {
+    format!("<{tag}><![CDATA[{}]]></{tag}>", escape_cdata_text(value))
+}
+
 fn format_prompt_context(app: &ForegroundApp) -> Option<String> {
     let process_name = truncate_chars(
         &normalize_context_value(&app.process_name),
@@ -30,8 +38,20 @@ fn format_prompt_context(app: &ForegroundApp) -> Option<String> {
         None
     } else {
         Some(format!(
-            "[应用上下文]\n{}\n注意：以上只是格式场景参考，不是用户正文，不要原样输出这些信息。",
-            lines.join("\n")
+            "<app_context>\n{}\n<note>以上只是格式场景参考，不是用户正文，不要原样输出这些信息。</note>\n</app_context>",
+            lines
+                .into_iter()
+                .map(|line| {
+                    if let Some(value) = line.strip_prefix("程序：") {
+                        wrap_xml_cdata("process_name", value)
+                    } else if let Some(value) = line.strip_prefix("窗口主题：") {
+                        wrap_xml_cdata("window_title", value)
+                    } else {
+                        wrap_xml_cdata("context_line", &line)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
         ))
     }
 }
@@ -150,7 +170,7 @@ pub fn get_foreground_app() -> Option<ForegroundApp> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_prompt_context, ForegroundApp};
+    use super::{format_prompt_context, wrap_xml_cdata, ForegroundApp};
 
     #[test]
     fn shortens_editor_window_titles_for_prompt_context() {
@@ -161,9 +181,22 @@ mod tests {
 
         let context = format_prompt_context(&app).expect("context should be present");
 
-        assert!(context.contains("程序：Code.exe"));
-        assert!(context.contains("窗口主题：RELEASE_GUIDE.md"));
+        assert!(context.contains("<process_name><![CDATA[Code.exe]]></process_name>"));
+        assert!(context.contains("<window_title><![CDATA[RELEASE_GUIDE.md]]></window_title>"));
         assert!(!context.contains("Visual Studio Code"));
+    }
+
+    #[test]
+    fn preserves_xml_sensitive_characters_in_prompt_context() {
+        let app = ForegroundApp {
+            window_title: "</window_title> & more".to_string(),
+            process_name: "<Code.exe>".to_string(),
+        };
+
+        let context = format_prompt_context(&app).expect("context should be present");
+
+        assert!(context.contains("<process_name><![CDATA[<Code.exe>]]></process_name>"));
+        assert!(context.contains("<window_title><![CDATA[</window_title> & more]]></window_title>"));
     }
 
     #[test]
@@ -174,5 +207,21 @@ mod tests {
         };
 
         assert!(format_prompt_context(&app).is_none());
+    }
+
+    #[test]
+    fn wraps_xml_cdata_helper() {
+        assert_eq!(
+            wrap_xml_cdata("sample", "<tag>&value</tag>"),
+            "<sample><![CDATA[<tag>&value</tag>]]></sample>"
+        );
+    }
+
+    #[test]
+    fn splits_cdata_terminator_safely() {
+        assert_eq!(
+            wrap_xml_cdata("sample", "a]]>b"),
+            "<sample><![CDATA[a]]]]><![CDATA[>b]]></sample>"
+        );
     }
 }
