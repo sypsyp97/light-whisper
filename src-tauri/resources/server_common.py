@@ -37,8 +37,9 @@ def ensure_safe_cuda_env() -> None:
 
     NOTE: On Windows, PyTorch eagerly loads ALL DLLs in torch/lib/ via
     LoadLibraryExW at import time. CUDA_VISIBLE_DEVICES does NOT prevent
-    this. The real fix for missing CUDA DLLs (e.g. cusolver64_11.dll) is
-    to physically strip them at build time (see build_engine.py).
+    this. The real fix is to keep every CUDA DLL that torch_cuda.dll
+    directly imports, or ship a CPU-only torch build. Blindly stripping
+    cusolver/cusparse/cufft will crash import torch on CPU-only machines.
 
     This function still helps by making torch.cuda.is_available() return
     False, so our runtime code takes the CPU path instead of attempting

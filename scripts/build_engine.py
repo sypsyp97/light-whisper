@@ -5,7 +5,7 @@
 
 流程：
 1. PyInstaller --onedir 构建 engine.exe
-2. 删除推理不需要的 CUDA DLL（节省 ~1.2GB）
+2. 删除可安全裁剪的可选 CUDA DLL
 3. 压缩为 engine.zip（适配 NSIS 2GB 限制）
 4. 输出到 src-tauri/resources/engine.zip
 
@@ -75,13 +75,11 @@ EXCLUDE_MODULES = [
     "triton",
 ]
 
-# 推理不需要的 CUDA DLL（glob 模式，匹配 torch/lib/ 下的文件）
-# 这些库仅用于训练或特殊计算场景，ASR 推理不依赖
+# 可安全裁剪的可选 CUDA DLL（glob 模式，匹配 torch/lib/ 下的文件）
+# 注意：torch_cuda.dll 在 Windows 上会直接依赖 cusolver/cusparse/cufft；
+# 这些 DLL 即使在 CPU 回退场景下也必须保留，否则 import torch 会在无 NVIDIA 机器上崩溃。
 STRIP_CUDA_PATTERNS = [
     "cudnn_engines_precompiled*.dll",   # ~562M cuDNN 预编译融合引擎
-    "cusparse*.dll",                     # ~263M 稀疏矩阵运算
-    "cufft*.dll",                        # ~279M GPU FFT（音频用 librosa CPU FFT）
-    "cusolver*.dll",                     # ~150M 线性代数求解器（含单 GPU + 多 GPU，推理不需要）
     "curand*.dll",                       # ~61M  随机数生成（仅训练）
 ]
 
@@ -92,7 +90,7 @@ def get_size_mb(path: Path) -> float:
 
 
 def strip_cuda_dlls(engine_dir: Path) -> float:
-    """删除推理不需要的 CUDA DLL，返回节省的 MB 数"""
+    """删除可安全裁剪的 CUDA DLL，返回节省的 MB 数"""
     torch_lib = engine_dir / "_internal" / "torch" / "lib"
     if not torch_lib.is_dir():
         return 0.0
@@ -108,13 +106,46 @@ def strip_cuda_dlls(engine_dir: Path) -> float:
     return saved
 
 
+def validate_torch_cuda_deps(engine_dir: Path) -> None:
+    """校验 torch_cuda.dll 的直接 CUDA 依赖仍然存在。"""
+    try:
+        import pefile
+    except ImportError:
+        print("警告: 未安装 pefile，跳过 torch CUDA 依赖校验", file=sys.stderr)
+        return
+
+    torch_lib = engine_dir / "_internal" / "torch" / "lib"
+    torch_cuda = torch_lib / "torch_cuda.dll"
+    if not torch_cuda.is_file():
+        return
+
+    pe = pefile.PE(str(torch_cuda), fast_load=True)
+    pe.parse_data_directories(
+        directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"]]
+    )
+
+    required = []
+    for entry in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []):
+        dll_name = entry.dll.decode("utf-8", "ignore")
+        lowered = dll_name.lower()
+        if lowered.startswith(("cu", "nv", "cudnn")):
+            required.append(dll_name)
+
+    missing = [name for name in required if not (torch_lib / name).is_file()]
+    if missing:
+        raise RuntimeError(
+            "torch_cuda.dll 依赖缺失，当前裁剪配置会导致引擎启动失败: "
+            + ", ".join(missing)
+        )
+
+
 def create_zip(engine_dir: Path, output: Path) -> float:
     """将 engine 目录压缩为 zip，返回 zip 大小 MB"""
     print(f"正在压缩到 {output.name} ...")
     files = [f for f in engine_dir.rglob("*") if f.is_file()]
     total = len(files)
 
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_LZMA, allowZip64=True) as zf:
         for i, filepath in enumerate(files, 1):
             arcname = filepath.relative_to(engine_dir)
             zf.write(filepath, arcname)
@@ -185,12 +216,13 @@ def main():
     raw_size = get_size_mb(engine_dir)
     print(f"\nPyInstaller 输出: {raw_size:.0f} MB")
 
-    # 瘦身：删除推理不需要的 CUDA DLL
+    # 瘦身：删除可安全裁剪的 CUDA DLL
     print("=" * 60)
-    print("步骤 2/3: 瘦身（删除推理不需要的 CUDA DLL）")
+    print("步骤 2/3: 瘦身（删除可安全裁剪的 CUDA DLL）")
     print("=" * 60)
 
     saved = strip_cuda_dlls(engine_dir)
+    validate_torch_cuda_deps(engine_dir)
     stripped_size = get_size_mb(engine_dir)
     print(f"节省: {saved:.0f} MB, 瘦身后: {stripped_size:.0f} MB")
 
