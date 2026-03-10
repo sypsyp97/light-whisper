@@ -16,11 +16,39 @@ import type {
 
 type InvokeArgs = Record<string, unknown>;
 
+function normalizeInvokeError(command: string, err: unknown): Error {
+  if (err instanceof Error) {
+    return err;
+  }
+  if (typeof err === "string" && err.trim()) {
+    return new Error(err);
+  }
+  if (typeof err === "object" && err !== null) {
+    const message = Reflect.get(err, "message");
+    if (typeof message === "string" && message.trim()) {
+      return new Error(message);
+    }
+    const error = Reflect.get(err, "error");
+    if (typeof error === "string" && error.trim()) {
+      return new Error(error);
+    }
+    try {
+      return new Error(JSON.stringify(err));
+    } catch {
+      // Fall through to generic message.
+    }
+  }
+  return new Error(`${command} 调用失败`);
+}
+
 function invokeCommand<T>(
   command: string,
   args?: InvokeArgs
 ): Promise<T> {
-  return args ? invoke<T>(command, args) : invoke<T>(command);
+  const task = args ? invoke<T>(command, args) : invoke<T>(command);
+  return task.catch((err) => {
+    throw normalizeInvokeError(command, err);
+  });
 }
 
 function createNoArgCommand<T = string>(

@@ -12,7 +12,11 @@ import requests
 
 from hf_cache_utils import is_hf_repo_ready, get_hf_cache_root, ASR_REPO_ID, VAD_REPO_ID, WHISPER_REPO_ID
 
-HF_ENDPOINT = os.environ.get("HF_ENDPOINT", "https://huggingface.co")
+DEFAULT_HF_ENDPOINT = "https://huggingface.co"
+DEFAULT_HF_FALLBACK_ENDPOINT = "https://hf-mirror.com"
+
+HF_ENDPOINT = os.environ.get("HF_ENDPOINT", DEFAULT_HF_ENDPOINT).rstrip("/")
+HF_FALLBACK_ENDPOINT = os.environ.get("HF_FALLBACK_ENDPOINT", DEFAULT_HF_FALLBACK_ENDPOINT).rstrip("/")
 
 _progress = {}
 _completed_count = 0
@@ -50,9 +54,17 @@ def _emit(model_type, stage, percent, error=None, message=None):
     sys.stdout.flush()
 
 
-def _get_repo_info(repo_id):
+def _candidate_endpoints():
+    endpoints = [HF_ENDPOINT]
+    # 用户显式设置 HF_ENDPOINT 时，尊重其选择；未设置时才自动切镜像。
+    if "HF_ENDPOINT" not in os.environ and HF_FALLBACK_ENDPOINT and HF_FALLBACK_ENDPOINT not in endpoints:
+        endpoints.append(HF_FALLBACK_ENDPOINT)
+    return endpoints
+
+
+def _get_repo_info(repo_id, endpoint):
     """通过 HF API 获取仓库文件列表"""
-    url = f"{HF_ENDPOINT}/api/models/{repo_id}"
+    url = f"{endpoint}/api/models/{repo_id}"
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     info = resp.json()
@@ -62,9 +74,9 @@ def _get_repo_info(repo_id):
     return commit_hash, files
 
 
-def _download_file(repo_id, filename, dest_path, model_type, file_idx, file_total):
+def _download_file(repo_id, filename, dest_path, model_type, file_idx, file_total, endpoint):
     """下载单个文件，支持断点续传和进度上报"""
-    url = f"{HF_ENDPOINT}/{repo_id}/resolve/main/{filename}"
+    url = f"{endpoint}/{repo_id}/resolve/main/{filename}"
 
     dest_dir = os.path.dirname(dest_path)
     os.makedirs(dest_dir, exist_ok=True)
@@ -142,45 +154,62 @@ def download_model(model_config):
               message=f"{model_name} 已缓存，跳过下载")
         return {"success": True, "model": model_type}
 
-    _emit(model_type, "downloading", 0, message=f"正在获取 {model_name} 文件列表...")
+    last_error = None
+    endpoints = _candidate_endpoints()
 
-    try:
-        commit_hash, files = _get_repo_info(model_name)
-    except Exception as e:
-        _emit(model_type, "error", 0, str(e),
-              message=f"获取 {model_name} 文件列表失败")
-        return {"success": False, "model": model_type, "error": str(e)}
-
-    # 构建 HF 缓存目录结构
-    cache_root = get_hf_cache_root()
-    dir_name = "models--" + model_name.replace("/", "--")
-    repo_dir = os.path.join(cache_root, dir_name)
-    snapshot_dir = os.path.join(repo_dir, "snapshots", commit_hash)
-    refs_dir = os.path.join(repo_dir, "refs")
-    os.makedirs(snapshot_dir, exist_ok=True)
-    os.makedirs(refs_dir, exist_ok=True)
-
-    # 写入 refs/main
-    with open(os.path.join(refs_dir, "main"), "w") as f:
-        f.write(commit_hash)
-
-    file_total = len(files)
-    for idx, filename in enumerate(files, 1):
-        dest_path = os.path.join(snapshot_dir, filename.replace("/", os.sep))
-
-        # 跳过已存在且非空的文件
-        if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
-            continue
+    for idx, endpoint in enumerate(endpoints, 1):
+        if idx > 1:
+            _emit(
+                model_type,
+                "downloading",
+                0,
+                message=f"主站不可用，正在切换镜像 {endpoint} ..."
+            )
+        else:
+            _emit(model_type, "downloading", 0, message=f"正在获取 {model_name} 文件列表...")
 
         try:
-            _download_file(model_name, filename, dest_path, model_type, idx, file_total)
-        except Exception as e:
-            _emit(model_type, "error", 0, str(e),
-                  message=f"{filename} 下载失败: {e}")
-            return {"success": False, "model": model_type, "error": str(e)}
+            commit_hash, files = _get_repo_info(model_name, endpoint)
 
-    _emit(model_type, "completed", 100, message=f"{model_name} 下载完成")
-    return {"success": True, "model": model_type}
+            # 构建 HF 缓存目录结构
+            cache_root = get_hf_cache_root()
+            dir_name = "models--" + model_name.replace("/", "--")
+            repo_dir = os.path.join(cache_root, dir_name)
+            snapshot_dir = os.path.join(repo_dir, "snapshots", commit_hash)
+            refs_dir = os.path.join(repo_dir, "refs")
+            os.makedirs(snapshot_dir, exist_ok=True)
+            os.makedirs(refs_dir, exist_ok=True)
+
+            # 写入 refs/main
+            with open(os.path.join(refs_dir, "main"), "w") as f:
+                f.write(commit_hash)
+
+            file_total = len(files)
+            for file_idx, filename in enumerate(files, 1):
+                dest_path = os.path.join(snapshot_dir, filename.replace("/", os.sep))
+
+                # 跳过已存在且非空的文件
+                if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+                    continue
+
+                _download_file(
+                    model_name,
+                    filename,
+                    dest_path,
+                    model_type,
+                    file_idx,
+                    file_total,
+                    endpoint,
+                )
+
+            _emit(model_type, "completed", 100, message=f"{model_name} 下载完成")
+            return {"success": True, "model": model_type, "endpoint": endpoint}
+        except Exception as e:
+            last_error = e
+
+    error_message = str(last_error) if last_error else "模型下载失败"
+    _emit(model_type, "error", 0, error_message, message=f"{model_name} 下载失败: {error_message}")
+    return {"success": False, "model": model_type, "error": error_message}
 
 
 def main(engine=None):

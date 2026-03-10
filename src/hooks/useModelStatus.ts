@@ -41,6 +41,8 @@ const DOWNLOAD_STALL_HINT_MS = 20000;
 /** Auto-download retries when app cold-starts without models. */
 const AUTO_DOWNLOAD_MAX_RETRIES = 1;
 const AUTO_DOWNLOAD_RETRY_DELAY_MS = 3000;
+const ENGINE_START_FALLBACK_MESSAGE =
+  "语音引擎启动失败，请重试；如仍失败，请查看 %APPDATA%\\com.light-whisper.app\\funasr_stderr.log";
 
 function toErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
@@ -213,7 +215,7 @@ export function useModelStatus(): UseModelStatusReturn {
         enterErrorState(
           toErrorMessage(
             startErr,
-            "FunASR 引擎启动失败，请检查 Python 环境是否安装了 funasr 包"
+            ENGINE_START_FALLBACK_MESSAGE
           )
         );
       }
@@ -277,6 +279,12 @@ export function useModelStatus(): UseModelStatusReturn {
           } else if (status === "loading") {
             setStage("loading");
             setDownloadMessage(message ?? null);
+          } else if (status === "error") {
+            if (message?.includes("模型文件未下载")) {
+              enterNeedDownloadState();
+              return;
+            }
+            enterErrorState(message ?? ENGINE_START_FALLBACK_MESSAGE);
           } else if (status === "crashed") {
             setStage("loading");
             setError(null);
@@ -297,7 +305,7 @@ export function useModelStatus(): UseModelStatusReturn {
     return () => {
       unlisten?.();
     };
-  }, [checkStatus, startPolling]);
+  }, [checkStatus, clearPolling, enterErrorState, enterNeedDownloadState, startPolling]);
 
   useEffect(() => {
     let disposed = false;

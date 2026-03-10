@@ -31,6 +31,7 @@ class FunASRServer(BaseASRServer):
         self.asr_model = None
         self._torch = None
         self._rich_postprocess = None
+        self._last_load_error = None
 
     def _get_model_repos(self) -> list:
         return MODEL_REPOS
@@ -54,6 +55,7 @@ class FunASRServer(BaseASRServer):
             from funasr.utils.postprocess_utils import rich_transcription_postprocess
             self._torch = torch
             self._rich_postprocess = rich_transcription_postprocess
+            self._last_load_error = None
             logger.info(f"SenseVoiceSmall 模型加载完成 (device={self.device})")
             return True
         except Exception as e:
@@ -61,7 +63,9 @@ class FunASRServer(BaseASRServer):
                 logger.warning(f"ASR模型GPU加载失败: {e}，回退到CPU")
                 self.device = "cpu"
                 return self._load_asr_model()
+            self._last_load_error = str(e)
             logger.error(f"ASR模型加载失败: {e}")
+            logger.error(traceback.format_exc())
             return False
 
     def initialize(self):
@@ -76,7 +80,7 @@ class FunASRServer(BaseASRServer):
             start_time = time.time()
 
             if not self._load_asr_model():
-                error_msg = "ASR模型加载失败"
+                error_msg = self._last_load_error or "ASR模型加载失败"
                 logger.error(error_msg)
                 return {"success": False, "error": error_msg, "type": "init_error"}
 
@@ -90,9 +94,10 @@ class FunASRServer(BaseASRServer):
                 "engine": self.engine,
             }
 
-        except ImportError:
-            error_msg = "FunASR未安装，请先安装FunASR: pip install funasr"
+        except ImportError as e:
+            error_msg = f"FunASR 依赖加载失败: {e}"
             logger.error(error_msg)
+            logger.error(traceback.format_exc())
             return {"success": False, "error": error_msg, "type": "import_error", "engine": self.engine}
 
         except Exception as e:
@@ -247,12 +252,16 @@ class FunASRServer(BaseASRServer):
                 "models": models,
                 **device_info,
             }
-        except ImportError:
+        except ImportError as e:
+            error_msg = f"FunASR 依赖加载失败: {e}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
             return {
                 "success": False,
                 "installed": False,
                 "initialized": False,
-                "error": "FunASR未安装",
+                "error": error_msg,
+                "engine": self.engine,
             }
 
 

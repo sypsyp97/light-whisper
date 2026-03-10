@@ -27,6 +27,7 @@ class WhisperServer(BaseASRServer):
         super().__init__(engine="whisper", logger=logger)
         self.model = None
         self.compute_type = "float16" if self.device == "cuda" else "int8"
+        self._last_load_error = None
 
     def _get_model_repos(self) -> list:
         return WHISPER_MODEL_REPOS
@@ -65,6 +66,7 @@ class WhisperServer(BaseASRServer):
                     device=self.device,
                     compute_type=self.compute_type,
                 )
+            self._last_load_error = None
             logger.info(f"Faster Whisper 模型加载完成 (device={self.device})")
             return True
         except Exception as e:
@@ -73,7 +75,9 @@ class WhisperServer(BaseASRServer):
                 self.device = "cpu"
                 self.compute_type = "int8"
                 return self._load_model()
+            self._last_load_error = str(e)
             logger.error(f"Whisper模型加载失败: {e}")
+            logger.error(traceback.format_exc())
             return False
 
     def initialize(self):
@@ -88,7 +92,7 @@ class WhisperServer(BaseASRServer):
             start_time = time.time()
 
             if not self._load_model():
-                error_msg = "Whisper模型加载失败"
+                error_msg = self._last_load_error or "Whisper模型加载失败"
                 logger.error(error_msg)
                 return {"success": False, "error": error_msg, "type": "init_error"}
 
@@ -102,9 +106,10 @@ class WhisperServer(BaseASRServer):
                 "engine": self.engine,
             }
 
-        except ImportError:
-            error_msg = "faster-whisper未安装，请先安装: pip install faster-whisper"
+        except ImportError as e:
+            error_msg = f"Faster Whisper 依赖加载失败: {e}"
             logger.error(error_msg)
+            logger.error(traceback.format_exc())
             return {"success": False, "error": error_msg, "type": "import_error", "engine": self.engine}
 
         except Exception as e:
@@ -229,12 +234,16 @@ class WhisperServer(BaseASRServer):
                 },
                 **device_info,
             }
-        except ImportError:
+        except ImportError as e:
+            error_msg = f"Faster Whisper 依赖加载失败: {e}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
             return {
                 "success": False,
                 "installed": False,
                 "initialized": False,
-                "error": "faster-whisper未安装",
+                "error": error_msg,
+                "engine": self.engine,
             }
 
 

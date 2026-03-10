@@ -188,8 +188,8 @@ class BaseASRServer:
             else:
                 self.logger.info("CUDA 不可用，使用 CPU 推理")
                 return "cpu"
-        except ImportError:
-            self.logger.info("PyTorch 未安装，使用 CPU 推理")
+        except ImportError as e:
+            self.logger.warning(f"PyTorch 导入失败: {e}，使用 CPU 推理")
             return "cpu"
         except Exception as e:
             self.logger.warning(f"GPU 检测失败: {e}，回退到 CPU 推理")
