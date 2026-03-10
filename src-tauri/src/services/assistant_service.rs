@@ -2,8 +2,8 @@ use std::sync::atomic::Ordering;
 
 use tauri::Emitter;
 
-use crate::services::{llm_client, llm_provider};
-use crate::services::llm_client::LlmRequestOptions;
+use crate::services::{llm_client, llm_provider, screen_capture_service};
+use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
 use crate::state::user_profile::UserProfile;
 use crate::state::AppState;
 use crate::utils::AppError;
@@ -16,7 +16,7 @@ const ASSISTANT_SYSTEM_PROMPT: &str = r#"
 <instructions>
 1. 只输出最终内容本身，不要解释、不要反问、不要加标题、不要加前后说明。
 2. 只根据 <user_request> 生成与其真实意图对应的内容。
-3. 把 <app_context> 和 <selected_text> 只当作辅助上下文；除非用户明确要求，否则不要复述其中的信息。
+3. 把 <app_context>、<selected_text> 和屏幕截图都只当作辅助上下文；除非用户明确要求，否则不要复述其中的信息。
 4. 如果存在 <selected_text> 且用户请求是改写、续写、总结、翻译、解释、润色、提炼、扩写、压缩或调整语气，默认只处理 <selected_text>。
 5. 如果不存在 <selected_text>，就仅根据 <user_request> 生成目标内容，不要假设还有隐藏上下文。
 6. 根据用户意图自动匹配格式：
@@ -102,21 +102,28 @@ pub fn build_assistant_system_prompt(profile: &UserProfile) -> String {
 fn build_assistant_user_content_with_selection(
     asr_text: &str,
     selected_text: Option<&str>,
+    has_screen_context: bool,
 ) -> String {
     let app_context = crate::utils::foreground::prompt_context_block();
-    render_assistant_user_content(app_context.as_deref(), asr_text, selected_text)
+    render_assistant_user_content(
+        app_context.as_deref(),
+        asr_text,
+        selected_text,
+        has_screen_context,
+    )
 }
 
 fn render_assistant_user_content(
     app_context: Option<&str>,
     asr_text: &str,
     selected_text: Option<&str>,
+    has_screen_context: bool,
 ) -> String {
     let selected_text = selected_text
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    if app_context.is_some() || selected_text.is_some() {
+    if app_context.is_some() || selected_text.is_some() || has_screen_context {
         let mut sections = Vec::new();
         if let Some(app_context) = app_context {
             sections.push(app_context.to_string());
@@ -125,6 +132,12 @@ fn render_assistant_user_content(
             sections.push(crate::utils::foreground::wrap_xml_cdata(
                 "selected_text",
                 selected_text,
+            ));
+        }
+        if has_screen_context {
+            sections.push(crate::utils::foreground::wrap_xml_cdata(
+                "screen_context",
+                "已附带当前整屏截图，仅在与用户请求相关时参考其中信息。",
             ));
         }
         sections.push(crate::utils::foreground::wrap_xml_cdata(
@@ -155,12 +168,14 @@ mod tests {
             Some("<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"),
             "如果 a > b 并且文本里有 ]]> 这个片段",
             Some("原文里有 <tag> 和 >"),
+            true,
         );
 
         assert!(content.contains(
             "<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"
         ));
         assert!(content.contains("<selected_text><![CDATA[原文里有 <tag> 和 >]]></selected_text>"));
+        assert!(content.contains("<screen_context><![CDATA[已附带当前整屏截图，仅在与用户请求相关时参考其中信息。]]></screen_context>"));
         assert!(content.contains(
             "<user_request><![CDATA[如果 a > b 并且文本里有 ]]]]><![CDATA[> 这个片段]]></user_request>"
         ));
@@ -183,7 +198,62 @@ pub async fn generate_content(
 
     let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
     let system_prompt = state.with_profile(build_assistant_system_prompt);
-    let user_content = build_assistant_user_content_with_selection(asr_text, selected_text);
+    let screen_context_enabled =
+        state.with_profile(|profile| profile.assistant_screen_context_enabled);
+    let image_support_cache_key = format!(
+        "{:?}|{}|{}|{}",
+        endpoint.api_format,
+        endpoint.provider,
+        endpoint.api_url,
+        endpoint.model.trim().to_ascii_lowercase()
+    );
+    let cached_image_support = state.assistant_image_support(&image_support_cache_key);
+
+    let images = if screen_context_enabled && cached_image_support != Some(false) {
+        match screen_capture_service::capture_full_screen_context() {
+            Ok(captured) => {
+                if !captured.is_empty() {
+                    let labels = captured
+                        .iter()
+                        .map(|image| image.label.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    log::info!(
+                        "助手模式已附带屏幕截图上下文: {} 张 ({})",
+                        captured.len(),
+                        labels
+                    );
+                }
+                captured
+                    .into_iter()
+                    .map(|image| LlmImageInput {
+                        mime_type: image.mime_type,
+                        data_base64: image.data_base64,
+                    })
+                    .collect::<Vec<_>>()
+            }
+            Err(err) => {
+                log::warn!("截取屏幕上下文失败，继续纯文本助手请求: {}", err);
+                Vec::new()
+            }
+        }
+    } else {
+        if screen_context_enabled && cached_image_support == Some(false) {
+            log::info!(
+                "当前助手模型已缓存为不支持图片输入，跳过屏幕截图上下文: provider={}, model={}",
+                endpoint.provider,
+                endpoint.model
+            );
+        }
+        Vec::new()
+    };
+
+    let user_content =
+        build_assistant_user_content_with_selection(asr_text, selected_text, !images.is_empty());
+    let user_input = LlmUserInput {
+        text: user_content.clone(),
+        images,
+    };
 
     let request_options = LlmRequestOptions {
         stream: !endpoint.api_url.contains("/v1/responses"),
@@ -191,7 +261,7 @@ pub async fn generate_content(
         stream_event: Some("assistant-stream"),
         session_id: Some(session_id),
     };
-    let body = llm_client::build_llm_body(&endpoint, &system_prompt, &user_content, request_options);
+    let body = llm_client::build_llm_body(&endpoint, &system_prompt, &user_input, request_options);
 
     let _ = app_handle.emit(
         "assistant-stream",
@@ -201,7 +271,7 @@ pub async fn generate_content(
         }),
     );
 
-    let content = llm_client::send_llm_request(
+    let content = match llm_client::send_llm_request(
         &state.http_client,
         &endpoint,
         &api_key,
@@ -211,7 +281,48 @@ pub async fn generate_content(
         request_options,
     )
     .await
-    .map_err(AppError::Other)?;
+    {
+        Ok(content) => {
+            if !user_input.images.is_empty() {
+                state.set_assistant_image_support(image_support_cache_key.clone(), true);
+            }
+            content
+        }
+        Err(err)
+            if !user_input.images.is_empty()
+                && llm_provider::looks_like_image_input_unsupported_error(&err) =>
+        {
+            log::warn!(
+                "当前模型不支持图片输入，回退到纯文本助手请求: provider={}, model={}, err={}",
+                endpoint.provider,
+                endpoint.model,
+                err
+            );
+            state.set_assistant_image_support(image_support_cache_key.clone(), false);
+            let fallback_input = LlmUserInput {
+                text: user_content.clone(),
+                images: Vec::new(),
+            };
+            let fallback_body = llm_client::build_llm_body(
+                &endpoint,
+                &system_prompt,
+                &fallback_input,
+                request_options,
+            );
+            llm_client::send_llm_request(
+                &state.http_client,
+                &endpoint,
+                &api_key,
+                &fallback_body,
+                user_content.len(),
+                Some(app_handle),
+                request_options,
+            )
+                .await
+                .map_err(AppError::Other)?
+        }
+        Err(err) => return Err(AppError::Other(err)),
+    };
 
     let trimmed = content.trim().to_string();
     if trimmed.is_empty() {

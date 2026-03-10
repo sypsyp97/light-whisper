@@ -37,6 +37,7 @@ import {
   addCustomProvider,
   removeCustomProvider,
   setAssistantHotkey,
+  setAssistantScreenContextEnabled,
   setAssistantSystemPrompt,
 } from "@/api/tauri";
 import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat } from "@/types";
@@ -272,6 +273,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [customPromptState, setCustomPromptState] = useState<string>("");
   const customPromptSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [assistantPromptState, setAssistantPromptState] = useState<string>("");
+  const [assistantScreenContextEnabled, setAssistantScreenContextEnabledState] = useState(false);
   const assistantPromptSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [llmProvider, setLlmProvider] = useState("cerebras");
@@ -403,6 +405,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       setCustomPromptState(p.custom_prompt ?? "");
       setAssistantHotkeyState(p.assistant_hotkey ? formatHotkeyForDisplay(p.assistant_hotkey) : "");
       setAssistantPromptState(p.assistant_system_prompt ?? "");
+      setAssistantScreenContextEnabledState(Boolean(p.assistant_screen_context_enabled));
     } catch { /* ignore */ }
   }, [updateProviderDraft]);
 
@@ -969,6 +972,14 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     }, 800);
   }, []);
 
+  const handleAssistantScreenContextToggle = useCallback((enabled: boolean) => {
+    setAssistantScreenContextEnabledState(enabled);
+    setAssistantScreenContextEnabled(enabled).catch(() => {
+      setAssistantScreenContextEnabledState(!enabled);
+      toast.error("保存屏幕感知设置失败");
+    });
+  }, []);
+
   useEffect(() => {
     if (providerPickerOpen) {
       providerSearchInputRef.current?.focus();
@@ -1271,6 +1282,39 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
               <p className="settings-hint" style={{ margin: 0 }}>
                 助手模式会把你的语音当成任务指令，生成邮件、消息、翻译或回答，并显示在结果浮层中供你复制使用。
               </p>
+              <div className="settings-row">
+                <div className="permission-item" style={{ gap: 8 }}>
+                  <Monitor size={14} className="icon-tertiary" />
+                  <div className="settings-column" style={{ gap: 2 }}>
+                    <span className="permission-label">屏幕感知</span>
+                    <span className="settings-hint" style={{ margin: 0 }}>
+                      开启后，助手会尝试把当前整屏截图一并发给模型；如果当前接口或模型不支持图片输入，会自动回退到纯文本并记住结果。
+                    </span>
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={assistantScreenContextEnabled}
+                  aria-label="助手屏幕感知"
+                  onClick={() => handleAssistantScreenContextToggle(!assistantScreenContextEnabled)}
+                  className="toggle-switch"
+                  style={{
+                    background: assistantScreenContextEnabled
+                      ? "var(--color-accent)"
+                      : "var(--color-bg-tertiary)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    className="toggle-knob"
+                    style={{
+                      transform: assistantScreenContextEnabled
+                        ? "translateX(20px)"
+                        : "translateX(0)",
+                    }}
+                  />
+                </button>
+              </div>
               <div className="settings-column" style={{ gap: 6 }}>
                 <span className="settings-option-desc">自定义助手提示词</span>
                 <textarea

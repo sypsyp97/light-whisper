@@ -28,6 +28,27 @@ impl Default for LlmRequestOptions<'_> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LlmImageInput {
+    pub mime_type: String,
+    pub data_base64: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct LlmUserInput {
+    pub text: String,
+    pub images: Vec<LlmImageInput>,
+}
+
+impl From<&str> for LlmUserInput {
+    fn from(value: &str) -> Self {
+        Self {
+            text: value.to_string(),
+            images: Vec::new(),
+        }
+    }
+}
+
 fn dynamic_timeout(base_secs: u64, text_len: usize) -> Duration {
     let extra = (text_len / 200) as u64;
     Duration::from_secs(base_secs.saturating_add(extra).min(120))
@@ -36,7 +57,7 @@ fn dynamic_timeout(base_secs: u64, text_len: usize) -> Duration {
 pub fn build_llm_body(
     endpoint: &LlmEndpoint,
     system_prompt: &str,
-    user_content: &str,
+    user_input: &LlmUserInput,
     options: LlmRequestOptions<'_>,
 ) -> Value {
     match endpoint.api_format {
@@ -44,7 +65,7 @@ pub fn build_llm_body(
             "model": endpoint.model,
             "max_tokens": 4096,
             "system": system_prompt,
-            "messages": [{"role": "user", "content": user_content}],
+            "messages": [{"role": "user", "content": anthropic_user_content(user_input)}],
             "stream": options.stream,
         }),
         ApiFormat::OpenaiCompat => {
@@ -55,8 +76,8 @@ pub fn build_llm_body(
                     "model": endpoint.model,
                     "instructions": system_prompt,
                     "input": [
-                        {"role": "developer", "content": if options.json_output { "Output json." } else { "Follow the system instructions exactly." }},
-                        {"role": "user", "content": user_content},
+                        {"role": "developer", "content": [{"type": "input_text", "text": if options.json_output { "Output json." } else { "Follow the system instructions exactly." }}]},
+                        {"role": "user", "content": openai_responses_user_content(user_input)},
                     ],
                 })
             } else {
@@ -64,7 +85,7 @@ pub fn build_llm_body(
                     "model": endpoint.model,
                     "messages": [
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content},
+                        {"role": "user", "content": openai_chat_user_content(user_input)},
                     ],
                 })
             };
@@ -90,6 +111,62 @@ pub fn build_llm_body(
             body
         }
     }
+}
+
+fn openai_chat_user_content(user_input: &LlmUserInput) -> Value {
+    if user_input.images.is_empty() {
+        return serde_json::json!(user_input.text);
+    }
+
+    let mut content = vec![serde_json::json!({
+        "type": "text",
+        "text": user_input.text,
+    })];
+    for image in &user_input.images {
+        content.push(serde_json::json!({
+            "type": "image_url",
+            "image_url": {
+                "url": format!("data:{};base64,{}", image.mime_type, image.data_base64),
+            },
+        }));
+    }
+    Value::Array(content)
+}
+
+fn openai_responses_user_content(user_input: &LlmUserInput) -> Value {
+    let mut content = vec![serde_json::json!({
+        "type": "input_text",
+        "text": user_input.text,
+    })];
+    for image in &user_input.images {
+        content.push(serde_json::json!({
+            "type": "input_image",
+            "image_url": format!("data:{};base64,{}", image.mime_type, image.data_base64),
+        }));
+    }
+    Value::Array(content)
+}
+
+fn anthropic_user_content(user_input: &LlmUserInput) -> Value {
+    if user_input.images.is_empty() {
+        return serde_json::json!(user_input.text);
+    }
+
+    let mut content = vec![serde_json::json!({
+        "type": "text",
+        "text": user_input.text,
+    })];
+    for image in &user_input.images {
+        content.push(serde_json::json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": image.mime_type,
+                "data": image.data_base64,
+            },
+        }));
+    }
+    Value::Array(content)
 }
 
 fn emit_stream_chunk(

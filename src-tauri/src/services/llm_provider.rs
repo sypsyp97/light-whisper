@@ -5,6 +5,7 @@ use crate::state::AppState;
 
 /// LLM 提供商配置
 pub struct LlmEndpoint {
+    pub provider: String,
     pub api_url: String,
     pub model: String,
     pub timeout_secs: u64,
@@ -120,6 +121,7 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
             default_endpoint_parts(&active_provider);
         let use_custom_endpoint = active_provider == CUSTOM;
         LlmEndpoint {
+            provider: active_provider.clone(),
             api_url: if use_custom_endpoint {
                 normalize_api_url(config.custom_base_url.as_deref(), default_base_url)
             } else {
@@ -145,6 +147,7 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
             ApiFormat::OpenaiCompat => normalize_api_url(Some(&cp.base_url), "http://127.0.0.1:8000"),
         };
         LlmEndpoint {
+            provider: active_provider,
             api_url,
             model: if cp.model.trim().is_empty() {
                 "gpt-4.1-mini".to_string()
@@ -162,12 +165,34 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
         // fallback to cerebras
         let (base, model, timeout) = default_endpoint_parts(CEREBRAS);
         LlmEndpoint {
+            provider: CEREBRAS.to_string(),
             api_url: normalize_api_url(None, base),
             model: model.to_string(),
             timeout_secs: timeout,
             api_format: ApiFormat::OpenaiCompat,
         }
     }
+}
+
+pub fn looks_like_image_input_unsupported_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    let mentions_image = normalized.contains("image")
+        || normalized.contains("vision")
+        || normalized.contains("multimodal")
+        || normalized.contains("input_image")
+        || normalized.contains("image_url");
+
+    let indicates_unsupported = normalized.contains("not supported")
+        || normalized.contains("unsupported")
+        || normalized.contains("does not support")
+        || normalized.contains("invalid image")
+        || normalized.contains("invalid content type")
+        || normalized.contains("unsupported content type")
+        || normalized.contains("unsupported modality")
+        || normalized.contains("modalities are not supported")
+        || normalized.contains("invalid_value");
+
+    mentions_image && indicates_unsupported
 }
 
 /// 获取模型列表 URL
@@ -283,6 +308,7 @@ mod tests {
 
         let endpoint = endpoint_for_config(&config);
 
+        assert_eq!(endpoint.provider, CEREBRAS);
         assert_eq!(endpoint.api_url, "https://api.cerebras.ai/v1/chat/completions");
         assert_eq!(endpoint.model, "gpt-oss-20b");
     }
@@ -298,6 +324,7 @@ mod tests {
 
         let endpoint = endpoint_for_config(&config);
 
+        assert_eq!(endpoint.provider, CEREBRAS);
         assert_eq!(endpoint.model, "openai/gpt-5.3-chat-latest");
     }
 
@@ -312,6 +339,7 @@ mod tests {
 
         let endpoint = endpoint_for_config(&config);
 
+        assert_eq!(endpoint.provider, CUSTOM);
         assert_eq!(endpoint.api_url, "https://example.com/v1/chat/completions");
         assert_eq!(endpoint.model, "foo-model");
     }
@@ -342,7 +370,21 @@ mod tests {
 
         let endpoint = endpoint_for_config(&config);
 
+        assert_eq!(endpoint.provider, "custom_b");
         assert_eq!(endpoint.api_url, "https://b.example.com/v1/chat/completions");
         assert_eq!(endpoint.model, "model-b");
+    }
+
+    #[test]
+    fn recognizes_image_unsupported_errors() {
+        assert!(looks_like_image_input_unsupported_error(
+            "API 返回错误 400: model does not support image input"
+        ));
+        assert!(looks_like_image_input_unsupported_error(
+            "unsupported content type: input_image"
+        ));
+        assert!(!looks_like_image_input_unsupported_error(
+            "API 返回错误 401: invalid api key"
+        ));
     }
 }

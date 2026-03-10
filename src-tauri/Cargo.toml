@@ -67,6 +67,8 @@ zip = "2"
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Media_Audio"] }
 uiautomation = "0.24"
+xcap = { version = "0.9", features = ["image"] }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [profile.release]
 lto = true

@@ -3,6 +3,7 @@ use std::sync::{
     Arc,
 };
 use std::thread::JoinHandle;
+use std::collections::HashMap;
 use serde::Serialize;
 use tokio::io::BufReader;
 use tokio::process::{Child, ChildStdin, ChildStdout};
@@ -131,6 +132,7 @@ pub struct AppState {
     pub ai_polish_api_key: Arc<parking_lot::Mutex<String>>,
     pub http_client: reqwest::Client,
     pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
+    pub assistant_image_support_cache: Arc<parking_lot::Mutex<HashMap<String, bool>>>,
     pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
     /// 热键按下时抓取的选中文本，听写模式可用于编辑，助手模式可用于上下文理解
     pub edit_context: Arc<parking_lot::Mutex<Option<String>>>,
@@ -161,6 +163,7 @@ impl Default for AppState {
                 .build()
                 .unwrap_or_default(),
             user_profile: Default::default(),
+            assistant_image_support_cache: Default::default(),
             hotkey_diagnostic: Default::default(),
             edit_context: Default::default(),
             online_asr_api_key: Default::default(),
@@ -241,6 +244,19 @@ impl AppState {
 
     pub fn set_online_asr_api_key(&self, api_key: impl Into<String>) {
         *self.online_asr_api_key.lock() = api_key.into();
+    }
+
+    pub fn assistant_image_support(&self, cache_key: &str) -> Option<bool> {
+        self.assistant_image_support_cache
+            .lock()
+            .get(cache_key)
+            .copied()
+    }
+
+    pub fn set_assistant_image_support(&self, cache_key: impl Into<String>, supported: bool) {
+        self.assistant_image_support_cache
+            .lock()
+            .insert(cache_key.into(), supported);
     }
 
     pub fn selected_input_device_name(&self) -> Option<String> {

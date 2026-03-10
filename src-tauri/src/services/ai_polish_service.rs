@@ -217,8 +217,9 @@ async fn send_llm_request_with_fallback(
         stream_event: Some("ai-polish-status"),
         session_id: Some(session_id),
     };
+    let user_input = llm_client::LlmUserInput::from(user_content);
     let stream_body =
-        llm_client::build_llm_body(endpoint, system_prompt, user_content, stream_options);
+        llm_client::build_llm_body(endpoint, system_prompt, &user_input, stream_options);
 
     match llm_client::send_llm_request(
         &state.http_client,
@@ -242,7 +243,7 @@ async fn send_llm_request_with_fallback(
                 session_id: Some(session_id),
             };
             let fallback_body =
-                llm_client::build_llm_body(endpoint, system_prompt, user_content, fallback_options);
+                llm_client::build_llm_body(endpoint, system_prompt, &user_input, fallback_options);
             llm_client::send_llm_request(
                 &state.http_client,
                 endpoint,

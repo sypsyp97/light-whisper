@@ -38,3 +38,14 @@ pub async fn set_assistant_system_prompt(
     });
     profile_service::save_profile(&profile)
 }
+
+#[tauri::command]
+pub async fn set_assistant_screen_context_enabled(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    let (_, profile) = state.update_profile(|profile| {
+        profile.assistant_screen_context_enabled = enabled;
+    });
+    profile_service::save_profile(&profile)
+}

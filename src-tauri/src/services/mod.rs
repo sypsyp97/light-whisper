@@ -7,3 +7,4 @@ pub mod glm_asr_service;
 pub mod llm_client;
 pub mod llm_provider;
 pub mod profile_service;
+pub mod screen_capture_service;

@@ -193,6 +193,10 @@ export function setAssistantSystemPrompt(prompt: string | null): Promise<void> {
   return invokeCommand<void>("set_assistant_system_prompt", { prompt });
 }
 
+export function setAssistantScreenContextEnabled(enabled: boolean): Promise<void> {
+  return invokeCommand<void>("set_assistant_screen_context_enabled", { enabled });
+}
+
 export function addCustomProvider(
   name: string,
   baseUrl: string,

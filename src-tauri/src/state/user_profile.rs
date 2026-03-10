@@ -80,6 +80,9 @@ pub struct UserProfile {
     /// 助手模式附加系统提示词
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assistant_system_prompt: Option<String>,
+    /// 助手模式是否附带当前屏幕截图作为上下文
+    #[serde(default)]
+    pub assistant_screen_context_enabled: bool,
     /// 用户手动删除后，不再自动学习回来的热词黑名单
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocked_hot_words: Vec<String>,

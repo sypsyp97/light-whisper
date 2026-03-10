@@ -181,6 +181,7 @@ pub fn run() {
             commands::profile::remove_custom_provider,
             commands::assistant::set_assistant_hotkey,
             commands::assistant::set_assistant_system_prompt,
+            commands::assistant::set_assistant_screen_context_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");

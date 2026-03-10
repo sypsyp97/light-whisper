@@ -130,6 +130,7 @@ export interface UserProfile {
   custom_prompt?: string | null;
   assistant_hotkey?: string | null;
   assistant_system_prompt?: string | null;
+  assistant_screen_context_enabled?: boolean;
   blocked_hot_words?: string[];
 }
 
