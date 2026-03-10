@@ -62,6 +62,9 @@ Transparent floating window shows live dictation status and assistant output.
 **Voice assistant mode**<br>
 Set a separate hotkey for assistant mode: speak a task, get a floating answer card with manual copy.
 
+**Screen-aware assistant**<br>
+Optional: capture full-screen screenshots as visual context for assistant mode. Auto-detects model image support; falls back gracefully.
+
 **Hold or toggle**<br>
 Recording mode: hold-to-talk or press-to-start / press-to-stop.
 
@@ -112,6 +115,7 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 | **Edit selected text** | ✅ Voice instruction rewrite | ✅ |
 | **Voice assistant mode** | ✅ Separate hotkey + floating answer card | ✅ |
 | **Real-time translation** | ✅ 8 presets + custom | ✅ |
+| **Screen-aware assistant** | ✅ Auto-captures screen for visual context | ❌ |
 | **Subtitle overlay** | ✅ | ❌ |
 | **Input queue** | ✅ | ❌ |
 
@@ -220,6 +224,7 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
                                        │                        └─────────────────┘
                                        ├─── HTTP ──► GLM-ASR API (online ASR)
                                        ├─── HTTP ──► LLM API (AI polish / assistant / translation)
+                                       ├─── Screen Capture ──► full-screen screenshots → assistant context
                                        └─── User Profile ──► hot words + blacklist → ASR + LLM prompt
 ```
 
@@ -230,7 +235,7 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 |:------|:------|
 | **Frontend** | `src/pages/`, `src/components/`, `src/hooks/`, `src/styles/` |
 | **Rust commands** | `src-tauri/src/commands/` — audio, assistant, clipboard, hotkey, ai_polish, profile, window |
-| **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service |
+| **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service, screen_capture_service, download_service |
 | **State** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
 

@@ -62,6 +62,9 @@ SenseVoice 和 Whisper 完全本地运行；GLM-ASR 调用云端 API——只需
 **语音助手模式**<br>
 支持单独热键：说出任务后生成一个悬浮答案卡，手动复制即可。
 
+**屏幕感知助手**<br>
+可选功能：自动截取全屏画面作为助手的视觉上下文。自动检测模型是否支持图片输入，不支持时自动回退。
+
 **按住 / 切换**<br>
 录音模式：按住说话 或 按一下开始/再按一下结束。
 
@@ -112,6 +115,7 @@ SenseVoice 和 Whisper 完全本地运行；GLM-ASR 调用云端 API——只需
 | **编辑选中文本** | ✅ 语音指令改写 | ✅ |
 | **语音助手模式** | ✅ 独立热键 + 悬浮答案卡 | ✅ |
 | **实时翻译** | ✅ 8 种预设 + 自定义 | ✅ |
+| **屏幕感知助手** | ✅ 自动截屏作为视觉上下文 | ❌ |
 | **字幕悬浮窗** | ✅ | ❌ |
 | **输入队列** | ✅ | ❌ |
 
@@ -220,6 +224,7 @@ pnpm tauri build      # 首次编译 Rust 依赖约 5-15 分钟
                                        │                        └─────────────────┘
                                        ├─── HTTP ──► GLM-ASR API（在线语音识别）
                                        ├─── HTTP ──► LLM API（AI 润色 / 助手 / 翻译）
+                                       ├─── 屏幕捕获 ──► 全屏截图 → 助手上下文
                                        └─── 用户画像 ──► 热词 + 黑名单 → ASR + LLM prompt
 ```
 
@@ -230,7 +235,7 @@ pnpm tauri build      # 首次编译 Rust 依赖约 5-15 分钟
 |:---|:-----|
 | **前端** | `src/pages/`, `src/components/`, `src/hooks/`, `src/styles/` |
 | **Rust 命令** | `src-tauri/src/commands/` — audio, assistant, clipboard, hotkey, ai_polish, profile, window |
-| **Rust 服务** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service |
+| **Rust 服务** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service, screen_capture_service, download_service |
 | **状态** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
 
