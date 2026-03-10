@@ -158,12 +158,39 @@ function findLlmPreset(key: string) {
   return llmProviderOptions.find((option) => option.key === key) ?? llmProviderOptions[0];
 }
 
+function isBuiltinCustomPreset(key: string) {
+  return key === "custom";
+}
+
+function isFixedPresetProvider(key: string) {
+  return llmProviderOptions.some((option) => option.key === key) && !isBuiltinCustomPreset(key);
+}
+
+function resolveEffectiveProvider(key: string, customProviders: CustomProvider[]): string {
+  if (llmProviderOptions.some((option) => option.key === key)) {
+    return key;
+  }
+  if (customProviders.some((provider) => provider.id === key)) {
+    return key;
+  }
+  return customProviders.length > 0
+    ? customProviders[customProviders.length - 1].id
+    : "cerebras";
+}
+
 function resolveLlmBaseUrl(key: string, customBaseUrl?: string | null): string {
-  return customBaseUrl?.trim() || findLlmPreset(key).baseUrl;
+  const preset = findLlmPreset(key);
+  if (isFixedPresetProvider(key)) {
+    return preset.baseUrl;
+  }
+  return customBaseUrl?.trim() || preset.baseUrl;
 }
 
 function resolveLlmModel(key: string, customModel?: string | null): string {
-  return customModel?.trim() || findLlmPreset(key).defaultModel;
+  const preset = findLlmPreset(key);
+  const normalizedModel = customModel?.trim();
+  if (!normalizedModel) return preset.defaultModel;
+  return normalizedModel;
 }
 
 function readLlmProviderDrafts(): LlmProviderDraftMap {
@@ -257,6 +284,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
   const [newProviderModel, setNewProviderModel] = useState("");
   const [newProviderFormat, setNewProviderFormat] = useState<ApiFormat>("openai_compat");
+  const providerSupportsCustomEndpoint = llmProvider === "custom" || customProviders.some((p) => p.id === llmProvider);
 
   const clearPendingApiKeySave = useCallback(() => {
     if (apiKeySaveTimer.current) {
@@ -298,8 +326,8 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     }
     const preset = findLlmPreset(provider);
     return {
-      baseUrl: draft?.baseUrl ?? preset.baseUrl,
-      model: draft?.model ?? preset.defaultModel,
+      baseUrl: isFixedPresetProvider(provider) ? preset.baseUrl : (draft?.baseUrl ?? preset.baseUrl),
+      model: resolveLlmModel(provider, draft?.model),
     };
   }, [providerDrafts, customProviders]);
 
@@ -357,15 +385,16 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       setProfile(p);
       const cps = p.llm_provider.custom_providers ?? [];
       setCustomProviders(cps);
-      const nextProvider = p.llm_provider.active || "cerebras";
+      const nextProvider = resolveEffectiveProvider(p.llm_provider.active || "cerebras", cps);
       // 查自定义 provider
       const cp = cps.find((c) => c.id === nextProvider);
+      const preset = findLlmPreset(nextProvider);
       const nextBaseUrl = cp
         ? cp.base_url
-        : resolveLlmBaseUrl(nextProvider, p.llm_provider.custom_base_url);
+        : resolveLlmBaseUrl(nextProvider, p.llm_provider.custom_base_url ?? preset.baseUrl);
       const nextModel = cp
         ? cp.model
-        : resolveLlmModel(nextProvider, p.llm_provider.custom_model);
+        : resolveLlmModel(nextProvider, p.llm_provider.custom_model ?? preset.defaultModel);
       setLlmProvider(nextProvider);
       setCustomBaseUrl(nextBaseUrl);
       setCustomModel(nextModel);
@@ -826,9 +855,10 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const selectedDeviceMissing = Boolean(selectedInputDeviceName)
     && !inputDevices.some((device) => device.name === selectedInputDeviceName);
   const currentLlmPreset = useMemo(() => {
-    const cp = customProviders.find((p) => p.id === llmProvider);
+    const effectiveProvider = resolveEffectiveProvider(llmProvider, customProviders);
+    const cp = customProviders.find((p) => p.id === effectiveProvider);
     if (cp) return { key: cp.id, label: cp.name, desc: cp.api_format === "anthropic" ? "Anthropic" : "OpenAI 兼容", baseUrl: cp.base_url, defaultModel: cp.model, models: [] as string[] };
-    return findLlmPreset(llmProvider);
+    return findLlmPreset(effectiveProvider);
   }, [llmProvider, customProviders]);
   const allProviderOptions = useMemo(() => {
     const presets = llmProviderOptions.map(({ key, label, desc, baseUrl }) => ({ key, label, desc, baseUrl, isCustom: false as const }));
@@ -1544,7 +1574,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                     className="settings-input"
                     placeholder="Base URL 或完整接口地址"
                     value={customBaseUrl}
+                    readOnly={!providerSupportsCustomEndpoint}
                     onChange={(e) => {
+                      if (!providerSupportsCustomEndpoint) return;
                       const nextBaseUrl = e.target.value;
                       setCustomBaseUrl(nextBaseUrl);
                       updateProviderDraft(llmProvider, nextBaseUrl, customModel);
@@ -1552,7 +1584,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                     }}
                   />
                   <p className="settings-hint">
-                    参考 Cherry Studio：可以直接填根地址，例如 `https://api.openai.com`；如果你填完整接口地址，末尾加 `#` 可阻止自动补全路由。
+                    {providerSupportsCustomEndpoint
+                      ? "参考 Cherry Studio：可以直接填根地址，例如 `https://api.openai.com`；如果你填完整接口地址，末尾加 `#` 可阻止自动补全路由。"
+                      : "预置服务商使用固定官方接口地址；如果要自定义地址，请选择“自定义兼容”或添加自定义服务商。"}
                   </p>
                 </div>
 

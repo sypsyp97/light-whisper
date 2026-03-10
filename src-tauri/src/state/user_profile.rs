@@ -131,6 +131,53 @@ impl Default for LlmProviderConfig {
     }
 }
 
+impl LlmProviderConfig {
+    fn is_builtin_provider(provider: &str) -> bool {
+        matches!(
+            provider,
+            "cerebras" | "openai" | "deepseek" | "siliconflow" | "custom"
+        )
+    }
+
+    pub fn resolve_active_provider(&self) -> String {
+        if Self::is_builtin_provider(&self.active)
+            || self.custom_providers.iter().any(|p| p.id == self.active)
+        {
+            return self.active.clone();
+        }
+
+        self.custom_providers
+            .last()
+            .map(|provider| provider.id.clone())
+            .unwrap_or_else(|| "cerebras".to_string())
+    }
+
+    pub fn fallback_provider_after_removal(&self, removed_id: &str) -> String {
+        if self.active != removed_id {
+            return self.resolve_active_provider();
+        }
+
+        if let Some(index) = self.custom_providers.iter().position(|p| p.id == removed_id) {
+            if index > 0 {
+                return self.custom_providers[index - 1].id.clone();
+            }
+
+            if let Some(next) = self
+                .custom_providers
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(idx, _)| *idx != index)
+                .map(|(_, provider)| provider.id.clone())
+            {
+                return next;
+            }
+        }
+
+        "cerebras".to_string()
+    }
+}
+
 impl UserProfile {
     /// 获取按权重排序的热词文本列表（用于 ASR 注入）
     pub fn get_hot_word_texts(&self, limit: usize) -> Vec<String> {
@@ -190,5 +237,56 @@ impl UserProfile {
 
         matched.extend(fallback.into_iter().take(remaining));
         matched
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ApiFormat, CustomProvider, LlmProviderConfig};
+
+    fn custom_provider(id: &str) -> CustomProvider {
+        CustomProvider {
+            id: id.to_string(),
+            name: id.to_string(),
+            base_url: format!("https://{id}.example.com"),
+            model: format!("model-{id}"),
+            api_format: ApiFormat::OpenaiCompat,
+        }
+    }
+
+    #[test]
+    fn resolves_invalid_active_provider_to_latest_custom_provider() {
+        let config = LlmProviderConfig {
+            active: "missing".to_string(),
+            custom_base_url: None,
+            custom_model: None,
+            custom_providers: vec![custom_provider("a"), custom_provider("b")],
+        };
+
+        assert_eq!(config.resolve_active_provider(), "b");
+    }
+
+    #[test]
+    fn falls_back_to_previous_provider_after_removal() {
+        let config = LlmProviderConfig {
+            active: "b".to_string(),
+            custom_base_url: None,
+            custom_model: None,
+            custom_providers: vec![custom_provider("a"), custom_provider("b"), custom_provider("c")],
+        };
+
+        assert_eq!(config.fallback_provider_after_removal("b"), "a");
+    }
+
+    #[test]
+    fn falls_back_to_last_remaining_provider_when_removing_first() {
+        let config = LlmProviderConfig {
+            active: "a".to_string(),
+            custom_base_url: None,
+            custom_model: None,
+            custom_providers: vec![custom_provider("a"), custom_provider("b"), custom_provider("c")],
+        };
+
+        assert_eq!(config.fallback_provider_after_removal("a"), "c");
     }
 }

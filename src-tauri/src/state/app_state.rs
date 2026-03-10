@@ -220,7 +220,7 @@ impl AppState {
     }
 
     pub fn active_llm_provider(&self) -> String {
-        self.with_profile(|p| p.llm_provider.active.clone())
+        self.with_profile(|p| p.llm_provider.resolve_active_provider())
     }
 
     pub fn llm_provider_config(&self) -> LlmProviderConfig {

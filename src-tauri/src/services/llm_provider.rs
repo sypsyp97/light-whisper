@@ -113,16 +113,23 @@ fn is_preset(provider: &str) -> bool {
 
 /// 根据后端配置获取 LLM 端点
 pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
-    if is_preset(&config.active) {
+    let active_provider = config.resolve_active_provider();
+
+    if is_preset(&active_provider) {
         let (default_base_url, default_model, timeout_secs) =
-            default_endpoint_parts(&config.active);
+            default_endpoint_parts(&active_provider);
+        let use_custom_endpoint = active_provider == CUSTOM;
         LlmEndpoint {
-            api_url: normalize_api_url(config.custom_base_url.as_deref(), default_base_url),
+            api_url: if use_custom_endpoint {
+                normalize_api_url(config.custom_base_url.as_deref(), default_base_url)
+            } else {
+                normalize_api_url(None, default_base_url)
+            },
             model: config
                 .custom_model
                 .as_deref()
                 .map(str::trim)
-                .filter(|v| !v.is_empty())
+                .filter(|value| !value.is_empty())
                 .unwrap_or(default_model)
                 .to_string(),
             timeout_secs,
@@ -131,7 +138,7 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     } else if let Some(cp) = config
         .custom_providers
         .iter()
-        .find(|p| p.id == config.active)
+        .find(|p| p.id == active_provider)
     {
         let api_url = match cp.api_format {
             ApiFormat::Anthropic => normalize_anthropic_url(&cp.base_url),
@@ -175,7 +182,11 @@ pub fn models_url(config: &LlmProviderConfig, provider: &str, base_url: Option<&
         }
     }
     let (default_base_url, _, _) = default_endpoint_parts(provider);
-    normalize_models_url(base_url, default_base_url)
+    if provider == CUSTOM {
+        normalize_models_url(base_url, default_base_url)
+    } else {
+        normalize_models_url(None, default_base_url)
+    }
 }
 
 /// 规范化 Anthropic 模型列表 URL（`/v1/models`）
@@ -255,4 +266,83 @@ pub fn sync_runtime_api_key(app_handle: &tauri::AppHandle, state: &AppState) -> 
     let api_key = load_api_key_for_active_provider(app_handle, state);
     state.set_ai_polish_api_key(api_key.clone());
     api_key
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn named_presets_ignore_custom_endpoint_overrides() {
+        let config = LlmProviderConfig {
+            active: CEREBRAS.to_string(),
+            custom_base_url: Some("https://example.com".to_string()),
+            custom_model: Some("gpt-oss-20b".to_string()),
+            custom_providers: Vec::new(),
+        };
+
+        let endpoint = endpoint_for_config(&config);
+
+        assert_eq!(endpoint.api_url, "https://api.cerebras.ai/v1/chat/completions");
+        assert_eq!(endpoint.model, "gpt-oss-20b");
+    }
+
+    #[test]
+    fn named_presets_preserve_manual_model_override() {
+        let config = LlmProviderConfig {
+            active: CEREBRAS.to_string(),
+            custom_base_url: None,
+            custom_model: Some("openai/gpt-5.3-chat-latest".to_string()),
+            custom_providers: Vec::new(),
+        };
+
+        let endpoint = endpoint_for_config(&config);
+
+        assert_eq!(endpoint.model, "openai/gpt-5.3-chat-latest");
+    }
+
+    #[test]
+    fn custom_preset_keeps_custom_endpoint_and_model() {
+        let config = LlmProviderConfig {
+            active: CUSTOM.to_string(),
+            custom_base_url: Some("https://example.com".to_string()),
+            custom_model: Some("foo-model".to_string()),
+            custom_providers: Vec::new(),
+        };
+
+        let endpoint = endpoint_for_config(&config);
+
+        assert_eq!(endpoint.api_url, "https://example.com/v1/chat/completions");
+        assert_eq!(endpoint.model, "foo-model");
+    }
+
+    #[test]
+    fn invalid_active_provider_falls_back_to_latest_custom_provider() {
+        let config = LlmProviderConfig {
+            active: "custom_missing".to_string(),
+            custom_base_url: None,
+            custom_model: None,
+            custom_providers: vec![
+                crate::state::user_profile::CustomProvider {
+                    id: "custom_a".to_string(),
+                    name: "A".to_string(),
+                    base_url: "https://a.example.com".to_string(),
+                    model: "model-a".to_string(),
+                    api_format: ApiFormat::OpenaiCompat,
+                },
+                crate::state::user_profile::CustomProvider {
+                    id: "custom_b".to_string(),
+                    name: "B".to_string(),
+                    base_url: "https://b.example.com".to_string(),
+                    model: "model-b".to_string(),
+                    api_format: ApiFormat::OpenaiCompat,
+                },
+            ],
+        };
+
+        let endpoint = endpoint_for_config(&config);
+
+        assert_eq!(endpoint.api_url, "https://b.example.com/v1/chat/completions");
+        assert_eq!(endpoint.model, "model-b");
+    }
 }

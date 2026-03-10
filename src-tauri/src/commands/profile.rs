@@ -245,6 +245,13 @@ pub async fn set_llm_provider_config(
     custom_base_url: Option<String>,
     custom_model: Option<String>,
 ) -> Result<(), String> {
+    let normalized_base_url = custom_base_url
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let normalized_model = custom_model
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
     let (_, profile) = state.update_profile(|profile| {
         profile.llm_provider.active = active.clone();
         // 自定义 provider → 同步到 custom_providers，不污染旧字段
@@ -254,16 +261,17 @@ pub async fn set_llm_provider_config(
             .iter_mut()
             .find(|p| p.id == active)
         {
-            if let Some(ref url) = custom_base_url {
+            if let Some(ref url) = normalized_base_url {
                 cp.base_url = url.clone();
             }
-            if let Some(ref model) = custom_model {
+            if let Some(ref model) = normalized_model {
                 cp.model = model.clone();
             }
+        } else if active == "custom" {
+            profile.llm_provider.custom_base_url = normalized_base_url.clone();
+            profile.llm_provider.custom_model = normalized_model.clone();
         } else {
-            // 预置 provider → 更新旧字段
-            profile.llm_provider.custom_base_url = custom_base_url;
-            profile.llm_provider.custom_model = custom_model;
+            profile.llm_provider.custom_model = normalized_model.clone();
         }
     });
     profile_service::save_profile(&profile)?;
@@ -338,13 +346,13 @@ pub async fn remove_custom_provider(
     id: String,
 ) -> Result<(), String> {
     let (_, profile) = state.update_profile(|profile| {
+        let fallback_provider = profile.llm_provider.fallback_provider_after_removal(&id);
         profile
             .llm_provider
             .custom_providers
             .retain(|p| p.id != id);
-        // 如果删除的是当前活跃 provider，回退到 cerebras
         if profile.llm_provider.active == id {
-            profile.llm_provider.active = "cerebras".to_string();
+            profile.llm_provider.active = fallback_provider;
         }
     });
     profile_service::save_profile(&profile)?;
