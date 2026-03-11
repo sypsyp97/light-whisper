@@ -17,6 +17,21 @@ interface StatusIndicatorProps {
   children?: ReactNode;
 }
 
+function getDeviceLabel(device: string, gpuName: string | null): string {
+  if (device === "cloud") return "在线";
+  if (device === "cuda" || device === "gpu") return gpuName || "GPU";
+  return "CPU";
+}
+
+function getLoadingProgress(message: string | null): number | null {
+  if (!message) return null;
+  const match = message.match(/(\d{1,3})%/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, value));
+}
+
 function getStatusText(
   isRecording: boolean,
   isProcessing: boolean,
@@ -49,13 +64,19 @@ export default function StatusIndicator({
   device, gpuName, downloadProgress, downloadMessage,
   isDownloading, downloadModels, cancelDownload, children,
 }: StatusIndicatorProps) {
+  const showProgressBar = stage === "downloading" || stage === "loading";
+  const loadingProgress = stage === "loading" ? getLoadingProgress(downloadMessage) : null;
+  const determinateProgress = stage === "downloading"
+    ? (downloadProgress > 1 ? downloadProgress : null)
+    : loadingProgress;
+
   return (
     <>
       <div className="chip-container">
-        {isReady && device && (
-          <span className="chip animate-success">
+        {device && (
+          <span className={`chip ${isReady ? "animate-success" : "animate-fade-in"}`}>
             {device === "cloud" ? <Globe size={10} strokeWidth={1.8} /> : <Cpu size={10} strokeWidth={1.8} />}
-            {device === "cloud" ? "在线" : device === "cuda" || device === "gpu" ? (gpuName || "GPU") : "CPU"}
+            {getDeviceLabel(device, gpuName)}
           </span>
         )}
         {!isReady && stage !== "need_download" && (
@@ -83,20 +104,22 @@ export default function StatusIndicator({
           <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
         </div>
       )}
-      {stage === "downloading" && (
+      {showProgressBar && (
         <div className="download-progress">
           <div
             role="progressbar"
-            aria-valuenow={downloadProgress > 1 ? Math.round(downloadProgress) : undefined}
+            aria-valuenow={determinateProgress !== null ? Math.round(determinateProgress) : undefined}
             aria-valuemin={0}
             aria-valuemax={100}
             className="download-progress-track"
           >
-            {downloadProgress > 1
-              ? <div style={{ height: "100%", background: downloadProgress >= 100 ? "var(--color-success)" : "var(--color-accent)", borderRadius: 4, transition: "width 0.5s ease, background 0.3s ease", width: `${downloadProgress ?? 0}%` }} />
+            {determinateProgress !== null
+              ? <div style={{ height: "100%", background: determinateProgress >= 100 ? "var(--color-success)" : "var(--color-accent)", borderRadius: 4, transition: "width 0.5s ease, background 0.3s ease", width: `${determinateProgress}%` }} />
               : <div className="download-pulse-bar" />}
           </div>
-          <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
+          {stage === "downloading" && (
+            <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
+          )}
         </div>
       )}
     </>

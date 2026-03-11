@@ -162,7 +162,7 @@ python
 
 # PyInstaller 构建产物
 src-tauri/resources/python-dist/
-src-tauri/resources/engine.zip
+src-tauri/resources/engine.tar.xz
 
 # 本地发版指南
 RELEASE_GUIDE.md
@@ -174,3 +174,9 @@ models/
 UPGRADE_PLAN_V2.md
 
 promo/
+
+*.zip
+
+*.tar
+*.tar.gz
+*.tar.xz

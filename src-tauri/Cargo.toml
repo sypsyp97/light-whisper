@@ -1,6 +1,6 @@
 [package]
 name = "light-whisper"
-version = "1.1.5"
+version = "1.1.6"
 description = "轻语 - 基于FunASR的中文语音转文字应用"
 authors = ["sun"]
 edition = "2021"
@@ -60,7 +60,9 @@ parking_lot = "0.12"
 # WAV 编解码
 hound = "3.5"
 
-# ZIP 解压（首次启动解压 engine.zip）
+# 引擎归档解压（首次启动解压 engine.tar.xz，兼容旧 engine.zip）
+tar = "0.4"
+xz2 = "0.1"
 zip = "2"
 
 # Windows 键盘模拟

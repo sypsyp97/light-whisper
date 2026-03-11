@@ -10,17 +10,19 @@ dependencies = [
     "huggingface-hub>=0.24.0",
     "librosa>=0.11.0",
     "numpy<2",
+    "pefile>=2024.8.26",
+    "pyinstaller>=6.19.0",
     "requests>=2.28.1",
-    "torch>=2.4.0",
-    "torchaudio>=2.4.0",
+    "torch==2.7.1",
+    "torchaudio==2.7.1",
     "transformers>=4.45.0",
 ]
 
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu124" }]
-torchaudio = [{ index = "pytorch-cu124" }]
+torch = [{ index = "pytorch-cu128" }]
+torchaudio = [{ index = "pytorch-cu128" }]

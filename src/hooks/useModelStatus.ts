@@ -90,8 +90,12 @@ export function useModelStatus(): UseModelStatusReturn {
     device?: string | null;
     gpu_name?: string | null;
   }) => {
-    setDevice(payload.device ?? null);
-    setGpuName(payload.gpu_name ?? null);
+    if ("device" in payload) {
+      setDevice(payload.device ?? null);
+    }
+    if ("gpu_name" in payload) {
+      setGpuName(payload.gpu_name ?? null);
+    }
   }, []);
 
   const clearPolling = useCallback(() => {

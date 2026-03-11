@@ -148,7 +148,7 @@ SenseVoice 和 Whisper 完全本地运行；GLM-ASR 调用云端 API——只需
 | [pnpm](https://pnpm.io/) | >= 8 | 前端包管理 |
 | [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python 环境（自动安装 Python 3.11） |
 
-**GPU（可选）：** NVIDIA 显卡 + 最新驱动即可，无需单独安装 CUDA Toolkit — PyTorch 自带 CUDA 12.4。
+**GPU（可选）：** NVIDIA 显卡 + 最新驱动即可，无需单独安装 CUDA Toolkit — PyTorch 自带 CUDA 12.8。
 
 > [!TIP]
 > **GLM-ASR 用户：** 如果只使用在线 GLM-ASR 引擎，只需安装 Rust、Node.js、pnpm 即可——无需 Python、uv 和显卡。构建后在设置中填入 API Key 即可使用。
@@ -266,7 +266,7 @@ cd src-tauri && cargo check   # Rust 类型检查
 <summary><b>GPU 未检测到</b></summary>
 
 验证：`.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"` 应输出 `True`。
-需要 NVIDIA 驱动 >= 525.60。无 GPU 时应用自动回退 CPU。
+需要较新的 NVIDIA 驱动。按 CUDA 12.x 的 minor-version compatibility 口径，Windows 驱动至少应为 528.33。无 GPU 时应用自动回退 CPU。
 
 </details>
 

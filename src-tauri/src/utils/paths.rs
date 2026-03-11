@@ -113,16 +113,17 @@ pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
 
 /// 查找已解压的 engine.exe
 ///
-/// 优先检查数据目录（从 engine.zip 解压后的位置），
-/// 再检查资源目录（开发时直接放置 python-dist 的情况）。
-pub fn get_engine_exe_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    // 策略1：数据目录（engine.zip 解压到此处）
+/// 仅检查数据目录（从引擎归档解压后的位置）。
+pub fn get_engine_exe_path(_app: &tauri::AppHandle) -> Option<PathBuf> {
     let data_engine = get_data_dir().join("engine").join("engine.exe");
     if data_engine.exists() {
         return Some(data_engine);
     }
+    None
+}
 
-    // 策略2：资源目录（开发时直接 PyInstaller 输出）
+/// 查找资源目录中的 engine.exe（开发时直接放置 python-dist 的情况）。
+pub fn get_resource_engine_exe_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     if let Ok(resource_dir) = app.path().resource_dir() {
         let resource_engine = resource_dir
             .join("resources")
@@ -136,14 +137,17 @@ pub fn get_engine_exe_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
-/// 查找打包的 engine.zip（NSIS 安装后存在于资源目录）
+/// 查找打包的引擎归档（NSIS 安装后存在于资源目录）
 ///
 /// 跳过空文件（build.rs 为 dev 模式创建的占位文件）。
 pub fn get_engine_archive_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let archive = resource_dir.join("resources").join("engine.zip");
-        if archive.metadata().map(|m| m.len() > 0).unwrap_or(false) {
-            return Some(archive);
+        let resources_dir = resource_dir.join("resources");
+        for filename in ["engine.tar.xz", "engine.zip"] {
+            let archive = resources_dir.join(filename);
+            if archive.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+                return Some(archive);
+            }
         }
     }
     None

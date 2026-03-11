@@ -5,9 +5,9 @@
 
 流程：
 1. PyInstaller --onedir 构建 engine.exe
-2. 删除可安全裁剪的可选 CUDA DLL
-3. 压缩为 engine.zip（适配 NSIS 2GB 限制）
-4. 输出到 src-tauri/resources/engine.zip
+2. 删除可安全裁剪的可选 CUDA DLL 和开发期库文件
+3. 压缩为 engine.tar.xz（适配 NSIS 2GB 限制）
+4. 输出到 src-tauri/resources/engine.tar.xz
 
 必须在项目 .venv 环境中运行。
 """
@@ -16,14 +16,15 @@ import os
 import shutil
 import subprocess
 import sys
-import zipfile
+import tarfile
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESOURCES_DIR = PROJECT_ROOT / "src-tauri" / "resources"
 DIST_DIR = RESOURCES_DIR / "python-dist"
 ENTRY_SCRIPT = RESOURCES_DIR / "engine.py"
-OUTPUT_ZIP = RESOURCES_DIR / "engine.zip"
+OUTPUT_ARCHIVE = RESOURCES_DIR / "engine.tar.xz"
 
 # 同级 Python 脚本，打包到 _internal/
 ADD_DATA_FILES = [
@@ -85,6 +86,57 @@ STRIP_CUDA_PATTERNS = [
     "curand*.dll",                       # ~61M  随机数生成（仅训练）
 ]
 
+# Windows 运行时不需要 .lib / .pdb；这些仅用于链接或调试，
+# 但在 PyTorch wheel 中体积很大（例如 dnnl.lib ~675 MB）。
+STRIP_DEV_ARTIFACT_PATTERNS = [
+    "*.lib",
+    "*.pdb",
+]
+
+
+def find_7z_executable() -> str | None:
+    """返回可用的 7z 可执行文件路径。"""
+    candidates = [
+        os.environ.get("SEVEN_ZIP"),
+        shutil.which("7z"),
+        r"C:\Program Files\7-Zip\7z.exe",
+        r"C:\Program Files (x86)\7-Zip\7z.exe",
+    ]
+
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return str(candidate)
+
+    return None
+
+
+def remove_tree(path: Path, *, warn_only: bool, retries: int = 5, delay: float = 1.0) -> None:
+    """删除目录；在 Windows 文件句柄尚未释放时做有限重试。"""
+    if not path.exists():
+        return
+
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            shutil.rmtree(path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if attempt == retries:
+                break
+            print(
+                f"警告: 删除 {path} 失败（文件占用），{delay:.0f} 秒后重试 "
+                f"{attempt}/{retries} ...",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+
+    message = f"清理目录失败: {path}\n{last_error}"
+    if warn_only:
+        print(f"警告: {message}", file=sys.stderr)
+        return
+    raise RuntimeError(message) from last_error
+
 
 def get_size_mb(path: Path) -> float:
     total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
@@ -102,6 +154,25 @@ def strip_cuda_dlls(engine_dir: Path) -> float:
         for match in torch_lib.glob(pattern):
             size = match.stat().st_size / (1024 * 1024)
             print(f"  删除: {match.name} ({size:.0f} MB)")
+            match.unlink()
+            saved += size
+
+    return saved
+
+
+def strip_dev_artifacts(engine_dir: Path) -> float:
+    """删除运行时不需要的链接/调试产物，返回节省的 MB 数。"""
+    internal_dir = engine_dir / "_internal"
+    if not internal_dir.is_dir():
+        return 0.0
+
+    saved = 0.0
+    for pattern in STRIP_DEV_ARTIFACT_PATTERNS:
+        for match in internal_dir.rglob(pattern):
+            if not match.is_file():
+                continue
+            size = match.stat().st_size / (1024 * 1024)
+            print(f"  删除: {match.relative_to(engine_dir)} ({size:.0f} MB)")
             match.unlink()
             saved += size
 
@@ -141,20 +212,71 @@ def validate_torch_cuda_deps(engine_dir: Path) -> None:
         )
 
 
-def create_zip(engine_dir: Path, output: Path) -> float:
-    """将 engine 目录压缩为 zip，返回 zip 大小 MB"""
+def create_tar_xz_with_python(engine_dir: Path, output: Path) -> float:
+    """使用 Python 标准库压缩为 tar.xz，返回压缩包大小 MB。"""
     print(f"正在压缩到 {output.name} ...")
     files = [f for f in engine_dir.rglob("*") if f.is_file()]
     total = len(files)
 
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_BZIP2, allowZip64=True) as zf:
+    with tarfile.open(output, mode="w:xz", preset=9) as tf:
         for i, filepath in enumerate(files, 1):
             arcname = filepath.relative_to(engine_dir)
-            zf.write(filepath, arcname)
+            tf.add(filepath, arcname=str(arcname), recursive=False)
             if i % 500 == 0 or i == total:
                 print(f"  压缩进度: {i}/{total} ({i * 100 // total}%)")
 
     return output.stat().st_size / (1024 * 1024)
+
+
+def create_tar_xz_with_7z(engine_dir: Path, output: Path, seven_zip: str) -> float:
+    """使用 7-Zip 构建 tar.xz，返回压缩包大小 MB。"""
+    output = output.resolve()
+    files = [f for f in engine_dir.rglob("*") if f.is_file()]
+    total = len(files)
+    if not files:
+        raise RuntimeError("engine 目录为空，无法创建归档")
+
+    print(f"正在用 7-Zip 构建 {output.name} ...")
+    print("  阶段 1/1: 流式打包 tar 并多线程压缩 xz")
+    cmd = [seven_zip, "a", "-txz", "-mx=9", "-mmt=on", str(output), "-si"]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, cwd=output.parent)
+
+    try:
+        if proc.stdin is None:
+            raise RuntimeError("7-Zip 未提供可写入的标准输入")
+
+        with proc.stdin:
+            with tarfile.open(fileobj=proc.stdin, mode="w|") as tf:
+                for i, filepath in enumerate(files, 1):
+                    arcname = filepath.relative_to(engine_dir)
+                    tf.add(filepath, arcname=str(arcname), recursive=False)
+                    if i % 500 == 0 or i == total:
+                        print(f"  压缩进度: {i}/{total} ({i * 100 // total}%)")
+    except Exception:
+        proc.kill()
+        proc.wait()
+        if output.exists():
+            output.unlink()
+        raise
+
+    returncode = proc.wait()
+    if returncode != 0:
+        if output.exists():
+            output.unlink()
+        raise subprocess.CalledProcessError(returncode, cmd)
+
+    return output.stat().st_size / (1024 * 1024)
+
+
+def create_tar_xz(engine_dir: Path, output: Path) -> float:
+    """将 engine 目录压缩为 tar.xz，返回压缩包大小 MB。"""
+    seven_zip = find_7z_executable()
+    if seven_zip:
+        print(f"检测到 7-Zip: {seven_zip}")
+        return create_tar_xz_with_7z(engine_dir, output, seven_zip)
+
+    print("警告: 未找到 7-Zip，回退到 Python 单线程 tar.xz 压缩", file=sys.stderr)
+    return create_tar_xz_with_python(engine_dir, output)
 
 
 def main():
@@ -165,9 +287,9 @@ def main():
     # 清理旧构建
     if DIST_DIR.exists():
         print(f"清理旧构建: {DIST_DIR}")
-        shutil.rmtree(DIST_DIR)
-    if OUTPUT_ZIP.exists():
-        OUTPUT_ZIP.unlink()
+        remove_tree(DIST_DIR, warn_only=False)
+    if OUTPUT_ARCHIVE.exists():
+        OUTPUT_ARCHIVE.unlink()
 
     work_dir = PROJECT_ROOT / "build" / "pyinstaller"
     spec_dir = PROJECT_ROOT / "build"
@@ -220,34 +342,36 @@ def main():
 
     # 瘦身：删除可安全裁剪的 CUDA DLL
     print("=" * 60)
-    print("步骤 2/3: 瘦身（删除可安全裁剪的 CUDA DLL）")
+    print("步骤 2/3: 瘦身（删除可安全裁剪的 CUDA DLL 和开发期库文件）")
     print("=" * 60)
 
-    saved = strip_cuda_dlls(engine_dir)
+    saved = 0.0
+    saved += strip_cuda_dlls(engine_dir)
+    saved += strip_dev_artifacts(engine_dir)
     validate_torch_cuda_deps(engine_dir)
     stripped_size = get_size_mb(engine_dir)
     print(f"节省: {saved:.0f} MB, 瘦身后: {stripped_size:.0f} MB")
 
     # 压缩
     print("=" * 60)
-    print("步骤 3/3: 压缩为 engine.zip")
+    print("步骤 3/3: 压缩为 engine.tar.xz")
     print("=" * 60)
 
-    zip_size = create_zip(engine_dir, OUTPUT_ZIP)
+    archive_size = create_tar_xz(engine_dir, OUTPUT_ARCHIVE)
 
     # 清理未压缩目录
-    shutil.rmtree(DIST_DIR)
+    remove_tree(DIST_DIR, warn_only=True)
 
     print("=" * 60)
     print("构建完成！")
     print(f"  原始大小:   {raw_size:.0f} MB")
     print(f"  瘦身后:     {stripped_size:.0f} MB")
-    print(f"  压缩包:     {zip_size:.0f} MB → {OUTPUT_ZIP.name}")
-    print(f"  输出路径:   {OUTPUT_ZIP}")
+    print(f"  压缩包:     {archive_size:.0f} MB → {OUTPUT_ARCHIVE.name}")
+    print(f"  输出路径:   {OUTPUT_ARCHIVE}")
     print("=" * 60)
 
-    if zip_size > 1800:
-        print(f"警告: 压缩包 {zip_size:.0f} MB 接近 NSIS 2GB 限制！", file=sys.stderr)
+    if archive_size > 1800:
+        print(f"警告: 压缩包 {archive_size:.0f} MB 接近 NSIS 2GB 限制！", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -148,7 +148,7 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 | [pnpm](https://pnpm.io/) | >= 8 | Frontend packages |
 | [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python env (auto-installs Python 3.11) |
 
-**GPU (optional):** NVIDIA GPU with up-to-date driver. No need to install CUDA Toolkit — PyTorch bundles CUDA 12.4.
+**GPU (optional):** NVIDIA GPU with up-to-date driver. No need to install CUDA Toolkit — PyTorch bundles CUDA 12.8.
 
 > [!TIP]
 > **GLM-ASR users:** If you only use the online GLM-ASR engine, you only need Rust, Node.js, and pnpm — no Python, uv, or GPU required. Just build and add your API key in Settings.
@@ -266,7 +266,7 @@ cd src-tauri && cargo check   # Rust type check
 <summary><b>GPU not detected</b></summary>
 
 Verify: `.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"` should print `True`.
-Requires NVIDIA driver >= 525.60. The app falls back to CPU automatically if no GPU is found.
+Requires an up-to-date NVIDIA driver. For CUDA 12.x minor-version compatibility, Windows driver should be >= 528.33. The app falls back to CPU automatically if no GPU is found.
 
 </details>
 

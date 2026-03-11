@@ -105,6 +105,7 @@ class WhisperServer(BaseASRServer):
                 "message": f"Faster Whisper模型初始化成功，耗时: {total_time:.2f}秒",
                 "model_loaded": True,
                 "engine": self.engine,
+                **self._get_gpu_device_info(),
             }
 
         except ImportError as e:

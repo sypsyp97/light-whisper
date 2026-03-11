@@ -336,9 +336,10 @@ where
 /// 查找引擎运行时
 ///
 /// 按优先级：
-/// 1. 已解压的 engine.exe（数据目录或资源目录）
-/// 2. 未解压的 engine.zip → 解压后使用
-/// 3. 系统 Python（开发模式）
+/// 1. 已解压到数据目录的 engine.exe（版本匹配时直接复用）
+/// 2. 未解压的引擎归档（engine.tar.xz / 兼容 engine.zip）→ 解压后使用
+/// 3. 资源目录中的 engine.exe（开发时直接放置 python-dist）
+/// 4. 系统 Python（开发模式）
 pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime, AppError> {
     let current_version = env!("CARGO_PKG_VERSION");
 
@@ -360,7 +361,7 @@ pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime,
         );
     }
 
-    // 策略2：存在 engine.zip，需要解压（首次启动或版本升级）
+    // 策略2：存在引擎归档，需要解压（首次启动或版本升级）
     if let Some(archive_path) = paths::get_engine_archive_path(app_handle) {
         log::info!("找到引擎压缩包，准备解压: {}", archive_path.display());
         let engine_exe = extract_engine_archive(&archive_path, app_handle).await?;
@@ -369,12 +370,19 @@ pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime,
         return Ok(EngineRuntime::Bundled { exe_path: path_str });
     }
 
-    // 策略3：开发模式
+    // 策略3：资源目录中的 engine.exe（开发时直接 PyInstaller 输出）
+    if let Some(engine_path) = paths::get_resource_engine_exe_path(app_handle) {
+        let path_str = paths::strip_win_prefix(&engine_path);
+        log::info!("找到资源目录引擎: {}", path_str);
+        return Ok(EngineRuntime::Bundled { exe_path: path_str });
+    }
+
+    // 策略4：开发模式
     let python_path = find_python().await?;
     Ok(EngineRuntime::Development { python_path })
 }
 
-/// 解压 engine.zip 到数据目录
+/// 解压引擎归档到数据目录
 async fn extract_engine_archive(
     archive_path: &std::path::Path,
     app_handle: &tauri::AppHandle,
@@ -400,61 +408,140 @@ async fn extract_engine_archive(
         std::fs::create_dir_all(&engine_dir)
             .map_err(|e| AppError::Asr(format!("创建引擎目录失败: {}", e)))?;
 
-        let file = std::fs::File::open(&archive)
-            .map_err(|e| AppError::Asr(format!("打开引擎压缩包失败: {}", e)))?;
-        let mut zip = zip::ZipArchive::new(file)
-            .map_err(|e| AppError::Asr(format!("读取引擎压缩包失败: {}", e)))?;
+        let archive_name = archive
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
 
-        let total = zip.len();
-        log::info!("开始解压引擎: {} 个文件", total);
+        let total = if archive_name.ends_with(".tar.xz") {
+            extract_tar_xz_archive(&archive, &engine_dir, &handle)?
+        } else {
+            extract_zip_archive(&archive, &engine_dir, &handle)?
+        };
 
-        for i in 0..total {
-            let mut entry = zip
-                .by_index(i)
-                .map_err(|e| AppError::Asr(format!("读取压缩条目失败: {}", e)))?;
-
-            let entry_path = engine_dir.join(
-                entry
-                    .enclosed_name()
-                    .ok_or_else(|| AppError::Asr("压缩包含不安全路径".to_string()))?,
-            );
-
-            if entry.is_dir() {
-                std::fs::create_dir_all(&entry_path)
-                    .map_err(|e| AppError::Asr(format!("创建目录失败: {}", e)))?;
-            } else {
-                if let Some(parent) = entry_path.parent() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|e| AppError::Asr(format!("创建父目录失败: {}", e)))?;
-                }
-                let mut outfile = std::fs::File::create(&entry_path)
-                    .map_err(|e| AppError::Asr(format!("创建文件失败: {}", e)))?;
-                std::io::copy(&mut entry, &mut outfile)
-                    .map_err(|e| AppError::Asr(format!("写入文件失败: {}", e)))?;
-            }
-
-            // 每 200 个文件报告一次进度
-            if (i + 1) % 200 == 0 || i + 1 == total {
-                let pct = (i + 1) * 100 / total;
-                let _ = handle.emit(
-                    "funasr-status",
-                    serde_json::json!({
-                        "status": "loading",
-                        "message": format!("正在解压引擎文件... {}%", pct)
-                    }),
-                );
-            }
+        if total == 0 {
+            return Err(AppError::Asr("引擎归档为空".to_string()));
         }
 
         // 写入版本标记，用于后续升级检测
         let version = env!("CARGO_PKG_VERSION");
         let _ = std::fs::write(engine_dir.join(".version"), version);
 
-        log::info!("引擎解压完成: {} 个文件", total);
+        log::info!("引擎解压完成: {} 个条目", total);
         Ok(engine_dir.join("engine.exe"))
     })
     .await
     .map_err(|e| AppError::Asr(format!("解压任务异常: {}", e)))?
+}
+
+fn extract_zip_archive(
+    archive: &std::path::Path,
+    engine_dir: &std::path::Path,
+    handle: &tauri::AppHandle,
+) -> Result<usize, AppError> {
+    let file = std::fs::File::open(archive)
+        .map_err(|e| AppError::Asr(format!("打开引擎压缩包失败: {}", e)))?;
+    let mut zip = zip::ZipArchive::new(file)
+        .map_err(|e| AppError::Asr(format!("读取引擎压缩包失败: {}", e)))?;
+
+    let total = zip.len();
+    log::info!("开始解压 ZIP 引擎归档: {} 个文件", total);
+
+    for i in 0..total {
+        let mut entry = zip
+            .by_index(i)
+            .map_err(|e| AppError::Asr(format!("读取压缩条目失败: {}", e)))?;
+
+        let entry_path = engine_dir.join(
+            entry
+                .enclosed_name()
+                .ok_or_else(|| AppError::Asr("压缩包含不安全路径".to_string()))?,
+        );
+
+        if entry.is_dir() {
+            std::fs::create_dir_all(&entry_path)
+                .map_err(|e| AppError::Asr(format!("创建目录失败: {}", e)))?;
+        } else {
+            if let Some(parent) = entry_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| AppError::Asr(format!("创建父目录失败: {}", e)))?;
+            }
+            let mut outfile = std::fs::File::create(&entry_path)
+                .map_err(|e| AppError::Asr(format!("创建文件失败: {}", e)))?;
+            std::io::copy(&mut entry, &mut outfile)
+                .map_err(|e| AppError::Asr(format!("写入文件失败: {}", e)))?;
+        }
+
+        report_extract_progress(handle, i + 1, total);
+    }
+
+    Ok(total)
+}
+
+fn extract_tar_xz_archive(
+    archive: &std::path::Path,
+    engine_dir: &std::path::Path,
+    handle: &tauri::AppHandle,
+) -> Result<usize, AppError> {
+    log::info!("开始解压 TAR.XZ 引擎归档");
+
+    let file = std::fs::File::open(archive)
+        .map_err(|e| AppError::Asr(format!("打开引擎压缩包失败: {}", e)))?;
+    let decoder = xz2::read::XzDecoder::new(file);
+    let mut tar = tar::Archive::new(decoder);
+    let mut extracted = 0usize;
+
+    for entry_result in tar
+        .entries()
+        .map_err(|e| AppError::Asr(format!("读取引擎压缩包失败: {}", e)))?
+    {
+        let mut entry = entry_result
+            .map_err(|e| AppError::Asr(format!("读取压缩条目失败: {}", e)))?;
+        entry
+            .unpack_in(engine_dir)
+            .map_err(|e| AppError::Asr(format!("写入文件失败: {}", e)))?;
+        extracted += 1;
+
+        report_extract_stream_progress(handle, extracted, false);
+    }
+
+    if extracted > 0 && extracted % 200 != 0 {
+        report_extract_stream_progress(handle, extracted, true);
+    }
+
+    Ok(extracted)
+}
+
+fn report_extract_progress(handle: &tauri::AppHandle, current: usize, total: usize) {
+    if total == 0 {
+        return;
+    }
+
+    if current % 200 == 0 || current == total {
+        let pct = current * 100 / total;
+        let _ = handle.emit(
+            "funasr-status",
+            serde_json::json!({
+                "status": "loading",
+                "message": format!("正在解压引擎文件... {}%", pct)
+            }),
+        );
+    }
+}
+
+fn report_extract_stream_progress(handle: &tauri::AppHandle, current: usize, force: bool) {
+    if !force && current % 200 != 0 {
+        return;
+    }
+
+    let _ = handle.emit(
+        "funasr-status",
+        serde_json::json!({
+            "status": "loading",
+            "message": format!("正在解压引擎文件... 已处理 {} 项", current)
+        }),
+    );
 }
 
 /// 查找可用的 Python 解释器（开发模式回退）
