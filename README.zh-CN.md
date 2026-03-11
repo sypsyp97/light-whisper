@@ -278,6 +278,13 @@ cd src-tauri && cargo check   # Rust 类型检查
 </details>
 
 <details>
+<summary><b>中文显示乱码怎么办？</b></summary>
+
+开启 Windows 的 UTF-8 支持来解决编码问题：控制面板 → 区域（或者叫“时钟和区域”）→ 管理 → 更改系统区域设置 → 勾选底部的 `Beta 版: 使用 Unicode UTF-8 提供全球语言支持` → 确定 → 重启电脑。
+
+</details>
+
+<details>
 <summary><b>热键没反应</b></summary>
 
 默认听写热键是 F2。助手模式也支持单独热键。如果任一热键被别的软件占用，可在设置中换成别的组合键（如 `Ctrl+Win+R`）。

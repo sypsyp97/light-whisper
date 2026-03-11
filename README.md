@@ -278,6 +278,15 @@ This happens when a Chinese IME intercepts `SendInput` Unicode events. Fix: swit
 </details>
 
 <details>
+<summary><b>Chinese text appears garbled</b></summary>
+
+Enable Windows UTF-8 system locale support to resolve encoding issues:
+
+`Control Panel` → `Region` (or `Clock and Region`) → `Administrative` → `Change system locale...` → check `Beta: Use Unicode UTF-8 for worldwide language support` → `OK` → restart Windows.
+
+</details>
+
+<details>
 <summary><b>Hotkey not working</b></summary>
 
 Default dictation hotkey is F2. Assistant mode supports a separate hotkey in Settings. If either is occupied by another program, change it to another combo (for example `Ctrl+Win+R`).
