@@ -78,7 +78,7 @@ function App() {
             <MainPage onNavigate={navigateTo} />
           </div>
           <div style={{ height: "100%", display: view === "settings" ? "contents" : "none" }}>
-            <SettingsPage onNavigate={navigateTo} />
+            <SettingsPage onNavigate={navigateTo} active={view === "settings"} />
           </div>
         </div>
       </div>

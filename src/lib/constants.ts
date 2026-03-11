@@ -7,3 +7,4 @@ export const DEFAULT_HOTKEY = "F2";
 export const AI_POLISH_ENABLED_KEY = "light-whisper-ai-polish-enabled";
 export const SOUND_ENABLED_KEY = "light-whisper-sound-enabled";
 export const RECORDING_MODE_KEY = "light-whisper-recording-mode";
+export const MIC_LEVEL_MONITOR_ENABLED_KEY = "light-whisper-mic-level-monitor-enabled";

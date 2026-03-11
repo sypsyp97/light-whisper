@@ -43,7 +43,7 @@ import {
 import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import TitleBar from "@/components/TitleBar";
-import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
+import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
 import {
   HOTKEY_MODIFIER_ORDER,
   type HotkeyModifier,
@@ -125,19 +125,6 @@ const sourceColors: Record<string, string> = {
   learned: "#10b981",
 };
 
-const hotkeyBackendLabels: Record<string, string> = {
-  none: "未注册",
-  lowLevelHook: "低层键盘钩子",
-};
-
-const hotkeyEventLabels: Record<string, string> = {
-  registered: "已注册",
-  unregistered: "已注销",
-  pressed: "收到按下",
-  released: "收到松开",
-  error: "错误",
-};
-
 interface MicrophoneLevelPayload {
   deviceName?: string;
   level?: number;
@@ -149,11 +136,6 @@ interface LlmProviderDraft {
 }
 
 type LlmProviderDraftMap = Record<string, LlmProviderDraft>;
-
-function formatDiagnosticTime(timestampMs?: number | null): string {
-  if (!timestampMs) return "未收到";
-  return new Date(timestampMs).toLocaleTimeString();
-}
 
 function findLlmPreset(key: string) {
   return llmProviderOptions.find((option) => option.key === key) ?? llmProviderOptions[0];
@@ -209,7 +191,13 @@ function writeLlmProviderDrafts(drafts: LlmProviderDraftMap): void {
   writeLocalStorage(LLM_PROVIDER_DRAFTS_KEY, JSON.stringify(drafts));
 }
 
-export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | "settings") => void }) {
+export default function SettingsPage({
+  onNavigate,
+  active,
+}: {
+  onNavigate: (v: "main" | "settings") => void;
+  active: boolean;
+}) {
   const { isDark, theme, setTheme } = useTheme();
   const { isRecording, retryModel, hotkeyDisplay, setHotkey, hotkeyError, hotkeyDiagnostic } = useRecordingContext();
   const [engine, setEngineState] = useState<string>("sensevoice");
@@ -229,6 +217,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   const [deviceListLoading, setDeviceListLoading] = useState(true);
   const [micLevel, setMicLevel] = useState(0);
   const [micMonitorReady, setMicMonitorReady] = useState(false);
+  const [micLevelMonitorEnabled, setMicLevelMonitorEnabled] = useState(() => readLocalStorage(MIC_LEVEL_MONITOR_ENABLED_KEY) === "true");
   const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
     return readLocalStorage(INPUT_METHOD_KEY) === "clipboard"
       ? "clipboard"
@@ -480,7 +469,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
     const startMonitor = async () => {
       try {
         await stopMicrophoneLevelMonitor().catch(() => undefined);
-        if (isRecording) {
+        if (!active || !micLevelMonitorEnabled || isRecording) {
           if (!disposed) {
             setMicMonitorReady(false);
             setMicLevel(0);
@@ -521,7 +510,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       unlisten?.();
       void stopMicrophoneLevelMonitor().catch(() => undefined);
     };
-  }, [isRecording, selectedInputDeviceName]);
+  }, [active, isRecording, micLevelMonitorEnabled, selectedInputDeviceName]);
 
   const handleInputDeviceChange = async (name: string) => {
     setDeviceListLoading(true);
@@ -540,6 +529,15 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
       setDeviceListLoading(false);
     }
   };
+
+  const handleMicLevelMonitorToggle = useCallback((enabled: boolean) => {
+    setMicLevelMonitorEnabled(enabled);
+    writeLocalStorage(MIC_LEVEL_MONITOR_ENABLED_KEY, enabled ? "true" : "false");
+    if (!enabled) {
+      setMicMonitorReady(false);
+      setMicLevel(0);
+    }
+  }, []);
 
   const handleAutostartToggle = async () => {
     if (autostartLoading) return;
@@ -849,12 +847,6 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
   }, [newHotWord, refreshProfile]);
 
   const hotkeyStatusError = hotkeyError || hotkeyDiagnostic?.lastError || null;
-  const hotkeyBackendLabel = hotkeyDiagnostic
-    ? (hotkeyBackendLabels[hotkeyDiagnostic.backend] ?? hotkeyDiagnostic.backend)
-    : "加载中";
-  const hotkeyEventLabel = hotkeyDiagnostic?.lastEvent
-    ? (hotkeyEventLabels[hotkeyDiagnostic.lastEvent] ?? hotkeyDiagnostic.lastEvent)
-    : "暂无";
   const selectedDeviceMissing = Boolean(selectedInputDeviceName)
     && !inputDevices.some((device) => device.name === selectedInputDeviceName);
   const currentLlmPreset = useMemo(() => {
@@ -1215,28 +1207,18 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
               </div>
               <div className="diagnostic-grid">
                 <div className="diagnostic-item">
-                  <span className="settings-option-desc">注册状态</span>
+                  <span className="settings-option-desc">热键状态</span>
                   <strong>{hotkeyDiagnostic?.registered ? "已注册" : "未注册"}</strong>
                 </div>
                 <div className="diagnostic-item">
-                  <span className="settings-option-desc">监听后端</span>
-                  <strong>{hotkeyBackendLabel}</strong>
-                </div>
-                <div className="diagnostic-item">
-                  <span className="settings-option-desc">最近事件</span>
-                  <strong>{hotkeyEventLabel}</strong>
-                </div>
-                <div className="diagnostic-item">
-                  <span className="settings-option-desc">按住状态</span>
-                  <strong>{hotkeyDiagnostic?.isPressed ? "按下中" : "未按下"}</strong>
-                </div>
-                <div className="diagnostic-item">
-                  <span className="settings-option-desc">最近按下</span>
-                  <strong>{formatDiagnosticTime(hotkeyDiagnostic?.lastPressedAtMs)}</strong>
-                </div>
-                <div className="diagnostic-item">
-                  <span className="settings-option-desc">最近松开</span>
-                  <strong>{formatDiagnosticTime(hotkeyDiagnostic?.lastReleasedAtMs)}</strong>
+                  <span className="settings-option-desc">当前状态</span>
+                  <strong>
+                    {isRecording
+                      ? "录音中"
+                      : hotkeyDiagnostic?.isPressed
+                        ? "按下中"
+                        : "待命"}
+                  </strong>
                 </div>
               </div>
               {hotkeyDiagnostic?.warning && <p className="settings-hint">{hotkeyDiagnostic.warning}</p>}
@@ -1337,6 +1319,21 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
             <div className="settings-section-header">
               <Mic size={15} className="icon-accent" />
               <h2 className="settings-section-title">麦克风</h2>
+              <div className="settings-row" style={{ marginLeft: "auto", gap: 8, flex: "0 0 auto" }}>
+                <span className="settings-option-desc" style={{ whiteSpace: "nowrap" }}>电平监控</span>
+                <button
+                  role="switch"
+                  aria-checked={micLevelMonitorEnabled}
+                  aria-label="麦克风电平监控"
+                  onClick={() => handleMicLevelMonitorToggle(!micLevelMonitorEnabled)}
+                  className="toggle-switch"
+                  style={{
+                    background: micLevelMonitorEnabled ? "var(--color-accent)" : "var(--color-bg-tertiary)",
+                  }}
+                >
+                  <div className="toggle-knob" style={{ transform: micLevelMonitorEnabled ? "translateX(20px)" : "translateX(0)" }} />
+                </button>
+              </div>
             </div>
             <div className="settings-column">
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
@@ -1370,7 +1367,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
                     await stopMicrophoneLevelMonitor().catch(() => undefined);
                     const msg = await testMicrophone();
                     toast.success(msg);
-                    if (!isRecording) {
+                    if (micLevelMonitorEnabled && !isRecording) {
                       await startMicrophoneLevelMonitor();
                       setMicMonitorReady(true);
                     }
@@ -1384,7 +1381,9 @@ export default function SettingsPage({ onNavigate }: { onNavigate: (v: "main" | 
               </div>
               <div className="settings-row" style={{ gap: 10 }}>
                 <span className="settings-hint">
-                  {isRecording
+                  {!micLevelMonitorEnabled
+                    ? "电平监控已关闭，不会在空闲时占用麦克风。"
+                    : isRecording
                     ? "录音中已暂停电平预览，避免和正式录音抢占设备。"
                     : micMonitorReady
                       ? "电平预览已开启，对着麦克风说话即可看到变化。"
