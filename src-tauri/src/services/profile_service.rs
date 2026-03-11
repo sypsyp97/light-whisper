@@ -1,12 +1,16 @@
 use crate::state::user_profile::*;
+use crate::state::AppState;
 use crate::utils::paths;
 use std::collections::hash_map::Entry;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
 const MAX_CORRECTION_PATTERNS: usize = 500;
 const MAX_HOT_WORDS: usize = 300;
 const MAX_SEGMENT_CHARS: usize = 12;
 const MAX_HOT_WORD_CHARS: usize = 24;
 const MAX_USER_HOT_WORD_CHARS: usize = 80;
+const PROFILE_SAVE_DEBOUNCE_MS: u64 = 350;
 
 // ============================================================
 // 持久化
@@ -58,18 +62,92 @@ fn migrate_custom_provider(profile: &mut UserProfile) {
     log::info!("已迁移旧版 custom provider 到 custom_providers");
 }
 
-pub fn save_profile(profile: &UserProfile) -> Result<(), String> {
-    let path = paths::get_data_dir().join("user_profile.json");
-    let data = serde_json::to_string_pretty(profile).map_err(|e| format!("序列化失败: {}", e))?;
-    std::fs::write(&path, data).map_err(|e| format!("写入失败: {}", e))
+fn serialize_profile(profile: &UserProfile) -> Result<String, String> {
+    serde_json::to_string_pretty(profile).map_err(|e| format!("序列化失败: {}", e))
 }
 
-pub async fn save_profile_async(profile: &UserProfile) -> Result<(), String> {
+struct PendingProfileSave {
+    generation: u64,
+    profile: UserProfile,
+}
+
+fn pending_profile_save_slot() -> &'static parking_lot::Mutex<Option<PendingProfileSave>> {
+    static SLOT: OnceLock<parking_lot::Mutex<Option<PendingProfileSave>>> = OnceLock::new();
+    SLOT.get_or_init(|| parking_lot::Mutex::new(None))
+}
+
+fn profile_save_generation() -> &'static AtomicU64 {
+    static GENERATION: OnceLock<AtomicU64> = OnceLock::new();
+    GENERATION.get_or_init(|| AtomicU64::new(0))
+}
+
+fn profile_save_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+fn take_pending_profile_save_if(
+    predicate: impl FnOnce(&PendingProfileSave) -> bool,
+) -> Option<PendingProfileSave> {
+    let mut slot = pending_profile_save_slot().lock();
+    if slot.as_ref().is_some_and(predicate) {
+        slot.take()
+    } else {
+        None
+    }
+}
+
+async fn write_profile_async(profile: &UserProfile) -> Result<(), String> {
     let path = paths::get_data_dir().join("user_profile.json");
-    let data = serde_json::to_string_pretty(profile).map_err(|e| format!("序列化失败: {}", e))?;
+    let data = serialize_profile(profile)?;
     tokio::fs::write(&path, data)
         .await
         .map_err(|e| format!("写入失败: {}", e))
+}
+
+pub fn schedule_profile_save(profile: UserProfile) {
+    let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
+    *pending_profile_save_slot().lock() = Some(PendingProfileSave {
+        generation,
+        profile,
+    });
+
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(PROFILE_SAVE_DEBOUNCE_MS)).await;
+
+        if profile_save_generation().load(Ordering::SeqCst) != generation {
+            return;
+        }
+
+        let _write_guard = profile_save_lock().lock().await;
+        if profile_save_generation().load(Ordering::SeqCst) != generation {
+            return;
+        }
+
+        let pending = take_pending_profile_save_if(|pending| pending.generation == generation);
+        if let Some(pending) = pending {
+            if let Err(err) = write_profile_async(&pending.profile).await {
+                log::warn!("异步保存用户画像失败: {}", err);
+            }
+        }
+    });
+}
+
+pub fn update_profile_and_schedule<R>(
+    state: &AppState,
+    f: impl FnOnce(&mut UserProfile) -> R,
+) -> R {
+    let (result, profile) = state.update_profile(f);
+    schedule_profile_save(profile);
+    result
+}
+
+pub async fn save_profile_async(profile: &UserProfile) -> Result<(), String> {
+    let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
+    take_pending_profile_save_if(|pending| pending.generation <= generation);
+
+    let _write_guard = profile_save_lock().lock().await;
+    write_profile_async(profile).await
 }
 
 // ============================================================

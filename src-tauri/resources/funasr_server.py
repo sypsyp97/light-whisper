@@ -10,6 +10,7 @@ import re
 import traceback
 
 from server_common import (
+    decode_inline_audio,
     apply_hf_env_defaults,
     ensure_safe_cuda_env,
     setup_rotating_logger,
@@ -106,7 +107,15 @@ class FunASRServer(BaseASRServer):
             logger.error(traceback.format_exc())
             return {"success": False, "error": error_msg, "type": "init_error", "engine": self.engine}
 
-    def transcribe_audio(self, audio_path, options=None, hot_words=None):
+    def transcribe_audio(
+        self,
+        audio_path,
+        options=None,
+        hot_words=None,
+        audio_base64=None,
+        audio_format=None,
+        sample_rate=None,
+    ):
         """转录音频文件"""
         import time
 
@@ -117,16 +126,45 @@ class FunASRServer(BaseASRServer):
 
         try:
             duration = 0.0
+            input_mode = "path"
+            audio_input = audio_path
 
-            # 检查音频文件是否存在
-            if not os.path.exists(audio_path):
-                return {"success": False, "error": f"音频文件不存在: {audio_path}", "type": "transcription_error"}
+            if audio_base64:
+                try:
+                    audio_input, duration = decode_inline_audio(
+                        audio_base64,
+                        audio_format,
+                        sample_rate,
+                    )
+                    input_mode = "memory"
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"内存音频解码失败: {e}",
+                        "type": "transcription_error",
+                        "input_mode": "memory",
+                    }
+            else:
+                # 检查音频文件是否存在
+                if not audio_path or not os.path.exists(audio_path):
+                    return {
+                        "success": False,
+                        "error": f"音频文件不存在: {audio_path}",
+                        "type": "transcription_error",
+                        "input_mode": input_mode,
+                    }
 
             total_start = time.time()
-            logger.info(f"开始转录音频文件: {audio_path}")
+            logger.info(
+                "开始转录音频输入: %s",
+                "memory-buffer" if input_mode == "memory" else audio_path,
+            )
 
             # 预先获取音频时长，用于决定是否跳过 VAD
-            duration = self._get_audio_duration(audio_path)
+            if input_mode == "path":
+                duration = self._get_audio_duration(audio_path)
+            else:
+                self.total_audio_duration += duration
             logger.info(f"音频时长: {duration:.2f}秒")
 
             # 音频过短时 VAD 检测不到语音，会导致空张量索引错误
@@ -144,7 +182,7 @@ class FunASRServer(BaseASRServer):
                 logger.info(f"使用热词 ({len(hot_words)} 个): {hotword_str[:100]}...")
 
             generate_kwargs = dict(
-                input=audio_path,
+                input=audio_input,
                 cache={},
                 language="auto",
                 use_itn=True,
@@ -191,6 +229,7 @@ class FunASRServer(BaseASRServer):
                 "duration": duration,
                 "language": detected_lang,
                 "model_type": "pytorch",
+                "input_mode": input_mode,
             }
 
             self._maybe_cleanup(duration)
@@ -200,16 +239,31 @@ class FunASRServer(BaseASRServer):
             err_str = str(e)
             if ("index" in err_str and "out of bounds" in err_str) or "size 0" in err_str:
                 logger.warning(f"音频中未检测到有效语音: {err_str}")
-                return {"success": True, "text": "", "duration": duration}
+                return {
+                    "success": True,
+                    "text": "",
+                    "duration": duration,
+                    "input_mode": input_mode,
+                }
             error_msg = f"音频转录失败: {err_str}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
-            return {"success": False, "error": error_msg, "type": "transcription_error"}
+            return {
+                "success": False,
+                "error": error_msg,
+                "type": "transcription_error",
+                "input_mode": input_mode,
+            }
         except Exception as e:
             error_msg = f"音频转录失败: {e}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
-            return {"success": False, "error": error_msg, "type": "transcription_error"}
+            return {
+                "success": False,
+                "error": error_msg,
+                "type": "transcription_error",
+                "input_mode": input_mode,
+            }
 
     def get_performance_stats(self):
         """获取性能统计信息"""

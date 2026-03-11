@@ -3,7 +3,6 @@ import { listen } from "@tauri-apps/api/event";
 import {
   cancelModelDownload,
   checkFunASRStatus,
-  checkModelFiles,
   downloadModels,
   restartFunASR,
   startFunASR,
@@ -87,6 +86,14 @@ export function useModelStatus(): UseModelStatusReturn {
     ((source?: "auto" | "manual") => void) | null
   >(null);
 
+  const applyStatusSnapshot = useCallback((payload: {
+    device?: string | null;
+    gpu_name?: string | null;
+  }) => {
+    setDevice(payload.device ?? null);
+    setGpuName(payload.gpu_name ?? null);
+  }, []);
+
   const clearPolling = useCallback(() => {
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
@@ -157,8 +164,7 @@ export function useModelStatus(): UseModelStatusReturn {
       const status = await checkFunASRStatus();
       if (!mountedRef.current) return;
 
-      setDevice(status.device ?? null);
-      setGpuName(status.gpu_name ?? null);
+      applyStatusSnapshot(status);
 
       if (status.running && status.ready) {
         startFailuresRef.current = 0;
@@ -172,17 +178,14 @@ export function useModelStatus(): UseModelStatusReturn {
         return;
       }
 
-      // 在线引擎 running 但 not ready = 缺 API Key
-      if (status.running && !status.ready && status.device === "cloud") {
-        enterErrorState(status.message || "请在设置中配置在线 ASR API Key");
+      if (status.models_present === false) {
+        enterNeedDownloadState();
         return;
       }
 
-      const modelCheck = await checkModelFiles();
-      if (!mountedRef.current) return;
-
-      if (!modelCheck.all_present) {
-        enterNeedDownloadState();
+      // 在线引擎 running 但 not ready = 缺 API Key
+      if (status.running && !status.ready && status.device === "cloud") {
+        enterErrorState(status.message || "请在设置中配置在线 ASR API Key");
         return;
       }
 
@@ -223,7 +226,7 @@ export function useModelStatus(): UseModelStatusReturn {
       if (!mountedRef.current) return;
       enterErrorState(toErrorMessage(err, "检查模型状态失败"));
     }
-  }, [clearPolling, enterErrorState, enterNeedDownloadState]);
+  }, [applyStatusSnapshot, clearPolling, enterErrorState, enterNeedDownloadState]);
 
   const startPolling = useCallback(() => {
     if (intervalRef.current !== null) return;
@@ -253,6 +256,10 @@ export function useModelStatus(): UseModelStatusReturn {
     type FunasrStatusPayload = {
       status: string;
       message?: string;
+      device?: string | null;
+      gpu_name?: string | null;
+      models_present?: boolean;
+      missing_models?: string[];
     };
 
     const setup = async () => {
@@ -261,17 +268,12 @@ export function useModelStatus(): UseModelStatusReturn {
         (event) => {
           if (!mountedRef.current) return;
           const { status, message } = event.payload;
+          applyStatusSnapshot(event.payload);
 
           if (status === "ready") {
             setStage("ready");
             setError(null);
             clearPolling();
-            // 获取最新的 device/gpuName 信息
-            checkFunASRStatus().then((s) => {
-              if (!mountedRef.current) return;
-              setDevice(s.device ?? null);
-              setGpuName(s.gpu_name ?? null);
-            }).catch(() => {});
           } else if (status === "need_api_key") {
             setStage("error");
             setError(message ?? "请在设置中配置在线 ASR API Key");
@@ -305,7 +307,7 @@ export function useModelStatus(): UseModelStatusReturn {
     return () => {
       unlisten?.();
     };
-  }, [checkStatus, clearPolling, enterErrorState, enterNeedDownloadState, startPolling]);
+  }, [applyStatusSnapshot, checkStatus, clearPolling, enterErrorState, enterNeedDownloadState, startPolling]);
 
   useEffect(() => {
     let disposed = false;
@@ -415,22 +417,14 @@ export function useModelStatus(): UseModelStatusReturn {
       await downloadModels();
       if (!mountedRef.current) return;
 
-      const modelCheck = await checkModelFiles();
-      if (!mountedRef.current) return;
-      if (!modelCheck.all_present) {
-        throw new Error("模型下载未完整，请重试");
-      }
-
       autoDownloadRetryRef.current = 0;
       if (downloadingRef.current) {
         clearDownloadWatchdog();
         setDownloadingState(false);
         setStage("loading");
-        setDownloadProgress(100);
-        checkStatus();
-      } else {
-        checkStatus();
+        setDownloadProgress((prev) => Math.max(prev, 100));
       }
+      void checkStatus();
     } catch (err) {
       clearDownloadWatchdog();
       setDownloadingState(false);

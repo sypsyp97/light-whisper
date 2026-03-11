@@ -14,7 +14,7 @@ pub async fn submit_user_correction(
     // 用 LLM 对比两句话，提取词级纠错
     let corrections = extract_corrections_via_llm(&state, &original, &corrected).await;
 
-    let (_, profile_clone) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         if corrections.is_empty() {
             profile_service::learn_from_correction(
                 profile,
@@ -31,9 +31,7 @@ pub async fn submit_user_correction(
             );
         }
     });
-    profile_service::save_profile_async(&profile_clone)
-        .await
-        .map_err(|e| format!("保存用户画像失败: {}", e))
+    Ok(())
 }
 
 /// 调用 LLM 对比润色前后文本，提取词级别纠错
@@ -169,10 +167,10 @@ pub async fn add_hot_word(
     text: String,
     weight: u8,
 ) -> Result<(), String> {
-    let (_, profile) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile_service::add_hot_word(profile, text, weight);
     });
-    profile_service::save_profile(&profile)
+    Ok(())
 }
 
 #[tauri::command]
@@ -180,10 +178,10 @@ pub async fn remove_hot_word(
     state: tauri::State<'_, AppState>,
     text: String,
 ) -> Result<(), String> {
-    let (_, profile) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile_service::remove_hot_word(profile, &text);
     });
-    profile_service::save_profile(&profile)
+    Ok(())
 }
 
 #[tauri::command]
@@ -201,7 +199,7 @@ pub async fn set_llm_provider_config(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let (_, profile) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.llm_provider.active = active.clone();
         // 自定义 provider → 同步到 custom_providers，不污染旧字段
         if let Some(cp) = profile
@@ -223,7 +221,6 @@ pub async fn set_llm_provider_config(
             profile.llm_provider.custom_model = normalized_model.clone();
         }
     });
-    profile_service::save_profile(&profile)?;
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
 }
@@ -250,10 +247,9 @@ pub async fn add_custom_provider(
         model,
         api_format,
     };
-    let (_, profile) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.llm_provider.custom_providers.push(provider);
     });
-    profile_service::save_profile(&profile)?;
     Ok(id)
 }
 
@@ -266,7 +262,7 @@ pub async fn update_custom_provider(
     model: Option<String>,
     api_format: Option<ApiFormat>,
 ) -> Result<(), String> {
-    let (found, profile) = state.update_profile(|profile| {
+    let found = profile_service::update_profile_and_schedule(state.inner(), |profile| {
         if let Some(cp) = profile
             .llm_provider
             .custom_providers
@@ -293,7 +289,7 @@ pub async fn update_custom_provider(
     if !found {
         return Err(format!("找不到自定义服务商: {}", id));
     }
-    profile_service::save_profile(&profile)
+    Ok(())
 }
 
 #[tauri::command]
@@ -302,14 +298,13 @@ pub async fn remove_custom_provider(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    let (_, profile) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         let fallback_provider = profile.llm_provider.fallback_provider_after_removal(&id);
         profile.llm_provider.custom_providers.retain(|p| p.id != id);
         if profile.llm_provider.active == id {
             profile.llm_provider.active = fallback_provider;
         }
     });
-    profile_service::save_profile(&profile)?;
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
 }
@@ -330,11 +325,9 @@ pub async fn set_translation_target(
         state.ai_polish_enabled.store(true, Ordering::Release);
     }
 
-    let (_, profile) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.translation_target = target;
     });
-    profile_service::save_profile(&profile)?;
-
     Ok(auto_enabled_polish)
 }
 
@@ -346,10 +339,10 @@ pub async fn set_custom_prompt(
     let prompt = prompt
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let (_, profile) = state.update_profile(|p| {
+    profile_service::update_profile_and_schedule(state.inner(), |p| {
         p.custom_prompt = prompt;
     });
-    profile_service::save_profile(&profile)
+    Ok(())
 }
 
 #[tauri::command]
@@ -370,7 +363,9 @@ pub async fn import_user_profile(
         *profile = imported;
         profile_service::cleanup_profile(profile);
     });
-    profile_service::save_profile(&profile)?;
+    profile_service::save_profile_async(&profile)
+        .await
+        .map_err(|e| format!("保存用户画像失败: {}", e))?;
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
 }

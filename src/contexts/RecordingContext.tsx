@@ -85,19 +85,26 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
 
   // 启动时将 localStorage 持久化的各项设置同步到后端
   useEffect(() => {
-    const syncs: Array<{ key: string; test: (v: string | null) => boolean; run: () => Promise<unknown> }> = [
-      { key: INPUT_METHOD_KEY, test: v => v === "clipboard", run: () => setInputMethodCommand("clipboard") },
-      { key: INPUT_DEVICE_STORAGE_KEY, test: v => v != null, run: () => setInputDevice(readLocalStorage(INPUT_DEVICE_STORAGE_KEY)!) },
-      { key: SOUND_ENABLED_KEY, test: v => v === "false", run: () => setSoundEnabled(false) },
-      { key: RECORDING_MODE_KEY, test: v => v === "toggle", run: () => setRecordingMode(true) },
-    ];
-    for (const { key, test, run } of syncs) {
-      if (test(readLocalStorage(key))) run().catch(() => {});
+    const storedInputMethod = readLocalStorage(INPUT_METHOD_KEY);
+    const storedInputDevice = readLocalStorage(INPUT_DEVICE_STORAGE_KEY);
+    const storedSoundEnabled = readLocalStorage(SOUND_ENABLED_KEY);
+    const storedRecordingMode = readLocalStorage(RECORDING_MODE_KEY);
+    const aiPolishEnabled = readLocalStorage(AI_POLISH_ENABLED_KEY) === "true";
+
+    if (storedInputMethod === "clipboard") {
+      setInputMethodCommand("clipboard").catch(() => {});
     }
-    // AI 润色需要先异步获取 API Key
-    const enabled = readLocalStorage(AI_POLISH_ENABLED_KEY) === "true";
-    if (enabled) {
-      getAiPolishApiKey().then(apiKey => setAiPolishConfig(enabled, apiKey)).catch(() => {});
+    if (storedInputDevice != null) {
+      setInputDevice(storedInputDevice).catch(() => {});
+    }
+    if (storedSoundEnabled === "false") {
+      setSoundEnabled(false).catch(() => {});
+    }
+    if (storedRecordingMode === "toggle") {
+      setRecordingMode(true).catch(() => {});
+    }
+    if (aiPolishEnabled) {
+      getAiPolishApiKey().then(apiKey => setAiPolishConfig(aiPolishEnabled, apiKey)).catch(() => {});
     }
   }, []);
 

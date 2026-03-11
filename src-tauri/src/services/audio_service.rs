@@ -27,6 +27,7 @@ const INTERIM_INTERVAL_DOWN_STEP_MS: u64 = 24;
 const INTERIM_INTERVAL_UP_STEP_MS: u64 = 42;
 const INTERIM_HEAVY_COST_MS: u64 = 420;
 const INTERIM_LIGHT_COST_MS: u64 = 180;
+const INTERIM_MAX_AUDIO_WINDOW_SEC: f64 = 12.0;
 
 const RESULT_HIDE_DELAY_MS: u64 = 2500;
 const EMPTY_RESULT_HIDE_DELAY_MS: u64 = 360;
@@ -495,9 +496,24 @@ pub fn spawn_interim_loop(
 
             let start = std::time::Instant::now();
             let resampled = resample_to_16k(&snapshot, sample_rate);
-            let wav_bytes = encode_wav(&resampled, TARGET_SAMPLE_RATE);
+            let interim_max_samples =
+                (TARGET_SAMPLE_RATE as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
+            let interim_samples = if resampled.len() > interim_max_samples {
+                &resampled[resampled.len() - interim_max_samples..]
+            } else {
+                resampled.as_ref()
+            };
+            let covered_sample_count =
+                current_count.min((sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize);
 
-            match funasr_service::transcribe(state.inner(), wav_bytes, &app_handle).await {
+            match funasr_service::transcribe_pcm16(
+                state.inner(),
+                interim_samples,
+                TARGET_SAMPLE_RATE,
+                &app_handle,
+            )
+            .await
+            {
                 Ok(result) if result.success && !result.text.is_empty() => {
                     let _ = app_handle.emit(
                         "transcription-result",
@@ -511,7 +527,7 @@ pub fn spawn_interim_loop(
                     *interim_cache.lock() = Some(crate::state::InterimCache {
                         text: result.text,
                         language: result.language,
-                        sample_count: current_count,
+                        sample_count: covered_sample_count,
                     });
                     last_sample_count = current_count;
                 }
@@ -802,13 +818,13 @@ async fn do_final_asr(
 ) -> Result<funasr_service::TranscriptionResult, String> {
     let data = samples.lock().clone();
     let resampled = resample_to_16k(&data, sample_rate);
-    let wav = encode_wav(&resampled, TARGET_SAMPLE_RATE);
 
     let engine = paths::read_engine_config();
     let result = if paths::is_online_engine(&engine) {
+        let wav = encode_wav(&resampled, TARGET_SAMPLE_RATE);
         glm_asr_service::transcribe(state, wav).await
     } else {
-        funasr_service::transcribe(state, wav, app_handle).await
+        funasr_service::transcribe_pcm16(state, &resampled, TARGET_SAMPLE_RATE, app_handle).await
     };
 
     match result {

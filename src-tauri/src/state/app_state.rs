@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
     Arc,
 };
 use std::thread::JoinHandle;
@@ -139,6 +139,8 @@ pub struct AppState {
     pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
     /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
     pub funasr_generation: AtomicU64,
+    /// 内存音频传输支持状态：0=未知, 1=支持, 2=不支持
+    pub inline_audio_transport: AtomicU8,
 }
 
 impl Default for AppState {
@@ -168,6 +170,7 @@ impl Default for AppState {
             edit_context: Default::default(),
             online_asr_api_key: Default::default(),
             funasr_generation: AtomicU64::new(0),
+            inline_audio_transport: AtomicU8::new(0),
         }
     }
 }
@@ -244,6 +247,24 @@ impl AppState {
 
     pub fn set_online_asr_api_key(&self, api_key: impl Into<String>) {
         *self.online_asr_api_key.lock() = api_key.into();
+    }
+
+    pub fn inline_audio_transport(&self) -> Option<bool> {
+        match self.inline_audio_transport.load(Ordering::Acquire) {
+            1 => Some(true),
+            2 => Some(false),
+            _ => None,
+        }
+    }
+
+    pub fn set_inline_audio_transport(&self, supported: Option<bool>) {
+        let encoded = match supported {
+            Some(true) => 1,
+            Some(false) => 2,
+            None => 0,
+        };
+        self.inline_audio_transport
+            .store(encoded, Ordering::Release);
     }
 
     pub fn assistant_image_support(&self, cache_key: &str) -> Option<bool> {

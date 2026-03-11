@@ -403,7 +403,7 @@ pub async fn polish_text(
         || key_terms.as_ref().is_some_and(|t| !t.is_empty());
 
     if has_learnable {
-        let (_, profile_clone) = state.update_profile(|profile| match corrections {
+        profile_service::update_profile_and_schedule(state, |profile| match corrections {
             Some(corrs) => profile_service::learn_from_structured(
                 profile,
                 &corrs,
@@ -411,11 +411,6 @@ pub async fn polish_text(
                 CorrectionSource::Ai,
             ),
             _ => {}
-        });
-        tauri::async_runtime::spawn(async move {
-            if let Err(e) = profile_service::save_profile_async(&profile_clone).await {
-                log::warn!("保存用户画像失败: {}", e);
-            }
         });
     }
 

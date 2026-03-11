@@ -60,7 +60,17 @@ pub enum ServerCommand {
     /// 转写音频文件
     Transcribe {
         /// 音频文件的路径
-        audio_path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        audio_path: Option<String>,
+        /// 内存音频负载（Base64）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        audio_base64: Option<String>,
+        /// 内存音频编码格式
+        #[serde(skip_serializing_if = "Option::is_none")]
+        audio_format: Option<String>,
+        /// 内存音频采样率
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sample_rate: Option<u32>,
         /// 热词列表（可选）
         #[serde(skip_serializing_if = "Option::is_none")]
         hot_words: Option<Vec<String>>,
@@ -105,6 +115,10 @@ pub struct FunASRStatus {
     pub message: String,
     /// 当前引擎
     pub engine: Option<String>,
+    /// 模型文件是否齐备
+    pub models_present: Option<bool>,
+    /// 缺失模型列表
+    pub missing_models: Option<Vec<String>>,
 }
 
 /// 模型文件检查结果
@@ -164,6 +178,8 @@ struct ServerResponse {
     gpu_memory_total: Option<f64>,
     /// 当前引擎
     engine: Option<String>,
+    /// 服务端实际采用的输入模式（memory/path）
+    input_mode: Option<String>,
 }
 
 /// Python status 返回的模型状态
@@ -200,6 +216,7 @@ const SERVER_INIT_TIMEOUT_SECS: u64 = 120;
 const SERVER_RESPONSE_TIMEOUT_SECS: u64 = 60;
 const SERVER_EXIT_WRITE_TIMEOUT_MS: u64 = 300;
 const SERVER_EXIT_WAIT_TIMEOUT_SECS: u64 = 2;
+const INLINE_AUDIO_FORMAT_PCM_S16LE: &str = "pcm_s16le";
 
 fn to_normalized_path(path: &std::path::Path) -> String {
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -221,6 +238,8 @@ fn status_with_defaults(
         gpu_memory_total: None,
         message,
         engine: None,
+        models_present: None,
+        missing_models: None,
     }
 }
 
@@ -557,6 +576,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     // 确保无论成功还是失败，都要重置 starting 标志
     let _starting_guard = StartingFlagGuard(state.funasr_starting.clone());
     state.set_funasr_ready(false);
+    state.set_inline_audio_transport(None);
 
     // 通知前端：正在查找引擎环境
     let _ = app_handle.emit(
@@ -732,7 +752,11 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         if initialized {
             serde_json::json!({
                 "status": "ready",
-                "message": "FunASR 服务器已就绪"
+                "message": "FunASR 服务器已就绪",
+                "device": response.device,
+                "gpu_name": response.gpu_name,
+                "models_present": true,
+                "missing_models": [],
             })
         } else {
             serde_json::json!({
@@ -771,6 +795,16 @@ pub async fn transcribe(
     audio_data: Vec<u8>,
     app_handle: &tauri::AppHandle,
 ) -> Result<TranscriptionResult, AppError> {
+    let hot_words = profile_hot_words(state);
+    transcribe_wav_bytes_via_path(state, audio_data, hot_words, app_handle).await
+}
+
+pub async fn transcribe_pcm16(
+    state: &AppState,
+    samples: &[i16],
+    sample_rate: u32,
+    app_handle: &tauri::AppHandle,
+) -> Result<TranscriptionResult, AppError> {
     // 检查服务器是否就绪
     if !state.is_funasr_ready() {
         return Err(AppError::Asr(
@@ -778,67 +812,166 @@ pub async fn transcribe(
         ));
     }
 
-    // 将音频数据写入临时文件
-    //
-    // 为什么要用临时文件？因为通过 stdin 传递大量二进制数据比较复杂，
-    // 而文件路径是一个简单的字符串，通过 JSON 传递很方便。
-    let temp_dir = std::env::temp_dir();
-    let temp_file = temp_dir.join(format!(
+    let hot_words = profile_hot_words(state);
+
+    if state.inline_audio_transport() == Some(false) {
+        return transcribe_pcm16_via_path(state, samples, sample_rate, hot_words, app_handle).await;
+    }
+
+    let response = send_command_to_server(
+        state,
+        &ServerCommand::Transcribe {
+            audio_path: None,
+            audio_base64: Some(encode_pcm16_base64(samples)),
+            audio_format: Some(INLINE_AUDIO_FORMAT_PCM_S16LE.to_string()),
+            sample_rate: Some(sample_rate),
+            hot_words: hot_words.clone(),
+        },
+        Some(app_handle),
+    )
+    .await?;
+
+    if response.input_mode.as_deref() == Some("memory") {
+        state.set_inline_audio_transport(Some(true));
+        return Ok(server_response_to_transcription_result(response));
+    }
+
+    if response_indicates_inline_unsupported(&response) {
+        log::info!("当前 FunASR 运行时不支持内存音频，回退到临时 WAV 文件");
+        state.set_inline_audio_transport(Some(false));
+        return transcribe_pcm16_via_path(state, samples, sample_rate, hot_words, app_handle).await;
+    }
+
+    state.set_inline_audio_transport(Some(true));
+    Ok(server_response_to_transcription_result(response))
+}
+
+fn profile_hot_words(state: &AppState) -> Option<Vec<String>> {
+    let words = state.with_profile(|p| p.get_hot_word_texts(100));
+    (!words.is_empty()).then_some(words)
+}
+
+fn encode_pcm16_base64(samples: &[i16]) -> String {
+    use base64::Engine;
+
+    let mut audio_bytes = Vec::with_capacity(samples.len() * 2);
+    for sample in samples {
+        audio_bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    base64::engine::general_purpose::STANDARD.encode(audio_bytes)
+}
+
+fn encode_wav_bytes(samples: &[i16], sample_rate: u32) -> Result<Vec<u8>, AppError> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut cursor = std::io::Cursor::new(Vec::with_capacity(44 + samples.len() * 2));
+    {
+        let mut writer = hound::WavWriter::new(&mut cursor, spec)
+            .map_err(|e| AppError::Asr(format!("创建 WAV 编码器失败: {}", e)))?;
+        for sample in samples {
+            writer
+                .write_sample(*sample)
+                .map_err(|e| AppError::Asr(format!("写入 WAV 数据失败: {}", e)))?;
+        }
+        writer
+            .finalize()
+            .map_err(|e| AppError::Asr(format!("完成 WAV 编码失败: {}", e)))?;
+    }
+    Ok(cursor.into_inner())
+}
+
+fn create_temp_audio_path() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
         "light_whisper_audio_{}.wav",
-        // 使用时间戳作为文件名的一部分，避免文件名冲突
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis()
-    ));
+    ))
+}
 
-    // 写入音频数据到临时文件
-    tokio::fs::write(&temp_file, &audio_data)
-        .await
-        .map_err(|e| AppError::Asr(format!("写入临时音频文件失败: {}", e)))?;
+fn response_indicates_inline_unsupported(response: &ServerResponse) -> bool {
+    if response.input_mode.as_deref() == Some("memory") {
+        return false;
+    }
 
-    // 从用户画像中提取热词
-    let hot_words = {
-        let words = state.with_profile(|p| p.get_hot_word_texts(100));
-        if words.is_empty() {
-            None
-        } else {
-            Some(words)
-        }
-    };
+    if response.input_mode.is_none() || response.input_mode.as_deref() == Some("path") {
+        return true;
+    }
 
-    // 构建转写命令
-    let command = ServerCommand::Transcribe {
-        audio_path: temp_file.to_string_lossy().to_string(),
-        hot_words,
-    };
+    response.error.as_deref().is_some_and(|error| {
+        error.contains("音频文件不存在")
+            || error.contains("path should be string")
+            || error.contains("os.PathLike")
+            || error.contains("NoneType")
+    })
+}
 
-    // 发送命令并获取响应（无论成功与否都清理临时文件）
-    let response = send_command_to_server(state, &command, Some(app_handle)).await;
-    let _ = tokio::fs::remove_file(&temp_file).await;
-    let response = response?;
-
-    // 解析响应
+fn server_response_to_transcription_result(response: ServerResponse) -> TranscriptionResult {
     if response.success == Some(true) {
-        Ok(TranscriptionResult {
+        TranscriptionResult {
             text: response.text.unwrap_or_default(),
             duration: response.duration,
             success: true,
             error: None,
             language: response.language,
-        })
+        }
     } else {
         let error_msg = response
             .error
             .unwrap_or_else(|| "未知的转写错误".to_string());
-        Ok(TranscriptionResult {
+        TranscriptionResult {
             text: String::new(),
             duration: None,
             success: false,
             error: Some(error_msg),
             language: None,
-        })
+        }
     }
+}
+
+async fn transcribe_wav_bytes_via_path(
+    state: &AppState,
+    audio_data: Vec<u8>,
+    hot_words: Option<Vec<String>>,
+    app_handle: &tauri::AppHandle,
+) -> Result<TranscriptionResult, AppError> {
+    let temp_file = create_temp_audio_path();
+
+    tokio::fs::write(&temp_file, &audio_data)
+        .await
+        .map_err(|e| AppError::Asr(format!("写入临时音频文件失败: {}", e)))?;
+
+    let response = send_command_to_server(
+        state,
+        &ServerCommand::Transcribe {
+            audio_path: Some(temp_file.to_string_lossy().to_string()),
+            audio_base64: None,
+            audio_format: None,
+            sample_rate: None,
+            hot_words,
+        },
+        Some(app_handle),
+    )
+    .await;
+
+    let _ = tokio::fs::remove_file(&temp_file).await;
+    response.map(server_response_to_transcription_result)
+}
+
+async fn transcribe_pcm16_via_path(
+    state: &AppState,
+    samples: &[i16],
+    sample_rate: u32,
+    hot_words: Option<Vec<String>>,
+    app_handle: &tauri::AppHandle,
+) -> Result<TranscriptionResult, AppError> {
+    let wav_bytes = encode_wav_bytes(samples, sample_rate)?;
+    transcribe_wav_bytes_via_path(state, wav_bytes, hot_words, app_handle).await
 }
 
 /// 向 Python 服务器发送命令并读取响应
@@ -985,6 +1118,8 @@ pub async fn check_status(
                     "请配置 GLM-ASR API Key".into()
                 },
                 engine: Some(engine),
+                models_present: Some(true),
+                missing_models: Some(Vec::new()),
             });
         }
 
@@ -998,12 +1133,18 @@ pub async fn check_status(
                 "FunASR 服务器正在启动，模型加载中...".to_string(),
             ));
         }
-        return Ok(status_with_defaults(
-            false,
-            false,
-            false,
-            "FunASR 服务器未运行".to_string(),
-        ));
+        let model_check = inspect_model_files_for_engine(&engine);
+        return Ok(FunASRStatus {
+            message: if model_check.all_present {
+                "FunASR 服务器未运行".to_string()
+            } else {
+                "模型文件未下载，请先下载模型".to_string()
+            },
+            engine: Some(engine),
+            models_present: Some(model_check.all_present),
+            missing_models: Some(model_check.missing_models.clone()),
+            ..status_with_defaults(false, false, false, String::new())
+        });
     }
 
     // 发送状态查询命令
@@ -1031,6 +1172,8 @@ pub async fn check_status(
                 gpu_memory_total: response.gpu_memory_total,
                 message,
                 engine: response.engine,
+                models_present: Some(true),
+                missing_models: Some(Vec::new()),
             })
         }
         Err(e) => {
@@ -1095,6 +1238,7 @@ pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
 
     // 更新状态
     state.set_funasr_ready(false);
+    state.set_inline_audio_transport(None);
 
     log::info!("FunASR 服务器已停止");
     Ok(())
@@ -1181,19 +1325,17 @@ fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool 
 /// - `FunAudioLLM/SenseVoiceSmall` + `funasr/fsmn-vad`
 ///
 /// 注：SenseVoiceSmall 内置 ITN 标点恢复，不再需要独立的 ct-punc 模型
-pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
-    let engine = paths::read_engine_config();
-
+fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
     if paths::is_online_engine(&engine) {
-        return Ok(ModelCheckResult {
+        return ModelCheckResult {
             all_present: true,
             asr_model: true,
             vad_model: true,
             punc_model: true,
-            engine,
+            engine: engine.to_string(),
             cache_path: String::new(),
             missing_models: Vec::new(),
-        });
+        };
     }
 
     let cache_root = get_hf_cache_root();
@@ -1205,7 +1347,7 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
         let asr_present =
             report_model_repo_state(WHISPER_REPO_ID, "Whisper ASR模型", &mut missing_models);
 
-        Ok(ModelCheckResult {
+        ModelCheckResult {
             all_present: asr_present,
             asr_model: asr_present,
             vad_model: true,  // Whisper 内置 Silero VAD
@@ -1213,7 +1355,7 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
             engine: "whisper".to_string(),
             cache_path,
             missing_models,
-        })
+        }
     } else {
         // SenseVoice 引擎：检查 ASR + VAD 模型
         let mut missing_models = Vec::new();
@@ -1224,7 +1366,7 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
 
         let all_present = asr_present && vad_present;
 
-        Ok(ModelCheckResult {
+        ModelCheckResult {
             all_present,
             asr_model: asr_present,
             vad_model: vad_present,
@@ -1232,8 +1374,12 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
             engine: "sensevoice".to_string(),
             cache_path,
             missing_models,
-        })
+        }
     }
+}
+
+pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
+    Ok(inspect_model_files_for_engine(&paths::read_engine_config()))
 }
 
 // 需要引入 Emitter trait 才能使用 emit 方法

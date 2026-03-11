@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, Eye, EyeOff, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2 } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
+import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import {
   disableAutostart,
   enableAutostart,
@@ -42,6 +43,7 @@ import {
 } from "@/api/tauri";
 import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
+import SecretInput from "@/components/SecretInput";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
 import {
@@ -226,10 +228,7 @@ export default function SettingsPage({
   const [soundEnabled, setSoundEnabledState] = useState(() => readLocalStorage(SOUND_ENABLED_KEY) !== "false");
   const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
   const [aiPolishApiKey, setAiPolishApiKey] = useState("");
-  const [showApiKey, setShowApiKey] = useState(false);
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
-  const [showOnlineAsrKey, setShowOnlineAsrKey] = useState(false);
-  const onlineAsrKeySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
@@ -241,9 +240,6 @@ export default function SettingsPage({
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [providerSearch, setProviderSearch] = useState("");
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const apiKeySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const llmConfigSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const aiModelsFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const providerPickerRef = useRef<HTMLDivElement | null>(null);
   const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
   const modelPickerRef = useRef<HTMLDivElement | null>(null);
@@ -258,12 +254,9 @@ export default function SettingsPage({
   const [translationPickerOpen, setTranslationPickerOpen] = useState(false);
   const [customLangInput, setCustomLangInput] = useState("");
   const [showCustomLangInput, setShowCustomLangInput] = useState(false);
-  const translationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customPromptState, setCustomPromptState] = useState<string>("");
-  const customPromptSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [assistantPromptState, setAssistantPromptState] = useState<string>("");
   const [assistantScreenContextEnabled, setAssistantScreenContextEnabledState] = useState(false);
-  const assistantPromptSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [llmProvider, setLlmProvider] = useState("cerebras");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
@@ -277,19 +270,29 @@ export default function SettingsPage({
   const [newProviderFormat, setNewProviderFormat] = useState<ApiFormat>("openai_compat");
   const providerSupportsCustomEndpoint = llmProvider === "custom" || customProviders.some((p) => p.id === llmProvider);
 
-  const clearPendingApiKeySave = useCallback(() => {
-    if (apiKeySaveTimer.current) {
-      clearTimeout(apiKeySaveTimer.current);
-      apiKeySaveTimer.current = null;
-    }
-  }, []);
+  const aiPolishKeySave = useDebouncedCallback((value: string, enabled: boolean) => {
+    setAiPolishConfig(enabled, value).catch(() => {});
+  }, 600, { onUnmount: "flush" });
 
-  const clearPendingLlmConfigSave = useCallback(() => {
-    if (llmConfigSaveTimer.current) {
-      clearTimeout(llmConfigSaveTimer.current);
-      llmConfigSaveTimer.current = null;
-    }
-  }, []);
+  const llmConfigSave = useDebouncedCallback((provider: string, baseUrl: string, model: string) => {
+    setLlmProviderConfig(provider, baseUrl || undefined, model || undefined).catch(() => {});
+  }, 400, { onUnmount: "flush" });
+
+  const onlineAsrKeySave = useDebouncedCallback((value: string) => {
+    setOnlineAsrApiKey(value).catch(() => {});
+  }, 600, { onUnmount: "flush" });
+
+  const customPromptSave = useDebouncedCallback((value: string) => {
+    setCustomPrompt(value.trim() || null).catch(() => {
+      toast.error("保存自定义指令失败");
+    });
+  }, 800, { onUnmount: "flush" });
+
+  const assistantPromptSave = useDebouncedCallback((value: string) => {
+    setAssistantSystemPrompt(value.trim() || null).catch(() => {
+      toast.error("保存助手提示词失败");
+    });
+  }, 800, { onUnmount: "flush" });
 
   const updateProviderDraft = useCallback((provider: string, baseUrl: string, model: string) => {
     setProviderDrafts((prev) => {
@@ -339,35 +342,6 @@ export default function SettingsPage({
   useEffect(() => {
     void refreshAiPolishKey(readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
   }, [refreshAiPolishKey]);
-
-  useEffect(() => {
-    return () => {
-      if (apiKeySaveTimer.current) {
-        clearTimeout(apiKeySaveTimer.current);
-        apiKeySaveTimer.current = null;
-      }
-      if (llmConfigSaveTimer.current) {
-        clearTimeout(llmConfigSaveTimer.current);
-        llmConfigSaveTimer.current = null;
-      }
-      if (aiModelsFetchTimer.current) {
-        clearTimeout(aiModelsFetchTimer.current);
-        aiModelsFetchTimer.current = null;
-      }
-      if (translationSaveTimer.current) {
-        clearTimeout(translationSaveTimer.current);
-        translationSaveTimer.current = null;
-      }
-      if (customPromptSaveTimer.current) {
-        clearTimeout(customPromptSaveTimer.current);
-        customPromptSaveTimer.current = null;
-      }
-      if (assistantPromptSaveTimer.current) {
-        clearTimeout(assistantPromptSaveTimer.current);
-        assistantPromptSaveTimer.current = null;
-      }
-    };
-  }, []);
 
   // 加载用户画像
   const refreshProfile = useCallback(async () => {
@@ -773,12 +747,8 @@ export default function SettingsPage({
   };
 
   const scheduleCustomLlmConfigSave = useCallback((provider: string, baseUrl: string, model: string) => {
-    clearPendingLlmConfigSave();
-    llmConfigSaveTimer.current = setTimeout(() => {
-      // 后端 set_llm_provider_config 已自动同步 custom_providers
-      setLlmProviderConfig(provider, baseUrl || undefined, model || undefined).catch(() => {});
-    }, 400);
-  }, [clearPendingLlmConfigSave]);
+    llmConfigSave.schedule(provider, baseUrl, model);
+  }, [llmConfigSave]);
 
   const refreshAiModels = useCallback(async (silent = false) => {
     const apiKey = aiPolishApiKey.trim();
@@ -810,12 +780,13 @@ export default function SettingsPage({
     }
   }, [aiPolishApiKey, customBaseUrl, llmProvider]);
 
-  useEffect(() => {
-    if (aiModelsFetchTimer.current) {
-      clearTimeout(aiModelsFetchTimer.current);
-    }
+  const aiModelsFetch = useDebouncedCallback((silent: boolean) => {
+    void refreshAiModels(silent);
+  }, 700);
 
+  useEffect(() => {
     if (!aiPolishApiKey.trim()) {
+      aiModelsFetch.cancel();
       setAiModels([]);
       setAiModelsSourceUrl("");
       setAiModelsError("");
@@ -823,17 +794,12 @@ export default function SettingsPage({
       return;
     }
 
-    aiModelsFetchTimer.current = setTimeout(() => {
-      void refreshAiModels(true);
-    }, 700);
+    aiModelsFetch.schedule(true);
 
     return () => {
-      if (aiModelsFetchTimer.current) {
-        clearTimeout(aiModelsFetchTimer.current);
-        aiModelsFetchTimer.current = null;
-      }
+      aiModelsFetch.cancel();
     };
-  }, [aiPolishApiKey, customBaseUrl, llmProvider, refreshAiModels]);
+  }, [aiModelsFetch, aiPolishApiKey, customBaseUrl, llmProvider]);
 
   const handleAddHotWord = useCallback(() => {
     const word = newHotWord.trim();
@@ -888,8 +854,8 @@ export default function SettingsPage({
     }
 
     updateProviderDraft(llmProvider, customBaseUrl, customModel);
-    clearPendingApiKeySave();
-    clearPendingLlmConfigSave();
+    aiPolishKeySave.cancel();
+    llmConfigSave.cancel();
     await setAiPolishConfig(aiPolishEnabled, aiPolishApiKey).catch(() => {});
 
     const nextDraft = resolveProviderDraft(nextProvider);
@@ -906,11 +872,11 @@ export default function SettingsPage({
   }, [
     aiPolishApiKey,
     aiPolishEnabled,
-    clearPendingApiKeySave,
-    clearPendingLlmConfigSave,
     customBaseUrl,
     customModel,
     llmProvider,
+    aiPolishKeySave,
+    llmConfigSave,
     refreshAiPolishKey,
     resolveProviderDraft,
     updateProviderDraft,
@@ -931,38 +897,29 @@ export default function SettingsPage({
     setTranslationPickerOpen(false);
     setShowCustomLangInput(false);
     setCustomLangInput("");
-    if (translationSaveTimer.current) clearTimeout(translationSaveTimer.current);
     try {
       const autoEnabled = await setTranslationTarget(target);
       if (autoEnabled) {
+        aiPolishKeySave.cancel();
         setAiPolishEnabled(true);
         writeLocalStorage(AI_POLISH_ENABLED_KEY, "true");
+        await setAiPolishConfig(true, aiPolishApiKey).catch(() => {});
         toast.success("已自动开启 AI 润色");
       }
     } catch {
       toast.error("保存翻译设置失败");
     }
-  }, []);
+  }, [aiPolishApiKey, aiPolishKeySave]);
 
   const handleCustomPromptChange = useCallback((value: string) => {
     setCustomPromptState(value);
-    if (customPromptSaveTimer.current) clearTimeout(customPromptSaveTimer.current);
-    customPromptSaveTimer.current = setTimeout(() => {
-      setCustomPrompt(value.trim() || null).catch(() => {
-        toast.error("保存自定义指令失败");
-      });
-    }, 800);
-  }, []);
+    customPromptSave.schedule(value);
+  }, [customPromptSave]);
 
   const handleAssistantPromptChange = useCallback((value: string) => {
     setAssistantPromptState(value);
-    if (assistantPromptSaveTimer.current) clearTimeout(assistantPromptSaveTimer.current);
-    assistantPromptSaveTimer.current = setTimeout(() => {
-      setAssistantSystemPrompt(value.trim() || null).catch(() => {
-        toast.error("保存助手提示词失败");
-      });
-    }, 800);
-  }, []);
+    assistantPromptSave.schedule(value);
+  }, [assistantPromptSave]);
 
   const handleAssistantScreenContextToggle = useCallback((enabled: boolean) => {
     setAssistantScreenContextEnabledState(enabled);
@@ -1121,31 +1078,16 @@ export default function SettingsPage({
                 </div>
                 <div className="settings-column" style={{ gap: 4 }}>
                   <span className="settings-option-desc">API Key</span>
-                  <div className="settings-row" style={{ position: "relative" }}>
-                    <input
-                      type={showOnlineAsrKey ? "text" : "password"}
-                      className="settings-input"
-                      placeholder="输入智谱 GLM-ASR API Key"
-                      value={onlineAsrApiKey}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setOnlineAsrApiKeyState(val);
-                        if (onlineAsrKeySaveTimer.current) clearTimeout(onlineAsrKeySaveTimer.current);
-                        onlineAsrKeySaveTimer.current = setTimeout(() => {
-                          setOnlineAsrApiKey(val).catch(() => {});
-                        }, 600);
-                      }}
-                      style={{ flex: 1, padding: "8px 36px 8px 10px" }}
-                    />
-                    <button
-                      className="icon-btn plain"
-                      onClick={() => setShowOnlineAsrKey(!showOnlineAsrKey)}
-                      style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)" }}
-                      aria-label={showOnlineAsrKey ? "隐藏 API Key" : "显示 API Key"}
-                    >
-                      {showOnlineAsrKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
+                  <SecretInput
+                    value={onlineAsrApiKey}
+                    placeholder="输入智谱 GLM-ASR API Key"
+                    ariaLabelShow="显示 API Key"
+                    ariaLabelHide="隐藏 API Key"
+                    onChange={(value) => {
+                      setOnlineAsrApiKeyState(value);
+                      onlineAsrKeySave.schedule(value);
+                    }}
+                  />
                 </div>
               </div>
             )}
@@ -1468,6 +1410,7 @@ export default function SettingsPage({
                   aria-label="启用 AI 文本润色"
                   onClick={() => {
                     const next = !aiPolishEnabled;
+                    aiPolishKeySave.cancel();
                     setAiPolishEnabled(next);
                     writeLocalStorage(AI_POLISH_ENABLED_KEY, String(next));
                     setAiPolishConfig(next, aiPolishApiKey).catch(() => {});
@@ -1635,31 +1578,16 @@ export default function SettingsPage({
 
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">API Key</span>
-                  <div className="settings-row" style={{ position: "relative" }}>
-                    <input
-                      type={showApiKey ? "text" : "password"}
-                      className="settings-input"
-                      placeholder={`${currentLlmPreset.label} API Key`}
-                      value={aiPolishApiKey}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setAiPolishApiKey(val);
-                        clearPendingApiKeySave();
-                        apiKeySaveTimer.current = setTimeout(() => {
-                          setAiPolishConfig(aiPolishEnabled, val).catch(() => {});
-                        }, 600);
-                      }}
-                      style={{ flex: 1, padding: "8px 36px 8px 10px" }}
-                    />
-                    <button
-                      className="icon-btn plain"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)" }}
-                      aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                    >
-                      {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
+                  <SecretInput
+                    value={aiPolishApiKey}
+                    placeholder={`${currentLlmPreset.label} API Key`}
+                    ariaLabelShow="显示 API Key"
+                    ariaLabelHide="隐藏 API Key"
+                    onChange={(value) => {
+                      setAiPolishApiKey(value);
+                      aiPolishKeySave.schedule(value, aiPolishEnabled);
+                    }}
+                  />
                 </div>
 
                 <div className="settings-column" style={{ gap: 6 }}>

@@ -16,10 +16,10 @@ pub async fn set_assistant_hotkey(
     crate::commands::hotkey::register_assistant_hotkey_inner(app_handle, normalized.clone())
         .map_err(|err| err.to_string())?;
 
-    let (_, profile) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.assistant_hotkey = normalized;
     });
-    profile_service::save_profile(&profile)
+    Ok(())
 }
 
 #[tauri::command]
@@ -33,10 +33,10 @@ pub async fn set_assistant_system_prompt(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
 
-    let (_, profile) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.assistant_system_prompt = prompt;
     });
-    profile_service::save_profile(&profile)
+    Ok(())
 }
 
 #[tauri::command]
@@ -44,8 +44,8 @@ pub async fn set_assistant_screen_context_enabled(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    let (_, profile) = state.update_profile(|profile| {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.assistant_screen_context_enabled = enabled;
     });
-    profile_service::save_profile(&profile)
+    Ok(())
 }

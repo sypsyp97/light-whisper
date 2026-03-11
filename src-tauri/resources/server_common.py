@@ -3,13 +3,16 @@
 
 """Python ASR server shared utilities."""
 
+import base64
 import contextlib
+import io
 import logging
 import os
 import struct
 import sys
 import tempfile
 import threading
+from typing import Optional, Tuple
 from logging.handlers import RotatingFileHandler
 
 
@@ -139,6 +142,53 @@ def get_wav_duration_seconds(audio_path: str, logger: logging.Logger) -> float:
         return 0.0
 
 
+def decode_inline_audio(
+    audio_base64: str,
+    audio_format: Optional[str],
+    sample_rate: Optional[int],
+) -> Tuple["object", float]:
+    """Decode inline audio payload into an in-memory input accepted by ASR backends."""
+    if not audio_base64:
+        raise ValueError("缺少内存音频数据")
+
+    audio_bytes = base64.b64decode(audio_base64)
+    fmt = (audio_format or "pcm_s16le").lower()
+
+    if fmt == "pcm_s16le":
+        if not sample_rate or sample_rate <= 0:
+            raise ValueError("PCM 内存音频缺少有效采样率")
+        import numpy as np
+
+        samples = np.frombuffer(audio_bytes, dtype="<i2")
+        duration = len(samples) / float(sample_rate)
+        audio = samples.astype(np.float32) / 32768.0
+        return audio, duration
+
+    if fmt == "wav":
+        if not sample_rate or sample_rate <= 0:
+            sample_rate = 16000
+        duration = 0.0
+        try:
+            with io.BytesIO(audio_bytes) as wav_buffer:
+                with contextlib.closing(wave_open(wav_buffer)) as wav_reader:
+                    frame_rate = wav_reader.getframerate()
+                    frame_count = wav_reader.getnframes()
+                    if frame_rate > 0:
+                        duration = frame_count / float(frame_rate)
+        except Exception:
+            duration = 0.0
+        return io.BytesIO(audio_bytes), duration
+
+    raise ValueError(f"不支持的内存音频格式: {fmt}")
+
+
+def wave_open(buffer: io.BytesIO):
+    import wave
+
+    buffer.seek(0)
+    return wave.open(buffer, "rb")
+
+
 import json
 import signal
 import traceback
@@ -266,7 +316,15 @@ class BaseASRServer:
     def get_performance_stats(self) -> dict:
         raise NotImplementedError
 
-    def transcribe_audio(self, audio_path: str, options=None, hot_words=None) -> dict:
+    def transcribe_audio(
+        self,
+        audio_path: Optional[str],
+        options=None,
+        hot_words=None,
+        audio_base64: Optional[str] = None,
+        audio_format: Optional[str] = None,
+        sample_rate: Optional[int] = None,
+    ) -> dict:
         raise NotImplementedError
 
     # ------------------------------------------------------------------
@@ -323,6 +381,9 @@ class BaseASRServer:
                         command.get("audio_path"),
                         command.get("options", {}),
                         hot_words=command.get("hot_words"),
+                        audio_base64=command.get("audio_base64"),
+                        audio_format=command.get("audio_format"),
+                        sample_rate=command.get("sample_rate"),
                     )
                 elif action == "status":
                     result = self.check_status()

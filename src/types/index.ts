@@ -18,6 +18,8 @@ export interface FunASRStatus {
   gpu_memory_total?: number;
   message: string;
   engine?: string;
+  models_present?: boolean;
+  missing_models?: string[];
 }
 
 // 与 Rust 后端 funasr_service::ModelCheckResult 对应

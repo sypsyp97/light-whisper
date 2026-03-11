@@ -1,15 +1,15 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { Suspense, lazy, useState, useRef, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { RecordingProvider } from "./contexts/RecordingContext";
 import MainPage from "./pages/MainPage";
-import SettingsPage from "./pages/SettingsPage";
 import { useTheme } from "./hooks/useTheme";
 import "./styles/theme.css";
 import "./styles/pages.css";
 
 type View = "main" | "settings";
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -51,7 +51,7 @@ function App() {
   const isTransitioning = useRef(false);
   useTheme();
 
-  // Page navigation with directional slide — both pages stay mounted
+  // Page navigation with directional slide while only mounting the active page
   const navigateTo = useCallback((target: View) => {
     if (isTransitioning.current || target === view) return;
     isTransitioning.current = true;
@@ -74,12 +74,13 @@ function App() {
     <RecordingProvider>
       <div style={{ height: "100%", width: "100%" }}>
         <div className={animClass} style={{ height: "100%", width: "100%" }}>
-          <div style={{ height: "100%", display: view === "main" ? "contents" : "none" }}>
-            <MainPage onNavigate={navigateTo} />
-          </div>
-          <div style={{ height: "100%", display: view === "settings" ? "contents" : "none" }}>
-            <SettingsPage onNavigate={navigateTo} active={view === "settings"} />
-          </div>
+          <Suspense fallback={<div style={{ height: "100%", width: "100%" }} />}>
+            {view === "main" ? (
+              <MainPage onNavigate={navigateTo} />
+            ) : (
+              <SettingsPage onNavigate={navigateTo} active />
+            )}
+          </Suspense>
         </div>
       </div>
       <Toaster

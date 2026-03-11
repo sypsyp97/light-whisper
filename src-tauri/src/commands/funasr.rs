@@ -159,6 +159,10 @@ pub async fn set_online_asr_api_key(
             serde_json::json!({
                 "status": if has_key { "ready" } else { "need_api_key" },
                 "message": if has_key { "GLM-ASR 在线服务就绪" } else { "请配置 GLM-ASR API Key" },
+                "device": "cloud",
+                "gpu_name": serde_json::Value::Null,
+                "models_present": true,
+                "missing_models": [],
             }),
         );
     }
