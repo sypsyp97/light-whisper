@@ -241,7 +241,7 @@ async fn send_llm_request_with_fallback(
     session_id: u64,
 ) -> Result<String, String> {
     let stream_options = LlmRequestOptions {
-        stream: !endpoint.api_url.contains("/v1/responses"),
+        stream: true,
         json_output: true,
         stream_event: Some("ai-polish-status"),
         session_id: Some(session_id),

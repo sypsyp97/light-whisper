@@ -256,7 +256,7 @@ pub async fn generate_content(
     };
 
     let request_options = LlmRequestOptions {
-        stream: !endpoint.api_url.contains("/v1/responses"),
+        stream: true,
         json_output: false,
         stream_event: Some("assistant-stream"),
         session_id: Some(session_id),

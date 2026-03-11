@@ -54,6 +54,10 @@ fn dynamic_timeout(base_secs: u64, text_len: usize) -> Duration {
     Duration::from_secs(base_secs.saturating_add(extra).min(120))
 }
 
+fn uses_responses_api(endpoint: &LlmEndpoint) -> bool {
+    endpoint.api_format == ApiFormat::OpenaiCompat && endpoint.api_url.contains("/v1/responses")
+}
+
 pub fn build_llm_body(
     endpoint: &LlmEndpoint,
     system_prompt: &str,
@@ -69,7 +73,7 @@ pub fn build_llm_body(
             "stream": options.stream,
         }),
         ApiFormat::OpenaiCompat => {
-            let is_responses_api = endpoint.api_url.contains("/v1/responses");
+            let is_responses_api = uses_responses_api(endpoint);
 
             let mut body = if is_responses_api {
                 serde_json::json!({
@@ -98,13 +102,7 @@ pub fn build_llm_body(
                 }
             }
 
-            if is_responses_api {
-                body["reasoning"] = serde_json::json!({"effort": "medium"});
-            } else if endpoint.api_url.contains("cerebras") {
-                body["reasoning_effort"] = serde_json::json!("low");
-            }
-
-            if options.stream && !is_responses_api {
+            if options.stream {
                 body["stream"] = serde_json::json!(true);
             }
 
@@ -257,6 +255,114 @@ pub async fn read_sse_stream(
     }
 }
 
+pub async fn read_openai_responses_sse_stream(
+    response: reqwest::Response,
+    endpoint: &LlmEndpoint,
+    app_handle: &tauri::AppHandle,
+    event_name: Option<&str>,
+    session_id: Option<u64>,
+) -> Result<String, String> {
+    use eventsource_stream::Eventsource;
+    use tokio_stream::StreamExt;
+
+    let mut accumulated = String::new();
+    let mut fallback_content: Option<String> = None;
+    let mut token_count: usize = 0;
+    let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
+    let mut stream = response.bytes_stream().eventsource();
+
+    loop {
+        match tokio::time::timeout(event_timeout, stream.next()).await {
+            Ok(Some(Ok(event))) => {
+                let data = event.data.trim();
+                if data.is_empty() {
+                    continue;
+                }
+                if data == "[DONE]" {
+                    if !accumulated.is_empty() {
+                        return Ok(accumulated);
+                    }
+                    if let Some(content) = fallback_content.filter(|content| !content.is_empty()) {
+                        return Ok(content);
+                    }
+                    return Err("Responses 流式结束，但未收到可解析内容".to_string());
+                }
+
+                let Ok(json) = serde_json::from_str::<Value>(data) else {
+                    continue;
+                };
+
+                if fallback_content.is_none() {
+                    fallback_content = extract_content(endpoint, &json)
+                        .or_else(|| extract_content(endpoint, &json["response"]));
+                }
+
+                match json["type"].as_str() {
+                    Some("response.output_text.delta") => {
+                        if let Some(delta) = json["delta"].as_str() {
+                            accumulated.push_str(delta);
+                            token_count += 1;
+                            emit_stream_chunk(
+                                app_handle,
+                                event_name,
+                                session_id,
+                                delta,
+                                token_count,
+                            );
+                        }
+                    }
+                    Some("response.output_text.done") if accumulated.is_empty() => {
+                        if let Some(text) = json["text"].as_str() {
+                            accumulated.push_str(text);
+                            token_count += 1;
+                            emit_stream_chunk(
+                                app_handle,
+                                event_name,
+                                session_id,
+                                text,
+                                token_count,
+                            );
+                        }
+                    }
+                    Some("response.completed") => {
+                        if accumulated.is_empty() {
+                            accumulated = extract_content(endpoint, &json["response"])
+                                .or_else(|| fallback_content.clone())
+                                .unwrap_or_default();
+                        }
+                        return Ok(accumulated);
+                    }
+                    Some("response.failed") | Some("error") => {
+                        let message = json["response"]["error"]["message"]
+                            .as_str()
+                            .or_else(|| json["error"]["message"].as_str())
+                            .or_else(|| json["message"].as_str())
+                            .unwrap_or(data);
+                        return Err(format!("Responses 流式错误: {}", message));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
+            Ok(None) => {
+                if !accumulated.is_empty() {
+                    return Ok(accumulated);
+                }
+                if let Some(content) = fallback_content.filter(|content| !content.is_empty()) {
+                    return Ok(content);
+                }
+                return Err("Responses 流式结束，但未收到可解析内容".to_string());
+            }
+            Err(_) => {
+                return Err(format!(
+                    "流式读取超时（{} 秒无数据）",
+                    STREAM_EVENT_TIMEOUT_SECS
+                ))
+            }
+        }
+    }
+}
+
 pub async fn read_anthropic_sse_stream(
     response: reqwest::Response,
     app_handle: &tauri::AppHandle,
@@ -328,7 +434,7 @@ fn extract_content(endpoint: &LlmEndpoint, json: &Value) -> Option<String> {
             .as_array()
             .and_then(|items| items.iter().find_map(|item| item["text"].as_str().map(String::from))),
         ApiFormat::OpenaiCompat => {
-            if endpoint.api_url.contains("/v1/responses") {
+            if uses_responses_api(endpoint) {
                 json["output"].as_array().and_then(|outputs| {
                     outputs.iter().find_map(|item| {
                         if item["type"].as_str() == Some("message") {
@@ -361,14 +467,13 @@ pub async fn send_llm_request(
     let timeout = dynamic_timeout(endpoint.timeout_secs, text_len);
 
     let mut request = http_client.post(&endpoint.api_url).headers(headers);
-    if !(options.stream && !endpoint.api_url.contains("/v1/responses")) {
+    if !options.stream {
         request = request.timeout(timeout);
     }
 
-    let response = request
-        .json(body)
-        .send()
+    let response = tokio::time::timeout(timeout, request.json(body).send())
         .await
+        .map_err(|_| format!("请求超时（{} 秒）", timeout.as_secs()))?
         .map_err(|e| format!("请求失败: {}", e))?;
 
     if !response.status().is_success() {
@@ -385,7 +490,7 @@ pub async fn send_llm_request(
         return Err(format!("API 返回错误 {}: {}", status, error_message));
     }
 
-    if options.stream && !endpoint.api_url.contains("/v1/responses") {
+    if options.stream {
         let app_handle = app_handle.ok_or_else(|| "流式请求缺少 app_handle".to_string())?;
         match endpoint.api_format {
             ApiFormat::Anthropic => {
@@ -398,7 +503,19 @@ pub async fn send_llm_request(
                 .await
             }
             ApiFormat::OpenaiCompat => {
-                read_sse_stream(response, app_handle, options.stream_event, options.session_id).await
+                if uses_responses_api(endpoint) {
+                    read_openai_responses_sse_stream(
+                        response,
+                        endpoint,
+                        app_handle,
+                        options.stream_event,
+                        options.session_id,
+                    )
+                    .await
+                } else {
+                    read_sse_stream(response, app_handle, options.stream_event, options.session_id)
+                        .await
+                }
             }
         }
     } else {
@@ -407,5 +524,63 @@ pub async fn send_llm_request(
             .await
             .map_err(|e| format!("响应解析失败: {}", e))?;
         Ok(extract_content(endpoint, &json).unwrap_or_default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_llm_body, LlmRequestOptions, LlmUserInput};
+    use crate::services::llm_provider::LlmEndpoint;
+    use crate::state::user_profile::ApiFormat;
+
+    fn openai_endpoint(api_url: &str) -> LlmEndpoint {
+        LlmEndpoint {
+            provider: "openai".to_string(),
+            api_url: api_url.to_string(),
+            model: "gpt-4.1-mini".to_string(),
+            timeout_secs: 10,
+            api_format: ApiFormat::OpenaiCompat,
+        }
+    }
+
+    #[test]
+    fn responses_body_uses_stream_without_forcing_reasoning() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                stream: true,
+                json_output: true,
+                stream_event: None,
+                session_id: None,
+            },
+        );
+
+        assert_eq!(body["stream"], serde_json::json!(true));
+        assert_eq!(body["text"]["format"]["type"], serde_json::json!("json_object"));
+        assert!(body.get("reasoning").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn chat_body_keeps_provider_default_reasoning() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                stream: true,
+                json_output: false,
+                stream_event: None,
+                session_id: None,
+            },
+        );
+
+        assert_eq!(body["stream"], serde_json::json!(true));
+        assert!(body.get("reasoning").is_none());
+        assert!(body.get("reasoning_effort").is_none());
     }
 }

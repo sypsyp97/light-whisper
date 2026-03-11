@@ -1,6 +1,7 @@
 use std::sync::atomic::Ordering;
 
-use crate::services::{llm_provider, profile_service};
+use crate::services::{llm_client, llm_provider, profile_service};
+use crate::services::llm_client::{LlmRequestOptions, LlmUserInput};
 use crate::state::user_profile::*;
 use crate::state::AppState;
 
@@ -59,98 +60,46 @@ async fn extract_corrections_via_llm(
 
     let system = "你是文本差异提取工具，只输出 JSON。";
 
-    let body = match endpoint.api_format {
-        ApiFormat::Anthropic => serde_json::json!({
-            "model": endpoint.model,
-            "max_tokens": 2048,
-            "system": system,
-            "messages": [{"role": "user", "content": prompt}],
-        }),
-        ApiFormat::OpenaiCompat => {
-            let is_responses_api = endpoint.api_url.contains("/v1/responses");
-            if is_responses_api {
-                serde_json::json!({
-                    "model": endpoint.model,
-                    "instructions": system,
-                    "input": [
-                        {"role": "developer", "content": "Output json."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "text": { "format": { "type": "json_object" } },
-                    "reasoning": { "effort": "medium" },
-                })
-            } else {
-                serde_json::json!({
-                    "model": endpoint.model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "response_format": { "type": "json_object" },
-                })
-            }
-        }
-    };
+    let body = llm_client::build_llm_body(
+        &endpoint,
+        system,
+        &LlmUserInput::from(prompt.as_str()),
+        LlmRequestOptions {
+            stream: false,
+            json_output: true,
+            stream_event: None,
+            session_id: None,
+        },
+    );
 
-    let resp = match state
-        .http_client
-        .post(&endpoint.api_url)
-        .headers(llm_provider::build_auth_headers(&endpoint.api_format, &api_key).unwrap_or_default())
-        .timeout(std::time::Duration::from_secs(endpoint.timeout_secs))
-        .json(&body)
-        .send()
-        .await
+    let raw = match llm_client::send_llm_request(
+        &state.http_client,
+        &endpoint,
+        &api_key,
+        &body,
+        prompt.len(),
+        None,
+        LlmRequestOptions {
+            stream: false,
+            json_output: true,
+            stream_event: None,
+            session_id: None,
+        },
+    )
+    .await
     {
-        Ok(r) if r.status().is_success() => r,
-        Ok(r) => {
-            let status = r.status();
-            let body = r.text().await.unwrap_or_default();
-            log::warn!("用户纠错 LLM 请求失败 {}: {}", status, body);
-            return Vec::new();
-        }
-        Err(e) => {
-            log::warn!("用户纠错 LLM 网络错误: {}", e);
+        Ok(content) => content,
+        Err(err) => {
+            log::warn!("用户纠错 LLM 请求失败: {}", err);
             return Vec::new();
         }
     };
 
-    let json: serde_json::Value = match resp.json().await {
-        Ok(j) => j,
-        Err(e) => {
-            log::warn!("用户纠错 LLM 响应解析失败: {}", e);
-            return Vec::new();
-        }
-    };
-
-    // 从响应中提取文本
-    let raw = match endpoint.api_format {
-        ApiFormat::Anthropic => json["content"]
-            .as_array()
-            .and_then(|arr| arr.iter().find_map(|b| b["text"].as_str())),
-        ApiFormat::OpenaiCompat => {
-            if endpoint.api_url.contains("/v1/responses") {
-                json["output"].as_array().and_then(|o| {
-                    o.iter().find_map(|item| {
-                        if item["type"].as_str() == Some("message") {
-                            item["content"][0]["text"].as_str()
-                        } else {
-                            None
-                        }
-                    })
-                })
-            } else {
-                json["choices"][0]["message"]["content"].as_str()
-            }
-        }
-    };
-
-    let raw = match raw {
-        Some(s) => s.trim(),
-        None => {
-            log::warn!("用户纠错 LLM 响应中未找到文本内容");
-            return Vec::new();
-        }
-    };
+    let raw = raw.trim();
+    if raw.is_empty() {
+        log::warn!("用户纠错 LLM 响应中未找到文本内容");
+        return Vec::new();
+    }
 
     log::info!("用户纠错 LLM 原始返回: {}", raw);
 
