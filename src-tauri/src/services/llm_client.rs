@@ -430,9 +430,11 @@ pub async fn read_anthropic_sse_stream(
 
 fn extract_content(endpoint: &LlmEndpoint, json: &Value) -> Option<String> {
     match endpoint.api_format {
-        ApiFormat::Anthropic => json["content"]
-            .as_array()
-            .and_then(|items| items.iter().find_map(|item| item["text"].as_str().map(String::from))),
+        ApiFormat::Anthropic => json["content"].as_array().and_then(|items| {
+            items
+                .iter()
+                .find_map(|item| item["text"].as_str().map(String::from))
+        }),
         ApiFormat::OpenaiCompat => {
             if uses_responses_api(endpoint) {
                 json["output"].as_array().and_then(|outputs| {
@@ -513,8 +515,13 @@ pub async fn send_llm_request(
                     )
                     .await
                 } else {
-                    read_sse_stream(response, app_handle, options.stream_event, options.session_id)
-                        .await
+                    read_sse_stream(
+                        response,
+                        app_handle,
+                        options.stream_event,
+                        options.session_id,
+                    )
+                    .await
                 }
             }
         }
@@ -559,7 +566,10 @@ mod tests {
         );
 
         assert_eq!(body["stream"], serde_json::json!(true));
-        assert_eq!(body["text"]["format"]["type"], serde_json::json!("json_object"));
+        assert_eq!(
+            body["text"]["format"]["type"],
+            serde_json::json!("json_object")
+        );
         assert!(body.get("reasoning").is_none());
         assert!(body.get("reasoning_effort").is_none());
     }

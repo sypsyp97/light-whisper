@@ -44,7 +44,10 @@ fn generate_double_tone(base_freq: f32, tone_ms: u32, gap_ms: u32, ascending: bo
             } else if i < tone_samples + gap_samples {
                 (false, 0.0)
             } else {
-                (true, (i - tone_samples - gap_samples) as f32 / tone_samples as f32)
+                (
+                    true,
+                    (i - tone_samples - gap_samples) as f32 / tone_samples as f32,
+                )
             };
 
             if !in_tone {

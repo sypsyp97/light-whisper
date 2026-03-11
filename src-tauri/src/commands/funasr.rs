@@ -1,6 +1,6 @@
+use std::sync::atomic::Ordering;
 use tauri::Emitter;
 use tauri_plugin_keyring::KeyringExt;
-use std::sync::atomic::Ordering;
 
 use crate::services::funasr_service;
 use crate::services::llm_provider;
@@ -140,7 +140,11 @@ pub async fn set_online_asr_api_key(
         let _ = keyring.delete_password(llm_provider::KEYRING_SERVICE, ONLINE_ASR_KEYRING_USER);
     } else {
         keyring
-            .set_password(llm_provider::KEYRING_SERVICE, ONLINE_ASR_KEYRING_USER, &api_key)
+            .set_password(
+                llm_provider::KEYRING_SERVICE,
+                ONLINE_ASR_KEYRING_USER,
+                &api_key,
+            )
             .map_err(|e| AppError::Other(format!("保存在线 ASR API Key 失败: {}", e)))?;
     }
     state.set_online_asr_api_key(&api_key);
@@ -163,9 +167,7 @@ pub async fn set_online_asr_api_key(
 }
 
 #[tauri::command]
-pub async fn get_online_asr_api_key(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, AppError> {
+pub async fn get_online_asr_api_key(state: tauri::State<'_, AppState>) -> Result<String, AppError> {
     Ok(state.read_online_asr_api_key())
 }
 

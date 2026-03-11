@@ -1,5 +1,5 @@
-pub mod assistant;
 pub mod ai_polish;
+pub mod assistant;
 pub mod audio;
 pub mod clipboard;
 pub mod funasr;

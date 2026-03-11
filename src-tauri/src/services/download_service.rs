@@ -5,6 +5,7 @@
 use crate::services::funasr_service;
 use crate::state::AppState;
 use crate::utils::{paths, AppError};
+use serde::de::DeserializeOwned;
 use std::process::Stdio;
 use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -21,6 +22,44 @@ struct DownloadLine {
     overall_progress: Option<f64>,
     message: Option<String>,
     error: Option<String>,
+}
+
+fn parse_json_line_with_recovery<T>(raw: &[u8], context: &str) -> Option<T>
+where
+    T: DeserializeOwned,
+{
+    let line = match std::str::from_utf8(raw) {
+        Ok(line) => std::borrow::Cow::Borrowed(line),
+        Err(err) => {
+            log::warn!(
+                "{}收到非 UTF-8 输出，已按损坏文本容错处理: {}",
+                context,
+                err
+            );
+            String::from_utf8_lossy(raw)
+        }
+    };
+
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(payload) = serde_json::from_str::<T>(trimmed) {
+        return Some(payload);
+    }
+
+    if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
+        if start < end {
+            if let Ok(payload) = serde_json::from_str::<T>(&trimmed[start..=end]) {
+                log::warn!("{}从混合输出中恢复了 JSON 响应", context);
+                return Some(payload);
+            }
+        }
+    }
+
+    log::warn!("{}收到非JSON输出: {}", context, trimmed);
+    None
 }
 
 async fn clear_download_task(state: &AppState) {
@@ -48,7 +87,9 @@ pub async fn run_download(
     let download_script_str = paths::strip_win_prefix(&download_script);
 
     // 仅开发模式需要检查脚本是否存在
-    if matches!(runtime, funasr_service::EngineRuntime::Development { .. }) && !download_script.exists() {
+    if matches!(runtime, funasr_service::EngineRuntime::Development { .. })
+        && !download_script.exists()
+    {
         return Err(AppError::Download(format!(
             "模型下载脚本不存在: {}",
             download_script_str
@@ -81,7 +122,11 @@ pub async fn run_download(
     // 启动下载脚本（逐行读取 stdout 以转发进度）
     // 模型从 HuggingFace 下载，使用 HF 默认缓存目录
     let engine = paths::read_engine_config();
-    let engine_arg = if engine == "whisper" { "whisper" } else { "sensevoice" };
+    let engine_arg = if engine == "whisper" {
+        "whisper"
+    } else {
+        "sensevoice"
+    };
 
     let mut cmd = match &runtime {
         funasr_service::EngineRuntime::Bundled { exe_path } => {
@@ -91,7 +136,10 @@ pub async fn run_download(
         }
         funasr_service::EngineRuntime::Development { python_path } => {
             let mut c = Command::new(python_path);
-            c.arg("-u").arg(&download_script_str).arg("--engine").arg(engine_arg);
+            c.arg("-u")
+                .arg(&download_script_str)
+                .arg("--engine")
+                .arg(engine_arg);
             c
         }
     };
@@ -134,8 +182,9 @@ pub async fn run_download(
     let mut reader = BufReader::new(stdout);
     let mut final_result: Option<DownloadLine> = None;
     let mut cancelled = false;
+    let mut line_bytes = Vec::new();
     loop {
-        let mut line = String::new();
+        line_bytes.clear();
         tokio::select! {
             _ = &mut cancel_rx => {
                 cancelled = true;
@@ -146,12 +195,11 @@ pub async fn run_download(
                 }));
                 break;
             }
-            bytes = reader.read_line(&mut line) => {
+            bytes = reader.read_until(b'\n', &mut line_bytes) => {
                 let bytes = match bytes {
                     Ok(bytes) => bytes,
                     Err(e) => {
-                        // 非 UTF-8 输出（如 tqdm 进度条）跳过，不终止下载
-                        log::warn!("下载输出解码错误（跳过）: {}", e);
+                        log::warn!("读取下载输出失败（跳过）: {}", e);
                         continue;
                     }
                 };
@@ -159,38 +207,35 @@ pub async fn run_download(
                     break;
                 }
 
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
+                let Some(payload) = parse_json_line_with_recovery::<DownloadLine>(&line_bytes, "模型下载输出") else {
+                    continue;
+                };
+
+                if payload.success.is_some() {
+                    final_result = Some(payload);
                     continue;
                 }
 
-                if let Ok(payload) = serde_json::from_str::<DownloadLine>(trimmed) {
-                    if payload.success.is_some() {
-                        final_result = Some(payload);
-                        continue;
-                    }
+                let progress = payload
+                    .overall_progress
+                    .or(payload.progress)
+                    .unwrap_or(0.0);
 
-                    let progress = payload
-                        .overall_progress
-                        .or(payload.progress)
-                        .unwrap_or(0.0);
+                let message = payload.message.clone().or_else(|| {
+                    payload.model.clone().map(|m| format!("{} 下载中", m))
+                });
 
-                    let message = payload.message.clone().or_else(|| {
-                        payload.model.clone().map(|m| format!("{} 下载中", m))
-                    });
+                let status = match payload.stage.as_deref() {
+                    Some("error") => "error",
+                    _ => "progress",
+                };
 
-                    let status = match payload.stage.as_deref() {
-                        Some("error") => "error",
-                        _ => "progress",
-                    };
-
-                    emit_download_status(app_handle, serde_json::json!({
-                        "status": status,
-                        "progress": progress,
-                        "message": message.unwrap_or_else(|| "模型下载中...".to_string()),
-                        "error": payload.error
-                    }));
-                }
+                emit_download_status(app_handle, serde_json::json!({
+                    "status": status,
+                    "progress": progress,
+                    "message": message.unwrap_or_else(|| "模型下载中...".to_string()),
+                    "error": payload.error
+                }));
             }
         }
     }
@@ -239,5 +284,57 @@ pub async fn run_download(
         );
 
         Err(AppError::Download(error_msg))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_json_line_with_recovery, DownloadLine};
+
+    #[test]
+    fn parse_download_line_accepts_valid_json() {
+        let payload = parse_json_line_with_recovery::<DownloadLine>(
+            br#"{"stage":"downloading","progress":50,"message":"ok"}"#,
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(payload.stage.as_deref(), Some("downloading"));
+        assert_eq!(payload.progress, Some(50.0));
+        assert_eq!(payload.message.as_deref(), Some("ok"));
+    }
+
+    #[test]
+    fn parse_download_line_recovers_from_non_utf8_prefix() {
+        let payload = parse_json_line_with_recovery::<DownloadLine>(
+            b"\xff\xfe{\"stage\":\"downloading\",\"progress\":50,\"message\":\"ok\"}",
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(payload.stage.as_deref(), Some("downloading"));
+        assert_eq!(payload.progress, Some(50.0));
+        assert_eq!(payload.message.as_deref(), Some("ok"));
+    }
+
+    #[test]
+    fn parse_download_line_recovers_json_from_mixed_output() {
+        let payload = parse_json_line_with_recovery::<DownloadLine>(
+            br#"noise >>> {"stage":"downloading","progress":50,"message":"ok"}"#,
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(payload.stage.as_deref(), Some("downloading"));
+        assert_eq!(payload.progress, Some(50.0));
+        assert_eq!(payload.message.as_deref(), Some("ok"));
+    }
+
+    #[test]
+    fn parse_download_line_rejects_non_json_noise() {
+        let payload =
+            parse_json_line_with_recovery::<DownloadLine>(b"{'load_data': '0.001'}", "test");
+
+        assert!(payload.is_none());
     }
 }

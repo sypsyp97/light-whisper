@@ -1,10 +1,10 @@
+use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use std::thread::JoinHandle;
-use std::collections::HashMap;
-use serde::Serialize;
 use tokio::io::BufReader;
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::oneshot;
@@ -274,7 +274,10 @@ impl AppState {
         self.hotkey_diagnostic.lock().clone()
     }
 
-    pub fn update_hotkey_diagnostic<R>(&self, f: impl FnOnce(&mut HotkeyDiagnosticState) -> R) -> (R, HotkeyDiagnosticState) {
+    pub fn update_hotkey_diagnostic<R>(
+        &self,
+        f: impl FnOnce(&mut HotkeyDiagnosticState) -> R,
+    ) -> (R, HotkeyDiagnosticState) {
         let mut guard = self.hotkey_diagnostic.lock();
         let result = f(&mut guard);
         (result, guard.clone())

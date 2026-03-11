@@ -6,7 +6,9 @@ use std::sync::{
 use tauri::Emitter;
 
 use crate::services::audio_service;
-use crate::state::{AppState, PendingRecordingSession, RecordingMode, RecordingSession, RecordingSlot};
+use crate::state::{
+    AppState, PendingRecordingSession, RecordingMode, RecordingSession, RecordingSlot,
+};
 use crate::utils::AppError;
 
 pub(crate) const RECORDING_NOT_READY_ERROR: &str = "语音识别服务尚未就绪，请等待初始化完成";
@@ -53,30 +55,51 @@ pub(crate) async fn start_recording_inner(
     let interim_cache: Arc<parking_lot::Mutex<Option<crate::state::InterimCache>>> =
         Arc::new(parking_lot::Mutex::new(None));
 
-    let (audio_thread, actual_sample_rate) =
-        match audio_service::spawn_audio_capture_thread(
-            stop_flag.clone(), samples.clone(), state.selected_input_device_name(),
-        ) {
-            Ok(r) => r,
-            Err(e) => { clear_pending_recording_if_current(state, session_id); return Err(e); }
-        };
+    let (audio_thread, actual_sample_rate) = match audio_service::spawn_audio_capture_thread(
+        stop_flag.clone(),
+        samples.clone(),
+        state.selected_input_device_name(),
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            clear_pending_recording_if_current(state, session_id);
+            return Err(e);
+        }
+    };
 
     if stop_flag.load(Ordering::Relaxed) {
         clear_pending_recording_if_current(state, session_id);
         audio_service::discard_recording(RecordingSession {
-            session_id, mode, stop_flag, stop_notify, samples, sample_rate: actual_sample_rate,
-            audio_thread: Some(audio_thread), interim_task: None, interim_cache,
-        }).await;
+            session_id,
+            mode,
+            stop_flag,
+            stop_notify,
+            samples,
+            sample_rate: actual_sample_rate,
+            audio_thread: Some(audio_thread),
+            interim_task: None,
+            interim_cache,
+        })
+        .await;
         return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
     }
 
     let interim_task = audio_service::spawn_interim_loop(
-        app_handle.clone(), session_id, stop_flag.clone(), stop_notify.clone(),
-        samples.clone(), actual_sample_rate, interim_cache.clone(),
+        app_handle.clone(),
+        session_id,
+        stop_flag.clone(),
+        stop_notify.clone(),
+        samples.clone(),
+        actual_sample_rate,
+        interim_cache.clone(),
     );
 
     let mut session = Some(RecordingSession {
-        session_id, mode, stop_flag, stop_notify, samples,
+        session_id,
+        mode,
+        stop_flag,
+        stop_notify,
+        samples,
         sample_rate: actual_sample_rate,
         audio_thread: Some(audio_thread),
         interim_task: Some(interim_task),
@@ -140,7 +163,10 @@ pub(crate) async fn stop_recording_inner(
 
     let recording = match recording {
         Some(s) => s,
-        None => { log::warn!("stop_recording 被调用但没有活跃的录音会话"); return Ok(None); }
+        None => {
+            log::warn!("stop_recording 被调用但没有活跃的录音会话");
+            return Ok(None);
+        }
     };
 
     let session = match recording {

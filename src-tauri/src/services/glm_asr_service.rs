@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
-use crate::state::AppState;
 use crate::services::funasr_service::TranscriptionResult;
+use crate::state::AppState;
 use crate::utils::{paths, AppError};
 
 const GLM_ASR_PATH: &str = "/api/paas/v4/audio/transcriptions";
@@ -16,10 +16,7 @@ struct GlmResponse {
     message: Option<String>,
 }
 
-fn build_form(
-    audio_data: Vec<u8>,
-    state: &AppState,
-) -> Result<reqwest::multipart::Form, AppError> {
+fn build_form(audio_data: Vec<u8>, state: &AppState) -> Result<reqwest::multipart::Form, AppError> {
     let file_part = reqwest::multipart::Part::bytes(audio_data)
         .file_name("audio.wav")
         .mime_str("audio/wav")

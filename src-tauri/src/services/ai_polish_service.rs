@@ -4,8 +4,8 @@ use tauri::Emitter;
 
 use serde::Deserialize;
 
-use crate::services::{llm_client, llm_provider, profile_service};
 use crate::services::llm_client::LlmRequestOptions;
+use crate::services::{llm_client, llm_provider, profile_service};
 use crate::state::user_profile::CorrectionSource;
 use crate::state::AppState;
 
@@ -315,7 +315,11 @@ pub async fn polish_text(
     let system_prompt = build_system_prompt(state, text);
     let user_content = build_user_content(text);
 
-    log::info!("AI 润色请求: 文本长度={}, format={:?}", text.len(), endpoint.api_format);
+    log::info!(
+        "AI 润色请求: 文本长度={}, format={:?}",
+        text.len(),
+        endpoint.api_format
+    );
 
     let start = std::time::Instant::now();
     emit_polish_status(app_handle, "polishing", text, "", "", session_id);
@@ -498,7 +502,14 @@ pub async fn edit_text(
     )
     .await
     .inspect_err(|e| {
-        emit_polish_status(app_handle, "error", selected_text, selected_text, e, session_id);
+        emit_polish_status(
+            app_handle,
+            "error",
+            selected_text,
+            selected_text,
+            e,
+            session_id,
+        );
     })?;
 
     let raw_content = raw_content.trim();
@@ -517,7 +528,14 @@ pub async fn edit_text(
         instruction,
         result.len()
     );
-    emit_polish_status(app_handle, "applied", selected_text, &result, "", session_id);
+    emit_polish_status(
+        app_handle,
+        "applied",
+        selected_text,
+        &result,
+        "",
+        session_id,
+    );
 
     Ok(result)
 }

@@ -71,7 +71,10 @@ fn read_engine_json() -> serde_json::Value {
 fn write_engine_json(obj: &serde_json::Value) -> Result<(), std::io::Error> {
     let config_path = get_engine_config_path();
     let serialized = serde_json::to_string_pretty(obj).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, format!("序列化配置失败: {}", e))
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("序列化配置失败: {}", e),
+        )
     })?;
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -81,7 +84,10 @@ fn write_engine_json(obj: &serde_json::Value) -> Result<(), std::io::Error> {
 
 /// 返回当前配置的区域标识：`"international"` 或 `"domestic"`
 pub fn read_online_asr_region() -> String {
-    match read_engine_json().get("glm_endpoint").and_then(|v| v.as_str()) {
+    match read_engine_json()
+        .get("glm_endpoint")
+        .and_then(|v| v.as_str())
+    {
         Some("domestic") => "domestic".to_string(),
         _ => "international".to_string(),
     }
@@ -98,9 +104,10 @@ pub fn read_online_asr_endpoint() -> String {
 /// `region`: `"international"` 或 `"domestic"`
 pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
     let mut obj = read_engine_json();
-    obj.as_object_mut()
-        .unwrap()
-        .insert("glm_endpoint".to_string(), serde_json::Value::String(region.to_string()));
+    obj.as_object_mut().unwrap().insert(
+        "glm_endpoint".to_string(),
+        serde_json::Value::String(region.to_string()),
+    );
     write_engine_json(&obj)
 }
 
@@ -149,8 +156,9 @@ pub fn get_engine_dir() -> PathBuf {
 
 pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
     let mut obj = read_engine_json();
-    obj.as_object_mut()
-        .unwrap()
-        .insert("engine".to_string(), serde_json::Value::String(engine.to_string()));
+    obj.as_object_mut().unwrap().insert(
+        "engine".to_string(),
+        serde_json::Value::String(engine.to_string()),
+    );
     write_engine_json(&obj)
 }

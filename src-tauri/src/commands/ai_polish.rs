@@ -36,11 +36,11 @@ pub async fn set_ai_polish_config(
     state.set_ai_polish_api_key(api_key.clone());
 
     if !api_key.is_empty() {
-        if let Err(e) =
-            app_handle
-                .keyring()
-                .set_password(llm_provider::KEYRING_SERVICE, &keyring_user, &api_key)
-        {
+        if let Err(e) = app_handle.keyring().set_password(
+            llm_provider::KEYRING_SERVICE,
+            &keyring_user,
+            &api_key,
+        ) {
             log::warn!("保存 API Key 到系统密钥环失败: {}", e);
         }
     } else {

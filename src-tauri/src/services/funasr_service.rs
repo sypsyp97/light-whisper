@@ -249,32 +249,56 @@ where
     R: AsyncBufRead + Unpin,
 {
     let start_at = Instant::now();
-    let mut line = String::new();
+    let mut line_bytes = Vec::new();
 
     loop {
         let remaining = timeout
             .checked_sub(start_at.elapsed())
             .ok_or_else(|| AppError::Asr(format!("{}超时", context)))?;
 
-        line.clear();
-        let read_result = tokio::time::timeout(remaining, reader.read_line(&mut line)).await;
+        line_bytes.clear();
+        let read_result =
+            tokio::time::timeout(remaining, reader.read_until(b'\n', &mut line_bytes)).await;
 
         match read_result {
             Ok(Ok(0)) => {
                 return Err(AppError::Asr(format!("{}失败：stdout 已关闭", context)));
             }
             Ok(Ok(_)) => {
+                let line = match std::str::from_utf8(&line_bytes) {
+                    Ok(line) => std::borrow::Cow::Borrowed(line),
+                    Err(err) => {
+                        log::warn!(
+                            "{}阶段收到非 UTF-8 输出，已按损坏文本容错处理: {}",
+                            context,
+                            err
+                        );
+                        String::from_utf8_lossy(&line_bytes)
+                    }
+                };
+
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
                     continue;
                 }
-                match serde_json::from_str::<T>(trimmed) {
-                    Ok(value) => return Ok(value),
-                    Err(_) => {
-                        log::warn!("{}阶段收到非JSON输出: {}", context, trimmed);
-                        continue;
+
+                if let Ok(value) = serde_json::from_str::<T>(trimmed) {
+                    return Ok(value);
+                }
+
+                // 某些 Windows 机器上，第三方库会把噪音输出和 JSON 响应挤在同一行。
+                // 尝试从首个 '{' 到末尾 '}' 提取有效 JSON，避免一次脏输出导致整次初始化失败。
+                if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
+                    if start < end {
+                        if let Ok(value) = serde_json::from_str::<T>(&trimmed[start..=end]) {
+                            log::warn!("{}阶段从混合输出中恢复了 JSON 响应", context);
+                            return Ok(value);
+                        }
                     }
                 }
+
+                log::warn!("{}阶段收到非JSON输出: {}", context, trimmed);
+                continue;
             }
             Ok(Err(e)) => {
                 return Err(AppError::Asr(format!("{}失败：{}", context, e)));
@@ -366,12 +390,14 @@ async fn extract_engine_archive(
         log::info!("开始解压引擎: {} 个文件", total);
 
         for i in 0..total {
-            let mut entry = zip.by_index(i)
+            let mut entry = zip
+                .by_index(i)
                 .map_err(|e| AppError::Asr(format!("读取压缩条目失败: {}", e)))?;
 
             let entry_path = engine_dir.join(
-                entry.enclosed_name()
-                    .ok_or_else(|| AppError::Asr("压缩包含不安全路径".to_string()))?
+                entry
+                    .enclosed_name()
+                    .ok_or_else(|| AppError::Asr("压缩包含不安全路径".to_string()))?,
             );
 
             if entry.is_dir() {
@@ -568,7 +594,11 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
                 paths::get_funasr_server_path(app_handle)
             };
             let server_script_str = paths::strip_win_prefix(&server_script);
-            log::info!("语音识别脚本路径 (engine={}): {}", engine, server_script_str);
+            log::info!(
+                "语音识别脚本路径 (engine={}): {}",
+                engine,
+                server_script_str
+            );
 
             if !server_script.exists() {
                 return Err(AppError::Asr(format!(
@@ -629,18 +659,14 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         Some(stdin) => stdin,
         None => {
             let _ = child.kill().await;
-            return Err(AppError::Asr(
-                "无法获取 FunASR 进程的标准输入".to_string(),
-            ));
+            return Err(AppError::Asr("无法获取 FunASR 进程的标准输入".to_string()));
         }
     };
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => {
             let _ = child.kill().await;
-            return Err(AppError::Asr(
-                "无法获取 FunASR 进程的标准输出".to_string(),
-            ));
+            return Err(AppError::Asr("无法获取 FunASR 进程的标准输出".to_string()));
         }
     };
 
@@ -701,17 +727,20 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
 
     // 通过 Tauri 事件系统通知前端
     // `emit` 会向所有窗口广播事件
-    let _ = app_handle.emit("funasr-status", if initialized {
-        serde_json::json!({
-            "status": "ready",
-            "message": "FunASR 服务器已就绪"
-        })
-    } else {
-        serde_json::json!({
-            "status": "error",
-            "message": &error_message
-        })
-    });
+    let _ = app_handle.emit(
+        "funasr-status",
+        if initialized {
+            serde_json::json!({
+                "status": "ready",
+                "message": "FunASR 服务器已就绪"
+            })
+        } else {
+            serde_json::json!({
+                "status": "error",
+                "message": &error_message
+            })
+        },
+    );
 
     if initialized {
         Ok(())
@@ -1209,3 +1238,62 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
 
 // 需要引入 Emitter trait 才能使用 emit 方法
 use tauri::Emitter;
+
+#[cfg(test)]
+mod tests {
+    use super::{read_json_response, ServerResponse};
+    use std::time::Duration;
+    use tokio::io::{AsyncWriteExt, BufReader};
+
+    async fn read_response_from_chunks(chunks: &[&[u8]]) -> ServerResponse {
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        for chunk in chunks {
+            writer.write_all(chunk).await.unwrap();
+        }
+        writer.shutdown().await.unwrap();
+
+        let mut reader = BufReader::new(reader);
+        read_json_response(&mut reader, Duration::from_secs(1), "test")
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn read_json_response_accepts_valid_json_line() {
+        let response = read_response_from_chunks(&[br#"{"success":true,"message":"ok"}\n"#]).await;
+
+        assert_eq!(response.success, Some(true));
+        assert_eq!(response.message.as_deref(), Some("ok"));
+    }
+
+    #[tokio::test]
+    async fn read_json_response_recovers_from_non_utf8_prefix() {
+        let response =
+            read_response_from_chunks(&[b"\xff\xfe", br#"{"success":true,"message":"ok"}\n"#])
+                .await;
+
+        assert_eq!(response.success, Some(true));
+        assert_eq!(response.message.as_deref(), Some("ok"));
+    }
+
+    #[tokio::test]
+    async fn read_json_response_recovers_json_from_mixed_line() {
+        let response =
+            read_response_from_chunks(&[br#"noise >>> {"success":true,"message":"ok"}\n"#]).await;
+
+        assert_eq!(response.success, Some(true));
+        assert_eq!(response.message.as_deref(), Some("ok"));
+    }
+
+    #[tokio::test]
+    async fn read_json_response_skips_python_dict_noise_and_reads_next_json() {
+        let response = read_response_from_chunks(&[
+            b"{'load_data': '0.001'}\n",
+            br#"{"success":true,"message":"ok"}\n"#,
+        ])
+        .await;
+
+        assert_eq!(response.success, Some(true));
+        assert_eq!(response.message.as_deref(), Some("ok"));
+    }
+}

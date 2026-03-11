@@ -19,15 +19,15 @@ use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT,
-    VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR, VK_RCONTROL,
-    VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
+    VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT, VK_LCONTROL,
+    VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RETURN, VK_RIGHT,
+    VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE,
-    PeekMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
+    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG,
+    PM_NOREMOVE, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
@@ -204,8 +204,7 @@ fn update_hotkey_diagnostic_for_mode<F>(
     app_handle: &tauri::AppHandle,
     mode: RecordingMode,
     update: F,
-)
-where
+) where
     F: FnOnce(&mut crate::state::HotkeyDiagnosticState),
 {
     if mode == RecordingMode::Dictation {
@@ -213,11 +212,7 @@ where
     }
 }
 
-fn handle_hotkey_start(
-    app_handle: tauri::AppHandle,
-    shortcut_label: String,
-    mode: RecordingMode,
-) {
+fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String, mode: RecordingMode) {
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();
 
@@ -264,11 +259,7 @@ fn handle_hotkey_start(
     });
 }
 
-fn handle_hotkey_stop(
-    app_handle: tauri::AppHandle,
-    shortcut_label: String,
-    mode: RecordingMode,
-) {
+fn handle_hotkey_stop(app_handle: tauri::AppHandle, shortcut_label: String, mode: RecordingMode) {
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();
 
@@ -488,7 +479,10 @@ fn unified_hook_state_slot() -> &'static Mutex<UnifiedHookBundle> {
 }
 
 #[cfg(target_os = "windows")]
-fn set_unified_hook_state(kind: HotkeyKind, state: Option<Arc<UnifiedHookState>>) -> Option<Arc<UnifiedHookState>> {
+fn set_unified_hook_state(
+    kind: HotkeyKind,
+    state: Option<Arc<UnifiedHookState>>,
+) -> Option<Arc<UnifiedHookState>> {
     let mut guard = match unified_hook_state_slot().lock() {
         Ok(g) => g,
         Err(p) => p.into_inner(),
@@ -638,8 +632,7 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
     w_param: WPARAM,
     l_param: LPARAM,
 ) -> LRESULT {
-    let pass_through =
-        || unsafe { CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param) };
+    let pass_through = || unsafe { CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param) };
 
     if n_code != HC_ACTION as i32 {
         return pass_through();
@@ -753,8 +746,7 @@ fn handle_modifier_only_event(
         // When all required modifiers are up, clear taint and handle cleanup
         let any_still_down = state.key_down.iter().any(|b| b.load(Ordering::Acquire));
         if !any_still_down {
-            let need_cleanup =
-                was_activated && state.modifier_leaked.swap(false, Ordering::AcqRel);
+            let need_cleanup = was_activated && state.modifier_leaked.swap(false, Ordering::AcqRel);
             state.tainted.store(false, Ordering::Release);
             state.activated.store(false, Ordering::Release);
 
@@ -951,8 +943,7 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
 
             // Ensure message queue exists
             let mut peek_msg: MSG = unsafe { std::mem::zeroed() };
-            let _ =
-                unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
+            let _ = unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
 
             if ready_tx.send(Ok(thread_id)).is_err() {
                 unsafe { UnhookWindowsHookEx(hook) };
@@ -985,10 +976,7 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
         Ok(g) => g,
         Err(p) => p.into_inner(),
     };
-    *guard = Some(UnifiedHotkeyMonitor {
-        thread_id,
-        handle,
-    });
+    *guard = Some(UnifiedHotkeyMonitor { thread_id, handle });
     Ok(())
 }
 
@@ -1006,9 +994,7 @@ fn force_release_hotkey(state: &UnifiedHookState) {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn ensure_unified_hotkey_monitor(
-    _app_handle: tauri::AppHandle,
-) -> Result<(), AppError> {
+fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), AppError> {
     Err(AppError::Other(
         "当前系统暂不支持低层键盘钩子热键".to_string(),
     ))
@@ -1030,7 +1016,9 @@ fn build_hook_state(
         spec,
         mode,
         gate: HotkeyEventGate::default(),
-        key_down: (0..key_down_count).map(|_| AtomicBool::new(false)).collect(),
+        key_down: (0..key_down_count)
+            .map(|_| AtomicBool::new(false))
+            .collect(),
         activated: AtomicBool::new(false),
         tainted: AtomicBool::new(false),
         modifier_leaked: AtomicBool::new(false),
@@ -1174,9 +1162,8 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
         label_parts.push(mk);
 
         #[cfg(target_os = "windows")]
-        let main_vk = parse_main_key_to_vk(mk).ok_or_else(|| {
-            AppError::Other(format!("无法识别的按键：{}", mk))
-        })?;
+        let main_vk = parse_main_key_to_vk(mk)
+            .ok_or_else(|| AppError::Other(format!("无法识别的按键：{}", mk)))?;
         #[cfg(not(target_os = "windows"))]
         let main_vk = 0u16;
 
@@ -1188,7 +1175,8 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
         })
     } else {
         // Pure modifier-only hotkey
-        let has_any_modifier = modifiers.ctrl || modifiers.alt || modifiers.shift || modifiers.super_key;
+        let has_any_modifier =
+            modifiers.ctrl || modifiers.alt || modifiers.shift || modifiers.super_key;
         if !has_any_modifier {
             return Err(AppError::Other(
                 "快捷键格式无效：请至少指定一个按键".to_string(),
@@ -1312,7 +1300,11 @@ pub(crate) fn register_assistant_hotkey_inner(
         let next_state = if let Some(shortcut) = shortcut {
             let spec = normalize_shortcut(&shortcut)?;
             ensure_hotkey_not_conflicting(&app_handle, RecordingMode::Assistant, spec.label())?;
-            Some(build_hook_state(app_handle.clone(), spec, RecordingMode::Assistant))
+            Some(build_hook_state(
+                app_handle.clone(),
+                spec,
+                RecordingMode::Assistant,
+            ))
         } else {
             None
         };

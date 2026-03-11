@@ -160,7 +160,11 @@ impl LlmProviderConfig {
             return self.resolve_active_provider();
         }
 
-        if let Some(index) = self.custom_providers.iter().position(|p| p.id == removed_id) {
+        if let Some(index) = self
+            .custom_providers
+            .iter()
+            .position(|p| p.id == removed_id)
+        {
             if index > 0 {
                 return self.custom_providers[index - 1].id.clone();
             }
@@ -275,7 +279,11 @@ mod tests {
             active: "b".to_string(),
             custom_base_url: None,
             custom_model: None,
-            custom_providers: vec![custom_provider("a"), custom_provider("b"), custom_provider("c")],
+            custom_providers: vec![
+                custom_provider("a"),
+                custom_provider("b"),
+                custom_provider("c"),
+            ],
         };
 
         assert_eq!(config.fallback_provider_after_removal("b"), "a");
@@ -287,7 +295,11 @@ mod tests {
             active: "a".to_string(),
             custom_base_url: None,
             custom_model: None,
-            custom_providers: vec![custom_provider("a"), custom_provider("b"), custom_provider("c")],
+            custom_providers: vec![
+                custom_provider("a"),
+                custom_provider("b"),
+                custom_provider("c"),
+            ],
         };
 
         assert_eq!(config.fallback_provider_after_removal("a"), "c");

@@ -1,7 +1,7 @@
 use std::sync::atomic::Ordering;
 
-use crate::services::{llm_client, llm_provider, profile_service};
 use crate::services::llm_client::{LlmRequestOptions, LlmUserInput};
+use crate::services::{llm_client, llm_provider, profile_service};
 use crate::state::user_profile::*;
 use crate::state::AppState;
 
@@ -273,10 +273,18 @@ pub async fn update_custom_provider(
             .iter_mut()
             .find(|p| p.id == id)
         {
-            if let Some(n) = name { cp.name = n; }
-            if let Some(u) = base_url { cp.base_url = u; }
-            if let Some(m) = model { cp.model = m; }
-            if let Some(f) = api_format { cp.api_format = f; }
+            if let Some(n) = name {
+                cp.name = n;
+            }
+            if let Some(u) = base_url {
+                cp.base_url = u;
+            }
+            if let Some(m) = model {
+                cp.model = m;
+            }
+            if let Some(f) = api_format {
+                cp.api_format = f;
+            }
             true
         } else {
             false
@@ -296,10 +304,7 @@ pub async fn remove_custom_provider(
 ) -> Result<(), String> {
     let (_, profile) = state.update_profile(|profile| {
         let fallback_provider = profile.llm_provider.fallback_provider_after_removal(&id);
-        profile
-            .llm_provider
-            .custom_providers
-            .retain(|p| p.id != id);
+        profile.llm_provider.custom_providers.retain(|p| p.id != id);
         if profile.llm_provider.active == id {
             profile.llm_provider.active = fallback_provider;
         }
@@ -319,8 +324,7 @@ pub async fn set_translation_target(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let auto_enabled_polish = target.is_some()
-        && !state.ai_polish_enabled.load(Ordering::Acquire);
+    let auto_enabled_polish = target.is_some() && !state.ai_polish_enabled.load(Ordering::Acquire);
 
     if auto_enabled_polish {
         state.ai_polish_enabled.store(true, Ordering::Release);
@@ -339,8 +343,12 @@ pub async fn set_custom_prompt(
     state: tauri::State<'_, AppState>,
     prompt: Option<String>,
 ) -> Result<(), String> {
-    let prompt = prompt.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    let (_, profile) = state.update_profile(|p| { p.custom_prompt = prompt; });
+    let prompt = prompt
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let (_, profile) = state.update_profile(|p| {
+        p.custom_prompt = prompt;
+    });
     profile_service::save_profile(&profile)
 }
 

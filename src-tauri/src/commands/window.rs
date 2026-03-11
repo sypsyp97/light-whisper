@@ -71,7 +71,12 @@ fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64
         (logical_width, logical_height, x, y)
     } else {
         log::warn!("未获取到显示器信息，字幕窗口使用默认布局");
-        (DEFAULT_SUBTITLE_WINDOW_WIDTH, DEFAULT_SUBTITLE_WINDOW_HEIGHT, 0.0, 0.0)
+        (
+            DEFAULT_SUBTITLE_WINDOW_WIDTH,
+            DEFAULT_SUBTITLE_WINDOW_HEIGHT,
+            0.0,
+            0.0,
+        )
     }
 }
 

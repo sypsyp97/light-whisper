@@ -2,8 +2,8 @@ use std::sync::atomic::Ordering;
 
 use tauri::Emitter;
 
-use crate::services::{llm_client, llm_provider, screen_capture_service};
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
+use crate::services::{llm_client, llm_provider, screen_capture_service};
 use crate::state::user_profile::UserProfile;
 use crate::state::AppState;
 use crate::utils::AppError;
@@ -318,8 +318,8 @@ pub async fn generate_content(
                 Some(app_handle),
                 request_options,
             )
-                .await
-                .map_err(AppError::Other)?
+            .await
+            .map_err(AppError::Other)?
         }
         Err(err) => return Err(AppError::Other(err)),
     };
@@ -338,7 +338,11 @@ pub async fn generate_content(
     );
 
     if state.sound_enabled.load(Ordering::Acquire) {
-        log::info!("助手生成完成 (session {}, {} chars)", session_id, trimmed.len());
+        log::info!(
+            "助手生成完成 (session {}, {} chars)",
+            session_id,
+            trimmed.len()
+        );
     }
 
     Ok(trimmed)

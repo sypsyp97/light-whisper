@@ -98,8 +98,7 @@ pub fn cleanup_profile(profile: &mut UserProfile) -> ProfileCleanupStats {
 fn sanitize_corrections(profile: &mut UserProfile) -> usize {
     let before = profile.correction_patterns.len();
     profile.correction_patterns.retain(|p| {
-        let too_long =
-            p.original.chars().count() > 15 || p.corrected.chars().count() > 15;
+        let too_long = p.original.chars().count() > 15 || p.corrected.chars().count() > 15;
         let trivial_ai = p.original.chars().count() <= 1
             && p.corrected.chars().count() <= 1
             && p.source == CorrectionSource::Ai;
@@ -116,7 +115,9 @@ fn limit_correction_patterns(profile: &mut UserProfile) -> usize {
     profile
         .correction_patterns
         .sort_by(|a, b| b.count.cmp(&a.count).then(b.last_seen.cmp(&a.last_seen)));
-    profile.correction_patterns.truncate(MAX_CORRECTION_PATTERNS);
+    profile
+        .correction_patterns
+        .truncate(MAX_CORRECTION_PATTERNS);
     before - profile.correction_patterns.len()
 }
 
@@ -154,13 +155,28 @@ fn sanitize_blocked_hot_words(profile: &mut UserProfile) {
 
 fn is_blocked_hot_word(profile: &UserProfile, text: &str) -> bool {
     normalize_hot_word_key(text)
-        .map(|(_, key)| profile.blocked_hot_words.iter().any(|blocked| blocked == &key))
+        .map(|(_, key)| {
+            profile
+                .blocked_hot_words
+                .iter()
+                .any(|blocked| blocked == &key)
+        })
         .unwrap_or(false)
 }
 
 fn hot_word_priority(w: &HotWord) -> (u8, u8, u32, u64, usize) {
-    let src = if w.source == HotWordSource::User { 1 } else { 0 };
-    (src, w.weight, w.use_count, w.last_used, w.text.chars().count())
+    let src = if w.source == HotWordSource::User {
+        1
+    } else {
+        0
+    };
+    (
+        src,
+        w.weight,
+        w.use_count,
+        w.last_used,
+        w.text.chars().count(),
+    )
 }
 
 fn merge_hot_word(existing: &mut HotWord, candidate: HotWord) {
@@ -179,15 +195,33 @@ fn contains_sentence_punctuation(text: &str) -> bool {
     text.chars().any(|ch| {
         matches!(
             ch,
-            '，' | '。' | '！' | '？' | '；' | '：' | '、' | ',' | '.' | '!' | '?' | ';' | ':'
-                | '\n' | '\r' | '\t'
+            '，' | '。'
+                | '！'
+                | '？'
+                | '；'
+                | '：'
+                | '、'
+                | ','
+                | '.'
+                | '!'
+                | '?'
+                | ';'
+                | ':'
+                | '\n'
+                | '\r'
+                | '\t'
         )
     })
 }
 
 fn learned_hot_word_looks_like_sentence(text: &str) -> bool {
-    let action_like_chars = ['请', '帮', '写', '说', '问', '想', '要', '给', '把', '做', '发', '改'];
-    let action_count = text.chars().filter(|ch| action_like_chars.contains(ch)).count();
+    let action_like_chars = [
+        '请', '帮', '写', '说', '问', '想', '要', '给', '把', '做', '发', '改',
+    ];
+    let action_count = text
+        .chars()
+        .filter(|ch| action_like_chars.contains(ch))
+        .count();
     let has_ascii = text.chars().any(|ch| ch.is_ascii_alphanumeric());
     !has_ascii && text.chars().count() >= 6 && action_count >= 2
 }
@@ -218,17 +252,25 @@ fn sanitize_hot_words(profile: &mut UserProfile) -> usize {
     let mut deduped = std::collections::HashMap::new();
 
     for mut hw in std::mem::take(&mut profile.hot_words) {
-        let Some((text, key)) = normalize_hot_word_key(&hw.text) else { continue };
+        let Some((text, key)) = normalize_hot_word_key(&hw.text) else {
+            continue;
+        };
         hw.text = text;
         hw.weight = hw.weight.clamp(1, 5);
-        if profile.blocked_hot_words.iter().any(|blocked| blocked == &key) {
+        if profile
+            .blocked_hot_words
+            .iter()
+            .any(|blocked| blocked == &key)
+        {
             continue;
         }
         if !is_reasonable_hot_word(&hw.text, hw.source.clone()) {
             continue;
         }
         match deduped.entry(key) {
-            Entry::Vacant(slot) => { slot.insert(hw); }
+            Entry::Vacant(slot) => {
+                slot.insert(hw);
+            }
             Entry::Occupied(mut slot) => merge_hot_word(slot.get_mut(), hw),
         }
     }
@@ -242,9 +284,13 @@ fn sanitize_hot_words(profile: &mut UserProfile) -> usize {
 }
 
 pub fn add_hot_word(profile: &mut UserProfile, text: String, weight: u8) {
-    let Some((normalized_text, normalized_key)) = normalize_hot_word_key(&text) else { return };
+    let Some((normalized_text, normalized_key)) = normalize_hot_word_key(&text) else {
+        return;
+    };
     let now = now_secs();
-    profile.blocked_hot_words.retain(|blocked| blocked != &normalized_key);
+    profile
+        .blocked_hot_words
+        .retain(|blocked| blocked != &normalized_key);
 
     if let Some(existing) = profile.hot_words.iter_mut().find(|h| {
         normalize_hot_word_key(&h.text)
@@ -270,7 +316,11 @@ pub fn add_hot_word(profile: &mut UserProfile, text: String, weight: u8) {
 
 pub fn remove_hot_word(profile: &mut UserProfile, text: &str) {
     if let Some((_, key)) = normalize_hot_word_key(text) {
-        if !profile.blocked_hot_words.iter().any(|blocked| blocked == &key) {
+        if !profile
+            .blocked_hot_words
+            .iter()
+            .any(|blocked| blocked == &key)
+        {
             profile.blocked_hot_words.push(key.clone());
         }
         profile.hot_words.retain(|h| {
@@ -342,7 +392,10 @@ fn update_vocab_frequency(
         if word.chars().count() < 2 || !is_potential_hot_word(&word) {
             continue;
         }
-        let entry = vocab.entry(word).or_insert(VocabEntry { count: 0, last_seen: 0 });
+        let entry = vocab.entry(word).or_insert(VocabEntry {
+            count: 0,
+            last_seen: 0,
+        });
         entry.count += 1;
         entry.last_seen = now;
     }
@@ -393,7 +446,11 @@ pub fn learn_from_correction(
     }
 
     let now = now_secs();
-    let initial_count = if source == CorrectionSource::User { 3 } else { 1 };
+    let initial_count = if source == CorrectionSource::User {
+        3
+    } else {
+        1
+    };
     profile.total_transcriptions += 1;
     profile.last_updated = now;
 
@@ -418,7 +475,11 @@ pub fn learn_from_structured(
     source: CorrectionSource,
 ) {
     let now = now_secs();
-    let initial_count = if source == CorrectionSource::User { 3 } else { 1 };
+    let initial_count = if source == CorrectionSource::User {
+        3
+    } else {
+        1
+    };
     profile.total_transcriptions += 1;
     profile.last_updated = now;
 
@@ -435,13 +496,10 @@ pub fn learn_from_structured(
 
     update_vocab_frequency(
         &mut profile.vocab_frequency,
-        key_terms
-            .iter()
-            .filter_map(|term| {
-                let normalized = normalize_hot_word_text(term);
-                is_reasonable_hot_word(&normalized, HotWordSource::Learned)
-                    .then_some(normalized)
-            }),
+        key_terms.iter().filter_map(|term| {
+            let normalized = normalize_hot_word_text(term);
+            is_reasonable_hot_word(&normalized, HotWordSource::Learned).then_some(normalized)
+        }),
         now,
     );
     promote_vocab_to_hot_words(profile, 3);

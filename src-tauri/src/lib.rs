@@ -52,8 +52,13 @@ pub fn run() {
                 // 迁移旧版 custom API key 到新 keyring key（仅在目标 key 不存在时执行）
                 if loaded.llm_provider.active == "custom_migrated" {
                     use tauri_plugin_keyring::KeyringExt;
-                    let new_user = services::llm_provider::keyring_user_for_provider("custom_migrated");
-                    let existing = app_handle.keyring().get_password("light-whisper", &new_user).ok().flatten();
+                    let new_user =
+                        services::llm_provider::keyring_user_for_provider("custom_migrated");
+                    let existing = app_handle
+                        .keyring()
+                        .get_password("light-whisper", &new_user)
+                        .ok()
+                        .flatten();
                     if existing.as_deref().unwrap_or("").is_empty() {
                         if let Some(old_key) = app_handle
                             .keyring()
@@ -62,7 +67,11 @@ pub fn run() {
                             .flatten()
                             .filter(|k| !k.is_empty())
                         {
-                            let _ = app_handle.keyring().set_password("light-whisper", &new_user, &old_key);
+                            let _ = app_handle.keyring().set_password(
+                                "light-whisper",
+                                &new_user,
+                                &old_key,
+                            );
                             log::info!("已迁移 custom API key 到 {}", new_user);
                         }
                     }
@@ -213,7 +222,11 @@ fn spawn_funasr_startup(app_handle: tauri::AppHandle) {
                     "message": if has_key { "GLM-ASR 在线服务就绪" } else { "请配置 GLM-ASR API Key" },
                 }),
             );
-            log::info!("在线引擎 {}，跳过 Python 启动 (has_key={})", engine, has_key);
+            log::info!(
+                "在线引擎 {}，跳过 Python 启动 (has_key={})",
+                engine,
+                has_key
+            );
             return;
         }
 
@@ -313,11 +326,13 @@ fn stop_funasr_on_exit(app: &tauri::AppHandle) {
     if let Some(recording) = state.recording.lock().take() {
         match recording {
             RecordingSlot::Starting(s) => {
-                s.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                s.stop_flag
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 s.stop_notify.notify_waiters();
             }
             RecordingSlot::Active(s) => {
-                s.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                s.stop_flag
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 s.stop_notify.notify_waiters();
                 if let Some(task) = s.interim_task {
                     task.abort();

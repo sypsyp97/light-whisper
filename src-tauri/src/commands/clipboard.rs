@@ -23,8 +23,13 @@ fn make_key_input(vk: u16, scan: u16, flags: u32) -> INPUT {
 
 #[cfg(target_os = "windows")]
 fn send_inputs(inputs: &[INPUT]) -> Result<(), AppError> {
-    let sent =
-        unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32) };
+    let sent = unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
     if sent == 0 {
         return Err(AppError::Other("SendInput 调用失败".to_string()));
     }
@@ -109,10 +114,7 @@ pub async fn copy_to_clipboard(
     Ok("已复制到剪贴板".to_string())
 }
 
-pub fn write_text_to_clipboard(
-    app_handle: &tauri::AppHandle,
-    text: &str,
-) -> Result<(), AppError> {
+pub fn write_text_to_clipboard(app_handle: &tauri::AppHandle, text: &str) -> Result<(), AppError> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
 
     app_handle
@@ -165,8 +167,14 @@ pub async fn paste_text_impl(
             // 先释放所有可能残留的修饰键，防止 SendInput 的 Ctrl+V
             // 被 OS 解读为 Win+Ctrl+V 等组合
             let modifier_vks = [
-                VK_LWIN, VK_RWIN, VK_LMENU, VK_RMENU,
-                VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL,
+                VK_LWIN,
+                VK_RWIN,
+                VK_LMENU,
+                VK_RMENU,
+                VK_LSHIFT,
+                VK_RSHIFT,
+                VK_LCONTROL,
+                VK_RCONTROL,
             ];
             let mut release_inputs = Vec::new();
             for &vk in &modifier_vks {

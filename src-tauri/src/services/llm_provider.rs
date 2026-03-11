@@ -144,7 +144,9 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     {
         let api_url = match cp.api_format {
             ApiFormat::Anthropic => normalize_anthropic_url(&cp.base_url),
-            ApiFormat::OpenaiCompat => normalize_api_url(Some(&cp.base_url), "http://127.0.0.1:8000"),
+            ApiFormat::OpenaiCompat => {
+                normalize_api_url(Some(&cp.base_url), "http://127.0.0.1:8000")
+            }
         };
         LlmEndpoint {
             provider: active_provider,
@@ -309,7 +311,10 @@ mod tests {
         let endpoint = endpoint_for_config(&config);
 
         assert_eq!(endpoint.provider, CEREBRAS);
-        assert_eq!(endpoint.api_url, "https://api.cerebras.ai/v1/chat/completions");
+        assert_eq!(
+            endpoint.api_url,
+            "https://api.cerebras.ai/v1/chat/completions"
+        );
         assert_eq!(endpoint.model, "gpt-oss-20b");
     }
 
@@ -371,7 +376,10 @@ mod tests {
         let endpoint = endpoint_for_config(&config);
 
         assert_eq!(endpoint.provider, "custom_b");
-        assert_eq!(endpoint.api_url, "https://b.example.com/v1/chat/completions");
+        assert_eq!(
+            endpoint.api_url,
+            "https://b.example.com/v1/chat/completions"
+        );
         assert_eq!(endpoint.model, "model-b");
     }
 
