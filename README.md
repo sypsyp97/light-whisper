@@ -100,12 +100,12 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 
 | Feature | Light-Whisper | Typeless |
 |:--------|:---:|:---:|
-| **Pricing** | Free & open-source | Free tier (4k words/week); $12–30/mo |
+| **Pricing** | Free & open-source | 30-day free trial; Free tier (4k words/week); $12–30/mo |
 | **Privacy** | Fully offline, data never leaves your machine | Cloud-based, zero-data-retention |
 | **Open source** | ✅ | ❌ |
-| **Platform** | Windows | Windows, Mac, iOS, Android |
-| **Internet required** | ❌ Local engines offline; GLM-ASR & AI polish need API | ✅ Always |
-| **ASR engines** | SenseVoice + Faster Whisper + GLM-ASR (switchable) | Proprietary cloud engine |
+| **Platform** | Windows | Windows, Mac, iOS, Android; Web listed on pricing page |
+| **Internet required** | ❌ Local engines offline; GLM-ASR & AI polish need API | Cloud service; no offline mode publicly documented |
+| **ASR engines** | SenseVoice + Faster Whisper + GLM-ASR (switchable) | Cloud-based proprietary service |
 | **Languages** | 5 (SenseVoice) / 99+ (Whisper) / zh dialects (GLM-ASR) | 100+ |
 | **GPU acceleration** | Local NVIDIA CUDA; GLM-ASR needs no GPU | N/A (cloud) |
 | **AI polish** | Multi-backend LLM, bring your own key | Built-in auto-editing |
@@ -113,11 +113,11 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 | **App-aware tone** | ✅ Detects foreground app | ✅ Adjusts based on context |
 | **Adaptive learning** | ✅ Learns structured corrections; supports hot-word blacklist | ✅ |
 | **Edit selected text** | ✅ Voice instruction rewrite | ✅ |
-| **Voice assistant mode** | ✅ Separate hotkey + floating answer card | ✅ |
+| **Voice assistant mode** | ✅ Separate hotkey + floating answer card | ✅ Ask-anything / quick-answer features |
 | **Real-time translation** | ✅ 8 presets + custom | ✅ |
 | **Screen-aware assistant** | ✅ Auto-captures screen for visual context | ❌ |
 | **Subtitle overlay** | ✅ | ❌ |
-| **Input queue** | ✅ | ❌ |
+| **Input queue** | ✅ | Unknown |
 
 ## Engine Comparison
 
