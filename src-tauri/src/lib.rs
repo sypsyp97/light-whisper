@@ -189,6 +189,8 @@ pub fn run() {
             commands::profile::add_custom_provider,
             commands::profile::update_custom_provider,
             commands::profile::remove_custom_provider,
+            commands::updater::check_app_update,
+            commands::updater::open_app_release_page,
             commands::assistant::set_assistant_hotkey,
             commands::assistant::set_assistant_system_prompt,
             commands::assistant::set_assistant_screen_context_enabled,

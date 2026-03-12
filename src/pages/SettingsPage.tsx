@@ -6,10 +6,12 @@ import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import {
+  checkAppUpdate,
   disableAutostart,
   enableAutostart,
   getEngine,
   isAutostartEnabled,
+  openAppReleasePage,
   pasteText,
   setEngine,
   testMicrophone,
@@ -300,6 +302,10 @@ export default function SettingsPage({
   const [assistantPromptState, setAssistantPromptState] = useState<string>("");
   const [assistantScreenContextEnabled, setAssistantScreenContextEnabledState] = useState(false);
   const [appVersion, setAppVersion] = useState("");
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateStatusText, setUpdateStatusText] = useState("");
+  const [latestAvailableVersion, setLatestAvailableVersion] = useState<string | null>(null);
+  const [latestReleaseUrl, setLatestReleaseUrl] = useState<string | null>(null);
   const [llmProvider, setLlmProvider] = useState("cerebras");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
@@ -481,6 +487,46 @@ export default function SettingsPage({
       setEngineLoading(false);
     }
   };
+
+  const handleCheckForUpdates = useCallback(async () => {
+    if (updateChecking) return;
+
+    setUpdateChecking(true);
+    setLatestAvailableVersion(null);
+    setLatestReleaseUrl(null);
+    setUpdateStatusText("正在检查 GitHub Release...");
+
+    try {
+      const updateInfo = await checkAppUpdate();
+      setLatestReleaseUrl(updateInfo.releaseUrl ?? null);
+      if (!updateInfo.available || !updateInfo.latestVersion) {
+        setUpdateStatusText("当前已是最新版本");
+        toast.success("当前已是最新版本");
+        return;
+      }
+
+      setLatestAvailableVersion(updateInfo.latestVersion);
+      setUpdateStatusText(`发现新版本 v${updateInfo.latestVersion}，可前往 GitHub 下载`);
+      toast.info(`发现新版本 v${updateInfo.latestVersion}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "检查更新失败";
+      setUpdateStatusText(message);
+      toast.error(message);
+    } finally {
+      setUpdateChecking(false);
+    }
+  }, [updateChecking]);
+
+  const handleOpenReleasePage = useCallback(async () => {
+    try {
+      const message = await openAppReleasePage(latestReleaseUrl);
+      toast.success(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "打开下载页面失败";
+      setUpdateStatusText(message);
+      toast.error(message);
+    }
+  }, [latestReleaseUrl]);
 
   useEffect(() => {
     isAutostartEnabled().then(enabled => {
@@ -2801,6 +2847,49 @@ export default function SettingsPage({
                 <div className="toggle-knob" style={{ transform: autostart ? "translateX(20px)" : "translateX(0)" }} />
               </button>
             </div>
+          </section>
+
+          <section className="settings-card" style={{ animationDelay: "325ms" }}>
+            <div className="settings-section-header">
+              <Download size={15} className="icon-accent" />
+              <h2 className="settings-section-title">更新</h2>
+            </div>
+            <div className="settings-row" style={{ gap: 12 }}>
+              <div className="permission-item" style={{ alignItems: "flex-start", flex: 1, minWidth: 0 }}>
+                <Download size={14} className="icon-tertiary" />
+                <div className="settings-column" style={{ gap: 4, minWidth: 0 }}>
+                  <span className="permission-label">检查应用更新</span>
+                  <p className="settings-hint">
+                    {updateStatusText || `当前版本 v${appVersion || "..."}`}
+                  </p>
+                  {latestAvailableVersion ? (
+                    <p className="settings-hint">
+                      检测到新版本 v{latestAvailableVersion}，建议先在 GitHub Release 页面手动下载安装包验证升级流程。
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <button
+                className="test-btn"
+                onClick={() => { void (latestAvailableVersion ? handleOpenReleasePage() : handleCheckForUpdates()); }}
+                disabled={updateChecking}
+                style={{
+                  flexShrink: 0,
+                  minWidth: 88,
+                  opacity: updateChecking ? 0.7 : 1,
+                  cursor: updateChecking ? "wait" : "pointer",
+                }}
+              >
+                {updateChecking ? "检查中..." : latestAvailableVersion ? "前往下载" : "检查更新"}
+              </button>
+            </div>
+            {latestAvailableVersion ? (
+              <div className="settings-column" style={{ marginTop: 8, gap: 0 }}>
+                <p className="settings-hint" style={{ marginLeft: 24 }}>
+                  更新来源：GitHub Releases
+                </p>
+              </div>
+            ) : null}
           </section>
         </div>
       </div>

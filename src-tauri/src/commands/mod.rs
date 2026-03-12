@@ -5,4 +5,5 @@ pub mod clipboard;
 pub mod funasr;
 pub mod hotkey;
 pub mod profile;
+pub mod updater;
 pub mod window;

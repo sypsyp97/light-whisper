@@ -52,6 +52,15 @@ export interface InputDeviceListPayload {
   selectedDeviceName?: string | null;
 }
 
+export interface AppUpdateInfo {
+  available: boolean;
+  currentVersion: string;
+  latestVersion?: string | null;
+  notes?: string | null;
+  publishedAt?: string | null;
+  releaseUrl?: string | null;
+}
+
 export interface HotkeyDiagnostic {
   shortcut: string;
   registered: boolean;

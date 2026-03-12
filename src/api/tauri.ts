@@ -5,6 +5,7 @@ import {
   isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
 import type {
+  AppUpdateInfo,
   AiModelListPayload,
   FunASRStatus,
   HotkeyDiagnostic,
@@ -59,9 +60,14 @@ function createNoArgCommand<T = string>(
 }
 
 export const startFunASR = createNoArgCommand<string>("start_funasr");
+export const checkAppUpdate = createNoArgCommand<AppUpdateInfo>("check_app_update");
 
 export function transcribeAudio(audioBase64: string): Promise<TranscriptionResult> {
   return invokeCommand<TranscriptionResult>("transcribe_audio", { audioBase64 });
+}
+
+export function openAppReleasePage(url?: string | null): Promise<string> {
+  return invokeCommand<string>("open_app_release_page", { url: url ?? null });
 }
 
 export const checkFunASRStatus = createNoArgCommand<FunASRStatus>("check_funasr_status");
