@@ -9,6 +9,7 @@ import RecordingButton from "@/components/RecordingButton";
 import StatusIndicator from "@/components/StatusIndicator";
 import TranscriptionResult from "@/components/TranscriptionResult";
 import TranscriptionHistory from "@/components/TranscriptionHistory";
+import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { PADDING } from "@/lib/constants";
 
 export default function MainPage({ onNavigate }: {
@@ -29,6 +30,12 @@ export default function MainPage({ onNavigate }: {
 
   useEffect(() => { setErrorDismissed(false); }, [recordingError, modelError]);
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
+
+  const correctionSubmit = useDebouncedCallback((previousText: string, nextText: string) => {
+    submitUserCorrection(previousText, nextText)
+      .then(() => toast.success("已学习纠错", { duration: 1500 }))
+      .catch(() => toast.error("纠错学习失败"));
+  }, 900, { onUnmount: "flush" });
 
   const handleCopy = useCallback(async (text: string, id: string) => {
     try {
@@ -54,11 +61,15 @@ export default function MainPage({ onNavigate }: {
       const prevText = originalAsrText;
       setOriginalAsrText(newText);
       setTranscriptionResult(newText);
-      submitUserCorrection(prevText, newText)
-        .then(() => toast.success("已学习纠错", { duration: 1500 }))
-        .catch(() => toast.error("纠错学习失败"));
+      correctionSubmit.schedule(prevText, newText);
     }
-  }, [originalAsrText, recordingMode, setTranscriptionResult, setOriginalAsrText]);
+  }, [
+    correctionSubmit,
+    originalAsrText,
+    recordingMode,
+    setTranscriptionResult,
+    setOriginalAsrText,
+  ]);
 
   const handleToggleRecording = useCallback(() => {
     if (!isReady) return;
