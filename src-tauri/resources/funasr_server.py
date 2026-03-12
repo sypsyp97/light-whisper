@@ -21,6 +21,31 @@ apply_hf_env_defaults()
 ensure_safe_cuda_env()
 logger = setup_rotating_logger(__name__, "funasr_server.log", "FunASR服务器")
 
+
+def _disable_funasr_auto_requirement_install() -> None:
+    """Skip FunASR's model-side pip auto-install in bundled runtime.
+
+    Some FunASR HF models ship a requirements.txt. FunASR tries to run
+    `pip install -r ...` whenever it sees that file, which breaks on clean
+    end-user machines where no system pip is available. Our engine bundle
+    already includes the runtime dependencies we need, so this auto-install
+    path is both unnecessary and harmful.
+    """
+    try:
+        import funasr.utils.install_model_requirements as install_model_requirements
+    except Exception as e:
+        logger.warning(f"加载 FunASR requirements 安装补丁失败: {e}")
+        return
+
+    def _skip_install(requirements_path):
+        logger.info(f"检测到模型 requirements.txt，已跳过自动安装: {requirements_path}")
+        return True
+
+    install_model_requirements.install_requirements = _skip_install
+
+
+_disable_funasr_auto_requirement_install()
+
 from hf_cache_utils import MODEL_REPOS
 
 VAD_MAX_SEGMENT_MS = 30000
