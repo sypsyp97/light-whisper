@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import { Loader2, Copy, Check } from "lucide-react";
 
 interface TranscriptionResultProps {
@@ -7,6 +7,7 @@ interface TranscriptionResultProps {
   isProcessing: boolean;
   copiedId: string | null;
   onCopy: (text: string, id: string) => void;
+  onDraftChange?: (newText: string) => void;
   onTextChange?: (newText: string) => void;
   durationSec: number | null;
   charCount: number | null;
@@ -19,26 +20,47 @@ function formatStats(charCount: number, durationSec: number): string {
 }
 
 export default function TranscriptionResult({
-  text, originalText, isProcessing, copiedId, onCopy, onTextChange, durationSec, charCount, detectedLanguage,
+  text,
+  originalText,
+  isProcessing,
+  copiedId,
+  onCopy,
+  onDraftChange,
+  onTextChange,
+  durationSec,
+  charCount,
+  detectedLanguage,
 }: TranscriptionResultProps) {
-  const bodyRef = useRef<HTMLParagraphElement>(null);
-  const showStats = text && durationSec && durationSec > 0 && charCount;
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const [draftText, setDraftText] = useState(text ?? "");
+  const hasResult = text !== null;
+  const showStats = !!text && durationSec && durationSec > 0 && charCount;
+
+  useEffect(() => {
+    setDraftText(text ?? "");
+  }, [text]);
+
+  const handleChange = useCallback((newText: string) => {
+    setDraftText(newText);
+    onDraftChange?.(newText);
+  }, [onDraftChange]);
 
   const handleBlur = useCallback(() => {
-    const edited = bodyRef.current?.textContent?.trim() ?? "";
-    if (edited && originalText && edited !== originalText) {
+    const edited = draftText.trim();
+    const baseline = originalText?.trim() ?? "";
+    if (edited && baseline && edited !== baseline) {
       onTextChange?.(edited);
     }
-  }, [originalText, onTextChange]);
+  }, [draftText, originalText, onTextChange]);
 
   const handleCopy = useCallback(() => {
-    const currentText = bodyRef.current?.textContent?.trim() ?? text ?? "";
+    const currentText = bodyRef.current?.value.trim() ?? draftText.trim() ?? text ?? "";
     onCopy(currentText, "original");
-  }, [text, onCopy]);
+  }, [draftText, text, onCopy]);
 
   return (
     <>
-      {text && (
+      {hasResult && (
         <div style={{ marginBottom: 12 }} className="animate-slide-up">
           <div className="result-card">
             <div className="result-card-header">
@@ -50,16 +72,15 @@ export default function TranscriptionResult({
                 {copiedId === "original" ? <Check size={12} /> : <Copy size={12} strokeWidth={1.5} />}
               </button>
             </div>
-            <p
+            <textarea
               ref={bodyRef}
               className="result-card-body"
-              contentEditable
-              suppressContentEditableWarning
+              value={draftText}
+              rows={Math.max(3, draftText.split(/\r?\n/).length)}
+              onChange={(event) => handleChange(event.target.value)}
               onBlur={handleBlur}
-              style={{ outline: "none", borderRadius: 4, padding: "2px 4px", transition: "background 0.15s" }}
-            >
-              {text}
-            </p>
+              spellCheck={false}
+            />
             {showStats && (
               <p className="result-card-stats">
                 {detectedLanguage && (

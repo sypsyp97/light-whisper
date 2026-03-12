@@ -1,4 +1,5 @@
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use tauri::Emitter;
 
@@ -182,6 +183,76 @@ mod tests {
     }
 }
 
+async fn probe_image_support_from_provider_metadata(
+    state: &AppState,
+    endpoint: &llm_provider::LlmEndpoint,
+    api_key: &str,
+) -> Option<bool> {
+    let mut probe_targets = Vec::new();
+    if let Some(url) = llm_provider::image_support_probe_url(endpoint) {
+        probe_targets.push((url, true));
+    }
+    if llm_provider::should_probe_cerebras_public_model_metadata(endpoint) {
+        if let Some(url) = llm_provider::cerebras_public_model_probe_url(&endpoint.model) {
+            if !probe_targets.iter().any(|(existing, _)| existing == &url) {
+                probe_targets.push((url, false));
+            }
+        }
+    }
+
+    for (url, use_auth) in probe_targets {
+        let mut request = state.http_client.get(&url).timeout(Duration::from_secs(2));
+        if use_auth {
+            let Ok(headers) = llm_provider::build_auth_headers(&endpoint.api_format, api_key)
+            else {
+                continue;
+            };
+            request = request.headers(headers);
+        }
+
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(err) => {
+                log::debug!(
+                    "探测模型图片能力失败，跳过当前元数据源: url={}, err={}",
+                    url,
+                    err
+                );
+                continue;
+            }
+        };
+
+        if !response.status().is_success() {
+            log::debug!(
+                "模型图片能力探测返回非成功状态，跳过当前元数据源: status={}, url={}",
+                response.status(),
+                url
+            );
+            continue;
+        }
+
+        let payload = match response.json::<serde_json::Value>().await {
+            Ok(payload) => payload,
+            Err(err) => {
+                log::debug!(
+                    "解析模型图片能力元数据失败，跳过当前元数据源: url={}, err={}",
+                    url,
+                    err
+                );
+                continue;
+            }
+        };
+
+        if let Some(supported) =
+            llm_provider::parse_image_input_support_from_model_metadata(&payload)
+        {
+            return Some(supported);
+        }
+    }
+
+    None
+}
+
 pub async fn generate_content(
     state: &AppState,
     asr_text: &str,
@@ -209,8 +280,24 @@ pub async fn generate_content(
         endpoint.model.trim().to_ascii_lowercase()
     );
     let cached_image_support = state.assistant_image_support(&image_support_cache_key);
+    let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
+        let support = probe_image_support_from_provider_metadata(state, &endpoint, &api_key).await;
+        if let Some(supported) = support {
+            state.set_assistant_image_support(image_support_cache_key.clone(), supported);
+            log::info!(
+                "根据模型元数据识别图片输入支持: provider={}, model={}, supported={}",
+                endpoint.provider,
+                endpoint.model,
+                supported
+            );
+        }
+        support
+    } else {
+        None
+    };
+    let effective_image_support = cached_image_support.or(probed_image_support);
 
-    let images = if screen_context_enabled && cached_image_support != Some(false) {
+    let images = if screen_context_enabled && effective_image_support != Some(false) {
         match screen_capture_service::capture_full_screen_context() {
             Ok(captured) => {
                 if !captured.is_empty() {
@@ -239,7 +326,7 @@ pub async fn generate_content(
             }
         }
     } else {
-        if screen_context_enabled && cached_image_support == Some(false) {
+        if screen_context_enabled && effective_image_support == Some(false) {
             log::info!(
                 "当前助手模型已缓存为不支持图片输入，跳过屏幕截图上下文: provider={}, model={}",
                 endpoint.provider,

@@ -52,6 +52,10 @@ export default function MainPage({ onNavigate }: {
     }
   }, []);
 
+  const handleDraftChange = useCallback((newText: string) => {
+    setTranscriptionResult(newText);
+  }, [setTranscriptionResult]);
+
   const handleTextChange = useCallback((newText: string) => {
     if (recordingMode !== "dictation") {
       setTranscriptionResult(newText);
@@ -71,6 +75,15 @@ export default function MainPage({ onNavigate }: {
     setOriginalAsrText,
   ]);
 
+  const flushPendingEditAndNavigate = useCallback((target: "main" | "settings") => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && (active.isContentEditable || active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement)) {
+      active.blur();
+    }
+    correctionSubmit.flush();
+    onNavigate(target);
+  }, [correctionSubmit, onNavigate]);
+
   const handleToggleRecording = useCallback(() => {
     if (!isReady) return;
     isRecording ? stopRecording() : startRecording();
@@ -82,7 +95,7 @@ export default function MainPage({ onNavigate }: {
       <TitleBar
         title="轻语 Whisper"
         leftAction={
-          <button aria-label="设置" className="icon-btn plain" onClick={() => onNavigate("settings")}>
+          <button aria-label="设置" className="icon-btn plain" onClick={() => flushPendingEditAndNavigate("settings")}>
             <Settings size={13} strokeWidth={1.5} />
           </button>
         }
@@ -145,6 +158,7 @@ export default function MainPage({ onNavigate }: {
           isProcessing={isProcessing}
           copiedId={copiedId}
           onCopy={handleCopy}
+          onDraftChange={handleDraftChange}
           onTextChange={handleTextChange}
           durationSec={durationSec}
           charCount={charCount}

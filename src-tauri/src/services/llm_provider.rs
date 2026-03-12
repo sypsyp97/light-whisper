@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_json::Value;
 use tauri_plugin_keyring::KeyringExt;
 
 use crate::state::user_profile::{ApiFormat, CustomProvider, LlmProviderConfig, LlmReasoningMode};
@@ -205,6 +206,86 @@ pub fn assistant_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint 
     }
 
     endpoint_for_config(&overridden)
+}
+
+pub fn image_support_probe_url(endpoint: &LlmEndpoint) -> Option<String> {
+    if endpoint.api_format != ApiFormat::OpenaiCompat {
+        return None;
+    }
+
+    let model = endpoint.model.trim();
+    if model.is_empty() {
+        return None;
+    }
+
+    let models_url = normalize_models_url(Some(&endpoint.api_url), &endpoint.api_url);
+    let mut url = reqwest::Url::parse(&models_url).ok()?;
+    {
+        let mut segments = url.path_segments_mut().ok()?;
+        segments.pop_if_empty();
+        segments.push(model);
+    }
+    Some(url.into())
+}
+
+pub fn cerebras_public_model_probe_url(model: &str) -> Option<String> {
+    let model = model.trim();
+    if model.is_empty() {
+        return None;
+    }
+
+    let mut url = reqwest::Url::parse("https://api.cerebras.ai/public/v1/models/").ok()?;
+    {
+        let mut segments = url.path_segments_mut().ok()?;
+        segments.pop_if_empty();
+        segments.push(model);
+    }
+    url.query_pairs_mut().append_pair("format", "openrouter");
+    Some(url.into())
+}
+
+pub fn should_probe_cerebras_public_model_metadata(endpoint: &LlmEndpoint) -> bool {
+    if is_cerebras_like_endpoint(endpoint) {
+        return true;
+    }
+
+    endpoint
+        .model
+        .trim()
+        .to_ascii_lowercase()
+        .contains("gpt-oss")
+}
+
+pub fn parse_image_input_support_from_model_metadata(payload: &Value) -> Option<bool> {
+    let model = payload
+        .get("data")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .unwrap_or(payload);
+
+    let modalities = model.get("input_modalities")?.as_array()?;
+    let normalized = modalities
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .collect::<Vec<_>>();
+
+    if normalized.is_empty() {
+        return None;
+    }
+
+    if normalized
+        .iter()
+        .any(|value| value == "image" || value == "input_image")
+    {
+        return Some(true);
+    }
+
+    if normalized.iter().any(|value| value == "text") {
+        return Some(false);
+    }
+
+    None
 }
 
 pub fn endpoint_for_preview(
@@ -890,6 +971,76 @@ mod tests {
         assert!(!looks_like_image_input_unsupported_error(
             "API 返回错误 401: invalid api key"
         ));
+    }
+
+    #[test]
+    fn builds_cerebras_image_support_probe_url() {
+        let endpoint = endpoint_for_preview(
+            CUSTOM,
+            Some("https://gateway.ai.cloudflare.com/v1/account/openai/compat"),
+            Some("Qwen/Qwen3-32B"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        assert_eq!(
+            image_support_probe_url(&endpoint).as_deref(),
+            Some(
+                "https://gateway.ai.cloudflare.com/v1/account/openai/compat/v1/models/Qwen%2FQwen3-32B"
+            )
+        );
+    }
+
+    #[test]
+    fn builds_cerebras_public_model_probe_url() {
+        assert_eq!(
+            cerebras_public_model_probe_url("Qwen/Qwen3-32B").as_deref(),
+            Some("https://api.cerebras.ai/public/v1/models/Qwen%2FQwen3-32B?format=openrouter")
+        );
+    }
+
+    #[test]
+    fn only_cerebras_like_endpoints_use_public_model_probe() {
+        let openai_endpoint =
+            endpoint_for_preview(OPENAI, None, Some("gpt-4.1"), ApiFormat::OpenaiCompat);
+        let cerebras_endpoint = endpoint_for_preview(
+            CEREBRAS,
+            None,
+            Some("gpt-oss-120b"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        assert!(!should_probe_cerebras_public_model_metadata(
+            &openai_endpoint
+        ));
+        assert!(should_probe_cerebras_public_model_metadata(
+            &cerebras_endpoint
+        ));
+    }
+
+    #[test]
+    fn parses_text_only_model_metadata_as_no_image_support() {
+        let payload = serde_json::json!({
+            "id": "gpt-oss-120b",
+            "input_modalities": ["text"]
+        });
+
+        assert_eq!(
+            parse_image_input_support_from_model_metadata(&payload),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn parses_multimodal_model_metadata_as_image_supported() {
+        let payload = serde_json::json!({
+            "id": "vision-model",
+            "input_modalities": ["text", "image"]
+        });
+
+        assert_eq!(
+            parse_image_input_support_from_model_metadata(&payload),
+            Some(true)
+        );
     }
 
     #[test]

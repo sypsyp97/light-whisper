@@ -8,6 +8,7 @@ use crate::services::llm_provider::LlmEndpoint;
 use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
 
 const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
+const RETRYABLE_429_DELAYS_MS: &[u64] = &[600, 1200];
 
 #[derive(Debug, Clone, Copy)]
 pub struct LlmRequestOptions<'a> {
@@ -464,6 +465,65 @@ fn extract_content(endpoint: &LlmEndpoint, json: &Value) -> Option<String> {
     }
 }
 
+fn extract_openai_compat_error_message(body_text: &str) -> Option<String> {
+    let json = serde_json::from_str::<Value>(body_text).ok()?;
+    let error = json.get("error").unwrap_or(&json);
+
+    let message = error["message"]
+        .as_str()
+        .or_else(|| json["message"].as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+
+    let mut details = Vec::new();
+    if let Some(code) = error["code"]
+        .as_str()
+        .or_else(|| json["code"].as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        details.push(format!("code: {}", code));
+    }
+    if let Some(param) = error["param"]
+        .as_str()
+        .or_else(|| json["param"].as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        details.push(format!("param: {}", param));
+    }
+
+    if details.is_empty() {
+        Some(message.to_string())
+    } else {
+        Some(format!("{} ({})", message, details.join(", ")))
+    }
+}
+
+fn extract_api_error_message(endpoint: &LlmEndpoint, body_text: &str) -> String {
+    match endpoint.api_format {
+        ApiFormat::Anthropic => serde_json::from_str::<Value>(body_text)
+            .ok()
+            .and_then(|json| json["error"]["message"].as_str().map(String::from))
+            .unwrap_or_else(|| body_text.to_string()),
+        ApiFormat::OpenaiCompat => {
+            extract_openai_compat_error_message(body_text).unwrap_or_else(|| body_text.to_string())
+        }
+    }
+}
+
+fn is_retryable_overload_error(status: reqwest::StatusCode, message: &str) -> bool {
+    if status != reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return false;
+    }
+
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("queue_exceeded")
+        || normalized.contains("high traffic")
+        || normalized.contains("too many requests")
+        || normalized.contains("rate limit")
+}
+
 pub async fn send_llm_request(
     http_client: &reqwest::Client,
     endpoint: &LlmEndpoint,
@@ -508,16 +568,44 @@ pub async fn send_llm_request(
     if !response.status().is_success() {
         let mut status = response.status();
         let mut body_text = response.text().await.unwrap_or_default();
-        let mut error_message = if endpoint.api_format == ApiFormat::Anthropic {
-            serde_json::from_str::<Value>(&body_text)
-                .ok()
-                .and_then(|json| json["error"]["message"].as_str().map(String::from))
-                .unwrap_or_else(|| body_text.clone())
-        } else {
-            body_text.clone()
-        };
+        let mut error_message = extract_api_error_message(endpoint, &body_text);
+        let mut successful_retry: Option<reqwest::Response> = None;
 
-        if options.reasoning_mode != LlmReasoningMode::ProviderDefault
+        if is_retryable_overload_error(status, &error_message) {
+            for delay_ms in RETRYABLE_429_DELAYS_MS {
+                log::warn!(
+                    "LLM 请求遇到可重试的 429，延迟 {}ms 后重试: provider={}, model={}, err={}",
+                    delay_ms,
+                    endpoint.provider,
+                    endpoint.model,
+                    error_message
+                );
+                tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
+                response = dispatch_request(
+                    http_client,
+                    endpoint,
+                    headers.clone(),
+                    body,
+                    timeout,
+                    options.stream,
+                )
+                .await?;
+                if response.status().is_success() {
+                    successful_retry = Some(response);
+                    break;
+                }
+                status = response.status();
+                let retry_body_text = response.text().await.unwrap_or_default();
+                error_message = extract_api_error_message(endpoint, &retry_body_text);
+                if !is_retryable_overload_error(status, &error_message) {
+                    break;
+                }
+            }
+        }
+
+        if let Some(retry_response) = successful_retry {
+            response = retry_response;
+        } else if options.reasoning_mode != LlmReasoningMode::ProviderDefault
             && llm_provider::looks_like_reasoning_unsupported_error(&error_message)
         {
             log::warn!(
@@ -540,14 +628,7 @@ pub async fn send_llm_request(
             if !response.status().is_success() {
                 status = response.status();
                 body_text = response.text().await.unwrap_or_default();
-                error_message = if endpoint.api_format == ApiFormat::Anthropic {
-                    serde_json::from_str::<Value>(&body_text)
-                        .ok()
-                        .and_then(|json| json["error"]["message"].as_str().map(String::from))
-                        .unwrap_or_else(|| body_text.clone())
-                } else {
-                    body_text.clone()
-                };
+                error_message = extract_api_error_message(endpoint, &body_text);
                 return Err(format!("API 返回错误 {}: {}", status, error_message));
             }
         } else {
@@ -599,7 +680,10 @@ pub async fn send_llm_request(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_llm_body, LlmRequestOptions, LlmUserInput};
+    use super::{
+        build_llm_body, extract_api_error_message, extract_openai_compat_error_message,
+        is_retryable_overload_error, LlmRequestOptions, LlmUserInput,
+    };
     use crate::services::llm_provider::LlmEndpoint;
     use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
 
@@ -704,5 +788,46 @@ mod tests {
 
         assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
         assert!(body.get("thinking").is_none());
+    }
+
+    #[test]
+    fn parses_openai_compat_top_level_error_message() {
+        let message = extract_openai_compat_error_message(
+            r#"{"message":"We're experiencing high traffic right now! Please try again soon.","type":"too_many_requests_error","param":"queue","code":"queue_exceeded"}"#,
+        );
+
+        assert_eq!(
+            message.as_deref(),
+            Some(
+                "We're experiencing high traffic right now! Please try again soon. (code: queue_exceeded, param: queue)"
+            )
+        );
+    }
+
+    #[test]
+    fn api_error_message_falls_back_to_openai_compat_parser() {
+        let endpoint = openai_endpoint("https://api.cerebras.ai/v1/chat/completions");
+
+        let message = extract_api_error_message(
+            &endpoint,
+            r#"{"error":{"message":"model does not support image input","code":"invalid_value"}}"#,
+        );
+
+        assert_eq!(
+            message,
+            "model does not support image input (code: invalid_value)"
+        );
+    }
+
+    #[test]
+    fn recognizes_retryable_queue_exceeded_errors() {
+        assert!(is_retryable_overload_error(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            "We're experiencing high traffic right now! Please try again soon. (code: queue_exceeded, param: queue)"
+        ));
+        assert!(!is_retryable_overload_error(
+            reqwest::StatusCode::BAD_REQUEST,
+            "queue_exceeded"
+        ));
     }
 }

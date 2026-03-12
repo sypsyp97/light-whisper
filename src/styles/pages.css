@@ -78,15 +78,26 @@
 
 /* Result card body text */
 .result-card-body {
+  display: block;
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  border: 0;
+  background: transparent;
   padding: 10px 12px;
+  margin: 0;
   font-size: 13px;
   line-height: 1.8;
   color: var(--color-text-secondary);
   cursor: text;
+  font-family: inherit;
+  box-sizing: border-box;
+  white-space: pre-wrap;
   transition: background 0.2s var(--ease-out-expo);
 }
 
 .result-card-body:focus {
+  outline: none;
   background: var(--color-accent-muted);
 }
 
