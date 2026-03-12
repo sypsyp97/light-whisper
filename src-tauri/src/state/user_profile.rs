@@ -97,6 +97,23 @@ pub enum ApiFormat {
     Anthropic,
 }
 
+/// 推理/思考模式（跨供应商抽象层）
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmReasoningMode {
+    /// 不下发任何推理参数，走供应商默认行为
+    #[default]
+    ProviderDefault,
+    /// 尽量关闭或压低思考
+    Off,
+    /// 偏轻量
+    Light,
+    /// 标准
+    Balanced,
+    /// 偏深度
+    Deep,
+}
+
 /// 用户自定义的 LLM 服务商
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomProvider {
@@ -118,6 +135,21 @@ pub struct LlmProviderConfig {
     pub custom_base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_model: Option<String>,
+    /// 跨供应商的思考模式抽象层
+    #[serde(default)]
+    pub reasoning_mode: LlmReasoningMode,
+    /// AI 润色链路的独立思考模式；为空时回退到旧的 reasoning_mode
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub polish_reasoning_mode: Option<LlmReasoningMode>,
+    /// AI 助手链路的独立思考模式；为空时回退到旧的 reasoning_mode
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_reasoning_mode: Option<LlmReasoningMode>,
+    /// AI 助手是否使用不同于润色的独立模型
+    #[serde(default)]
+    pub assistant_use_separate_model: bool,
+    /// AI 助手独立模型；仅在 assistant_use_separate_model = true 时生效
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_model: Option<String>,
     /// 用户自定义服务商列表
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_providers: Vec<CustomProvider>,
@@ -129,6 +161,11 @@ impl Default for LlmProviderConfig {
             active: "cerebras".to_string(),
             custom_base_url: None,
             custom_model: None,
+            reasoning_mode: LlmReasoningMode::ProviderDefault,
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
             custom_providers: Vec::new(),
         }
     }
@@ -182,6 +219,24 @@ impl LlmProviderConfig {
         }
 
         "cerebras".to_string()
+    }
+
+    pub fn polish_reasoning_mode(&self) -> LlmReasoningMode {
+        self.polish_reasoning_mode.unwrap_or(self.reasoning_mode)
+    }
+
+    pub fn assistant_reasoning_mode(&self) -> LlmReasoningMode {
+        self.assistant_reasoning_mode.unwrap_or(self.reasoning_mode)
+    }
+
+    pub fn assistant_model(&self) -> Option<&str> {
+        if !self.assistant_use_separate_model {
+            return None;
+        }
+        self.assistant_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
     }
 }
 
@@ -249,7 +304,7 @@ impl UserProfile {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApiFormat, CustomProvider, LlmProviderConfig};
+    use super::{ApiFormat, CustomProvider, LlmProviderConfig, LlmReasoningMode};
 
     fn custom_provider(id: &str) -> CustomProvider {
         CustomProvider {
@@ -267,6 +322,11 @@ mod tests {
             active: "missing".to_string(),
             custom_base_url: None,
             custom_model: None,
+            reasoning_mode: Default::default(),
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
             custom_providers: vec![custom_provider("a"), custom_provider("b")],
         };
 
@@ -279,6 +339,11 @@ mod tests {
             active: "b".to_string(),
             custom_base_url: None,
             custom_model: None,
+            reasoning_mode: Default::default(),
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
             custom_providers: vec![
                 custom_provider("a"),
                 custom_provider("b"),
@@ -295,6 +360,11 @@ mod tests {
             active: "a".to_string(),
             custom_base_url: None,
             custom_model: None,
+            reasoning_mode: Default::default(),
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
             custom_providers: vec![
                 custom_provider("a"),
                 custom_provider("b"),
@@ -303,5 +373,23 @@ mod tests {
         };
 
         assert_eq!(config.fallback_provider_after_removal("a"), "c");
+    }
+
+    #[test]
+    fn split_reasoning_modes_fall_back_to_legacy_mode() {
+        let config = LlmProviderConfig {
+            active: "openai".to_string(),
+            custom_base_url: None,
+            custom_model: None,
+            reasoning_mode: LlmReasoningMode::Light,
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
+            custom_providers: Vec::new(),
+        };
+
+        assert_eq!(config.polish_reasoning_mode(), LlmReasoningMode::Light);
+        assert_eq!(config.assistant_reasoning_mode(), LlmReasoningMode::Light);
     }
 }

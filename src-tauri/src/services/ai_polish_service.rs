@@ -264,10 +264,12 @@ async fn send_llm_request_with_fallback(
     session_id: u64,
 ) -> Result<String, String> {
     let user_input = llm_client::LlmUserInput::from(user_content);
+    let reasoning_mode = state.with_profile(|profile| profile.llm_provider.polish_reasoning_mode());
 
     let stream_json_options = LlmRequestOptions {
         stream: true,
         json_output: true,
+        reasoning_mode,
         stream_event: Some("ai-polish-status"),
         session_id: Some(session_id),
     };
@@ -304,6 +306,7 @@ async fn send_llm_request_with_fallback(
             let stream_plain_options = LlmRequestOptions {
                 stream: true,
                 json_output: false,
+                reasoning_mode,
                 stream_event: Some("ai-polish-status"),
                 session_id: Some(session_id),
             };
@@ -337,6 +340,7 @@ async fn send_llm_request_with_fallback(
                     let fallback_options = LlmRequestOptions {
                         stream: false,
                         json_output: false,
+                        reasoning_mode,
                         stream_event: None,
                         session_id: Some(session_id),
                     };
@@ -366,6 +370,7 @@ async fn send_llm_request_with_fallback(
             let fallback_options = LlmRequestOptions {
                 stream: false,
                 json_output: true,
+                reasoning_mode,
                 stream_event: None,
                 session_id: Some(session_id),
             };
@@ -638,7 +643,7 @@ fn render_polish_user_content(app_context: Option<&str>, text: &str) -> String {
 
 /// 剥离 LLM 返回的 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
 fn strip_markdown_code_block(s: &str) -> String {
-    let trimmed = s.trim();
+    let trimmed = s.trim().trim_start_matches('\u{feff}');
     if trimmed.starts_with("```") {
         // 跳过第一行（```json 或 ```）
         let after_first_line = match trimmed.find('\n') {
@@ -655,6 +660,89 @@ fn strip_markdown_code_block(s: &str) -> String {
     trimmed.to_string()
 }
 
+fn strip_cdata_wrapper(s: &str) -> String {
+    let trimmed = s.trim();
+    if let Some(inner) = trimmed
+        .strip_prefix("<![CDATA[")
+        .and_then(|value| value.strip_suffix("]]>"))
+    {
+        return inner.trim().to_string();
+    }
+    trimmed.to_string()
+}
+
+fn strip_xml_wrapper(s: &str) -> String {
+    let trimmed = s.trim();
+    for tag in ["output", "response", "result"] {
+        let prefix = format!("<{tag}>");
+        let suffix = format!("</{tag}>");
+        if let Some(inner) = trimmed
+            .strip_prefix(&prefix)
+            .and_then(|value| value.strip_suffix(&suffix))
+        {
+            return inner.trim().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+fn extract_json_segment(s: &str) -> Option<String> {
+    let chars: Vec<(usize, char)> = s.char_indices().collect();
+    for (index, &(start_offset, start_char)) in chars.iter().enumerate() {
+        let matching = match start_char {
+            '{' => '}',
+            '[' => ']',
+            _ => continue,
+        };
+
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+
+        for &(offset, ch) in &chars[index..] {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                match ch {
+                    '\\' => escaped = true,
+                    '"' => in_string = false,
+                    _ => {}
+                }
+                continue;
+            }
+
+            match ch {
+                '"' => in_string = true,
+                c if c == start_char => depth += 1,
+                c if c == matching => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        let end = offset + ch.len_utf8();
+                        return Some(s[start_offset..end].trim().to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+fn normalize_structured_payload(raw: &str) -> String {
+    let mut normalized = raw.trim().trim_start_matches('\u{feff}').to_string();
+    loop {
+        let next = strip_cdata_wrapper(&strip_xml_wrapper(&strip_markdown_code_block(&normalized)));
+        if next == normalized {
+            break;
+        }
+        normalized = next;
+    }
+
+    extract_json_segment(&normalized).unwrap_or(normalized)
+}
+
 fn structured_response_from_value(value: serde_json::Value) -> Option<StructuredResponse> {
     match value {
         serde_json::Value::Object(_) => serde_json::from_value(value).ok(),
@@ -666,13 +754,13 @@ fn structured_response_from_value(value: serde_json::Value) -> Option<Structured
 }
 
 fn parse_structured_response(raw: &str) -> Option<StructuredResponse> {
-    let json_content = strip_markdown_code_block(raw);
+    let json_content = normalize_structured_payload(raw);
     let value = serde_json::from_str::<serde_json::Value>(&json_content).ok()?;
     structured_response_from_value(value)
 }
 
 fn extract_edit_result(raw: &str) -> Option<String> {
-    let json_content = strip_markdown_code_block(raw);
+    let json_content = normalize_structured_payload(raw);
     let value = serde_json::from_str::<serde_json::Value>(&json_content).ok()?;
 
     match value {
@@ -744,6 +832,55 @@ mod tests {
     fn extract_edit_result_accepts_array_wrapper() {
         let result =
             extract_edit_result(r#"[{"result":"修改后的完整文本"}]"#).expect("should parse result");
+
+        assert_eq!(result, "修改后的完整文本");
+    }
+
+    #[test]
+    fn parse_structured_response_accepts_cdata_wrapper() {
+        let parsed = parse_structured_response(
+            r#"<![CDATA[{"polished":"Yeah, baby.","corrections":[],"key_terms":[]}]]>"#,
+        )
+        .expect("should parse cdata wrapped response");
+
+        assert_eq!(parsed.polished, "Yeah, baby.");
+        assert!(parsed.corrections.is_empty());
+        assert!(parsed.key_terms.is_empty());
+    }
+
+    #[test]
+    fn extract_edit_result_accepts_cdata_wrapper() {
+        let result = extract_edit_result(r#"<![CDATA[{"result":"修改后的完整文本"}]]>"#)
+            .expect("should parse cdata wrapped result");
+
+        assert_eq!(result, "修改后的完整文本");
+    }
+
+    #[test]
+    fn parse_structured_response_accepts_xml_output_wrapper() {
+        let parsed = parse_structured_response(
+            r#"<output><![CDATA[{"polished":"Yeah, baby.","corrections":[],"key_terms":[]}]]></output>"#,
+        )
+        .expect("should parse xml wrapped response");
+
+        assert_eq!(parsed.polished, "Yeah, baby.");
+    }
+
+    #[test]
+    fn parse_structured_response_extracts_json_from_explanatory_text() {
+        let parsed = parse_structured_response(
+            "好的，下面是结果：\n{\"polished\":\"Yeah, baby.\",\"corrections\":[],\"key_terms\":[]}\n请查收。",
+        )
+        .expect("should extract embedded json");
+
+        assert_eq!(parsed.polished, "Yeah, baby.");
+    }
+
+    #[test]
+    fn extract_edit_result_accepts_xml_output_wrapper() {
+        let result =
+            extract_edit_result(r#"<output>{"result":"修改后的完整文本"}</output>"#)
+                .expect("should parse xml wrapped result");
 
         assert_eq!(result, "修改后的完整文本");
     }

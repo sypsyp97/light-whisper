@@ -9,6 +9,7 @@ import type {
   FunASRStatus,
   HotkeyDiagnostic,
   InputDeviceListPayload,
+  LlmReasoningSupport,
   ModelCheckResult,
   TranscriptionResult,
   UserProfile,
@@ -153,11 +154,33 @@ export function setLlmProviderConfig(
   active: string,
   customBaseUrl?: string,
   customModel?: string,
+  polishReasoningMode?: "provider_default" | "off" | "light" | "balanced" | "deep",
+  assistantReasoningMode?: "provider_default" | "off" | "light" | "balanced" | "deep",
+  assistantUseSeparateModel?: boolean,
+  assistantModel?: string,
 ): Promise<void> {
   return invokeCommand<void>("set_llm_provider_config", {
     active,
     customBaseUrl: customBaseUrl ?? null,
     customModel: customModel ?? null,
+    polishReasoningMode: polishReasoningMode ?? null,
+    assistantReasoningMode: assistantReasoningMode ?? null,
+    assistantUseSeparateModel: assistantUseSeparateModel ?? null,
+    assistantModel: assistantModel ?? null,
+  });
+}
+
+export function getLlmReasoningSupport(
+  provider: string,
+  baseUrl?: string,
+  model?: string,
+  apiFormat?: "openai_compat" | "anthropic",
+): Promise<LlmReasoningSupport> {
+  return invokeCommand<LlmReasoningSupport>("get_llm_reasoning_support", {
+    provider,
+    baseUrl: baseUrl ?? null,
+    model: model ?? null,
+    apiFormat: apiFormat ?? null,
   });
 }
 

@@ -40,8 +40,9 @@ import {
   setAssistantHotkey,
   setAssistantScreenContextEnabled,
   setAssistantSystemPrompt,
+  getLlmReasoningSupport,
 } from "@/api/tauri";
-import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat } from "@/types";
+import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import TitleBar from "@/components/TitleBar";
@@ -117,6 +118,27 @@ const llmProviderOptions = [
 
 const LLM_PROVIDER_DRAFTS_KEY = "light-whisper-llm-provider-drafts";
 
+const reasoningModeOptions: Array<{
+  key: LlmReasoningMode;
+  label: string;
+  desc: string;
+}> = [
+  { key: "provider_default", label: "默认", desc: "走供应商默认策略" },
+  { key: "off", label: "关闭", desc: "尽量关闭或压低思考" },
+  { key: "light", label: "轻量", desc: "更偏向快速直接" },
+  { key: "balanced", label: "标准", desc: "速度和思考相对均衡" },
+  { key: "deep", label: "深度", desc: "优先更完整的思考" },
+];
+
+const recordingModeOptions: Array<{
+  key: "hold" | "toggle";
+  label: string;
+  desc: string;
+}> = [
+  { key: "hold", label: "按住说话", desc: "按住热键录音，松开立即结束" },
+  { key: "toggle", label: "切换开关", desc: "按一下开始，再按一下结束" },
+];
+
 const sourceLabels: Record<string, string> = {
   user: "手动",
   learned: "学习",
@@ -178,6 +200,14 @@ function resolveLlmModel(key: string, customModel?: string | null): string {
   return normalizedModel;
 }
 
+function findReasoningModeOption(mode: LlmReasoningMode) {
+  return reasoningModeOptions.find((option) => option.key === mode) ?? reasoningModeOptions[0];
+}
+
+function findRecordingModeOption(mode: "hold" | "toggle") {
+  return recordingModeOptions.find((option) => option.key === mode) ?? recordingModeOptions[0];
+}
+
 function readLlmProviderDrafts(): LlmProviderDraftMap {
   const raw = readLocalStorage(LLM_PROVIDER_DRAFTS_KEY);
   if (!raw) return {};
@@ -233,6 +263,7 @@ export default function SettingsPage({
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
   const [aiModelSearch, setAiModelSearch] = useState("");
+  const [assistantModelSearch, setAssistantModelSearch] = useState("");
   const [aiModelsLoading, setAiModelsLoading] = useState(false);
   const [aiModelsError, setAiModelsError] = useState("");
   const [aiModelsSourceUrl, setAiModelsSourceUrl] = useState("");
@@ -240,10 +271,21 @@ export default function SettingsPage({
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [providerSearch, setProviderSearch] = useState("");
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [assistantModelPickerOpen, setAssistantModelPickerOpen] = useState(false);
+  const [assistantReasoningPickerOpen, setAssistantReasoningPickerOpen] = useState(false);
+  const [polishReasoningPickerOpen, setPolishReasoningPickerOpen] = useState(false);
+  const [recordingModePickerOpen, setRecordingModePickerOpen] = useState(false);
+  const [microphonePickerOpen, setMicrophonePickerOpen] = useState(false);
   const providerPickerRef = useRef<HTMLDivElement | null>(null);
   const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
   const modelPickerRef = useRef<HTMLDivElement | null>(null);
   const modelSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const assistantModelPickerRef = useRef<HTMLDivElement | null>(null);
+  const assistantModelSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const assistantReasoningPickerRef = useRef<HTMLDivElement | null>(null);
+  const polishReasoningPickerRef = useRef<HTMLDivElement | null>(null);
+  const recordingModePickerRef = useRef<HTMLDivElement | null>(null);
+  const microphonePickerRef = useRef<HTMLDivElement | null>(null);
 
   // Agent profile state
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -261,6 +303,20 @@ export default function SettingsPage({
   const [llmProvider, setLlmProvider] = useState("cerebras");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
+  const [assistantUseSeparateModel, setAssistantUseSeparateModel] = useState(false);
+  const [assistantModel, setAssistantModel] = useState("");
+  const [polishReasoningMode, setPolishReasoningMode] = useState<LlmReasoningMode>("provider_default");
+  const [assistantReasoningMode, setAssistantReasoningMode] = useState<LlmReasoningMode>("provider_default");
+  const [polishReasoningSupport, setPolishReasoningSupportState] = useState<LlmReasoningSupport>({
+    supported: false,
+    strategy: null,
+    summary: "正在识别当前模型的思考控制能力...",
+  });
+  const [assistantReasoningSupport, setAssistantReasoningSupportState] = useState<LlmReasoningSupport>({
+    supported: false,
+    strategy: null,
+    summary: "正在识别当前模型的思考控制能力...",
+  });
   // 自定义 provider 相关
   const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
   const [addingProvider, setAddingProvider] = useState(false);
@@ -274,8 +330,24 @@ export default function SettingsPage({
     setAiPolishConfig(enabled, value).catch(() => {});
   }, 600, { onUnmount: "flush" });
 
-  const llmConfigSave = useDebouncedCallback((provider: string, baseUrl: string, model: string) => {
-    setLlmProviderConfig(provider, baseUrl || undefined, model || undefined).catch(() => {});
+  const llmConfigSave = useDebouncedCallback((
+    provider: string,
+    baseUrl: string,
+    model: string,
+    nextPolishReasoningMode: LlmReasoningMode,
+    nextAssistantReasoningMode: LlmReasoningMode,
+    nextAssistantUseSeparateModel: boolean,
+    nextAssistantModel: string,
+  ) => {
+    setLlmProviderConfig(
+      provider,
+      baseUrl || undefined,
+      model || undefined,
+      nextPolishReasoningMode,
+      nextAssistantReasoningMode,
+      nextAssistantUseSeparateModel,
+      nextAssistantModel || undefined,
+    ).catch(() => {});
   }, 400, { onUnmount: "flush" });
 
   const onlineAsrKeySave = useDebouncedCallback((value: string) => {
@@ -363,6 +435,10 @@ export default function SettingsPage({
       setLlmProvider(nextProvider);
       setCustomBaseUrl(nextBaseUrl);
       setCustomModel(nextModel);
+      setAssistantUseSeparateModel(Boolean(p.llm_provider.assistant_use_separate_model));
+      setAssistantModel((p.llm_provider.assistant_model ?? nextModel).trim() || nextModel);
+      setPolishReasoningMode(p.llm_provider.polish_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
+      setAssistantReasoningMode(p.llm_provider.assistant_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
       setTranslationTargetState(p.translation_target ?? null);
       setCustomPromptState(p.custom_prompt ?? "");
@@ -746,8 +822,24 @@ export default function SettingsPage({
     }
   };
 
-  const scheduleCustomLlmConfigSave = useCallback((provider: string, baseUrl: string, model: string) => {
-    llmConfigSave.schedule(provider, baseUrl, model);
+  const scheduleCustomLlmConfigSave = useCallback((
+    provider: string,
+    baseUrl: string,
+    model: string,
+    nextPolishReasoningMode: LlmReasoningMode,
+    nextAssistantReasoningMode: LlmReasoningMode,
+    nextAssistantUseSeparateModel: boolean,
+    nextAssistantModel: string,
+  ) => {
+    llmConfigSave.schedule(
+      provider,
+      baseUrl,
+      model,
+      nextPolishReasoningMode,
+      nextAssistantReasoningMode,
+      nextAssistantUseSeparateModel,
+      nextAssistantModel,
+    );
   }, [llmConfigSave]);
 
   const refreshAiModels = useCallback(async (silent = false) => {
@@ -844,7 +936,13 @@ export default function SettingsPage({
     if (!keyword) return true;
     return model.id.toLowerCase().includes(keyword) || (model.ownedBy ?? "").toLowerCase().includes(keyword);
   }), [aiModels, aiModelSearch]);
+  const filteredAssistantModels = useMemo(() => aiModels.filter((model) => {
+    const keyword = assistantModelSearch.trim().toLowerCase();
+    if (!keyword) return true;
+    return model.id.toLowerCase().includes(keyword) || (model.ownedBy ?? "").toLowerCase().includes(keyword);
+  }), [aiModels, assistantModelSearch]);
   const selectedAiModel = aiModels.find((model) => model.id === customModel);
+  const selectedAssistantAiModel = aiModels.find((model) => model.id === assistantModel);
 
   const handleProviderSelect = useCallback(async (nextProvider: string) => {
     if (nextProvider === llmProvider) {
@@ -862,12 +960,25 @@ export default function SettingsPage({
     setLlmProvider(nextProvider);
     setCustomBaseUrl(nextDraft.baseUrl);
     setCustomModel(nextDraft.model);
+    setAssistantModel(nextDraft.model);
     updateProviderDraft(nextProvider, nextDraft.baseUrl, nextDraft.model);
     setProviderPickerOpen(false);
     setModelPickerOpen(false);
+    setAssistantModelPickerOpen(false);
+    setAssistantReasoningPickerOpen(false);
+    setPolishReasoningPickerOpen(false);
     setProviderSearch("");
     setAiModelSearch("");
-    await setLlmProviderConfig(nextProvider, nextDraft.baseUrl || undefined, nextDraft.model || undefined).catch(() => {});
+    setAssistantModelSearch("");
+    await setLlmProviderConfig(
+      nextProvider,
+      nextDraft.baseUrl || undefined,
+      nextDraft.model || undefined,
+      polishReasoningMode,
+      assistantReasoningMode,
+      assistantUseSeparateModel,
+      nextDraft.model,
+    ).catch(() => {});
     await refreshAiPolishKey();
   }, [
     aiPolishApiKey,
@@ -875,6 +986,10 @@ export default function SettingsPage({
     customBaseUrl,
     customModel,
     llmProvider,
+    polishReasoningMode,
+    assistantReasoningMode,
+    assistantUseSeparateModel,
+    assistantModel,
     aiPolishKeySave,
     llmConfigSave,
     refreshAiPolishKey,
@@ -887,10 +1002,57 @@ export default function SettingsPage({
     if (!normalizedModel) return;
     setCustomModel(normalizedModel);
     updateProviderDraft(llmProvider, customBaseUrl, normalizedModel);
-    scheduleCustomLlmConfigSave(llmProvider, customBaseUrl, normalizedModel);
+    scheduleCustomLlmConfigSave(
+      llmProvider,
+      customBaseUrl,
+      normalizedModel,
+      polishReasoningMode,
+      assistantReasoningMode,
+      assistantUseSeparateModel,
+      assistantModel,
+    );
     setModelPickerOpen(false);
     setAiModelSearch("");
-  }, [customBaseUrl, llmProvider, scheduleCustomLlmConfigSave, updateProviderDraft]);
+    if (!assistantUseSeparateModel) {
+      setAssistantModel(normalizedModel);
+    }
+  }, [assistantModel, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave, updateProviderDraft]);
+
+  const handleAssistantModelToggle = useCallback((enabled: boolean) => {
+    setAssistantUseSeparateModel(enabled);
+    setAssistantModelPickerOpen(false);
+    if (!enabled) {
+      setAssistantModel(customModel);
+    } else if (!assistantModel.trim()) {
+      setAssistantModel(customModel);
+    }
+    scheduleCustomLlmConfigSave(
+      llmProvider,
+      customBaseUrl,
+      customModel,
+      polishReasoningMode,
+      assistantReasoningMode,
+      enabled,
+      (enabled ? assistantModel : customModel).trim() || customModel,
+    );
+  }, [assistantModel, assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave]);
+
+  const handleAssistantModelSelect = useCallback((nextModel: string) => {
+    const normalizedModel = nextModel.trim();
+    if (!normalizedModel) return;
+    setAssistantModel(normalizedModel);
+    setAssistantModelPickerOpen(false);
+    setAssistantModelSearch("");
+    scheduleCustomLlmConfigSave(
+      llmProvider,
+      customBaseUrl,
+      customModel,
+      polishReasoningMode,
+      assistantReasoningMode,
+      true,
+      normalizedModel,
+    );
+  }, [assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave]);
 
   const handleTranslationSelect = useCallback(async (target: string | null) => {
     setTranslationTargetState(target);
@@ -920,6 +1082,181 @@ export default function SettingsPage({
     setAssistantPromptState(value);
     assistantPromptSave.schedule(value);
   }, [assistantPromptSave]);
+
+  const currentProviderFormat: ApiFormat = useMemo(() => {
+    return customProviders.find((provider) => provider.id === llmProvider)?.api_format ?? "openai_compat";
+  }, [customProviders, llmProvider]);
+
+  const effectiveReasoningBaseUrl = useMemo(() => {
+    return resolveLlmBaseUrl(llmProvider, customBaseUrl);
+  }, [customBaseUrl, llmProvider]);
+
+  const effectivePolishReasoningModel = useMemo(() => {
+    return resolveLlmModel(llmProvider, customModel);
+  }, [customModel, llmProvider]);
+
+  const effectiveAssistantReasoningModel = useMemo(() => {
+    if (!assistantUseSeparateModel) {
+      return effectivePolishReasoningModel;
+    }
+    return assistantModel.trim() || effectivePolishReasoningModel;
+  }, [assistantModel, assistantUseSeparateModel, effectivePolishReasoningModel]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPolishReasoningSupportState({
+      supported: false,
+      strategy: null,
+      summary: "正在识别当前模型的思考控制能力...",
+    });
+
+    void getLlmReasoningSupport(
+      llmProvider,
+      effectiveReasoningBaseUrl || undefined,
+      effectivePolishReasoningModel || undefined,
+      currentProviderFormat,
+    ).then((support) => {
+      if (!cancelled) {
+        setPolishReasoningSupportState(support);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setPolishReasoningSupportState({
+          supported: false,
+          strategy: null,
+          summary: "暂时无法识别当前模型的思考控制能力，已按不支持处理。",
+        });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProviderFormat, effectivePolishReasoningModel, effectiveReasoningBaseUrl, llmProvider]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAssistantReasoningSupportState({
+      supported: false,
+      strategy: null,
+      summary: "正在识别当前模型的思考控制能力...",
+    });
+
+    void getLlmReasoningSupport(
+      llmProvider,
+      effectiveReasoningBaseUrl || undefined,
+      effectiveAssistantReasoningModel || undefined,
+      currentProviderFormat,
+    ).then((support) => {
+      if (!cancelled) {
+        setAssistantReasoningSupportState(support);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setAssistantReasoningSupportState({
+          supported: false,
+          strategy: null,
+          summary: "暂时无法识别当前模型的思考控制能力，已按不支持处理。",
+        });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProviderFormat, effectiveAssistantReasoningModel, effectiveReasoningBaseUrl, llmProvider]);
+
+  const buildReasoningModeHint = useCallback((support: LlmReasoningSupport, selectedMode: LlmReasoningMode) => {
+    if (support.supported) {
+      return support.summary;
+    }
+    if (selectedMode !== "provider_default") {
+      return `${support.summary} 当前已保存的档位不会生效，实际会按模型默认行为处理。`;
+    }
+    return support.summary;
+  }, []);
+
+  const polishReasoningModeDisabled = !polishReasoningSupport.supported;
+  const assistantReasoningModeDisabled = !assistantReasoningSupport.supported;
+  const selectedAssistantReasoningOption = useMemo(
+    () => findReasoningModeOption(assistantReasoningMode),
+    [assistantReasoningMode],
+  );
+  const selectedPolishReasoningOption = useMemo(
+    () => findReasoningModeOption(polishReasoningMode),
+    [polishReasoningMode],
+  );
+  const selectedRecordingModeOption = useMemo(
+    () => findRecordingModeOption(recordingMode),
+    [recordingMode],
+  );
+  const selectedInputDeviceOption = useMemo(() => {
+    if (!selectedInputDeviceName) {
+      const systemDefaultDevice = inputDevices.find((device) => device.isDefault);
+      return {
+        label: "跟随系统默认麦克风",
+        desc: systemDefaultDevice ? `当前默认：${systemDefaultDevice.name}` : "自动使用系统当前默认输入设备",
+      };
+    }
+
+    const activeDevice = inputDevices.find((device) => device.name === selectedInputDeviceName);
+    if (activeDevice) {
+      return {
+        label: activeDevice.name,
+        desc: activeDevice.isDefault ? "当前也是系统默认设备" : "固定使用这支麦克风",
+      };
+    }
+
+    return {
+      label: selectedInputDeviceName,
+      desc: "当前设备不可用，录音时会回退到系统默认设备",
+    };
+  }, [inputDevices, selectedInputDeviceName]);
+  const polishReasoningModeHint = useMemo(
+    () => buildReasoningModeHint(polishReasoningSupport, polishReasoningMode),
+    [buildReasoningModeHint, polishReasoningMode, polishReasoningSupport],
+  );
+  const assistantReasoningModeHint = useMemo(
+    () => buildReasoningModeHint(assistantReasoningSupport, assistantReasoningMode),
+    [assistantReasoningMode, assistantReasoningSupport, buildReasoningModeHint],
+  );
+
+  const handlePolishReasoningModeChange = useCallback((mode: LlmReasoningMode) => {
+    if (polishReasoningModeDisabled) return;
+    setPolishReasoningMode(mode);
+    setPolishReasoningPickerOpen(false);
+    scheduleCustomLlmConfigSave(
+      llmProvider,
+      customBaseUrl,
+      customModel,
+      mode,
+      assistantReasoningMode,
+      assistantUseSeparateModel,
+      assistantModel,
+    );
+  }, [assistantModel, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, polishReasoningModeDisabled, scheduleCustomLlmConfigSave]);
+
+  const handleAssistantReasoningModeChange = useCallback((mode: LlmReasoningMode) => {
+    if (assistantReasoningModeDisabled) return;
+    setAssistantReasoningMode(mode);
+    setAssistantReasoningPickerOpen(false);
+    scheduleCustomLlmConfigSave(
+      llmProvider,
+      customBaseUrl,
+      customModel,
+      polishReasoningMode,
+      mode,
+      assistantUseSeparateModel,
+      assistantModel,
+    );
+  }, [assistantModel, assistantReasoningModeDisabled, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave]);
+
+  const handleRecordingModeChange = useCallback((mode: "hold" | "toggle") => {
+    setRecordingModeState(mode);
+    setRecordingModePickerOpen(false);
+    writeLocalStorage(RECORDING_MODE_KEY, mode);
+    setRecordingMode(mode === "toggle").catch(() => {});
+  }, []);
 
   const handleAssistantScreenContextToggle = useCallback((enabled: boolean) => {
     setAssistantScreenContextEnabledState(enabled);
@@ -956,7 +1293,28 @@ export default function SettingsPage({
   }, [aiModelSearch, modelPickerOpen]);
 
   useEffect(() => {
-    if (!providerPickerOpen && !modelPickerOpen) {
+    if (assistantModelPickerOpen) {
+      assistantModelSearchInputRef.current?.focus();
+      assistantModelSearchInputRef.current?.select();
+    }
+  }, [assistantModelPickerOpen]);
+
+  useEffect(() => {
+    if (!assistantModelPickerOpen && assistantModelSearch) {
+      setAssistantModelSearch("");
+    }
+  }, [assistantModelPickerOpen, assistantModelSearch]);
+
+  useEffect(() => {
+    if (
+      !providerPickerOpen
+      && !modelPickerOpen
+      && !assistantModelPickerOpen
+      && !assistantReasoningPickerOpen
+      && !polishReasoningPickerOpen
+      && !recordingModePickerOpen
+      && !microphonePickerOpen
+    ) {
       return;
     }
 
@@ -968,12 +1326,52 @@ export default function SettingsPage({
       if (modelPickerOpen && modelPickerRef.current && !modelPickerRef.current.contains(target)) {
         setModelPickerOpen(false);
       }
+      if (
+        assistantModelPickerOpen
+        && assistantModelPickerRef.current
+        && !assistantModelPickerRef.current.contains(target)
+      ) {
+        setAssistantModelPickerOpen(false);
+      }
+      if (
+        assistantReasoningPickerOpen
+        && assistantReasoningPickerRef.current
+        && !assistantReasoningPickerRef.current.contains(target)
+      ) {
+        setAssistantReasoningPickerOpen(false);
+      }
+      if (
+        polishReasoningPickerOpen
+        && polishReasoningPickerRef.current
+        && !polishReasoningPickerRef.current.contains(target)
+      ) {
+        setPolishReasoningPickerOpen(false);
+      }
+      if (
+        recordingModePickerOpen
+        && recordingModePickerRef.current
+        && !recordingModePickerRef.current.contains(target)
+      ) {
+        setRecordingModePickerOpen(false);
+      }
+      if (
+        microphonePickerOpen
+        && microphonePickerRef.current
+        && !microphonePickerRef.current.contains(target)
+      ) {
+        setMicrophonePickerOpen(false);
+      }
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setProviderPickerOpen(false);
         setModelPickerOpen(false);
+        setAssistantModelPickerOpen(false);
+        setAssistantReasoningPickerOpen(false);
+        setPolishReasoningPickerOpen(false);
+        setRecordingModePickerOpen(false);
+        setMicrophonePickerOpen(false);
       }
     };
 
@@ -983,7 +1381,7 @@ export default function SettingsPage({
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [modelPickerOpen, providerPickerOpen]);
+  }, [assistantModelPickerOpen, assistantReasoningPickerOpen, microphonePickerOpen, modelPickerOpen, polishReasoningPickerOpen, providerPickerOpen, recordingModePickerOpen]);
 
   return (
     <div className="page-root">
@@ -1130,22 +1528,50 @@ export default function SettingsPage({
               <p className="settings-hint">
                 点击上方按钮后按下新热键，支持任意组合键（如 Ctrl+Win、独立 Alt、F2）。按 Esc 取消设置。
               </p>
-              <div className="settings-row" style={{ alignItems: "center", gap: 10, marginTop: 8 }}>
-                <span className="settings-option-desc" style={{ whiteSpace: "nowrap" }}>录音模式</span>
-                <select
-                  className="settings-input"
-                  style={{ width: "auto", minWidth: 140 }}
-                  value={recordingMode}
-                  onChange={(e) => {
-                    const mode = e.target.value as "hold" | "toggle";
-                    setRecordingModeState(mode);
-                    writeLocalStorage(RECORDING_MODE_KEY, mode);
-                    setRecordingMode(mode === "toggle").catch(() => {});
-                  }}
-                >
-                  <option value="hold">按住说话</option>
-                  <option value="toggle">按一下开始 / 再按一下结束</option>
-                </select>
+              <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
+                <span className="settings-option-desc">录音模式</span>
+                <div ref={recordingModePickerRef} style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    className="picker-trigger"
+                    data-open={recordingModePickerOpen}
+                    onClick={() => {
+                      setRecordingModePickerOpen((open) => !open);
+                      setProviderPickerOpen(false);
+                      setModelPickerOpen(false);
+                      setAssistantModelPickerOpen(false);
+                      setAssistantReasoningPickerOpen(false);
+                      setPolishReasoningPickerOpen(false);
+                    }}
+                  >
+                    <span className="picker-trigger-copy">
+                      <strong>{selectedRecordingModeOption.label}</strong>
+                      <span>{selectedRecordingModeOption.desc}</span>
+                    </span>
+                    <ChevronsUpDown size={14} className="icon-tertiary" />
+                  </button>
+                  {recordingModePickerOpen && (
+                    <div className="picker-popover">
+                      <div className="picker-list">
+                        {recordingModeOptions.map((option) => (
+                          <button
+                            key={`recording-mode-${option.key}`}
+                            type="button"
+                            className="picker-option"
+                            data-active={recordingMode === option.key}
+                            onClick={() => handleRecordingModeChange(option.key)}
+                          >
+                            <span className="picker-option-copy">
+                              <strong>{option.label}</strong>
+                              <span>{option.desc}</span>
+                            </span>
+                            {recordingMode === option.key ? <Check size={14} className="icon-accent" /> : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="diagnostic-grid">
                 <div className="diagnostic-item">
@@ -1168,96 +1594,15 @@ export default function SettingsPage({
             </div>
           </section>
 
-          <section className="settings-card" style={{ animationDelay: "112ms" }}>
-            <div className="settings-section-header">
-              <Sparkles size={15} className="icon-accent" />
-              <h2 className="settings-section-title">语音助手</h2>
-            </div>
-            <div className="settings-column" style={{ gap: 10 }}>
-              <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
-                <button
-                  className="theme-btn hotkey-capture-btn"
-                  onClick={() => setCapturingAssistantHotkey(true)}
-                  disabled={assistantHotkeySaving}
-                  data-capturing={capturingAssistantHotkey}
-                  style={{
-                    cursor: assistantHotkeySaving ? "wait" : "pointer",
-                    opacity: assistantHotkeySaving ? 0.7 : 1,
-                  }}
-                >
-                  {capturingAssistantHotkey
-                    ? "请按下助手热键..."
-                    : assistantHotkey || "未设置助手热键"}
-                </button>
-                <button
-                  className="btn-ghost"
-                  onClick={handleClearAssistantHotkey}
-                  disabled={assistantHotkeySaving}
-                  style={{
-                    fontSize: 12,
-                    padding: "8px 10px",
-                    cursor: assistantHotkeySaving ? "wait" : "pointer",
-                    opacity: assistantHotkeySaving ? 0.7 : 1,
-                  }}
-                >
-                  清除
-                </button>
-              </div>
-              <p className="settings-hint" style={{ margin: 0 }}>
-                助手模式会把你的语音当成任务指令，生成邮件、消息、翻译或回答，并显示在结果浮层中供你复制使用。
-              </p>
-              <div className="settings-row">
-                <div className="permission-item" style={{ gap: 8 }}>
-                  <Monitor size={14} className="icon-tertiary" />
-                  <div className="settings-column" style={{ gap: 2 }}>
-                    <span className="permission-label">屏幕感知</span>
-                    <span className="settings-hint" style={{ margin: 0 }}>
-                      开启后，助手会尝试把当前整屏截图一并发给模型；如果当前接口或模型不支持图片输入，会自动回退到纯文本并记住结果。
-                    </span>
-                  </div>
-                </div>
-                <button
-                  role="switch"
-                  aria-checked={assistantScreenContextEnabled}
-                  aria-label="助手屏幕感知"
-                  onClick={() => handleAssistantScreenContextToggle(!assistantScreenContextEnabled)}
-                  className="toggle-switch"
-                  style={{
-                    background: assistantScreenContextEnabled
-                      ? "var(--color-accent)"
-                      : "var(--color-bg-tertiary)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <div
-                    className="toggle-knob"
-                    style={{
-                      transform: assistantScreenContextEnabled
-                        ? "translateX(20px)"
-                        : "translateX(0)",
-                    }}
-                  />
-                </button>
-              </div>
-              <div className="settings-column" style={{ gap: 6 }}>
-                <span className="settings-option-desc">自定义助手提示词</span>
-                <textarea
-                  className="settings-input"
-                  placeholder="例如：默认用简洁口吻；写邮件时偏正式；回复 IM 时保持自然口语"
-                  value={assistantPromptState}
-                  onChange={(e) => handleAssistantPromptChange(e.target.value)}
-                  rows={4}
-                  style={{ resize: "vertical", minHeight: 84, fontFamily: "inherit" }}
-                />
-                <p className="settings-hint" style={{ margin: 0 }}>
-                  这段提示词只作用于助手模式，不影响普通听写与润色。
-                </p>
-              </div>
-            </div>
-          </section>
-
           {/* Microphone */}
-          <section className="settings-card" style={{ animationDelay: "125ms" }}>
+          <section
+            className="settings-card"
+            style={{
+              animationDelay: "125ms",
+              position: "relative",
+              zIndex: microphonePickerOpen ? 8 : 1,
+            }}
+          >
             <div className="settings-section-header">
               <Mic size={15} className="icon-accent" />
               <h2 className="settings-section-title">麦克风</h2>
@@ -1279,21 +1624,69 @@ export default function SettingsPage({
             </div>
             <div className="settings-column">
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
-                <select
-                  className="settings-input microphone-select"
-                  value={selectedInputDeviceName}
-                  disabled={deviceListLoading}
-                  onChange={(event) => {
-                    void handleInputDeviceChange(event.target.value);
-                  }}
-                >
-                  <option value="">跟随系统默认麦克风</option>
-                  {inputDevices.map((device) => (
-                    <option key={device.name} value={device.name}>
-                      {device.name}{device.isDefault ? "（系统默认）" : ""}
-                    </option>
-                  ))}
-                </select>
+                <div ref={microphonePickerRef} style={{ position: "relative", flex: 1, minWidth: 0 }}>
+                  <button
+                    type="button"
+                    className="picker-trigger microphone-select"
+                    data-open={microphonePickerOpen}
+                    disabled={deviceListLoading}
+                    onClick={() => {
+                      if (deviceListLoading) return;
+                      setMicrophonePickerOpen((open) => !open);
+                      setProviderPickerOpen(false);
+                      setModelPickerOpen(false);
+                      setAssistantModelPickerOpen(false);
+                      setAssistantReasoningPickerOpen(false);
+                      setPolishReasoningPickerOpen(false);
+                      setRecordingModePickerOpen(false);
+                    }}
+                    style={{
+                      opacity: deviceListLoading ? 0.7 : 1,
+                      cursor: deviceListLoading ? "wait" : "pointer",
+                    }}
+                  >
+                    <span className="picker-trigger-copy">
+                      <strong>{selectedInputDeviceOption.label}</strong>
+                      <span>{selectedInputDeviceOption.desc}</span>
+                    </span>
+                    <ChevronsUpDown size={14} className="icon-tertiary" />
+                  </button>
+                  {microphonePickerOpen && (
+                    <div className="picker-popover">
+                      <div className="picker-list">
+                        <button
+                          type="button"
+                          className="picker-option"
+                          data-active={!selectedInputDeviceName}
+                          onClick={() => { void handleInputDeviceChange(""); }}
+                        >
+                          <span className="picker-option-copy">
+                            <strong>跟随系统默认麦克风</strong>
+                            <span>
+                              {inputDevices.find((device) => device.isDefault)?.name ?? "自动使用系统当前默认输入设备"}
+                            </span>
+                          </span>
+                          {!selectedInputDeviceName ? <Check size={14} className="icon-accent" /> : null}
+                        </button>
+                        {inputDevices.map((device) => (
+                          <button
+                            key={device.name}
+                            type="button"
+                            className="picker-option"
+                            data-active={selectedInputDeviceName === device.name}
+                            onClick={() => { void handleInputDeviceChange(device.name); }}
+                          >
+                            <span className="picker-option-copy">
+                              <strong>{device.name}</strong>
+                              <span>{device.isDefault ? "系统默认设备" : "可固定选择"}</span>
+                            </span>
+                            {selectedInputDeviceName === device.name ? <Check size={14} className="icon-accent" /> : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button
                   className="btn-ghost"
                   disabled={deviceListLoading}
@@ -1394,7 +1787,7 @@ export default function SettingsPage({
             style={{
               animationDelay: "200ms",
               position: "relative",
-              zIndex: providerPickerOpen || modelPickerOpen ? 8 : 1,
+              zIndex: providerPickerOpen || modelPickerOpen || polishReasoningPickerOpen ? 8 : 1,
             }}
           >
             <div className="settings-section-header">
@@ -1435,6 +1828,9 @@ export default function SettingsPage({
                       onClick={() => {
                         setProviderPickerOpen((open) => !open);
                         setModelPickerOpen(false);
+                        setAssistantModelPickerOpen(false);
+                        setAssistantReasoningPickerOpen(false);
+                        setPolishReasoningPickerOpen(false);
                       }}
                     >
                       <span className="picker-trigger-copy">
@@ -1538,8 +1934,17 @@ export default function SettingsPage({
                                       setLlmProvider(id);
                                       setCustomBaseUrl(baseUrl);
                                       setCustomModel(model);
+                                      setAssistantModel(model);
                                       updateProviderDraft(id, baseUrl, model);
-                                      await setLlmProviderConfig(id, baseUrl || undefined, model || undefined).catch(() => {});
+                                      await setLlmProviderConfig(
+                                        id,
+                                        baseUrl || undefined,
+                                        model || undefined,
+                                        polishReasoningMode,
+                                        assistantReasoningMode,
+                                        assistantUseSeparateModel,
+                                        model,
+                                      ).catch(() => {});
                                       await refreshAiPolishKey();
                                     });
                                   }}
@@ -1566,7 +1971,15 @@ export default function SettingsPage({
                       const nextBaseUrl = e.target.value;
                       setCustomBaseUrl(nextBaseUrl);
                       updateProviderDraft(llmProvider, nextBaseUrl, customModel);
-                      scheduleCustomLlmConfigSave(llmProvider, nextBaseUrl, customModel);
+                      scheduleCustomLlmConfigSave(
+                        llmProvider,
+                        nextBaseUrl,
+                        customModel,
+                        polishReasoningMode,
+                        assistantReasoningMode,
+                        assistantUseSeparateModel,
+                        assistantModel,
+                      );
                     }}
                   />
                   <p className="settings-hint">
@@ -1606,7 +2019,18 @@ export default function SettingsPage({
                           const nextModel = e.target.value;
                           setCustomModel(nextModel);
                           updateProviderDraft(llmProvider, customBaseUrl, nextModel);
-                          scheduleCustomLlmConfigSave(llmProvider, customBaseUrl, nextModel);
+                          scheduleCustomLlmConfigSave(
+                            llmProvider,
+                            customBaseUrl,
+                            nextModel,
+                            polishReasoningMode,
+                            assistantReasoningMode,
+                            assistantUseSeparateModel,
+                            assistantModel,
+                          );
+                          if (!assistantUseSeparateModel) {
+                            setAssistantModel(nextModel);
+                          }
                         }}
                       />
                       <button
@@ -1616,6 +2040,9 @@ export default function SettingsPage({
                         onClick={() => {
                           setModelPickerOpen((open) => !open);
                           setProviderPickerOpen(false);
+                          setAssistantModelPickerOpen(false);
+                          setAssistantReasoningPickerOpen(false);
+                          setPolishReasoningPickerOpen(false);
                         }}
                         aria-label="打开模型列表"
                         title="打开模型列表"
@@ -1695,6 +2122,61 @@ export default function SettingsPage({
                     )}
                   </div>
                 </div>
+
+                <div className="settings-column" style={{ gap: 6 }}>
+                  <span className="settings-option-desc">润色思考模式</span>
+                  <div ref={polishReasoningPickerRef} style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      className="picker-trigger"
+                      data-open={polishReasoningPickerOpen}
+                      disabled={polishReasoningModeDisabled}
+                      onClick={() => {
+                        if (polishReasoningModeDisabled) return;
+                        setPolishReasoningPickerOpen((open) => !open);
+                        setAssistantReasoningPickerOpen(false);
+                        setAssistantModelPickerOpen(false);
+                        setProviderPickerOpen(false);
+                        setModelPickerOpen(false);
+                      }}
+                      title={polishReasoningModeHint}
+                      style={{
+                        opacity: polishReasoningModeDisabled ? 0.55 : 1,
+                        cursor: polishReasoningModeDisabled ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      <span className="picker-trigger-copy">
+                        <strong>{selectedPolishReasoningOption.label}</strong>
+                        <span>{selectedPolishReasoningOption.desc}</span>
+                      </span>
+                      <ChevronsUpDown size={14} className="icon-tertiary" />
+                    </button>
+                    {polishReasoningPickerOpen && (
+                      <div className="picker-popover">
+                        <div className="picker-list">
+                          {reasoningModeOptions.map((option) => (
+                            <button
+                              key={option.key}
+                              type="button"
+                              className="picker-option"
+                              data-active={polishReasoningMode === option.key}
+                              onClick={() => handlePolishReasoningModeChange(option.key)}
+                            >
+                              <span className="picker-option-copy">
+                                <strong>{option.label}</strong>
+                                <span>{option.desc}</span>
+                              </span>
+                              {polishReasoningMode === option.key ? <Check size={14} className="icon-accent" /> : null}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <p className="settings-hint" style={{ margin: 0 }}>
+                    {polishReasoningModeHint}
+                  </p>
+                </div>
               </div>
 
               <div className="settings-column" style={{ gap: 6 }}>
@@ -1715,6 +2197,309 @@ export default function SettingsPage({
               <p className="settings-hint">
                 AI 纠错会自动学习你的用词习惯，并将常用词汇注入热词列表提升识别准确率。
               </p>
+            </div>
+          </section>
+
+          <section
+            className="settings-card"
+            style={{
+              animationDelay: "206ms",
+              position: "relative",
+              zIndex: assistantModelPickerOpen || assistantReasoningPickerOpen ? 8 : 1,
+            }}
+          >
+            <div className="settings-section-header">
+              <Sparkles size={15} className="icon-accent" />
+              <h2 className="settings-section-title">语音助手</h2>
+            </div>
+            <div className="settings-column" style={{ gap: 10 }}>
+              <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
+                <button
+                  className="theme-btn hotkey-capture-btn"
+                  onClick={() => setCapturingAssistantHotkey(true)}
+                  disabled={assistantHotkeySaving}
+                  data-capturing={capturingAssistantHotkey}
+                  style={{
+                    cursor: assistantHotkeySaving ? "wait" : "pointer",
+                    opacity: assistantHotkeySaving ? 0.7 : 1,
+                  }}
+                >
+                  {capturingAssistantHotkey
+                    ? "请按下助手热键..."
+                    : assistantHotkey || "未设置助手热键"}
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={handleClearAssistantHotkey}
+                  disabled={assistantHotkeySaving}
+                  style={{
+                    fontSize: 12,
+                    padding: "8px 10px",
+                    cursor: assistantHotkeySaving ? "wait" : "pointer",
+                    opacity: assistantHotkeySaving ? 0.7 : 1,
+                  }}
+                >
+                  清除
+                </button>
+              </div>
+              <p className="settings-hint" style={{ margin: 0 }}>
+                助手模式会把你的语音当成任务指令，生成邮件、消息、翻译或回答，并显示在结果浮层中供你复制使用。
+              </p>
+              <div className="settings-row">
+                <div className="permission-item" style={{ gap: 8 }}>
+                  <Monitor size={14} className="icon-tertiary" />
+                  <div className="settings-column" style={{ gap: 2 }}>
+                    <span className="permission-label">屏幕感知</span>
+                    <span className="settings-hint" style={{ margin: 0 }}>
+                      开启后，助手会尝试把当前整屏截图一并发给模型；如果当前接口或模型不支持图片输入，会自动回退到纯文本并记住结果。
+                    </span>
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={assistantScreenContextEnabled}
+                  aria-label="助手屏幕感知"
+                  onClick={() => handleAssistantScreenContextToggle(!assistantScreenContextEnabled)}
+                  className="toggle-switch"
+                  style={{
+                    background: assistantScreenContextEnabled
+                      ? "var(--color-accent)"
+                      : "var(--color-bg-tertiary)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    className="toggle-knob"
+                    style={{
+                      transform: assistantScreenContextEnabled
+                        ? "translateX(20px)"
+                        : "translateX(0)",
+                    }}
+                  />
+                </button>
+              </div>
+              <div className="settings-row">
+                <div className="permission-item" style={{ gap: 8 }}>
+                  <Sparkles size={14} className="icon-tertiary" />
+                  <div className="settings-column" style={{ gap: 2 }}>
+                    <span className="permission-label">使用独立模型</span>
+                    <span className="settings-hint" style={{ margin: 0 }}>
+                      关闭时跟随 AI 润色的模型；开启后，助手可以单独选择自己的模型。
+                    </span>
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={assistantUseSeparateModel}
+                  aria-label="助手使用独立模型"
+                  onClick={() => handleAssistantModelToggle(!assistantUseSeparateModel)}
+                  className="toggle-switch"
+                  style={{
+                    background: assistantUseSeparateModel
+                      ? "var(--color-accent)"
+                      : "var(--color-bg-tertiary)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    className="toggle-knob"
+                    style={{
+                      transform: assistantUseSeparateModel
+                        ? "translateX(20px)"
+                        : "translateX(0)",
+                    }}
+                  />
+                </button>
+              </div>
+
+              {assistantUseSeparateModel ? (
+                <div className="settings-column" style={{ gap: 6 }}>
+                  <div className="settings-row">
+                    <span className="settings-option-desc">助手模型</span>
+                    <span className="settings-option-desc">{filteredAssistantModels.length}/{aiModels.length}</span>
+                  </div>
+                  <div className="picker-shell" ref={assistantModelPickerRef}>
+                    <div className="picker-inline-row">
+                      <input
+                        type="text"
+                        className="settings-input"
+                        placeholder="助手模型名，可直接手动输入"
+                        value={assistantModel}
+                        onChange={(e) => {
+                          const nextModel = e.target.value;
+                          setAssistantModel(nextModel);
+                          scheduleCustomLlmConfigSave(
+                            llmProvider,
+                            customBaseUrl,
+                            customModel,
+                            polishReasoningMode,
+                            assistantReasoningMode,
+                            true,
+                            nextModel,
+                          );
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="picker-inline-button"
+                        data-open={assistantModelPickerOpen}
+                        onClick={() => {
+                          setAssistantModelPickerOpen((open) => !open);
+                          setProviderPickerOpen(false);
+                          setModelPickerOpen(false);
+                          setAssistantReasoningPickerOpen(false);
+                          setPolishReasoningPickerOpen(false);
+                        }}
+                        aria-label="打开助手模型列表"
+                        title="打开助手模型列表"
+                      >
+                        <ChevronsUpDown size={14} className="icon-tertiary" />
+                      </button>
+                    </div>
+                    <p className="settings-hint" style={{ margin: 0 }}>
+                      {selectedAssistantAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型，列表仅作参考，也可以直接手输完整模型名。` : "模型列表仅作参考，也可以直接手输完整模型名。")}
+                    </p>
+                    {assistantModelPickerOpen && (
+                      <div className="picker-popover">
+                        <div className="picker-toolbar">
+                          <input
+                            ref={assistantModelSearchInputRef}
+                            type="text"
+                            className="settings-input picker-search-input"
+                            placeholder="搜索模型，回车可直接使用当前输入"
+                            value={assistantModelSearch}
+                            onChange={(e) => setAssistantModelSearch(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && assistantModelSearch.trim()) {
+                                e.preventDefault();
+                                handleAssistantModelSelect(assistantModelSearch);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="btn-ghost"
+                            onClick={() => { void refreshAiModels(); }}
+                            disabled={aiModelsLoading}
+                            style={{ fontSize: 12, padding: "8px 10px", opacity: aiModelsLoading ? 0.7 : 1 }}
+                          >
+                            {aiModelsLoading ? "拉取中..." : "刷新"}
+                          </button>
+                        </div>
+                        {assistantModelSearch.trim() ? (
+                          <button
+                            type="button"
+                            className="picker-option picker-option-action"
+                            onClick={() => handleAssistantModelSelect(assistantModelSearch)}
+                          >
+                            <span className="picker-option-copy">
+                              <strong>使用 {assistantModelSearch.trim()}</strong>
+                              <span>作为助手模型名</span>
+                            </span>
+                          </button>
+                        ) : null}
+                        <div className="picker-list">
+                          {filteredAssistantModels.length > 0 ? filteredAssistantModels.map((model) => (
+                            <button
+                              key={`assistant-model-${model.id}`}
+                              type="button"
+                              className="picker-option"
+                              data-active={assistantModel === model.id}
+                              onClick={() => handleAssistantModelSelect(model.id)}
+                            >
+                              <span className="picker-option-copy">
+                                <strong>{model.id}</strong>
+                                <span>{model.ownedBy || currentLlmPreset.label}</span>
+                              </span>
+                              {assistantModel === model.id ? <Check size={14} className="icon-accent" /> : null}
+                            </button>
+                          )) : (
+                            <div className="picker-empty">
+                              {aiModelsLoading
+                                ? "正在从官方接口拉取模型列表..."
+                                : aiModelsError || "暂无模型列表，先填写接口地址和 API Key。"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  当前与 AI 润色共用模型：{customModel || currentLlmPreset.defaultModel}
+                </p>
+              )}
+
+              <div className="settings-column" style={{ gap: 6 }}>
+                <span className="settings-option-desc">助手思考模式</span>
+                <div ref={assistantReasoningPickerRef} style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    className="picker-trigger"
+                    data-open={assistantReasoningPickerOpen}
+                    disabled={assistantReasoningModeDisabled}
+                    onClick={() => {
+                      if (assistantReasoningModeDisabled) return;
+                      setAssistantReasoningPickerOpen((open) => !open);
+                      setAssistantModelPickerOpen(false);
+                      setPolishReasoningPickerOpen(false);
+                      setProviderPickerOpen(false);
+                      setModelPickerOpen(false);
+                    }}
+                    title={assistantReasoningModeHint}
+                    style={{
+                      opacity: assistantReasoningModeDisabled ? 0.55 : 1,
+                      cursor: assistantReasoningModeDisabled ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    <span className="picker-trigger-copy">
+                      <strong>{selectedAssistantReasoningOption.label}</strong>
+                      <span>{selectedAssistantReasoningOption.desc}</span>
+                    </span>
+                    <ChevronsUpDown size={14} className="icon-tertiary" />
+                  </button>
+                  {assistantReasoningPickerOpen && (
+                    <div className="picker-popover">
+                      <div className="picker-list">
+                        {reasoningModeOptions.map((option) => (
+                          <button
+                            key={`assistant-${option.key}`}
+                            type="button"
+                            className="picker-option"
+                            data-active={assistantReasoningMode === option.key}
+                            onClick={() => handleAssistantReasoningModeChange(option.key)}
+                          >
+                            <span className="picker-option-copy">
+                              <strong>{option.label}</strong>
+                              <span>{option.desc}</span>
+                            </span>
+                            {assistantReasoningMode === option.key ? <Check size={14} className="icon-accent" /> : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  {assistantReasoningModeHint}
+                </p>
+              </div>
+
+              <div className="settings-column" style={{ gap: 6 }}>
+                <span className="settings-option-desc">自定义助手提示词</span>
+                <textarea
+                  className="settings-input"
+                  placeholder="例如：默认用简洁口吻；写邮件时偏正式；回复 IM 时保持自然口语"
+                  value={assistantPromptState}
+                  onChange={(e) => handleAssistantPromptChange(e.target.value)}
+                  rows={4}
+                  style={{ resize: "vertical", minHeight: 84, fontFamily: "inherit" }}
+                />
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  这段提示词只作用于助手模式，不影响普通听写与润色。
+                </p>
+              </div>
             </div>
           </section>
 

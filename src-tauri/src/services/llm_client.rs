@@ -5,7 +5,7 @@ use tauri::Emitter;
 
 use crate::services::llm_provider;
 use crate::services::llm_provider::LlmEndpoint;
-use crate::state::user_profile::ApiFormat;
+use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
 
 const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
 
@@ -13,6 +13,7 @@ const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
 pub struct LlmRequestOptions<'a> {
     pub stream: bool,
     pub json_output: bool,
+    pub reasoning_mode: LlmReasoningMode,
     pub stream_event: Option<&'a str>,
     pub session_id: Option<u64>,
 }
@@ -22,6 +23,7 @@ impl Default for LlmRequestOptions<'_> {
         Self {
             stream: false,
             json_output: false,
+            reasoning_mode: LlmReasoningMode::ProviderDefault,
             stream_event: None,
             session_id: None,
         }
@@ -101,6 +103,13 @@ pub fn build_llm_body(
                     body["response_format"] = serde_json::json!({ "type": "json_object" });
                 }
             }
+
+            llm_provider::apply_reasoning_controls(
+                endpoint,
+                is_responses_api,
+                &mut body,
+                options.reasoning_mode,
+            );
 
             if options.stream {
                 body["stream"] = serde_json::json!(true);
@@ -468,28 +477,82 @@ pub async fn send_llm_request(
         .map_err(|e| format!("构建请求头失败: {e}"))?;
     let timeout = dynamic_timeout(endpoint.timeout_secs, text_len);
 
-    let mut request = http_client.post(&endpoint.api_url).headers(headers);
-    if !options.stream {
-        request = request.timeout(timeout);
+    async fn dispatch_request(
+        http_client: &reqwest::Client,
+        endpoint: &LlmEndpoint,
+        headers: reqwest::header::HeaderMap,
+        body: &Value,
+        timeout: Duration,
+        stream: bool,
+    ) -> Result<reqwest::Response, String> {
+        let mut request = http_client.post(&endpoint.api_url).headers(headers);
+        if !stream {
+            request = request.timeout(timeout);
+        }
+        tokio::time::timeout(timeout, request.json(body).send())
+            .await
+            .map_err(|_| format!("请求超时（{} 秒）", timeout.as_secs()))?
+            .map_err(|e| format!("请求失败: {}", e))
     }
 
-    let response = tokio::time::timeout(timeout, request.json(body).send())
-        .await
-        .map_err(|_| format!("请求超时（{} 秒）", timeout.as_secs()))?
-        .map_err(|e| format!("请求失败: {}", e))?;
+    let mut response = dispatch_request(
+        http_client,
+        endpoint,
+        headers.clone(),
+        body,
+        timeout,
+        options.stream,
+    )
+    .await?;
 
     if !response.status().is_success() {
-        let status = response.status();
-        let body_text = response.text().await.unwrap_or_default();
-        let error_message = if endpoint.api_format == ApiFormat::Anthropic {
+        let mut status = response.status();
+        let mut body_text = response.text().await.unwrap_or_default();
+        let mut error_message = if endpoint.api_format == ApiFormat::Anthropic {
             serde_json::from_str::<Value>(&body_text)
                 .ok()
                 .and_then(|json| json["error"]["message"].as_str().map(String::from))
-                .unwrap_or(body_text)
+                .unwrap_or_else(|| body_text.clone())
         } else {
-            body_text
+            body_text.clone()
         };
-        return Err(format!("API 返回错误 {}: {}", status, error_message));
+
+        if options.reasoning_mode != LlmReasoningMode::ProviderDefault
+            && llm_provider::looks_like_reasoning_unsupported_error(&error_message)
+        {
+            log::warn!(
+                "当前模型不支持推理参数，已移除后自动重试: provider={}, model={}, err={}",
+                endpoint.provider,
+                endpoint.model,
+                error_message
+            );
+            let mut fallback_body = body.clone();
+            llm_provider::strip_reasoning_controls(&mut fallback_body);
+            response = dispatch_request(
+                http_client,
+                endpoint,
+                headers,
+                &fallback_body,
+                timeout,
+                options.stream,
+            )
+            .await?;
+            if !response.status().is_success() {
+                status = response.status();
+                body_text = response.text().await.unwrap_or_default();
+                error_message = if endpoint.api_format == ApiFormat::Anthropic {
+                    serde_json::from_str::<Value>(&body_text)
+                        .ok()
+                        .and_then(|json| json["error"]["message"].as_str().map(String::from))
+                        .unwrap_or_else(|| body_text.clone())
+                } else {
+                    body_text.clone()
+                };
+                return Err(format!("API 返回错误 {}: {}", status, error_message));
+            }
+        } else {
+            return Err(format!("API 返回错误 {}: {}", status, error_message));
+        }
     }
 
     if options.stream {
@@ -538,7 +601,7 @@ pub async fn send_llm_request(
 mod tests {
     use super::{build_llm_body, LlmRequestOptions, LlmUserInput};
     use crate::services::llm_provider::LlmEndpoint;
-    use crate::state::user_profile::ApiFormat;
+    use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
 
     fn openai_endpoint(api_url: &str) -> LlmEndpoint {
         LlmEndpoint {
@@ -560,6 +623,7 @@ mod tests {
             LlmRequestOptions {
                 stream: true,
                 json_output: true,
+                reasoning_mode: LlmReasoningMode::ProviderDefault,
                 stream_event: None,
                 session_id: None,
             },
@@ -584,6 +648,7 @@ mod tests {
             LlmRequestOptions {
                 stream: true,
                 json_output: false,
+                reasoning_mode: LlmReasoningMode::ProviderDefault,
                 stream_event: None,
                 session_id: None,
             },
@@ -592,5 +657,52 @@ mod tests {
         assert_eq!(body["stream"], serde_json::json!(true));
         assert!(body.get("reasoning").is_none());
         assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn volcengine_chat_body_maps_reasoning_mode_to_thinking() {
+        let endpoint = LlmEndpoint {
+            provider: "custom".to_string(),
+            api_url: "https://ark.cn-beijing.volces.com/api/v3/chat/completions".to_string(),
+            model: "doubao-seed-1-6-thinking".to_string(),
+            timeout_secs: 10,
+            api_format: ApiFormat::OpenaiCompat,
+        };
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                stream: false,
+                json_output: false,
+                reasoning_mode: LlmReasoningMode::Off,
+                stream_event: None,
+                session_id: None,
+            },
+        );
+
+        assert_eq!(body["thinking"]["type"], serde_json::json!("disabled"));
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn openai_chat_body_maps_reasoning_mode_to_effort() {
+        let mut endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
+        endpoint.model = "gpt-5-mini".to_string();
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                stream: false,
+                json_output: false,
+                reasoning_mode: LlmReasoningMode::Deep,
+                stream_event: None,
+                session_id: None,
+            },
+        );
+
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert!(body.get("thinking").is_none());
     }
 }

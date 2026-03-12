@@ -102,6 +102,18 @@ export interface CorrectionPattern {
 
 // API 协议格式
 export type ApiFormat = "openai_compat" | "anthropic";
+export type LlmReasoningMode =
+  | "provider_default"
+  | "off"
+  | "light"
+  | "balanced"
+  | "deep";
+
+export interface LlmReasoningSupport {
+  supported: boolean;
+  strategy?: string | null;
+  summary: string;
+}
 
 // 用户自定义 LLM 服务商
 export interface CustomProvider {
@@ -117,6 +129,11 @@ export interface LlmProviderConfig {
   active: string;
   custom_base_url?: string;
   custom_model?: string;
+  reasoning_mode?: LlmReasoningMode;
+  polish_reasoning_mode?: LlmReasoningMode;
+  assistant_reasoning_mode?: LlmReasoningMode;
+  assistant_use_separate_model?: boolean;
+  assistant_model?: string;
   custom_providers?: CustomProvider[];
 }
 

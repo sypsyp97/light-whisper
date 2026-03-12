@@ -25,8 +25,7 @@ pub fn load_profile() -> UserProfile {
             log::info!("用户画像文件不存在或解析失败，使用默认值");
             UserProfile::default()
         });
-    migrate_custom_provider(&mut profile);
-    let stats = cleanup_profile(&mut profile);
+    let stats = normalize_profile(&mut profile);
     if stats.removed_hot_words > 0 || stats.removed_corrections > 0 {
         log::info!(
             "加载画像时清理：热词 -{}, 纠错 -{}",
@@ -35,6 +34,22 @@ pub fn load_profile() -> UserProfile {
         );
     }
     profile
+}
+
+pub fn normalize_profile(profile: &mut UserProfile) -> ProfileCleanupStats {
+    migrate_custom_provider(profile);
+    migrate_reasoning_modes(profile);
+    cleanup_profile(profile)
+}
+
+fn migrate_reasoning_modes(profile: &mut UserProfile) {
+    let config = &mut profile.llm_provider;
+    if config.polish_reasoning_mode.is_none() {
+        config.polish_reasoning_mode = Some(config.reasoning_mode);
+    }
+    if config.assistant_reasoning_mode.is_none() {
+        config.assistant_reasoning_mode = Some(config.reasoning_mode);
+    }
 }
 
 /// 迁移旧版单 custom provider 到 custom_providers 列表

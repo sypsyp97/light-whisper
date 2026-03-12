@@ -1,6 +1,7 @@
+use serde::Serialize;
 use tauri_plugin_keyring::KeyringExt;
 
-use crate::state::user_profile::{ApiFormat, LlmProviderConfig};
+use crate::state::user_profile::{ApiFormat, CustomProvider, LlmProviderConfig, LlmReasoningMode};
 use crate::state::AppState;
 
 /// LLM 提供商配置
@@ -22,6 +23,13 @@ const CUSTOM: &str = "custom";
 
 /// 预置服务商列表（用于判断是否为预置）
 const PRESET_PROVIDERS: &[&str] = &[CEREBRAS, OPENAI, DEEPSEEK, SILICONFLOW, CUSTOM];
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct LlmReasoningSupport {
+    pub supported: bool,
+    pub strategy: Option<String>,
+    pub summary: String,
+}
 
 fn default_endpoint_parts(provider: &str) -> (&'static str, &'static str, u64) {
     match provider {
@@ -176,6 +184,70 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     }
 }
 
+pub fn assistant_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
+    let Some(assistant_model) = config.assistant_model() else {
+        return endpoint_for_config(config);
+    };
+
+    let mut overridden = config.clone();
+    let active_provider = overridden.resolve_active_provider();
+
+    if is_preset(&active_provider) {
+        overridden.custom_model = Some(assistant_model.to_string());
+    } else if let Some(cp) = overridden
+        .custom_providers
+        .iter_mut()
+        .find(|provider| provider.id == active_provider)
+    {
+        cp.model = assistant_model.to_string();
+    } else {
+        overridden.custom_model = Some(assistant_model.to_string());
+    }
+
+    endpoint_for_config(&overridden)
+}
+
+pub fn endpoint_for_preview(
+    provider: &str,
+    base_url: Option<&str>,
+    model: Option<&str>,
+    api_format: ApiFormat,
+) -> LlmEndpoint {
+    let config = if is_preset(provider) {
+        LlmProviderConfig {
+            active: provider.to_string(),
+            custom_base_url: base_url.map(str::to_string),
+            custom_model: model.map(str::to_string),
+            reasoning_mode: LlmReasoningMode::ProviderDefault,
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
+            custom_providers: Vec::new(),
+        }
+    } else {
+        LlmProviderConfig {
+            active: provider.to_string(),
+            custom_base_url: None,
+            custom_model: None,
+            reasoning_mode: LlmReasoningMode::ProviderDefault,
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
+            custom_providers: vec![CustomProvider {
+                id: provider.to_string(),
+                name: provider.to_string(),
+                base_url: base_url.unwrap_or_default().to_string(),
+                model: model.unwrap_or_default().to_string(),
+                api_format,
+            }],
+        }
+    };
+
+    endpoint_for_config(&config)
+}
+
 pub fn looks_like_image_input_unsupported_error(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     let mentions_image = normalized.contains("image")
@@ -213,6 +285,341 @@ pub fn looks_like_json_output_unsupported_error(message: &str) -> bool {
         || normalized.contains("badrequest");
 
     mentions_json_output && indicates_unsupported
+}
+
+pub fn looks_like_reasoning_unsupported_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    let mentions_reasoning = normalized.contains("reasoning")
+        || normalized.contains("reasoning_effort")
+        || normalized.contains("thinking")
+        || normalized.contains("budget_tokens")
+        || normalized.contains("reasoning_content");
+
+    let indicates_unsupported = normalized.contains("not supported")
+        || normalized.contains("unsupported")
+        || normalized.contains("are not valid")
+        || normalized.contains("invalidparameter")
+        || normalized.contains("invalid parameter")
+        || normalized.contains("unknown parameter")
+        || normalized.contains("badrequest");
+
+    mentions_reasoning && indicates_unsupported
+}
+
+pub fn is_volcengine_like_endpoint(endpoint: &LlmEndpoint) -> bool {
+    if endpoint.api_format != ApiFormat::OpenaiCompat {
+        return false;
+    }
+
+    let api_url = endpoint.api_url.to_ascii_lowercase();
+    let model = endpoint.model.trim().to_ascii_lowercase();
+
+    api_url.contains("volces.com")
+        || api_url.contains("volcengine.com")
+        || model.contains("doubao")
+        || model.contains("seed-")
+}
+
+fn is_deepseek_like_endpoint(endpoint: &LlmEndpoint) -> bool {
+    endpoint.provider == DEEPSEEK
+        || endpoint
+            .api_url
+            .to_ascii_lowercase()
+            .contains("deepseek.com")
+}
+
+fn is_siliconflow_like_endpoint(endpoint: &LlmEndpoint) -> bool {
+    endpoint.provider == SILICONFLOW
+        || endpoint
+            .api_url
+            .to_ascii_lowercase()
+            .contains("siliconflow.com")
+}
+
+fn is_cerebras_like_endpoint(endpoint: &LlmEndpoint) -> bool {
+    endpoint.provider == CEREBRAS
+        || endpoint
+            .api_url
+            .to_ascii_lowercase()
+            .contains("cerebras.ai")
+}
+
+fn is_gpt5_reasoning_model(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    let tail = normalized.rsplit('/').next().unwrap_or(&normalized);
+    tail.starts_with("gpt-5")
+}
+
+fn supports_anthropic_thinking(model: &str) -> bool {
+    let model = model.trim().to_ascii_lowercase();
+    model.contains("claude-3-7-sonnet")
+        || model.contains("claude-sonnet-4")
+        || model.contains("claude-opus-4")
+}
+
+fn supports_volcengine_thinking(model: &str) -> bool {
+    let model = model.trim().to_ascii_lowercase();
+    (model.contains("doubao-seed-1-6-")
+        || model.contains("doubao-seed-2-0-")
+        || model.contains("doubao-1.5-thinking-pro")
+        || model.contains("doubao"))
+        && (model.contains("thinking")
+            || model.contains("flash")
+            || model.contains("seed-2-0-mini")
+            || model.contains("seed-2-0-lite")
+            || model.contains("seed-2-0-pro"))
+}
+
+fn supports_siliconflow_reasoning(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    let tail = normalized.rsplit('/').next().unwrap_or(&normalized);
+    normalized.contains("qwen/qwen3-")
+        || normalized.contains("qwen/qwq-")
+        || normalized.contains("thudm/glm-z1-")
+        || normalized.contains("minimaxai/minimax-m2.1")
+        || normalized.contains("tencent/hunyuan-a13b-instruct")
+        || normalized.contains("deepseek-ai/deepseek-r1")
+        || normalized.contains("glm-4.1v-9b-thinking")
+        || tail.starts_with("qwen3-")
+        || tail.starts_with("qwq-")
+        || tail.starts_with("glm-z1-")
+        || tail.contains("deepseek-r1")
+        || tail.contains("thinking")
+}
+
+fn supports_cerebras_reasoning(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    let tail = normalized.rsplit('/').next().unwrap_or(&normalized);
+    tail == "gpt-oss-120b"
+}
+
+fn supports_deepseek_thinking(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    let tail = normalized.rsplit('/').next().unwrap_or(&normalized);
+    matches!(tail, "deepseek-chat" | "deepseek-reasoner")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReasoningControlKind {
+    OpenaiEffort,
+    AnthropicThinking,
+    DeepSeekThinkingToggle,
+    SiliconFlowThinkingBudget,
+    CerebrasReasoningEffort,
+    CerebrasGlmToggle,
+    VolcengineThinkingType,
+}
+
+impl ReasoningControlKind {
+    fn strategy_name(self) -> &'static str {
+        match self {
+            Self::OpenaiEffort => "openai_reasoning_effort",
+            Self::AnthropicThinking => "anthropic_thinking",
+            Self::DeepSeekThinkingToggle => "deepseek_thinking",
+            Self::SiliconFlowThinkingBudget => "siliconflow_thinking_budget",
+            Self::CerebrasReasoningEffort => "cerebras_reasoning_effort",
+            Self::CerebrasGlmToggle => "cerebras_disable_reasoning",
+            Self::VolcengineThinkingType => "volcengine_thinking_type",
+        }
+    }
+
+    fn summary(self) -> &'static str {
+        match self {
+            Self::OpenaiEffort => {
+                "当前模型支持 reasoning effort；关闭/轻量/标准/深度会映射为对应的推理强度。"
+            }
+            Self::AnthropicThinking => {
+                "当前模型支持 extended thinking；会映射为 thinking + budget_tokens。"
+            }
+            Self::DeepSeekThinkingToggle => {
+                "当前模型支持 thinking.type；关闭会下发 disabled，其余档位会启用 thinking。"
+            }
+            Self::SiliconFlowThinkingBudget => {
+                "当前模型支持 thinking_budget；不同档位会映射为不同预算。"
+            }
+            Self::CerebrasReasoningEffort => {
+                "当前模型支持 reasoning_effort；不同档位会映射为不同强度。"
+            }
+            Self::CerebrasGlmToggle => {
+                "当前模型支持 disable_reasoning；关闭会禁用推理，其余档位会启用推理。"
+            }
+            Self::VolcengineThinkingType => {
+                "当前模型支持 thinking.type；关闭=disabled，轻量/标准=auto，深度=enabled。"
+            }
+        }
+    }
+}
+
+fn reasoning_control_kind(
+    endpoint: &LlmEndpoint,
+    uses_responses_api: bool,
+) -> Option<ReasoningControlKind> {
+    let model = endpoint.model.trim();
+
+    if endpoint.api_format == ApiFormat::Anthropic {
+        return supports_anthropic_thinking(model)
+            .then_some(ReasoningControlKind::AnthropicThinking);
+    }
+
+    if is_volcengine_like_endpoint(endpoint) && !uses_responses_api {
+        return supports_volcengine_thinking(model)
+            .then_some(ReasoningControlKind::VolcengineThinkingType);
+    }
+
+    if is_deepseek_like_endpoint(endpoint) && supports_deepseek_thinking(model) {
+        return Some(ReasoningControlKind::DeepSeekThinkingToggle);
+    }
+
+    if is_siliconflow_like_endpoint(endpoint) && supports_siliconflow_reasoning(model) {
+        return Some(ReasoningControlKind::SiliconFlowThinkingBudget);
+    }
+
+    if is_cerebras_like_endpoint(endpoint) && supports_cerebras_reasoning(model) {
+        return Some(ReasoningControlKind::CerebrasReasoningEffort);
+    }
+
+    if is_cerebras_like_endpoint(endpoint) {
+        let normalized = model.trim().to_ascii_lowercase();
+        let tail = normalized.rsplit('/').next().unwrap_or(&normalized);
+        if tail == "zai-glm-4.7" {
+            return Some(ReasoningControlKind::CerebrasGlmToggle);
+        }
+    }
+
+    if is_gpt5_reasoning_model(model) {
+        return Some(ReasoningControlKind::OpenaiEffort);
+    }
+
+    None
+}
+
+pub fn reasoning_support(endpoint: &LlmEndpoint, uses_responses_api: bool) -> LlmReasoningSupport {
+    if let Some(kind) = reasoning_control_kind(endpoint, uses_responses_api) {
+        return LlmReasoningSupport {
+            supported: true,
+            strategy: Some(kind.strategy_name().to_string()),
+            summary: kind.summary().to_string(),
+        };
+    }
+
+    let summary = if endpoint.api_format == ApiFormat::Anthropic {
+        "当前 Anthropic 模型不在官方支持 extended thinking 的型号内，思考模式不可用。"
+    } else if is_volcengine_like_endpoint(endpoint) {
+        "当前火山方舟模型不在官方支持 thinking.type 的型号内，思考模式不可用。"
+    } else if is_deepseek_like_endpoint(endpoint) {
+        "当前 DeepSeek 模型未识别到官方 thinking 控制能力，思考模式不可用。"
+    } else if is_siliconflow_like_endpoint(endpoint) {
+        "当前 SiliconFlow 模型不在官方支持 thinking_budget 的推理模型范围内，思考模式不可用。"
+    } else if is_cerebras_like_endpoint(endpoint) {
+        "当前 Cerebras 模型未识别到官方 reasoning_effort 支持，思考模式不可用。"
+    } else if is_gpt5_reasoning_model(&endpoint.model) {
+        "当前模型名看起来属于 GPT-5，但当前接口路径不支持对应的思考控制参数。"
+    } else {
+        "当前模型未识别到官方思考控制参数，思考模式不可用。"
+    };
+
+    LlmReasoningSupport {
+        supported: false,
+        strategy: None,
+        summary: summary.to_string(),
+    }
+}
+
+pub fn apply_reasoning_controls(
+    endpoint: &LlmEndpoint,
+    uses_responses_api: bool,
+    body: &mut serde_json::Value,
+    mode: LlmReasoningMode,
+) {
+    let Some(kind) = reasoning_control_kind(endpoint, uses_responses_api) else {
+        return;
+    };
+
+    match (kind, mode) {
+        (_, LlmReasoningMode::ProviderDefault) => {}
+        (ReasoningControlKind::AnthropicThinking, _) => {
+            if mode == LlmReasoningMode::Off {
+                return;
+            }
+
+            let budget_tokens = match mode {
+                LlmReasoningMode::Light => 1_024,
+                LlmReasoningMode::Balanced => 2_048,
+                LlmReasoningMode::Deep => 4_096,
+                _ => 1_024,
+            };
+            body["thinking"] = serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": budget_tokens,
+            });
+        }
+        (ReasoningControlKind::VolcengineThinkingType, _) => {
+            let thinking_type = match mode {
+                LlmReasoningMode::Off => "disabled",
+                LlmReasoningMode::Light | LlmReasoningMode::Balanced => "auto",
+                LlmReasoningMode::Deep => "enabled",
+                LlmReasoningMode::ProviderDefault => return,
+            };
+            body["thinking"] = serde_json::json!({ "type": thinking_type });
+        }
+        (ReasoningControlKind::DeepSeekThinkingToggle, _) => {
+            let thinking_type = if mode == LlmReasoningMode::Off {
+                "disabled"
+            } else {
+                "enabled"
+            };
+            body["thinking"] = serde_json::json!({ "type": thinking_type });
+        }
+        (ReasoningControlKind::SiliconFlowThinkingBudget, _) => {
+            let thinking_budget = match mode {
+                LlmReasoningMode::Off => return,
+                LlmReasoningMode::Light => 1024,
+                LlmReasoningMode::Balanced => 4096,
+                LlmReasoningMode::Deep => 8192,
+                LlmReasoningMode::ProviderDefault => return,
+            };
+            body["thinking_budget"] = serde_json::json!(thinking_budget);
+        }
+        (ReasoningControlKind::CerebrasReasoningEffort, _) => {
+            let effort = match mode {
+                LlmReasoningMode::Off => return,
+                LlmReasoningMode::Light => "low",
+                LlmReasoningMode::Balanced => "medium",
+                LlmReasoningMode::Deep => "high",
+                LlmReasoningMode::ProviderDefault => return,
+            };
+            body["reasoning_effort"] = serde_json::json!(effort);
+        }
+        (ReasoningControlKind::CerebrasGlmToggle, _) => {
+            body["disable_reasoning"] = serde_json::json!(mode == LlmReasoningMode::Off);
+        }
+        (ReasoningControlKind::OpenaiEffort, _) => {
+            let effort = match mode {
+                LlmReasoningMode::Off => "minimal",
+                LlmReasoningMode::Light => "low",
+                LlmReasoningMode::Balanced => "medium",
+                LlmReasoningMode::Deep => "high",
+                LlmReasoningMode::ProviderDefault => return,
+            };
+
+            if uses_responses_api {
+                body["reasoning"] = serde_json::json!({ "effort": effort });
+            } else {
+                body["reasoning_effort"] = serde_json::json!(effort);
+            }
+        }
+    }
+}
+
+pub fn strip_reasoning_controls(body: &mut serde_json::Value) {
+    if let Some(map) = body.as_object_mut() {
+        map.remove("reasoning");
+        map.remove("reasoning_effort");
+        map.remove("thinking");
+        map.remove("thinking_budget");
+        map.remove("enable_thinking");
+        map.remove("disable_reasoning");
+    }
 }
 
 /// 获取模型列表 URL
@@ -323,6 +730,11 @@ mod tests {
             active: CEREBRAS.to_string(),
             custom_base_url: Some("https://example.com".to_string()),
             custom_model: Some("gpt-oss-20b".to_string()),
+            reasoning_mode: Default::default(),
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
             custom_providers: Vec::new(),
         };
 
@@ -342,6 +754,11 @@ mod tests {
             active: CEREBRAS.to_string(),
             custom_base_url: None,
             custom_model: Some("openai/gpt-5.3-chat-latest".to_string()),
+            reasoning_mode: Default::default(),
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
             custom_providers: Vec::new(),
         };
 
@@ -357,6 +774,11 @@ mod tests {
             active: CUSTOM.to_string(),
             custom_base_url: Some("https://example.com".to_string()),
             custom_model: Some("foo-model".to_string()),
+            reasoning_mode: Default::default(),
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
             custom_providers: Vec::new(),
         };
 
@@ -373,6 +795,11 @@ mod tests {
             active: "custom_missing".to_string(),
             custom_base_url: None,
             custom_model: None,
+            reasoning_mode: Default::default(),
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: false,
+            assistant_model: None,
             custom_providers: vec![
                 crate::state::user_profile::CustomProvider {
                     id: "custom_a".to_string(),
@@ -402,6 +829,57 @@ mod tests {
     }
 
     #[test]
+    fn assistant_endpoint_uses_separate_model_for_builtin_provider() {
+        let config = LlmProviderConfig {
+            active: CEREBRAS.to_string(),
+            custom_base_url: None,
+            custom_model: Some("gpt-oss-120b".to_string()),
+            reasoning_mode: Default::default(),
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: true,
+            assistant_model: Some("gpt-oss-20b".to_string()),
+            custom_providers: Vec::new(),
+        };
+
+        let endpoint = assistant_endpoint_for_config(&config);
+
+        assert_eq!(endpoint.provider, CEREBRAS);
+        assert_eq!(endpoint.model, "gpt-oss-20b");
+        assert_eq!(
+            endpoint.api_url,
+            "https://api.cerebras.ai/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn assistant_endpoint_uses_separate_model_for_custom_provider() {
+        let config = LlmProviderConfig {
+            active: "custom_a".to_string(),
+            custom_base_url: None,
+            custom_model: None,
+            reasoning_mode: Default::default(),
+            polish_reasoning_mode: None,
+            assistant_reasoning_mode: None,
+            assistant_use_separate_model: true,
+            assistant_model: Some("assistant-model".to_string()),
+            custom_providers: vec![crate::state::user_profile::CustomProvider {
+                id: "custom_a".to_string(),
+                name: "Custom A".to_string(),
+                base_url: "https://example.com".to_string(),
+                model: "polish-model".to_string(),
+                api_format: ApiFormat::OpenaiCompat,
+            }],
+        };
+
+        let endpoint = assistant_endpoint_for_config(&config);
+
+        assert_eq!(endpoint.provider, "custom_a");
+        assert_eq!(endpoint.model, "assistant-model");
+        assert_eq!(endpoint.api_url, "https://example.com/v1/chat/completions");
+    }
+
+    #[test]
     fn recognizes_image_unsupported_errors() {
         assert!(looks_like_image_input_unsupported_error(
             "API 返回错误 400: model does not support image input"
@@ -425,5 +903,89 @@ mod tests {
         assert!(!looks_like_json_output_unsupported_error(
             "API 返回错误 401: invalid api key"
         ));
+    }
+
+    #[test]
+    fn recognizes_reasoning_unsupported_errors() {
+        assert!(looks_like_reasoning_unsupported_error(
+            "API 返回错误 400: The parameter `thinking.type` is not supported by this model"
+        ));
+        assert!(looks_like_reasoning_unsupported_error(
+            "unknown parameter: reasoning_effort"
+        ));
+        assert!(!looks_like_reasoning_unsupported_error(
+            "API 返回错误 401: invalid api key"
+        ));
+    }
+
+    #[test]
+    fn preview_endpoint_preserves_custom_provider_format() {
+        let endpoint = endpoint_for_preview(
+            "foo",
+            Some("https://api.anthropic.com"),
+            Some("claude-3-7-sonnet-latest"),
+            ApiFormat::Anthropic,
+        );
+
+        assert_eq!(endpoint.api_format, ApiFormat::Anthropic);
+        assert_eq!(endpoint.api_url, "https://api.anthropic.com/v1/messages");
+    }
+
+    #[test]
+    fn volcan_seed_2_models_report_reasoning_support() {
+        let endpoint = endpoint_for_preview(
+            CUSTOM,
+            Some("https://ark.cn-beijing.volces.com/api/v3"),
+            Some("doubao-seed-2-0-mini-260215"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        let support = reasoning_support(&endpoint, false);
+
+        assert!(support.supported);
+        assert_eq!(
+            support.strategy.as_deref(),
+            Some("volcengine_thinking_type")
+        );
+    }
+
+    #[test]
+    fn openai_non_reasoning_models_report_unsupported() {
+        let endpoint =
+            endpoint_for_preview(OPENAI, None, Some("gpt-4.1-mini"), ApiFormat::OpenaiCompat);
+
+        let support = reasoning_support(&endpoint, false);
+
+        assert!(!support.supported);
+        assert!(support.summary.contains("不可用"));
+    }
+
+    #[test]
+    fn deepseek_reasoner_reports_reasoning_support() {
+        let endpoint = endpoint_for_preview(
+            DEEPSEEK,
+            None,
+            Some("deepseek-reasoner"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        let support = reasoning_support(&endpoint, false);
+
+        assert!(support.supported);
+        assert_eq!(support.strategy.as_deref(), Some("deepseek_thinking"));
+    }
+
+    #[test]
+    fn cerebras_glm_reports_reasoning_support() {
+        let endpoint =
+            endpoint_for_preview(CEREBRAS, None, Some("zai-glm-4.7"), ApiFormat::OpenaiCompat);
+
+        let support = reasoning_support(&endpoint, false);
+
+        assert!(support.supported);
+        assert_eq!(
+            support.strategy.as_deref(),
+            Some("cerebras_disable_reasoning")
+        );
     }
 }

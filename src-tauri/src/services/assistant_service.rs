@@ -196,7 +196,8 @@ pub async fn generate_content(
         ));
     }
 
-    let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
+    let config = state.llm_provider_config();
+    let endpoint = llm_provider::assistant_endpoint_for_config(&config);
     let system_prompt = state.with_profile(build_assistant_system_prompt);
     let screen_context_enabled =
         state.with_profile(|profile| profile.assistant_screen_context_enabled);
@@ -258,6 +259,7 @@ pub async fn generate_content(
     let request_options = LlmRequestOptions {
         stream: true,
         json_output: false,
+        reasoning_mode: config.assistant_reasoning_mode(),
         stream_event: Some("assistant-stream"),
         session_id: Some(session_id),
     };

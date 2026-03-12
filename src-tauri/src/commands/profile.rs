@@ -65,6 +65,7 @@ async fn extract_corrections_via_llm(
         LlmRequestOptions {
             stream: false,
             json_output: true,
+            reasoning_mode: config.polish_reasoning_mode(),
             stream_event: None,
             session_id: None,
         },
@@ -80,6 +81,7 @@ async fn extract_corrections_via_llm(
         LlmRequestOptions {
             stream: false,
             json_output: true,
+            reasoning_mode: config.polish_reasoning_mode(),
             stream_event: None,
             session_id: None,
         },
@@ -191,6 +193,10 @@ pub async fn set_llm_provider_config(
     active: String,
     custom_base_url: Option<String>,
     custom_model: Option<String>,
+    polish_reasoning_mode: Option<LlmReasoningMode>,
+    assistant_reasoning_mode: Option<LlmReasoningMode>,
+    assistant_use_separate_model: Option<bool>,
+    assistant_model: Option<String>,
 ) -> Result<(), String> {
     let normalized_base_url = custom_base_url
         .map(|value| value.trim().to_string())
@@ -198,9 +204,26 @@ pub async fn set_llm_provider_config(
     let normalized_model = custom_model
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+    let assistant_model_provided = assistant_model.is_some();
+    let normalized_assistant_model = assistant_model
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.llm_provider.active = active.clone();
+        if let Some(mode) = polish_reasoning_mode {
+            profile.llm_provider.polish_reasoning_mode = Some(mode);
+            profile.llm_provider.reasoning_mode = mode;
+        }
+        if let Some(mode) = assistant_reasoning_mode {
+            profile.llm_provider.assistant_reasoning_mode = Some(mode);
+        }
+        if let Some(enabled) = assistant_use_separate_model {
+            profile.llm_provider.assistant_use_separate_model = enabled;
+        }
+        if assistant_model_provided {
+            profile.llm_provider.assistant_model = normalized_assistant_model.clone();
+        }
         // 自定义 provider → 同步到 custom_providers，不污染旧字段
         if let Some(cp) = profile
             .llm_provider
@@ -223,6 +246,27 @@ pub async fn set_llm_provider_config(
     });
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_llm_reasoning_support(
+    provider: String,
+    base_url: Option<String>,
+    model: Option<String>,
+    api_format: Option<ApiFormat>,
+) -> Result<llm_provider::LlmReasoningSupport, String> {
+    let endpoint = llm_provider::endpoint_for_preview(
+        provider.trim(),
+        base_url.as_deref(),
+        model.as_deref(),
+        api_format.unwrap_or(ApiFormat::OpenaiCompat),
+    );
+    let uses_responses_api = endpoint.api_format == ApiFormat::OpenaiCompat
+        && endpoint.api_url.contains("/v1/responses");
+    Ok(llm_provider::reasoning_support(
+        &endpoint,
+        uses_responses_api,
+    ))
 }
 
 #[tauri::command]
@@ -361,7 +405,7 @@ pub async fn import_user_profile(
         serde_json::from_str(&json_data).map_err(|e| format!("解析画像数据失败: {}", e))?;
     let (_, profile) = state.update_profile(|profile| {
         *profile = imported;
-        profile_service::cleanup_profile(profile);
+        profile_service::normalize_profile(profile);
     });
     profile_service::save_profile_async(&profile)
         .await
