@@ -25,6 +25,7 @@ RESOURCES_DIR = PROJECT_ROOT / "src-tauri" / "resources"
 DIST_DIR = RESOURCES_DIR / "python-dist"
 ENTRY_SCRIPT = RESOURCES_DIR / "engine.py"
 OUTPUT_ARCHIVE = RESOURCES_DIR / "engine.tar.xz"
+WINDOWS_MANIFEST = PROJECT_ROOT / "src-tauri" / "windows-app-manifest.xml"
 
 # 同级 Python 脚本，打包到 _internal/
 ADD_DATA_FILES = [
@@ -303,6 +304,9 @@ def main():
         "--workpath", str(work_dir),
         "--specpath", str(spec_dir),
     ]
+
+    if WINDOWS_MANIFEST.exists():
+        cmd.extend(["--manifest", str(WINDOWS_MANIFEST)])
 
     for filename in ADD_DATA_FILES:
         src = RESOURCES_DIR / filename

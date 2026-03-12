@@ -878,9 +878,8 @@ mod tests {
 
     #[test]
     fn extract_edit_result_accepts_xml_output_wrapper() {
-        let result =
-            extract_edit_result(r#"<output>{"result":"修改后的完整文本"}</output>"#)
-                .expect("should parse xml wrapped result");
+        let result = extract_edit_result(r#"<output>{"result":"修改后的完整文本"}</output>"#)
+            .expect("should parse xml wrapped result");
 
         assert_eq!(result, "修改后的完整文本");
     }

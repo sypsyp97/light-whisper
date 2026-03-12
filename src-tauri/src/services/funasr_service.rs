@@ -217,6 +217,7 @@ const SERVER_RESPONSE_TIMEOUT_SECS: u64 = 60;
 const SERVER_EXIT_WRITE_TIMEOUT_MS: u64 = 300;
 const SERVER_EXIT_WAIT_TIMEOUT_SECS: u64 = 2;
 const INLINE_AUDIO_FORMAT_PCM_S16LE: &str = "pcm_s16le";
+const ENGINE_ARCHIVE_FINGERPRINT: &str = env!("LIGHT_WHISPER_ENGINE_ARCHIVE_FINGERPRINT");
 
 fn to_normalized_path(path: &std::path::Path) -> String {
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -240,6 +241,18 @@ fn status_with_defaults(
         engine: None,
         models_present: None,
         missing_models: None,
+    }
+}
+
+fn expected_engine_install_fingerprint(app_handle: &tauri::AppHandle) -> String {
+    if paths::get_engine_archive_path(app_handle).is_some() {
+        format!(
+            "{}+{}",
+            env!("CARGO_PKG_VERSION"),
+            ENGINE_ARCHIVE_FINGERPRINT
+        )
+    } else {
+        env!("CARGO_PKG_VERSION").to_string()
     }
 }
 
@@ -341,23 +354,23 @@ where
 /// 3. 资源目录中的 engine.exe（开发时直接放置 python-dist）
 /// 4. 系统 Python（开发模式）
 pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime, AppError> {
-    let current_version = env!("CARGO_PKG_VERSION");
+    let expected_fingerprint = expected_engine_install_fingerprint(app_handle);
 
     // 策略1：已解压的 engine.exe（版本匹配时使用）
     if let Some(engine_path) = paths::get_engine_exe_path(app_handle) {
         let version_file = paths::get_engine_dir().join(".version");
         let installed_version = std::fs::read_to_string(&version_file).unwrap_or_default();
 
-        if installed_version.trim() == current_version {
+        if installed_version.trim() == expected_fingerprint {
             let path_str = paths::strip_win_prefix(&engine_path);
-            log::info!("找到引擎: {} (v{})", path_str, current_version);
+            log::info!("找到引擎: {} ({})", path_str, expected_fingerprint);
             return Ok(EngineRuntime::Bundled { exe_path: path_str });
         }
 
         log::info!(
-            "引擎版本不匹配 (已安装: {:?}, 当前: {}), 需要重新解压",
+            "引擎指纹不匹配 (已安装: {:?}, 当前: {}), 需要重新解压",
             installed_version.trim(),
-            current_version
+            expected_fingerprint
         );
     }
 
@@ -425,8 +438,8 @@ async fn extract_engine_archive(
         }
 
         // 写入版本标记，用于后续升级检测
-        let version = env!("CARGO_PKG_VERSION");
-        let _ = std::fs::write(engine_dir.join(".version"), version);
+        let fingerprint = expected_engine_install_fingerprint(&handle);
+        let _ = std::fs::write(engine_dir.join(".version"), fingerprint);
 
         log::info!("引擎解压完成: {} 个条目", total);
         Ok(engine_dir.join("engine.exe"))
@@ -715,7 +728,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
             }
 
             let mut c = Command::new(python_path);
-            c.arg("-u").arg(&server_script_str);
+            c.arg("-X").arg("utf8").arg("-u").arg(&server_script_str);
             c
         }
     };

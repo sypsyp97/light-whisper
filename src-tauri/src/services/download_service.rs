@@ -136,7 +136,9 @@ pub async fn run_download(
         }
         funasr_service::EngineRuntime::Development { python_path } => {
             let mut c = Command::new(python_path);
-            c.arg("-u")
+            c.arg("-X")
+                .arg("utf8")
+                .arg("-u")
                 .arg(&download_script_str)
                 .arg("--engine")
                 .arg(engine_arg);
