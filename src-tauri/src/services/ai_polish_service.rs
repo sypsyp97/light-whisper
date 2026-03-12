@@ -231,6 +231,29 @@ fn build_system_prompt(state: &AppState, input_text: &str) -> String {
     prompt
 }
 
+async fn send_ai_polish_request(
+    state: &AppState,
+    endpoint: &llm_provider::LlmEndpoint,
+    api_key: &str,
+    system_prompt: &str,
+    user_input: &llm_client::LlmUserInput,
+    user_content_len: usize,
+    app_handle: Option<&tauri::AppHandle>,
+    options: LlmRequestOptions<'_>,
+) -> Result<String, String> {
+    let body = llm_client::build_llm_body(endpoint, system_prompt, user_input, options);
+    llm_client::send_llm_request(
+        &state.http_client,
+        endpoint,
+        api_key,
+        &body,
+        user_content_len,
+        app_handle,
+        options,
+    )
+    .await
+}
+
 async fn send_llm_request_with_fallback(
     state: &AppState,
     endpoint: &llm_provider::LlmEndpoint,
@@ -240,29 +263,104 @@ async fn send_llm_request_with_fallback(
     app_handle: &tauri::AppHandle,
     session_id: u64,
 ) -> Result<String, String> {
-    let stream_options = LlmRequestOptions {
+    let user_input = llm_client::LlmUserInput::from(user_content);
+
+    let stream_json_options = LlmRequestOptions {
         stream: true,
         json_output: true,
         stream_event: Some("ai-polish-status"),
         session_id: Some(session_id),
     };
-    let user_input = llm_client::LlmUserInput::from(user_content);
-    let stream_body =
-        llm_client::build_llm_body(endpoint, system_prompt, &user_input, stream_options);
 
-    match llm_client::send_llm_request(
-        &state.http_client,
+    match send_ai_polish_request(
+        state,
         endpoint,
         api_key,
-        &stream_body,
+        system_prompt,
+        &user_input,
         user_content.len(),
         Some(app_handle),
-        stream_options,
+        stream_json_options,
     )
     .await
     {
         Ok(content) => Ok(content),
-        Err(stream_err) if stream_options.stream => {
+        Err(stream_json_err)
+            if llm_provider::looks_like_json_output_unsupported_error(&stream_json_err) =>
+        {
+            log::warn!(
+                "AI 润色模型不支持结构化 JSON 参数，改用 prompt 约束重试: {}",
+                stream_json_err
+            );
+            emit_polish_status(
+                app_handle,
+                "fallback",
+                "",
+                "",
+                "当前模型不支持 response_format，已自动降级重试",
+                session_id,
+            );
+
+            let stream_plain_options = LlmRequestOptions {
+                stream: true,
+                json_output: false,
+                stream_event: Some("ai-polish-status"),
+                session_id: Some(session_id),
+            };
+
+            match send_ai_polish_request(
+                state,
+                endpoint,
+                api_key,
+                system_prompt,
+                &user_input,
+                user_content.len(),
+                Some(app_handle),
+                stream_plain_options,
+            )
+            .await
+            {
+                Ok(content) => Ok(content),
+                Err(stream_plain_err) => {
+                    log::warn!(
+                        "AI 润色降级后的流式请求失败，回退到非流式: {}",
+                        stream_plain_err
+                    );
+                    emit_polish_status(
+                        app_handle,
+                        "fallback",
+                        "",
+                        "",
+                        &stream_plain_err,
+                        session_id,
+                    );
+                    let fallback_options = LlmRequestOptions {
+                        stream: false,
+                        json_output: false,
+                        stream_event: None,
+                        session_id: Some(session_id),
+                    };
+                    send_ai_polish_request(
+                        state,
+                        endpoint,
+                        api_key,
+                        system_prompt,
+                        &user_input,
+                        user_content.len(),
+                        None,
+                        fallback_options,
+                    )
+                    .await
+                    .map_err(|fallback_err| {
+                        format!(
+                            "结构化输出不兼容：{}；降级流式失败：{}；非流式回退也失败：{}",
+                            stream_json_err, stream_plain_err, fallback_err
+                        )
+                    })
+                }
+            }
+        }
+        Err(stream_err) => {
             log::warn!("AI 润色流式请求失败，回退到非流式: {}", stream_err);
             emit_polish_status(app_handle, "fallback", "", "", &stream_err, session_id);
             let fallback_options = LlmRequestOptions {
@@ -271,13 +369,12 @@ async fn send_llm_request_with_fallback(
                 stream_event: None,
                 session_id: Some(session_id),
             };
-            let fallback_body =
-                llm_client::build_llm_body(endpoint, system_prompt, &user_input, fallback_options);
-            llm_client::send_llm_request(
-                &state.http_client,
+            send_ai_polish_request(
+                state,
                 endpoint,
                 api_key,
-                &fallback_body,
+                system_prompt,
+                &user_input,
                 user_content.len(),
                 None,
                 fallback_options,
@@ -290,7 +387,6 @@ async fn send_llm_request_with_fallback(
                 )
             })
         }
-        Err(err) => Err(err),
     }
 }
 
@@ -352,36 +448,32 @@ pub async fn polish_text(
     );
 
     // 尝试解析结构化 JSON 输出，失败则回退到纯文本 + 字符 diff
-    // LLM 可能返回 ```json ... ``` 包裹的 JSON，需要先剥离
-    let json_content = strip_markdown_code_block(raw_content);
-    let (polished, corrections, key_terms) =
-        match serde_json::from_str::<StructuredResponse>(&json_content) {
-            Ok(resp) => {
-                // 只学习真正的 ASR 识别错误（homophone/term/pronoun），过滤掉风格改写
-                let learnable: Vec<(String, String)> = resp
-                    .corrections
-                    .iter()
-                    .filter(|c| matches!(c.r#type.as_str(), "homophone" | "term" | "pronoun"))
-                    .map(|c| (c.original.clone(), c.corrected.clone()))
-                    .collect();
-                let style_count = resp.corrections.len() - learnable.len();
-                log::info!(
-                    "AI 润色返回结构化输出: {} 条可学习纠错, {} 条风格改写(跳过), {} 个术语",
-                    learnable.len(),
-                    style_count,
-                    resp.key_terms.len()
-                );
-                (resp.polished, Some(learnable), Some(resp.key_terms))
-            }
-            Err(e) => {
-                log::warn!(
-                    "AI 润色 JSON 解析失败: {}，回退到字符 diff。原始内容: {}",
-                    e,
-                    &raw_content[..raw_content.len().min(200)]
-                );
-                (raw_content.to_string(), None, None)
-            }
-        };
+    let (polished, corrections, key_terms) = match parse_structured_response(raw_content) {
+        Some(resp) => {
+            // 只学习真正的 ASR 识别错误（homophone/term/pronoun），过滤掉风格改写
+            let learnable: Vec<(String, String)> = resp
+                .corrections
+                .iter()
+                .filter(|c| matches!(c.r#type.as_str(), "homophone" | "term" | "pronoun"))
+                .map(|c| (c.original.clone(), c.corrected.clone()))
+                .collect();
+            let style_count = resp.corrections.len() - learnable.len();
+            log::info!(
+                "AI 润色返回结构化输出: {} 条可学习纠错, {} 条风格改写(跳过), {} 个术语",
+                learnable.len(),
+                style_count,
+                resp.key_terms.len()
+            );
+            (resp.polished, Some(learnable), Some(resp.key_terms))
+        }
+        None => {
+            log::warn!(
+                "AI 润色 JSON 解析失败，回退到字符 diff。原始内容: {}",
+                &raw_content[..raw_content.len().min(200)]
+            );
+            (raw_content.to_string(), None, None)
+        }
+    };
 
     let changed = polished != text;
 
@@ -511,11 +603,7 @@ pub async fn edit_text(
 
     let elapsed_ms = start.elapsed().as_millis();
 
-    let json_content = strip_markdown_code_block(raw_content);
-    let result = serde_json::from_str::<serde_json::Value>(&json_content)
-        .ok()
-        .and_then(|v| v["result"].as_str().map(String::from))
-        .unwrap_or_else(|| raw_content.to_string());
+    let result = extract_edit_result(raw_content).unwrap_or_else(|| raw_content.to_string());
 
     log::info!(
         "编辑选中文本完成 ({}ms): 指令=\"{}\"，结果长度={}",
@@ -567,6 +655,40 @@ fn strip_markdown_code_block(s: &str) -> String {
     trimmed.to_string()
 }
 
+fn structured_response_from_value(value: serde_json::Value) -> Option<StructuredResponse> {
+    match value {
+        serde_json::Value::Object(_) => serde_json::from_value(value).ok(),
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .find_map(|item| serde_json::from_value::<StructuredResponse>(item).ok()),
+        _ => None,
+    }
+}
+
+fn parse_structured_response(raw: &str) -> Option<StructuredResponse> {
+    let json_content = strip_markdown_code_block(raw);
+    let value = serde_json::from_str::<serde_json::Value>(&json_content).ok()?;
+    structured_response_from_value(value)
+}
+
+fn extract_edit_result(raw: &str) -> Option<String> {
+    let json_content = strip_markdown_code_block(raw);
+    let value = serde_json::from_str::<serde_json::Value>(&json_content).ok()?;
+
+    match value {
+        serde_json::Value::Object(map) => map
+            .get("result")
+            .and_then(|value| value.as_str())
+            .map(String::from),
+        serde_json::Value::Array(items) => items.into_iter().find_map(|item| {
+            item.get("result")
+                .and_then(|value| value.as_str())
+                .map(String::from)
+        }),
+        _ => None,
+    }
+}
+
 fn emit_polish_status(
     app_handle: &tauri::AppHandle,
     status: &str,
@@ -589,7 +711,7 @@ fn emit_polish_status(
 
 #[cfg(test)]
 mod tests {
-    use super::render_polish_user_content;
+    use super::{extract_edit_result, parse_structured_response, render_polish_user_content};
 
     #[test]
     fn polish_input_preserves_symbols_and_splits_cdata() {
@@ -604,5 +726,25 @@ mod tests {
         assert!(content.contains(
             "<asr_text><![CDATA[如果 a < b 并且原文里有 ]]]]><![CDATA[> 就换行]]></asr_text>"
         ));
+    }
+
+    #[test]
+    fn parse_structured_response_accepts_array_wrapper() {
+        let parsed = parse_structured_response(
+            r#"[{"polished":"字节现在AI优化的能力怎么样了呀？","corrections":[],"key_terms":["字节","AI"]}]"#,
+        )
+        .expect("should parse wrapped response");
+
+        assert_eq!(parsed.polished, "字节现在AI优化的能力怎么样了呀？");
+        assert!(parsed.corrections.is_empty());
+        assert_eq!(parsed.key_terms, vec!["字节".to_string(), "AI".to_string()]);
+    }
+
+    #[test]
+    fn extract_edit_result_accepts_array_wrapper() {
+        let result =
+            extract_edit_result(r#"[{"result":"修改后的完整文本"}]"#).expect("should parse result");
+
+        assert_eq!(result, "修改后的完整文本");
     }
 }

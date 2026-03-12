@@ -197,6 +197,24 @@ pub fn looks_like_image_input_unsupported_error(message: &str) -> bool {
     mentions_image && indicates_unsupported
 }
 
+pub fn looks_like_json_output_unsupported_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    let mentions_json_output = normalized.contains("response_format")
+        || normalized.contains("json_object")
+        || normalized.contains("text.format")
+        || normalized.contains("json schema")
+        || normalized.contains("structured output");
+
+    let indicates_unsupported = normalized.contains("not supported")
+        || normalized.contains("unsupported")
+        || normalized.contains("are not valid")
+        || normalized.contains("invalidparameter")
+        || normalized.contains("invalid parameter")
+        || normalized.contains("badrequest");
+
+    mentions_json_output && indicates_unsupported
+}
+
 /// 获取模型列表 URL
 pub fn models_url(config: &LlmProviderConfig, provider: &str, base_url: Option<&str>) -> String {
     if !is_preset(provider) {
@@ -392,6 +410,19 @@ mod tests {
             "unsupported content type: input_image"
         ));
         assert!(!looks_like_image_input_unsupported_error(
+            "API 返回错误 401: invalid api key"
+        ));
+    }
+
+    #[test]
+    fn recognizes_json_output_unsupported_errors() {
+        assert!(looks_like_json_output_unsupported_error(
+            "API 返回错误 400 Bad Request: {\"error\":{\"code\":\"InvalidParameter\",\"message\":\"The parameter `response_format.type` specified in the request are not valid: `json_object` is not supported by this model.\",\"param\":\"response_format.type\",\"type\":\"BadRequest\"}}"
+        ));
+        assert!(looks_like_json_output_unsupported_error(
+            "unsupported structured output: json schema is not supported"
+        ));
+        assert!(!looks_like_json_output_unsupported_error(
             "API 返回错误 401: invalid api key"
         ));
     }

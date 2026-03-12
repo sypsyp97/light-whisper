@@ -496,8 +496,8 @@ fn extract_tar_xz_archive(
         .entries()
         .map_err(|e| AppError::Asr(format!("读取引擎压缩包失败: {}", e)))?
     {
-        let mut entry = entry_result
-            .map_err(|e| AppError::Asr(format!("读取压缩条目失败: {}", e)))?;
+        let mut entry =
+            entry_result.map_err(|e| AppError::Asr(format!("读取压缩条目失败: {}", e)))?;
         entry
             .unpack_in(engine_dir)
             .map_err(|e| AppError::Asr(format!("写入文件失败: {}", e)))?;
