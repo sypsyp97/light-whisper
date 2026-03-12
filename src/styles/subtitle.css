@@ -59,6 +59,7 @@ body,
 
 .subtitle-capsule-assistant {
   position: relative;
+  pointer-events: auto;
   padding: 16px 84px 18px 18px;
   max-width: min(760px, 78vw);
   max-height: min(70vh, 720px);
@@ -118,9 +119,14 @@ body,
 
 .subtitle-capsule-assistant .subtitle-text {
   display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   max-height: calc(min(70vh, 720px) - 44px);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding-right: 4px;
+  pointer-events: auto;
 }
 
 /* Status hint text */

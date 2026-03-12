@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type MouseEvent } from "react";
+import { useState, useEffect, useRef, useCallback, type UIEvent, type MouseEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { copyToClipboard, hideSubtitleWindow } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
@@ -34,6 +34,8 @@ export default function SubtitleOverlay() {
   const [assistantCopied, setAssistantCopied] = useState(false);
   const latestSessionIdRef = useRef(0);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const assistantTextRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollRef = useRef(true);
   const assistantPanelActive = mode === "assistant" && (phase === "polishing" || phase === "result");
   const interactiveAssistantResult = mode === "assistant" && phase === "result" && text.trim().length > 0;
 
@@ -97,6 +99,7 @@ export default function SubtitleOverlay() {
             setFadingOut(false);
             setText("");
             setAssistantCopied(false);
+            shouldAutoScrollRef.current = true;
             setPhase("recording");
             return;
           }
@@ -187,6 +190,7 @@ export default function SubtitleOverlay() {
             setFadingOut(false);
             setText("");
             setAssistantCopied(false);
+            shouldAutoScrollRef.current = true;
             setPhase("polishing");
             return;
           }
@@ -213,6 +217,17 @@ export default function SubtitleOverlay() {
       unlisten?.();
     };
   }, [clearFadeTimer]);
+
+  useEffect(() => {
+    if (!assistantPanelActive) {
+      shouldAutoScrollRef.current = true;
+      return;
+    }
+
+    const node = assistantTextRef.current;
+    if (!node || !shouldAutoScrollRef.current) return;
+    node.scrollTop = node.scrollHeight;
+  }, [assistantPanelActive, text]);
 
   // 监听转写结果（中间结果 interim=true，最终结果 interim=false）
   useEffect(() => {
@@ -331,6 +346,12 @@ export default function SubtitleOverlay() {
       .catch(() => undefined);
   }, [text]);
 
+  const handleAssistantScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    const distanceToBottom = node.scrollHeight - node.clientHeight - node.scrollTop;
+    shouldAutoScrollRef.current = distanceToBottom <= 24;
+  }, []);
+
   return (
     <div
       className={`subtitle-root${interactiveAssistantResult ? " subtitle-root-interactive" : ""}`}
@@ -359,12 +380,14 @@ export default function SubtitleOverlay() {
         )}
         {indicatorClass && <div className={indicatorClass} />}
         {hasText && (
-          <span
+          <div
+            ref={assistantTextRef}
             className={`subtitle-text${polishFlash ? " subtitle-polish-flash" : ""}`}
+            onScroll={assistantPanelActive ? handleAssistantScroll : undefined}
             onAnimationEnd={() => setPolishFlash(false)}
           >
             {text}
-          </span>
+          </div>
         )}
         {hasText && phase === "polishing" && streamTokens > 0 && (
           <span className="subtitle-stream-badge">{streamTokens}</span>
