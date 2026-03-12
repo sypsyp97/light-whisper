@@ -1538,7 +1538,14 @@ export default function SettingsPage({
           </section>
 
           {/* Hotkey */}
-          <section className="settings-card" style={{ animationDelay: "100ms" }}>
+          <section
+            className="settings-card"
+            style={{
+              animationDelay: "100ms",
+              position: "relative",
+              zIndex: recordingModePickerOpen ? 9 : 1,
+            }}
+          >
             <div className="settings-section-header">
               <Keyboard size={15} className="icon-accent" />
               <h2 className="settings-section-title">说话热键</h2>
@@ -1576,7 +1583,13 @@ export default function SettingsPage({
               </p>
               <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
                 <span className="settings-option-desc">录音模式</span>
-                <div ref={recordingModePickerRef} style={{ position: "relative" }}>
+                <div
+                  ref={recordingModePickerRef}
+                  style={{
+                    position: "relative",
+                    zIndex: recordingModePickerOpen ? 2 : 1,
+                  }}
+                >
                   <button
                     type="button"
                     className="picker-trigger"
