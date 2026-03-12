@@ -136,21 +136,27 @@ const BASE_SYSTEM_PROMPT: &str = r#"
 "#;
 
 /// 构建动态 system prompt，注入用户画像中的热词和纠错模式
-fn build_system_prompt(state: &AppState, input_text: &str) -> String {
+fn build_system_prompt(
+    state: &AppState,
+    input_text: &str,
+    translation_target_override: Option<Option<String>>,
+) -> String {
     let mut prompt = BASE_SYSTEM_PROMPT.to_string();
 
     // 在锁内一次性提取所需数据，避免克隆整个 profile
-    let (hot_words, corrections, translation_target, custom_prompt) = state.with_profile(|p| {
-        (
-            p.get_hot_word_texts(30),
-            p.get_relevant_corrections(input_text, 10)
-                .into_iter()
-                .cloned()
-                .collect::<Vec<_>>(),
-            p.translation_target.clone(),
-            p.custom_prompt.clone(),
-        )
-    });
+    let (hot_words, corrections, profile_translation_target, custom_prompt) =
+        state.with_profile(|p| {
+            (
+                p.get_hot_word_texts(30),
+                p.get_relevant_corrections(input_text, 10)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                p.translation_target.clone(),
+                p.custom_prompt.clone(),
+            )
+        });
+    let translation_target = translation_target_override.unwrap_or(profile_translation_target);
 
     // 注入用户常用词汇
     if !hot_words.is_empty() {
@@ -400,6 +406,7 @@ pub async fn polish_text(
     text: &str,
     app_handle: &tauri::AppHandle,
     session_id: u64,
+    translation_target_override: Option<Option<String>>,
 ) -> Result<String, String> {
     if !state.ai_polish_enabled.load(Ordering::Acquire) {
         return Ok(text.to_string());
@@ -413,7 +420,7 @@ pub async fn polish_text(
     }
 
     let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
-    let system_prompt = build_system_prompt(state, text);
+    let system_prompt = build_system_prompt(state, text, translation_target_override);
     let user_content = build_user_content(text);
 
     log::info!(

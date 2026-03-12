@@ -8,6 +8,7 @@ use tauri::Emitter;
 use crate::services::audio_service;
 use crate::state::{
     AppState, PendingRecordingSession, RecordingMode, RecordingSession, RecordingSlot,
+    RecordingTrigger,
 };
 use crate::utils::AppError;
 
@@ -25,7 +26,7 @@ fn clear_pending_recording_if_current(state: &AppState, session_id: u64) {
 pub(crate) async fn start_recording_inner(
     app_handle: tauri::AppHandle,
     state: &AppState,
-    mode: RecordingMode,
+    trigger: RecordingTrigger,
 ) -> Result<u64, AppError> {
     if !state.is_funasr_ready() {
         return Err(AppError::Audio(RECORDING_NOT_READY_ERROR.into()));
@@ -43,7 +44,7 @@ pub(crate) async fn start_recording_inner(
         let stop_notify = Arc::new(tokio::sync::Notify::new());
         *guard = Some(RecordingSlot::Starting(PendingRecordingSession {
             session_id,
-            mode,
+            trigger,
             stop_flag: stop_flag.clone(),
             stop_notify: stop_notify.clone(),
         }));
@@ -71,7 +72,7 @@ pub(crate) async fn start_recording_inner(
         clear_pending_recording_if_current(state, session_id);
         audio_service::discard_recording(RecordingSession {
             session_id,
-            mode,
+            trigger,
             stop_flag,
             stop_notify,
             samples,
@@ -96,7 +97,7 @@ pub(crate) async fn start_recording_inner(
 
     let mut session = Some(RecordingSession {
         session_id,
-        mode,
+        trigger,
         stop_flag,
         stop_notify,
         samples,
@@ -136,12 +137,12 @@ pub(crate) async fn start_recording_inner(
             "sessionId": session_id,
             "isRecording": true,
             "isProcessing": false,
-            "mode": mode.as_str(),
+            "mode": trigger.mode().as_str(),
         }),
     );
 
     if state.sound_enabled.load(Ordering::Acquire) {
-        match mode {
+        match trigger.mode() {
             RecordingMode::Dictation => crate::utils::sound::play_start_sound(),
             RecordingMode::Assistant => crate::utils::sound::play_assistant_start_sound(),
         }
@@ -150,7 +151,7 @@ pub(crate) async fn start_recording_inner(
         "录音已开始 (session {}, {}Hz, mode={})",
         session_id,
         actual_sample_rate,
-        mode.as_str()
+        trigger.mode().as_str()
     );
     Ok(session_id)
 }
@@ -181,7 +182,7 @@ pub(crate) async fn stop_recording_inner(
                     "sessionId": p.session_id,
                     "isRecording": false,
                     "isProcessing": false,
-                    "mode": p.mode.as_str(),
+                    "mode": p.trigger.mode().as_str(),
                 }),
             );
             return Ok(Some(p.session_id));
@@ -193,7 +194,7 @@ pub(crate) async fn stop_recording_inner(
     session.stop_flag.store(true, Ordering::Relaxed);
     session.stop_notify.notify_waiters();
     if state.sound_enabled.load(Ordering::Acquire) {
-        match session.mode {
+        match session.trigger.mode() {
             RecordingMode::Dictation => crate::utils::sound::play_stop_sound(),
             RecordingMode::Assistant => crate::utils::sound::play_assistant_stop_sound(),
         }
@@ -205,7 +206,7 @@ pub(crate) async fn stop_recording_inner(
             "sessionId": session_id,
             "isRecording": false,
             "isProcessing": true,
-            "mode": session.mode.as_str(),
+            "mode": session.trigger.mode().as_str(),
         }),
     );
 
@@ -221,7 +222,7 @@ pub async fn start_recording(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<u64, AppError> {
-    start_recording_inner(app_handle, state.inner(), RecordingMode::Dictation).await
+    start_recording_inner(app_handle, state.inner(), RecordingTrigger::DictationOriginal).await
 }
 
 #[tauri::command]

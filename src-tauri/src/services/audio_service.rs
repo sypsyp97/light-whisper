@@ -9,7 +9,8 @@ use tauri::{Emitter, Manager};
 
 use crate::services::{ai_polish_service, assistant_service, funasr_service, glm_asr_service};
 use crate::state::{
-    AppState, MicrophoneLevelMonitor, RecordingMode, RecordingSession, RecordingSlot,
+    AppState, DictationOutputMode, MicrophoneLevelMonitor, RecordingMode, RecordingSession,
+    RecordingSlot,
 };
 use crate::utils::paths;
 use crate::utils::AppError;
@@ -569,7 +570,7 @@ fn adjust_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
 pub async fn finalize_recording(app_handle: tauri::AppHandle, session: RecordingSession) {
     let RecordingSession {
         session_id,
-        mode,
+        trigger,
         sample_rate,
         audio_thread,
         interim_task,
@@ -599,6 +600,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let final_count = samples.lock().len();
     let cached = interim_cache.lock().clone();
     let duration_sec = final_count as f64 / sample_rate as f64;
+    let mode = trigger.mode();
 
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
@@ -761,12 +763,22 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     } else {
         // 普通听写模式
         let original = text.clone();
-        let text = ai_polish_service::polish_text(state.inner(), &text, &app_handle, session_id)
-            .await
-            .unwrap_or_else(|e| {
-                log::warn!("AI 润色失败，使用原文: {}", e);
-                text
-            });
+        let translation_override = match trigger.dictation_output() {
+            DictationOutputMode::Original => Some(None),
+            DictationOutputMode::Translated => None,
+        };
+        let text = ai_polish_service::polish_text(
+            state.inner(),
+            &text,
+            &app_handle,
+            session_id,
+            translation_override,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            log::warn!("AI 润色失败，使用原文: {}", e);
+            text
+        });
         let polished = text != original;
         emit_done(
             &app_handle,

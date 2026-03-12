@@ -28,6 +28,35 @@ impl RecordingMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DictationOutputMode {
+    Original,
+    Translated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordingTrigger {
+    DictationOriginal,
+    DictationTranslated,
+    Assistant,
+}
+
+impl RecordingTrigger {
+    pub fn mode(self) -> RecordingMode {
+        match self {
+            Self::Assistant => RecordingMode::Assistant,
+            Self::DictationOriginal | Self::DictationTranslated => RecordingMode::Dictation,
+        }
+    }
+
+    pub fn dictation_output(self) -> DictationOutputMode {
+        match self {
+            Self::DictationTranslated => DictationOutputMode::Translated,
+            Self::DictationOriginal | Self::Assistant => DictationOutputMode::Original,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct InterimCache {
     pub text: String,
@@ -37,7 +66,7 @@ pub struct InterimCache {
 
 pub struct RecordingSession {
     pub session_id: u64,
-    pub mode: RecordingMode,
+    pub trigger: RecordingTrigger,
     pub stop_flag: Arc<AtomicBool>,
     pub stop_notify: Arc<tokio::sync::Notify>,
     pub samples: Arc<parking_lot::Mutex<Vec<i16>>>,
@@ -50,7 +79,7 @@ pub struct RecordingSession {
 #[derive(Clone)]
 pub struct PendingRecordingSession {
     pub session_id: u64,
-    pub mode: RecordingMode,
+    pub trigger: RecordingTrigger,
     pub stop_flag: Arc<AtomicBool>,
     pub stop_notify: Arc<tokio::sync::Notify>,
 }
@@ -68,10 +97,10 @@ impl RecordingSlot {
         }
     }
 
-    pub fn mode(&self) -> RecordingMode {
+    pub fn trigger(&self) -> RecordingTrigger {
         match self {
-            Self::Starting(s) => s.mode,
-            Self::Active(s) => s.mode,
+            Self::Starting(s) => s.trigger,
+            Self::Active(s) => s.trigger,
         }
     }
 }

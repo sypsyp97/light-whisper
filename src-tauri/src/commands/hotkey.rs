@@ -2,7 +2,7 @@ use crate::commands::audio::{
     start_recording_inner, stop_recording_inner, RECORDING_ALREADY_ACTIVE_ERROR,
     RECORDING_NOT_READY_ERROR,
 };
-use crate::state::{AppState, RecordingMode, RecordingSlot};
+use crate::state::{AppState, RecordingSlot, RecordingTrigger};
 use crate::utils::AppError;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -93,14 +93,15 @@ fn reset_hotkey_event_gate(gate: &HotkeyEventGate) {
 }
 
 #[cfg(target_os = "windows")]
-fn reset_hotkey_gate_for_mode(mode: RecordingMode) {
+fn reset_hotkey_gate_for_trigger(trigger: RecordingTrigger) {
     let guard = match unified_hook_state_slot().lock() {
         Ok(g) => g,
         Err(p) => p.into_inner(),
     };
-    let state = match mode {
-        RecordingMode::Dictation => guard.dictation.as_ref(),
-        RecordingMode::Assistant => guard.assistant.as_ref(),
+    let state = match trigger {
+        RecordingTrigger::DictationOriginal => guard.dictation.as_ref(),
+        RecordingTrigger::DictationTranslated => guard.translation.as_ref(),
+        RecordingTrigger::Assistant => guard.assistant.as_ref(),
     };
     if let Some(state) = state {
         reset_hotkey_event_gate(&state.gate);
@@ -108,7 +109,7 @@ fn reset_hotkey_gate_for_mode(mode: RecordingMode) {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn reset_hotkey_gate_for_mode(_mode: RecordingMode) {}
+fn reset_hotkey_gate_for_trigger(_trigger: RecordingTrigger) {}
 
 // ---------------------------------------------------------------------------
 // Toggle mode — persisted as a static AtomicBool
@@ -146,9 +147,17 @@ fn hotkey_warning_message(shortcut_label: &str) -> Option<String> {
     None
 }
 
+fn hotkey_kind_label(kind: HotkeyKind) -> &'static str {
+    match kind {
+        HotkeyKind::Dictation => "说话",
+        HotkeyKind::Translation => "翻译",
+        HotkeyKind::Assistant => "助手",
+    }
+}
+
 fn ensure_hotkey_not_conflicting(
     _app_handle: &tauri::AppHandle,
-    mode: RecordingMode,
+    kind: HotkeyKind,
     candidate_label: &str,
 ) -> Result<(), AppError> {
     #[cfg(target_os = "windows")]
@@ -157,28 +166,29 @@ fn ensure_hotkey_not_conflicting(
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
-        let conflicting = match mode {
-            RecordingMode::Dictation => guard.assistant.as_ref(),
-            RecordingMode::Assistant => guard.dictation.as_ref(),
-        };
-        if let Some(state) = conflicting {
-            if state.spec.label() == candidate_label {
-                return Err(AppError::Other(format!(
-                    "快捷键 {} 已被{}模式占用，请使用不同的组合键",
-                    candidate_label,
-                    if mode == RecordingMode::Dictation {
-                        "助手"
-                    } else {
-                        "听写"
-                    }
-                )));
+        for (other_kind, state) in [
+            (HotkeyKind::Dictation, guard.dictation.as_ref()),
+            (HotkeyKind::Translation, guard.translation.as_ref()),
+            (HotkeyKind::Assistant, guard.assistant.as_ref()),
+        ] {
+            if other_kind == kind {
+                continue;
+            }
+            if let Some(state) = state {
+                if state.spec.label() == candidate_label {
+                    return Err(AppError::Other(format!(
+                        "快捷键 {} 已被{}热键占用，请使用不同的组合键",
+                        candidate_label,
+                        hotkey_kind_label(other_kind)
+                    )));
+                }
             }
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = mode;
+        let _ = kind;
         let _ = candidate_label;
     }
 
@@ -200,19 +210,23 @@ where
 // Recording start/stop business logic
 // ---------------------------------------------------------------------------
 
-fn update_hotkey_diagnostic_for_mode<F>(
+fn update_hotkey_diagnostic_for_trigger<F>(
     app_handle: &tauri::AppHandle,
-    mode: RecordingMode,
+    trigger: RecordingTrigger,
     update: F,
 ) where
     F: FnOnce(&mut crate::state::HotkeyDiagnosticState),
 {
-    if mode == RecordingMode::Dictation {
+    if trigger == RecordingTrigger::DictationOriginal {
         update_hotkey_diagnostic(app_handle, update);
     }
 }
 
-fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String, mode: RecordingMode) {
+fn handle_hotkey_start(
+    app_handle: tauri::AppHandle,
+    shortcut_label: String,
+    trigger: RecordingTrigger,
+) {
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();
 
@@ -221,13 +235,13 @@ fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String, mod
             .unwrap_or(None);
         *state.edit_context.lock() = selected;
 
-        match start_recording_inner(app_handle.clone(), state.inner(), mode).await {
+        match start_recording_inner(app_handle.clone(), state.inner(), trigger).await {
             Ok(session_id) => {
                 log::info!(
                     "热键 {} 触发录音开始 (session {}, mode={})",
                     shortcut_label,
                     session_id,
-                    mode.as_str()
+                    trigger.mode().as_str()
                 );
             }
             Err(AppError::Audio(message))
@@ -235,19 +249,19 @@ fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String, mod
                     || message == RECORDING_ALREADY_ACTIVE_ERROR =>
             {
                 if is_toggle_mode() {
-                    reset_hotkey_gate_for_mode(mode);
+                    reset_hotkey_gate_for_trigger(trigger);
                 }
                 state.edit_context.lock().take();
                 log::debug!("忽略热键 {} 的开始请求: {}", shortcut_label, message);
             }
             Err(err) => {
                 if is_toggle_mode() {
-                    reset_hotkey_gate_for_mode(mode);
+                    reset_hotkey_gate_for_trigger(trigger);
                 }
                 state.edit_context.lock().take();
                 let message = err.to_string();
                 log::warn!("热键 {} 开始录音失败: {}", shortcut_label, message);
-                update_hotkey_diagnostic_for_mode(&app_handle, mode, |diagnostic| {
+                update_hotkey_diagnostic_for_trigger(&app_handle, trigger, |diagnostic| {
                     let now_ms = now_unix_ms();
                     diagnostic.last_error = Some(message.clone());
                     diagnostic.last_event = Some("error".to_string());
@@ -259,20 +273,24 @@ fn handle_hotkey_start(app_handle: tauri::AppHandle, shortcut_label: String, mod
     });
 }
 
-fn handle_hotkey_stop(app_handle: tauri::AppHandle, shortcut_label: String, mode: RecordingMode) {
+fn handle_hotkey_stop(
+    app_handle: tauri::AppHandle,
+    shortcut_label: String,
+    trigger: RecordingTrigger,
+) {
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();
 
-        let matches_mode = state
+        let matches_trigger = state
             .recording
             .lock()
             .as_ref()
-            .is_some_and(|slot| slot.mode() == mode);
-        if !matches_mode {
+            .is_some_and(|slot| slot.trigger() == trigger);
+        if !matches_trigger {
             log::debug!(
-                "忽略热键 {} 的停止请求：当前活跃录音不属于 mode={}",
+                "忽略热键 {} 的停止请求：当前活跃录音不属于 trigger={:?}",
                 shortcut_label,
-                mode.as_str()
+                trigger
             );
             return;
         }
@@ -283,7 +301,7 @@ fn handle_hotkey_stop(app_handle: tauri::AppHandle, shortcut_label: String, mode
                     "热键 {} 触发录音停止 (session {}, mode={})",
                     shortcut_label,
                     session_id,
-                    mode.as_str()
+                    trigger.mode().as_str()
                 );
             }
             Ok(None) => {
@@ -292,7 +310,7 @@ fn handle_hotkey_stop(app_handle: tauri::AppHandle, shortcut_label: String, mode
             Err(err) => {
                 let message = err.to_string();
                 log::warn!("热键 {} 停止录音失败: {}", shortcut_label, message);
-                update_hotkey_diagnostic_for_mode(&app_handle, mode, |diagnostic| {
+                update_hotkey_diagnostic_for_trigger(&app_handle, trigger, |diagnostic| {
                     let now_ms = now_unix_ms();
                     diagnostic.last_error = Some(message.clone());
                     diagnostic.last_event = Some("error".to_string());
@@ -311,25 +329,27 @@ fn handle_hotkey_stop(app_handle: tauri::AppHandle, shortcut_label: String, mode
 fn dispatch_hotkey_press(
     app_handle: &tauri::AppHandle,
     gate: &HotkeyEventGate,
-    mode: RecordingMode,
+    trigger: RecordingTrigger,
     pressed_log: &str,
     shortcut_label: &str,
 ) {
-    let active_mode = app_handle
+    let active_trigger = app_handle
         .state::<AppState>()
         .recording
         .lock()
         .as_ref()
-        .map(RecordingSlot::mode);
+        .map(RecordingSlot::trigger);
     let allow_toggle_stop =
-        is_toggle_mode() && gate.toggle_active.load(Ordering::Acquire) && active_mode == Some(mode);
+        is_toggle_mode()
+            && gate.toggle_active.load(Ordering::Acquire)
+            && active_trigger == Some(trigger);
 
-    if active_mode.is_some() && !allow_toggle_stop {
+    if active_trigger.is_some() && !allow_toggle_stop {
         log::debug!(
-            "忽略热键 {} 的按下：已有录音进行中 (active mode={:?}, request mode={:?})",
+            "忽略热键 {} 的按下：已有录音进行中 (active trigger={:?}, request trigger={:?})",
             shortcut_label,
-            active_mode,
-            mode
+            active_trigger,
+            trigger
         );
         return;
     }
@@ -344,14 +364,14 @@ fn dispatch_hotkey_press(
             let now_ms = now_unix_ms();
             gate.last_release_ms.store(now_ms, Ordering::Release);
             log::info!("切换模式：再次按下 {}，停止录音", shortcut_label);
-            update_hotkey_diagnostic_for_mode(app_handle, mode, |diagnostic| {
+            update_hotkey_diagnostic_for_trigger(app_handle, trigger, |diagnostic| {
                 diagnostic.is_pressed = false;
                 diagnostic.last_error = None;
                 diagnostic.last_event = Some("released".to_string());
                 diagnostic.last_event_at_ms = Some(now_ms);
                 diagnostic.last_released_at_ms = Some(now_ms);
             });
-            handle_hotkey_stop(app_handle.clone(), shortcut_label.to_string(), mode);
+            handle_hotkey_stop(app_handle.clone(), shortcut_label.to_string(), trigger);
         } else {
             // Turn on — apply debounce
             let now_ms = now_unix_ms();
@@ -362,14 +382,14 @@ fn dispatch_hotkey_press(
             gate.toggle_active.store(true, Ordering::Release);
             gate.is_pressed.store(true, Ordering::Release);
             log::info!("切换模式：{}", pressed_log);
-            update_hotkey_diagnostic_for_mode(app_handle, mode, |diagnostic| {
+            update_hotkey_diagnostic_for_trigger(app_handle, trigger, |diagnostic| {
                 diagnostic.is_pressed = true;
                 diagnostic.last_error = None;
                 diagnostic.last_event = Some("pressed".to_string());
                 diagnostic.last_event_at_ms = Some(now_ms);
                 diagnostic.last_pressed_at_ms = Some(now_ms);
             });
-            handle_hotkey_start(app_handle.clone(), shortcut_label.to_string(), mode);
+            handle_hotkey_start(app_handle.clone(), shortcut_label.to_string(), trigger);
         }
         return;
     }
@@ -393,21 +413,21 @@ fn dispatch_hotkey_press(
         .is_ok()
     {
         log::info!("{}", pressed_log);
-        update_hotkey_diagnostic_for_mode(app_handle, mode, |diagnostic| {
+        update_hotkey_diagnostic_for_trigger(app_handle, trigger, |diagnostic| {
             diagnostic.is_pressed = true;
             diagnostic.last_error = None;
             diagnostic.last_event = Some("pressed".to_string());
             diagnostic.last_event_at_ms = Some(now_ms);
             diagnostic.last_pressed_at_ms = Some(now_ms);
         });
-        handle_hotkey_start(app_handle.clone(), shortcut_label.to_string(), mode);
+        handle_hotkey_start(app_handle.clone(), shortcut_label.to_string(), trigger);
     }
 }
 
 fn dispatch_hotkey_release(
     app_handle: &tauri::AppHandle,
     gate: &HotkeyEventGate,
-    mode: RecordingMode,
+    trigger: RecordingTrigger,
     released_log: &str,
     shortcut_label: &str,
 ) {
@@ -420,14 +440,14 @@ fn dispatch_hotkey_release(
         let now_ms = now_unix_ms();
         gate.last_release_ms.store(now_ms, Ordering::Release);
         log::info!("{}", released_log);
-        update_hotkey_diagnostic_for_mode(app_handle, mode, |diagnostic| {
+        update_hotkey_diagnostic_for_trigger(app_handle, trigger, |diagnostic| {
             diagnostic.is_pressed = false;
             diagnostic.last_error = None;
             diagnostic.last_event = Some("released".to_string());
             diagnostic.last_event_at_ms = Some(now_ms);
             diagnostic.last_released_at_ms = Some(now_ms);
         });
-        handle_hotkey_stop(app_handle.clone(), shortcut_label.to_string(), mode);
+        handle_hotkey_stop(app_handle.clone(), shortcut_label.to_string(), trigger);
     }
 }
 
@@ -439,7 +459,7 @@ fn dispatch_hotkey_release(
 struct UnifiedHookState {
     app_handle: tauri::AppHandle,
     spec: HotkeySpec,
-    mode: RecordingMode,
+    trigger: RecordingTrigger,
     gate: HotkeyEventGate,
     /// Per-VK key-down tracking for modifier-only mode
     key_down: Vec<AtomicBool>,
@@ -455,20 +475,21 @@ struct UnifiedHookState {
 #[derive(Default, Clone)]
 struct UnifiedHookBundle {
     dictation: Option<Arc<UnifiedHookState>>,
+    translation: Option<Arc<UnifiedHookState>>,
     assistant: Option<Arc<UnifiedHookState>>,
 }
 
 #[cfg(target_os = "windows")]
 impl UnifiedHookBundle {
     fn is_empty(&self) -> bool {
-        self.dictation.is_none() && self.assistant.is_none()
+        self.dictation.is_none() && self.translation.is_none() && self.assistant.is_none()
     }
 }
 
-#[cfg(target_os = "windows")]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum HotkeyKind {
     Dictation,
+    Translation,
     Assistant,
 }
 
@@ -489,6 +510,7 @@ fn set_unified_hook_state(
     };
     let slot = match kind {
         HotkeyKind::Dictation => &mut guard.dictation,
+        HotkeyKind::Translation => &mut guard.translation,
         HotkeyKind::Assistant => &mut guard.assistant,
     };
     std::mem::replace(slot, state)
@@ -660,7 +682,10 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
     let vk = keyboard.vkCode;
 
     let mut swallow = false;
-    for state in [bundle.dictation, bundle.assistant].into_iter().flatten() {
+    for state in [bundle.dictation, bundle.translation, bundle.assistant]
+        .into_iter()
+        .flatten()
+    {
         swallow |= match &state.spec {
             HotkeySpec::ModifierOnly {
                 label,
@@ -705,7 +730,7 @@ fn handle_modifier_only_event(
                 dispatch_hotkey_press(
                     &state.app_handle,
                     &state.gate,
-                    state.mode,
+                    state.trigger,
                     &format!("{} 按下，开始录音", label),
                     label,
                 );
@@ -718,7 +743,7 @@ fn handle_modifier_only_event(
                 dispatch_hotkey_release(
                     &state.app_handle,
                     &state.gate,
-                    state.mode,
+                    state.trigger,
                     &format!("{} 被非热键按键打断，停止录音", label),
                     label,
                 );
@@ -736,7 +761,7 @@ fn handle_modifier_only_event(
                 dispatch_hotkey_release(
                     &state.app_handle,
                     &state.gate,
-                    state.mode,
+                    state.trigger,
                     &format!("{} 松开，停止录音", label),
                     label,
                 );
@@ -817,7 +842,7 @@ fn handle_standard_event(
             dispatch_hotkey_press(
                 &state.app_handle,
                 &state.gate,
-                state.mode,
+                state.trigger,
                 &format!("{} 按下，开始录音", label),
                 label,
             );
@@ -829,7 +854,7 @@ fn handle_standard_event(
             dispatch_hotkey_release(
                 &state.app_handle,
                 &state.gate,
-                state.mode,
+                state.trigger,
                 &format!("{} 松开，停止录音", label),
                 label,
             );
@@ -986,7 +1011,7 @@ fn force_release_hotkey(state: &UnifiedHookState) {
     dispatch_hotkey_release(
         &state.app_handle,
         &state.gate,
-        state.mode,
+        state.trigger,
         &format!("{} 监听结束，补发松开事件", label),
         label,
     );
@@ -1004,7 +1029,7 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
 fn build_hook_state(
     app_handle: tauri::AppHandle,
     spec: HotkeySpec,
-    mode: RecordingMode,
+    trigger: RecordingTrigger,
 ) -> Arc<UnifiedHookState> {
     let key_down_count = match &spec {
         HotkeySpec::ModifierOnly { required_vks, .. } => required_vks.len(),
@@ -1014,7 +1039,7 @@ fn build_hook_state(
     Arc::new(UnifiedHookState {
         app_handle,
         spec,
-        mode,
+        trigger,
         gate: HotkeyEventGate::default(),
         key_down: (0..key_down_count)
             .map(|_| AtomicBool::new(false))
@@ -1224,9 +1249,9 @@ pub async fn register_custom_hotkey(
     };
 
     let label = spec.label().to_string();
-    ensure_hotkey_not_conflicting(&app_handle, RecordingMode::Dictation, &label)?;
+    ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Dictation, &label)?;
     #[cfg(target_os = "windows")]
-    let hook_state = build_hook_state(app_handle.clone(), spec, RecordingMode::Dictation);
+    let hook_state = build_hook_state(app_handle.clone(), spec, RecordingTrigger::DictationOriginal);
 
     #[cfg(target_os = "windows")]
     let previous_state = set_unified_hook_state(HotkeyKind::Dictation, Some(hook_state));
@@ -1273,6 +1298,64 @@ pub async fn register_custom_hotkey(
 }
 
 #[tauri::command]
+pub async fn register_translation_hotkey(
+    app_handle: tauri::AppHandle,
+    shortcut: String,
+) -> Result<String, AppError> {
+    register_translation_hotkey_inner(
+        app_handle,
+        Some(shortcut.trim().to_string()).filter(|value| !value.is_empty()),
+    )
+}
+
+pub(crate) fn register_translation_hotkey_inner(
+    app_handle: tauri::AppHandle,
+    shortcut: Option<String>,
+) -> Result<String, AppError> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        if shortcut.is_some() {
+            ensure_unified_hotkey_monitor(app_handle)?;
+        }
+        return Ok("翻译热键已更新".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let next_state = if let Some(shortcut) = shortcut {
+            let spec = normalize_shortcut(&shortcut)?;
+            ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Translation, spec.label())?;
+            Some(build_hook_state(
+                app_handle.clone(),
+                spec,
+                RecordingTrigger::DictationTranslated,
+            ))
+        } else {
+            None
+        };
+
+        let previous_state = set_unified_hook_state(HotkeyKind::Translation, next_state.clone());
+
+        if let Some(previous) = previous_state.as_ref() {
+            force_release_hotkey(&previous);
+        }
+
+        if let Err(err) = sync_hotkey_monitor_lifecycle(app_handle.clone()) {
+            let _ = set_unified_hook_state(HotkeyKind::Translation, previous_state);
+            let _ = sync_hotkey_monitor_lifecycle(app_handle.clone());
+            return Err(err);
+        }
+
+        let label = next_state
+            .as_ref()
+            .map(|state| state.spec.label().to_string())
+            .unwrap_or_else(|| "未设置".to_string());
+        log::info!("翻译热键已更新: {}", label);
+        Ok(format!("翻译热键已更新: {}", label))
+    }
+}
+
+#[tauri::command]
 pub async fn register_assistant_hotkey(
     app_handle: tauri::AppHandle,
     shortcut: String,
@@ -1299,11 +1382,11 @@ pub(crate) fn register_assistant_hotkey_inner(
     {
         let next_state = if let Some(shortcut) = shortcut {
             let spec = normalize_shortcut(&shortcut)?;
-            ensure_hotkey_not_conflicting(&app_handle, RecordingMode::Assistant, spec.label())?;
+            ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Assistant, spec.label())?;
             Some(build_hook_state(
                 app_handle.clone(),
                 spec,
-                RecordingMode::Assistant,
+                RecordingTrigger::Assistant,
             ))
         } else {
             None
@@ -1337,6 +1420,9 @@ pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<Stri
         if let Some(previous) = set_unified_hook_state(HotkeyKind::Dictation, None) {
             force_release_hotkey(&previous);
         }
+        if let Some(previous) = set_unified_hook_state(HotkeyKind::Translation, None) {
+            force_release_hotkey(&previous);
+        }
         if let Some(previous) = set_unified_hook_state(HotkeyKind::Assistant, None) {
             force_release_hotkey(&previous);
         }
@@ -1365,12 +1451,12 @@ pub async fn set_recording_mode(
     // If switching from toggle→hold while toggle is active, stop recording
     if !toggle {
         let state = _app_handle.state::<AppState>();
-        let active_mode = state.recording.lock().as_ref().map(RecordingSlot::mode);
-        if let Some(mode) = active_mode {
+        let active_trigger = state.recording.lock().as_ref().map(RecordingSlot::trigger);
+        if let Some(trigger) = active_trigger {
             handle_hotkey_stop(
                 _app_handle,
                 "切换到按住模式，停止当前录音".to_string(),
-                mode,
+                trigger,
             );
         }
     }

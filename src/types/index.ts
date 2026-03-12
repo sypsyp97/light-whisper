@@ -155,6 +155,7 @@ export interface UserProfile {
   last_updated: number;
   llm_provider: LlmProviderConfig;
   translation_target?: string | null;
+  translation_hotkey?: string | null;
   custom_prompt?: string | null;
   assistant_hotkey?: string | null;
   assistant_system_prompt?: string | null;

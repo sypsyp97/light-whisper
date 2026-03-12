@@ -31,6 +31,7 @@ import {
   startMicrophoneLevelMonitor,
   stopMicrophoneLevelMonitor,
   setTranslationTarget,
+  setTranslationHotkey,
   setCustomPrompt,
   setRecordingMode,
   setOnlineAsrApiKey,
@@ -240,6 +241,9 @@ export default function SettingsPage({
   const [autostartLoading, setAutostartLoading] = useState(true);
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [hotkeySaving, setHotkeySaving] = useState(false);
+  const [translationHotkey, setTranslationHotkeyState] = useState("");
+  const [capturingTranslationHotkey, setCapturingTranslationHotkey] = useState(false);
+  const [translationHotkeySaving, setTranslationHotkeySaving] = useState(false);
   const [assistantHotkey, setAssistantHotkeyState] = useState("");
   const [capturingAssistantHotkey, setCapturingAssistantHotkey] = useState(false);
   const [assistantHotkeySaving, setAssistantHotkeySaving] = useState(false);
@@ -447,6 +451,7 @@ export default function SettingsPage({
       setAssistantReasoningMode(p.llm_provider.assistant_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
       setTranslationTargetState(p.translation_target ?? null);
+      setTranslationHotkeyState(p.translation_hotkey ? formatHotkeyForDisplay(p.translation_hotkey) : "");
       setCustomPromptState(p.custom_prompt ?? "");
       setAssistantHotkeyState(p.assistant_hotkey ? formatHotkeyForDisplay(p.assistant_hotkey) : "");
       setAssistantPromptState(p.assistant_system_prompt ?? "");
@@ -837,6 +842,92 @@ export default function SettingsPage({
     };
   }, [capturingAssistantHotkey]);
 
+  useEffect(() => {
+    if (!capturingTranslationHotkey) return;
+
+    const activeModifiers = new Set<HotkeyModifier>();
+    const peakModifiers = new Set<HotkeyModifier>();
+    let mainKeyPressed = false;
+    let applied = false;
+    const clearModifiers = () => {
+      activeModifiers.clear();
+      peakModifiers.clear();
+      mainKeyPressed = false;
+    };
+
+    const applyShortcut = (shortcut: string) => {
+      if (applied) return;
+      applied = true;
+      setTranslationHotkeySaving(true);
+      const normalized = formatHotkeyForDisplay(shortcut);
+      void setTranslationHotkey(shortcut)
+        .then(() => {
+          setTranslationHotkeyState(normalized);
+          toast.success(`翻译热键已设置为 ${normalized}`);
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : "设置翻译热键失败";
+          toast.error(message);
+        })
+        .finally(() => {
+          setTranslationHotkeySaving(false);
+          setCapturingTranslationHotkey(false);
+          clearModifiers();
+        });
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === "Escape") {
+        setCapturingTranslationHotkey(false);
+        clearModifiers();
+        return;
+      }
+
+      const modifier = modifierFromKeyboardEvent(event);
+      if (modifier) {
+        activeModifiers.add(modifier);
+        for (const key of activeModifiers) peakModifiers.add(key);
+        return;
+      }
+
+      mainKeyPressed = true;
+      const shortcut = keyboardEventToHotkey(event, activeModifiers);
+      if (!shortcut) return;
+      applyShortcut(shortcut);
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      const modifier = modifierFromKeyboardEvent(event);
+      if (!modifier || applied) return;
+
+      activeModifiers.delete(modifier);
+      if (activeModifiers.size === 0 && !mainKeyPressed && peakModifiers.size > 0) {
+        const combo = HOTKEY_MODIFIER_ORDER
+          .filter((key) => peakModifiers.has(key))
+          .join("+");
+        if (combo) applyShortcut(combo);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) clearModifiers();
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", clearModifiers);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", clearModifiers);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [capturingTranslationHotkey]);
+
   const handleResetHotkey = async () => {
     if (hotkeySaving) return;
     setHotkeySaving(true);
@@ -849,6 +940,22 @@ export default function SettingsPage({
     } finally {
       setHotkeySaving(false);
       setCapturingHotkey(false);
+    }
+  };
+
+  const handleClearTranslationHotkey = async () => {
+    if (translationHotkeySaving) return;
+    setTranslationHotkeySaving(true);
+    try {
+      await setTranslationHotkey(null);
+      setTranslationHotkeyState("");
+      toast.success("已清除翻译热键");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "清除翻译热键失败";
+      toast.error(message);
+    } finally {
+      setTranslationHotkeySaving(false);
+      setCapturingTranslationHotkey(false);
     }
   };
 
@@ -2569,6 +2676,38 @@ export default function SettingsPage({
               <h2 className="settings-section-title">翻译</h2>
             </div>
             <div className="settings-column" style={{ gap: 10 }}>
+              <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
+                <button
+                  className="theme-btn hotkey-capture-btn"
+                  onClick={() => setCapturingTranslationHotkey(true)}
+                  disabled={translationHotkeySaving}
+                  data-capturing={capturingTranslationHotkey}
+                  style={{
+                    cursor: translationHotkeySaving ? "wait" : "pointer",
+                    opacity: translationHotkeySaving ? 0.7 : 1,
+                  }}
+                >
+                  {capturingTranslationHotkey
+                    ? "请按下翻译热键..."
+                    : translationHotkey || "未设置翻译热键"}
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={handleClearTranslationHotkey}
+                  disabled={translationHotkeySaving}
+                  style={{
+                    fontSize: 12,
+                    padding: "8px 10px",
+                    cursor: translationHotkeySaving ? "wait" : "pointer",
+                    opacity: translationHotkeySaving ? 0.7 : 1,
+                  }}
+                >
+                  清除
+                </button>
+              </div>
+              <p className="settings-hint" style={{ margin: 0 }}>
+                开启翻译后，说话热键会输出原文；翻译热键会输出译文。未开启翻译时，翻译热键只会走普通润色。
+              </p>
               <div className="settings-row">
                 <span className="permission-label">{translationTarget ? `目标语言：${translationTarget}` : "未开启"}</span>
                 <button
@@ -2588,7 +2727,7 @@ export default function SettingsPage({
               {translationPickerOpen && (
                 <div className="settings-column" style={{ gap: 8 }}>
                   <p className="settings-hint" style={{ margin: 0 }}>
-                    语音输入的文本会在 AI 润色时一并翻译。技术术语和专有名词保留原文。
+                    翻译热键会在 AI 润色后输出目标语言结果；普通说话热键仍输出原文校正结果。技术术语和专有名词保留原文。
                   </p>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     <button

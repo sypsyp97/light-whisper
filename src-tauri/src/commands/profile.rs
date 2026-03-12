@@ -376,6 +376,27 @@ pub async fn set_translation_target(
 }
 
 #[tauri::command]
+pub async fn set_translation_hotkey(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    shortcut: Option<String>,
+) -> Result<(), String> {
+    let normalized = shortcut
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    crate::commands::hotkey::register_translation_hotkey_inner(app_handle, normalized.clone())
+        .map_err(|err| err.to_string())?;
+
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile.translation_hotkey = normalized;
+    });
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn set_custom_prompt(
     state: tauri::State<'_, AppState>,
     prompt: Option<String>,

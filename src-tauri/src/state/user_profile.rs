@@ -71,6 +71,9 @@ pub struct UserProfile {
     /// 翻译目标语言（None = 关闭翻译，非空 = 开启并翻译为该语言）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_target: Option<String>,
+    /// 翻译模式独立热键
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation_hotkey: Option<String>,
     /// 用户自定义润色指令
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_prompt: Option<String>,

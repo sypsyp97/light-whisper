@@ -210,6 +210,10 @@ export function setTranslationTarget(target: string | null): Promise<boolean> {
   return invokeCommand<boolean>("set_translation_target", { target });
 }
 
+export function setTranslationHotkey(shortcut: string | null): Promise<void> {
+  return invokeCommand<void>("set_translation_hotkey", { shortcut });
+}
+
 export function setCustomPrompt(prompt: string | null): Promise<void> {
   return invokeCommand<void>("set_custom_prompt", { prompt });
 }

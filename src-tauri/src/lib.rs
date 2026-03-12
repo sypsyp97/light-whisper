@@ -83,6 +83,21 @@ pub fn run() {
             {
                 let state = app_handle.state::<AppState>();
                 if let Some(shortcut) = state
+                    .with_profile(|profile| profile.translation_hotkey.clone())
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    if let Err(err) = commands::hotkey::register_translation_hotkey_inner(
+                        app_handle.clone(),
+                        Some(shortcut),
+                    ) {
+                        log::warn!("注册翻译热键失败: {}", err);
+                    }
+                }
+            }
+
+            {
+                let state = app_handle.state::<AppState>();
+                if let Some(shortcut) = state
                     .with_profile(|profile| profile.assistant_hotkey.clone())
                     .filter(|value| !value.trim().is_empty())
                 {
@@ -160,6 +175,7 @@ pub fn run() {
             commands::window::show_subtitle_window,
             commands::window::hide_subtitle_window,
             commands::hotkey::register_custom_hotkey,
+            commands::hotkey::register_translation_hotkey,
             commands::hotkey::register_assistant_hotkey,
             commands::hotkey::unregister_all_hotkeys,
             commands::hotkey::set_recording_mode,
@@ -185,6 +201,7 @@ pub fn run() {
             commands::profile::import_user_profile,
             commands::profile::submit_user_correction,
             commands::profile::set_translation_target,
+            commands::profile::set_translation_hotkey,
             commands::profile::set_custom_prompt,
             commands::profile::add_custom_provider,
             commands::profile::update_custom_provider,
