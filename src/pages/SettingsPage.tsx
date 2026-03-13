@@ -1755,6 +1755,11 @@ export default function SettingsPage({
                   </strong>
                 </div>
               </div>
+              {hotkeyDiagnostic?.systemConflict && (
+                <p className="settings-error" style={{ opacity: 0.85 }}>
+                  ⚠ {hotkeyDiagnostic.systemConflict}
+                </p>
+              )}
               {hotkeyDiagnostic?.warning && <p className="settings-hint">{hotkeyDiagnostic.warning}</p>}
               {hotkeyStatusError && <p className="settings-error">{hotkeyStatusError}</p>}
             </div>

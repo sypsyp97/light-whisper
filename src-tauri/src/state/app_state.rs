@@ -119,6 +119,8 @@ pub struct HotkeyDiagnosticState {
     pub is_pressed: bool,
     pub last_error: Option<String>,
     pub warning: Option<String>,
+    /// Non-empty when another program has registered the same hotkey via RegisterHotKey
+    pub system_conflict: Option<String>,
     pub last_event: Option<String>,
     pub last_event_at_ms: Option<u64>,
     pub last_registered_at_ms: Option<u64>,
@@ -135,6 +137,7 @@ impl Default for HotkeyDiagnosticState {
             is_pressed: false,
             last_error: None,
             warning: None,
+            system_conflict: None,
             last_event: None,
             last_event_at_ms: None,
             last_registered_at_ms: None,

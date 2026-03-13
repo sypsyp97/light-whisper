@@ -19,9 +19,10 @@ use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT, VK_LCONTROL,
-    VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RETURN, VK_RIGHT,
-    VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
+    RegisterHotKey, UnregisterHotKey, VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1,
+    VK_HOME, VK_INSERT, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR,
+    VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
+    MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -31,6 +32,108 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
+/// RegisterHotKey probe uses this atom ID
+#[cfg(target_os = "windows")]
+const PROBE_HOTKEY_ID: i32 = 0x4C57; // "LW"
+
+// ---------------------------------------------------------------------------
+// Dispatch channel — moves heavy work off the hook thread
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "windows")]
+enum DispatchEvent {
+    Press(Arc<UnifiedHookState>, String),
+    Release(Arc<UnifiedHookState>, String),
+}
+
+#[cfg(target_os = "windows")]
+fn dispatch_channel() -> &'static std::sync::mpsc::Sender<DispatchEvent> {
+    static TX: OnceLock<std::sync::mpsc::Sender<DispatchEvent>> = OnceLock::new();
+    TX.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<DispatchEvent>();
+        std::thread::Builder::new()
+            .name("hotkey-dispatch".into())
+            .spawn(move || {
+                for event in rx {
+                    match event {
+                        DispatchEvent::Press(state, msg) => {
+                            dispatch_hotkey_press(
+                                &state.app_handle,
+                                &state.gate,
+                                state.trigger,
+                                &msg,
+                                state.spec.label(),
+                            );
+                        }
+                        DispatchEvent::Release(state, msg) => {
+                            dispatch_hotkey_release(
+                                &state.app_handle,
+                                &state.gate,
+                                state.trigger,
+                                &msg,
+                                state.spec.label(),
+                            );
+                        }
+                    }
+                }
+            })
+            .expect("failed to start hotkey dispatch worker");
+        tx
+    })
+}
+
+/// Send dispatch event from hook callback — never blocks.
+#[cfg(target_os = "windows")]
+fn send_dispatch(event: DispatchEvent) {
+    let _ = dispatch_channel().send(event);
+}
+
+// ---------------------------------------------------------------------------
+// Hook liveness tracking
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "windows")]
+static HOOK_LAST_CALLBACK_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Probe whether a hotkey is already registered system-wide via RegisterHotKey.
+/// Returns a human-readable warning if conflicting, None otherwise.
+#[cfg(target_os = "windows")]
+fn probe_system_hotkey_conflict(spec: &HotkeySpec) -> Option<String> {
+    let (win_mods, vk) = match spec {
+        HotkeySpec::Standard {
+            modifiers, main_vk, ..
+        } => {
+            let mut m = 0u32;
+            if modifiers.ctrl {
+                m |= MOD_CONTROL;
+            }
+            if modifiers.alt {
+                m |= MOD_ALT;
+            }
+            if modifiers.shift {
+                m |= MOD_SHIFT;
+            }
+            if modifiers.super_key {
+                m |= MOD_WIN;
+            }
+            (m, *main_vk as u32)
+        }
+        // Modifier-only combos can't be probed via RegisterHotKey
+        HotkeySpec::ModifierOnly { .. } => return None,
+    };
+
+    // Attempt to register — success means no conflict
+    let ok = unsafe { RegisterHotKey(std::ptr::null_mut(), PROBE_HOTKEY_ID, win_mods, vk) };
+    if ok != 0 {
+        unsafe { UnregisterHotKey(std::ptr::null_mut(), PROBE_HOTKEY_ID) };
+        None
+    } else {
+        Some(format!(
+            "快捷键 {} 可能已被其他程序占用，部分情况下可能同时触发两个程序的功能",
+            spec.label()
+        ))
+    }
+}
 
 // ---------------------------------------------------------------------------
 // HotkeySpec — describes what key combination triggers the hotkey
@@ -681,8 +784,11 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
 
     let vk = keyboard.vkCode;
 
+    // Track that hook is alive for liveness detection
+    HOOK_LAST_CALLBACK_MS.store(now_unix_ms(), Ordering::Release);
+
     let mut swallow = false;
-    for state in [bundle.dictation, bundle.translation, bundle.assistant]
+    for state in [bundle.dictation.as_ref(), bundle.translation.as_ref(), bundle.assistant.as_ref()]
         .into_iter()
         .flatten()
     {
@@ -690,12 +796,12 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
             HotkeySpec::ModifierOnly {
                 label,
                 required_vks,
-            } => handle_modifier_only_event(&state, vk, is_key_down, label, required_vks),
+            } => handle_modifier_only_event(state, vk, is_key_down, label, required_vks),
             HotkeySpec::Standard {
                 label,
                 modifiers,
                 main_vk,
-            } => handle_standard_event(&state, vk, is_key_down, label, modifiers, *main_vk),
+            } => handle_standard_event(state, vk, is_key_down, label, modifiers, *main_vk),
         };
     }
 
@@ -707,9 +813,11 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
 }
 
 /// Returns `true` if the event should be swallowed (not forwarded to OS).
+/// All heavy work (mutex, IPC) is dispatched via channel — the hook thread
+/// only touches atomics.
 #[cfg(target_os = "windows")]
 fn handle_modifier_only_event(
-    state: &UnifiedHookState,
+    state: &Arc<UnifiedHookState>,
     vk: u32,
     is_key_down: bool,
     label: &str,
@@ -727,26 +835,20 @@ fn handle_modifier_only_event(
             let all_down = state.key_down.iter().all(|b| b.load(Ordering::Acquire));
             if all_down && !was_activated && !state.tainted.load(Ordering::Acquire) {
                 state.activated.store(true, Ordering::Release);
-                dispatch_hotkey_press(
-                    &state.app_handle,
-                    &state.gate,
-                    state.trigger,
-                    &format!("{} 按下，开始录音", label),
-                    label,
-                );
+                send_dispatch(DispatchEvent::Press(
+                    state.clone(),
+                    format!("{} 按下，开始录音", label),
+                ));
             }
         } else {
             // Non-required key pressed → taint
             state.tainted.store(true, Ordering::Release);
             if was_activated {
                 state.activated.store(false, Ordering::Release);
-                dispatch_hotkey_release(
-                    &state.app_handle,
-                    &state.gate,
-                    state.trigger,
-                    &format!("{} 被非热键按键打断，停止录音", label),
-                    label,
-                );
+                send_dispatch(DispatchEvent::Release(
+                    state.clone(),
+                    format!("{} 被非热键按键打断，停止录音", label),
+                ));
             }
         }
     } else {
@@ -758,13 +860,10 @@ fn handle_modifier_only_event(
 
             if was_activated {
                 state.activated.store(false, Ordering::Release);
-                dispatch_hotkey_release(
-                    &state.app_handle,
-                    &state.gate,
-                    state.trigger,
-                    &format!("{} 松开，停止录音", label),
-                    label,
-                );
+                send_dispatch(DispatchEvent::Release(
+                    state.clone(),
+                    format!("{} 松开，停止录音", label),
+                ));
             }
         }
 
@@ -824,9 +923,10 @@ fn should_swallow_modifier_only(state: &UnifiedHookState, vk: u32) -> bool {
 }
 
 /// Returns `true` if the event should be swallowed.
+/// All heavy work (mutex, IPC) is dispatched via channel.
 #[cfg(target_os = "windows")]
 fn handle_standard_event(
-    state: &UnifiedHookState,
+    state: &Arc<UnifiedHookState>,
     vk: u32,
     is_key_down: bool,
     label: &str,
@@ -839,25 +939,19 @@ fn handle_standard_event(
         let was_activated = state.activated.load(Ordering::Acquire);
         if all_modifiers_down(modifiers) && !was_activated {
             state.activated.store(true, Ordering::Release);
-            dispatch_hotkey_press(
-                &state.app_handle,
-                &state.gate,
-                state.trigger,
-                &format!("{} 按下，开始录音", label),
-                label,
-            );
+            send_dispatch(DispatchEvent::Press(
+                state.clone(),
+                format!("{} 按下，开始录音", label),
+            ));
         }
     } else if !is_key_down && state.activated.load(Ordering::Acquire) {
         let combo_broken = is_main_key || !all_modifiers_down(modifiers);
         if combo_broken {
             state.activated.store(false, Ordering::Release);
-            dispatch_hotkey_release(
-                &state.app_handle,
-                &state.gate,
-                state.trigger,
-                &format!("{} 松开，停止录音", label),
-                label,
-            );
+            send_dispatch(DispatchEvent::Release(
+                state.clone(),
+                format!("{} 松开，停止录音", label),
+            ));
 
             // Clean up leaked modifier state in one read
             let leaked = state.modifier_leaked.swap(false, Ordering::AcqRel);
@@ -929,6 +1023,35 @@ fn stop_unified_hotkey_monitor() {
 fn stop_unified_hotkey_monitor() {}
 
 #[cfg(target_os = "windows")]
+/// HHOOK is *mut c_void in windows-sys
+type HookHandle = *mut std::ffi::c_void;
+
+fn install_hook_on_thread() -> Result<HookHandle, String> {
+    let module = unsafe { GetModuleHandleW(std::ptr::null()) };
+    let hook = unsafe {
+        SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            Some(unified_low_level_keyboard_proc),
+            module,
+            0,
+        )
+    };
+    if hook.is_null() {
+        Err(format!(
+            "安装键盘钩子失败: {}",
+            std::io::Error::last_os_error()
+        ))
+    } else {
+        HOOK_LAST_CALLBACK_MS.store(now_unix_ms(), Ordering::Release);
+        Ok(hook)
+    }
+}
+
+/// Custom message ID for hook liveness check
+#[cfg(target_os = "windows")]
+const WM_HOOK_LIVENESS_CHECK: u32 = 0x0400 + 1; // WM_USER + 1
+
+#[cfg(target_os = "windows")]
 fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), AppError> {
     let monitor_running = {
         let guard = match monitor_slot().lock() {
@@ -948,47 +1071,82 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
         .spawn(move || {
             let thread_id = unsafe { GetCurrentThreadId() };
 
-            let module = unsafe { GetModuleHandleW(std::ptr::null()) };
-            let hook = unsafe {
-                SetWindowsHookExW(
-                    WH_KEYBOARD_LL,
-                    Some(unified_low_level_keyboard_proc),
-                    module,
-                    0,
-                )
+            let hook = match install_hook_on_thread() {
+                Ok(h) => h,
+                Err(msg) => {
+                    let _ = ready_tx.send(Err(msg));
+                    return;
+                }
             };
-
-            if hook.is_null() {
-                let _ = ready_tx.send(Err(format!(
-                    "安装键盘钩子失败: {}",
-                    std::io::Error::last_os_error()
-                )));
-                return;
-            }
+            let mut hook_handle: HookHandle = hook;
 
             // Ensure message queue exists
             let mut peek_msg: MSG = unsafe { std::mem::zeroed() };
             let _ = unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
 
             if ready_tx.send(Ok(thread_id)).is_err() {
-                unsafe { UnhookWindowsHookEx(hook) };
+                unsafe { UnhookWindowsHookEx(hook_handle) };
                 return;
             }
 
-            // Message loop
+            // Start liveness watchdog: sends WM_HOOK_LIVENESS_CHECK every 5s
+            let watchdog_tid = thread_id;
+            let _watchdog = std::thread::Builder::new()
+                .name("hotkey-watchdog".into())
+                .spawn(move || {
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        // Post a liveness check to the monitor thread
+                        let ok = unsafe {
+                            PostThreadMessageW(watchdog_tid, WM_HOOK_LIVENESS_CHECK, 0, 0)
+                        };
+                        if ok == 0 {
+                            break; // Monitor thread gone
+                        }
+                    }
+                });
+
+            // Message loop with hook auto-recovery
             let mut message: MSG = unsafe { std::mem::zeroed() };
             loop {
                 let result = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
                 if result <= 0 {
                     break;
                 }
+
+                if message.message == WM_HOOK_LIVENESS_CHECK {
+                    // Check if hook is still alive by verifying recent callback activity.
+                    // If we haven't received any keyboard event in 10s, the hook was
+                    // likely removed by Windows due to timeout — reinstall it.
+                    let last = HOOK_LAST_CALLBACK_MS.load(Ordering::Acquire);
+                    let now = now_unix_ms();
+                    let stale = now.saturating_sub(last) > 10_000;
+
+                    // Also verify with GetAsyncKeyState — if keys are being pressed
+                    // but our hook isn't firing, it's definitely dead
+                    if stale {
+                        log::warn!("键盘钩子可能已被系统移除（{}ms 无回调），正在重新安装", now.saturating_sub(last));
+                        unsafe { UnhookWindowsHookEx(hook_handle) };
+                        match install_hook_on_thread() {
+                            Ok(new_hook) => {
+                                hook_handle = new_hook;
+                                log::info!("键盘钩子重新安装成功");
+                            }
+                            Err(e) => {
+                                log::error!("键盘钩子重新安装失败: {}", e);
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 unsafe {
                     TranslateMessage(&message);
                     DispatchMessageW(&message);
                 }
             }
 
-            unsafe { UnhookWindowsHookEx(hook) };
+            unsafe { UnhookWindowsHookEx(hook_handle) };
         })
         .map_err(|e| AppError::Other(format!("启动热键监听线程失败: {}", e)))?;
 
@@ -1250,6 +1408,17 @@ pub async fn register_custom_hotkey(
 
     let label = spec.label().to_string();
     ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Dictation, &label)?;
+
+    // Probe system-wide conflict before consuming spec
+    #[cfg(target_os = "windows")]
+    let system_conflict = probe_system_hotkey_conflict(&spec);
+    #[cfg(not(target_os = "windows"))]
+    let system_conflict: Option<String> = None;
+
+    if let Some(ref msg) = system_conflict {
+        log::warn!("系统快捷键冲突检测: {}", msg);
+    }
+
     #[cfg(target_os = "windows")]
     let hook_state = build_hook_state(app_handle.clone(), spec, RecordingTrigger::DictationOriginal);
 
@@ -1288,6 +1457,7 @@ pub async fn register_custom_hotkey(
         diagnostic.is_pressed = false;
         diagnostic.last_error = None;
         diagnostic.warning = hotkey_warning_message(&label);
+        diagnostic.system_conflict = system_conflict;
         diagnostic.last_event = Some("registered".to_string());
         diagnostic.last_event_at_ms = Some(now_ms);
         diagnostic.last_registered_at_ms = Some(now_ms);

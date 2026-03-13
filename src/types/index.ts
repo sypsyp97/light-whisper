@@ -68,6 +68,8 @@ export interface HotkeyDiagnostic {
   isPressed: boolean;
   lastError?: string | null;
   warning?: string | null;
+  /** Non-empty when another program has registered the same hotkey */
+  systemConflict?: string | null;
   lastEvent?: string | null;
   lastEventAtMs?: number | null;
   lastRegisteredAtMs?: number | null;
