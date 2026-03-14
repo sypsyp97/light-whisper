@@ -1754,6 +1754,12 @@ export default function SettingsPage({
                         : "待命"}
                   </strong>
                 </div>
+                {hotkeyDiagnostic?.backend && hotkeyDiagnostic.backend !== "none" && (
+                  <div className="diagnostic-item">
+                    <span className="settings-option-desc">后端</span>
+                    <strong>{hotkeyDiagnostic.backend === "registerHotKey" ? "RegisterHotKey" : "低层键盘钩子"}</strong>
+                  </div>
+                )}
               </div>
               {hotkeyDiagnostic?.systemConflict && (
                 <p className="settings-error" style={{ opacity: 0.85 }}>

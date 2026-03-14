@@ -22,19 +22,48 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1,
     VK_HOME, VK_INSERT, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR,
     VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
-    MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN,
+    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
     SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG,
-    PM_NOREMOVE, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    PM_NOREMOVE, WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_NULL, WM_QUIT,
+    WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
 /// RegisterHotKey probe uses this atom ID
 #[cfg(target_os = "windows")]
 const PROBE_HOTKEY_ID: i32 = 0x4C57; // "LW"
+
+/// Counter for injected events ignored by the LLKH filter
+#[cfg(target_os = "windows")]
+static IGNORED_INJECTED_COUNT: AtomicU64 = AtomicU64::new(0);
+
+// ---------------------------------------------------------------------------
+// HotkeyBackend — selects between RegisterHotKey and low-level hook
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HotkeyBackend {
+    /// Standard Windows RegisterHotKey — most stable, toggle-only
+    RegisterHotKey,
+    /// WH_KEYBOARD_LL — for hold mode, modifier-only, Win combos
+    LowLevelHook,
+}
+
+fn classify_backend(spec: &HotkeySpec) -> HotkeyBackend {
+    if is_toggle_mode() {
+        match spec {
+            HotkeySpec::ModifierOnly { .. } => HotkeyBackend::LowLevelHook,
+            HotkeySpec::Standard { .. } => HotkeyBackend::RegisterHotKey,
+        }
+    } else {
+        // Hold mode always needs LLKH for key-up detection
+        HotkeyBackend::LowLevelHook
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Dispatch channel — moves heavy work off the hook thread
@@ -87,13 +116,6 @@ fn dispatch_channel() -> &'static std::sync::mpsc::Sender<DispatchEvent> {
 fn send_dispatch(event: DispatchEvent) {
     let _ = dispatch_channel().send(event);
 }
-
-// ---------------------------------------------------------------------------
-// Hook liveness tracking
-// ---------------------------------------------------------------------------
-
-#[cfg(target_os = "windows")]
-static HOOK_LAST_CALLBACK_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Probe whether a hotkey is already registered system-wide via RegisterHotKey.
 /// Returns a human-readable warning if conflicting, None otherwise.
@@ -564,6 +586,7 @@ struct UnifiedHookState {
     spec: HotkeySpec,
     trigger: RecordingTrigger,
     gate: HotkeyEventGate,
+    backend: HotkeyBackend,
     /// Per-VK key-down tracking for modifier-only mode
     key_down: Vec<AtomicBool>,
     /// Hotkey combination currently active
@@ -775,6 +798,13 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
         return pass_through();
     }
 
+    // Filter injected input (macro tools, automation, drivers).
+    // LLKHF_INJECTED = 0x10 — set by SendInput / keybd_event from other processes.
+    if keyboard.flags & 0x10 != 0 {
+        IGNORED_INJECTED_COUNT.fetch_add(1, Ordering::Relaxed);
+        return pass_through();
+    }
+
     let message = w_param as u32;
     let is_key_down = matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN);
     let is_key_up = matches!(message, WM_KEYUP | WM_SYSKEYUP);
@@ -784,13 +814,11 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
 
     let vk = keyboard.vkCode;
 
-    // Track that hook is alive for liveness detection
-    HOOK_LAST_CALLBACK_MS.store(now_unix_ms(), Ordering::Release);
-
     let mut swallow = false;
     for state in [bundle.dictation.as_ref(), bundle.translation.as_ref(), bundle.assistant.as_ref()]
         .into_iter()
         .flatten()
+        .filter(|s| s.backend == HotkeyBackend::LowLevelHook)
     {
         swallow |= match &state.spec {
             HotkeySpec::ModifierOnly {
@@ -988,7 +1016,284 @@ fn handle_standard_event(
 }
 
 // ---------------------------------------------------------------------------
-// Monitor thread management
+// RegisterHotKey backend — dedicated thread with message pump
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "windows")]
+enum RegHotkeyCmd {
+    Register {
+        id: i32,
+        mods: u32,
+        vk: u32,
+        state: Arc<UnifiedHookState>,
+        result_tx: std::sync::mpsc::SyncSender<Result<(), String>>,
+    },
+    Unregister {
+        id: i32,
+    },
+}
+
+#[cfg(target_os = "windows")]
+fn reg_hotkey_cmd_channel(
+) -> &'static (
+    std::sync::mpsc::Sender<RegHotkeyCmd>,
+    Mutex<std::sync::mpsc::Receiver<RegHotkeyCmd>>,
+) {
+    static CH: OnceLock<(
+        std::sync::mpsc::Sender<RegHotkeyCmd>,
+        Mutex<std::sync::mpsc::Receiver<RegHotkeyCmd>>,
+    )> = OnceLock::new();
+    CH.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        (tx, Mutex::new(rx))
+    })
+}
+
+#[cfg(target_os = "windows")]
+struct RegisterHotkeyBackend {
+    thread_id: u32,
+    handle: JoinHandle<()>,
+}
+
+#[cfg(target_os = "windows")]
+fn reg_backend_slot() -> &'static Mutex<Option<RegisterHotkeyBackend>> {
+    static SLOT: OnceLock<Mutex<Option<RegisterHotkeyBackend>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Map hotkey kind to a stable RegisterHotKey id
+#[cfg(target_os = "windows")]
+fn hotkey_kind_to_reg_id(kind: HotkeyKind) -> i32 {
+    match kind {
+        HotkeyKind::Dictation => 1,
+        HotkeyKind::Translation => 2,
+        HotkeyKind::Assistant => 3,
+    }
+}
+
+/// Build MOD_ flags for RegisterHotKey from ShortcutModifiers
+#[cfg(target_os = "windows")]
+fn shortcut_mods_to_reg_mods(mods: &ShortcutModifiers) -> u32 {
+    let mut m = MOD_NOREPEAT;
+    if mods.ctrl {
+        m |= MOD_CONTROL;
+    }
+    if mods.alt {
+        m |= MOD_ALT;
+    }
+    if mods.shift {
+        m |= MOD_SHIFT;
+    }
+    if mods.super_key {
+        m |= MOD_WIN;
+    }
+    m
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
+    let backend_running = {
+        let guard = match reg_backend_slot().lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.is_some()
+    };
+    if backend_running {
+        return Ok(());
+    }
+
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+
+    let handle = std::thread::Builder::new()
+        .name("register-hotkey-backend".into())
+        .spawn(move || {
+            let thread_id = unsafe { GetCurrentThreadId() };
+
+            // Ensure message queue exists
+            let mut peek_msg: MSG = unsafe { std::mem::zeroed() };
+            let _ =
+                unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
+
+            if ready_tx.send(Ok(thread_id)).is_err() {
+                return;
+            }
+
+            // Registered hotkey states, keyed by id
+            let mut registered: std::collections::HashMap<i32, Arc<UnifiedHookState>> =
+                std::collections::HashMap::new();
+
+            let mut message: MSG = unsafe { std::mem::zeroed() };
+            loop {
+                let result = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
+                if result <= 0 {
+                    break;
+                }
+
+                match message.message {
+                    WM_HOTKEY => {
+                        let id = message.wParam as i32;
+                        if let Some(state) = registered.get(&id) {
+                            send_dispatch(DispatchEvent::Press(
+                                state.clone(),
+                                format!("{} 按下（RegisterHotKey）", state.spec.label()),
+                            ));
+                        }
+                    }
+                    WM_NULL => {
+                        // Drain command channel
+                        let rx_guard = match reg_hotkey_cmd_channel().1.lock() {
+                            Ok(g) => g,
+                            Err(p) => p.into_inner(),
+                        };
+                        while let Ok(cmd) = rx_guard.try_recv() {
+                            match cmd {
+                                RegHotkeyCmd::Register {
+                                    id,
+                                    mods,
+                                    vk,
+                                    state,
+                                    result_tx,
+                                } => {
+                                    // Unregister previous if any
+                                    if registered.contains_key(&id) {
+                                        unsafe { UnregisterHotKey(std::ptr::null_mut(), id) };
+                                        registered.remove(&id);
+                                    }
+                                    let ok = unsafe {
+                                        RegisterHotKey(std::ptr::null_mut(), id, mods, vk)
+                                    };
+                                    if ok != 0 {
+                                        registered.insert(id, state);
+                                        let _ = result_tx.send(Ok(()));
+                                    } else {
+                                        let err = std::io::Error::last_os_error();
+                                        let _ = result_tx.send(Err(format!(
+                                            "RegisterHotKey 失败: {}",
+                                            err
+                                        )));
+                                    }
+                                }
+                                RegHotkeyCmd::Unregister { id } => {
+                                    if registered.remove(&id).is_some() {
+                                        unsafe {
+                                            UnregisterHotKey(std::ptr::null_mut(), id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => unsafe {
+                        TranslateMessage(&message);
+                        DispatchMessageW(&message);
+                    },
+                }
+            }
+
+            // Cleanup all registered hotkeys
+            for &id in registered.keys() {
+                unsafe { UnregisterHotKey(std::ptr::null_mut(), id) };
+            }
+        })
+        .map_err(|e| AppError::Other(format!("启动 RegisterHotKey 线程失败: {}", e)))?;
+
+    let thread_id = ready_rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|e| AppError::Other(format!("等待 RegisterHotKey 就绪超时: {}", e)))?
+        .map_err(AppError::Other)?;
+
+    let mut guard = match reg_backend_slot().lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    *guard = Some(RegisterHotkeyBackend { thread_id, handle });
+    Ok(())
+}
+
+/// Register a hotkey via the RegisterHotKey backend.
+/// Blocks until the registration is confirmed or rejected.
+#[cfg(target_os = "windows")]
+fn register_via_reg_hotkey(
+    kind: HotkeyKind,
+    mods: &ShortcutModifiers,
+    main_vk: u16,
+    state: Arc<UnifiedHookState>,
+) -> Result<(), AppError> {
+    ensure_reg_hotkey_backend()?;
+
+    let id = hotkey_kind_to_reg_id(kind);
+    let win_mods = shortcut_mods_to_reg_mods(mods);
+    let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+
+    reg_hotkey_cmd_channel()
+        .0
+        .send(RegHotkeyCmd::Register {
+            id,
+            mods: win_mods,
+            vk: main_vk as u32,
+            state,
+            result_tx,
+        })
+        .map_err(|_| AppError::Other("RegisterHotKey 命令通道已关闭".into()))?;
+
+    // Wake the backend thread
+    let tid = {
+        let guard = match reg_backend_slot().lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.as_ref().map(|b| b.thread_id)
+    };
+    if let Some(tid) = tid {
+        unsafe { PostThreadMessageW(tid, WM_NULL, 0, 0) };
+    }
+
+    result_rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|_| AppError::Other("RegisterHotKey 注册超时".into()))?
+        .map_err(AppError::Other)
+}
+
+/// Unregister a hotkey from the RegisterHotKey backend.
+#[cfg(target_os = "windows")]
+fn unregister_via_reg_hotkey(kind: HotkeyKind) {
+    let _ = reg_hotkey_cmd_channel()
+        .0
+        .send(RegHotkeyCmd::Unregister {
+            id: hotkey_kind_to_reg_id(kind),
+        });
+
+    let tid = {
+        let guard = match reg_backend_slot().lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.as_ref().map(|b| b.thread_id)
+    };
+    if let Some(tid) = tid {
+        unsafe { PostThreadMessageW(tid, WM_NULL, 0, 0) };
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn stop_reg_hotkey_backend() {
+    let backend = {
+        let mut guard = match reg_backend_slot().lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.take()
+    };
+
+    if let Some(backend) = backend {
+        let _ = unsafe { PostThreadMessageW(backend.thread_id, WM_QUIT, 0, 0) };
+        let _ = backend.handle.join();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Monitor thread management (LLKH backend)
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
@@ -1042,14 +1347,9 @@ fn install_hook_on_thread() -> Result<HookHandle, String> {
             std::io::Error::last_os_error()
         ))
     } else {
-        HOOK_LAST_CALLBACK_MS.store(now_unix_ms(), Ordering::Release);
         Ok(hook)
     }
 }
-
-/// Custom message ID for hook liveness check
-#[cfg(target_os = "windows")]
-const WM_HOOK_LIVENESS_CHECK: u32 = 0x0400 + 1; // WM_USER + 1
 
 #[cfg(target_os = "windows")]
 fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), AppError> {
@@ -1078,7 +1378,7 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
                     return;
                 }
             };
-            let mut hook_handle: HookHandle = hook;
+            let hook_handle: HookHandle = hook;
 
             // Ensure message queue exists
             let mut peek_msg: MSG = unsafe { std::mem::zeroed() };
@@ -1089,55 +1389,13 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
                 return;
             }
 
-            // Start liveness watchdog: sends WM_HOOK_LIVENESS_CHECK every 5s
-            let watchdog_tid = thread_id;
-            let _watchdog = std::thread::Builder::new()
-                .name("hotkey-watchdog".into())
-                .spawn(move || {
-                    loop {
-                        std::thread::sleep(std::time::Duration::from_secs(5));
-                        // Post a liveness check to the monitor thread
-                        let ok = unsafe {
-                            PostThreadMessageW(watchdog_tid, WM_HOOK_LIVENESS_CHECK, 0, 0)
-                        };
-                        if ok == 0 {
-                            break; // Monitor thread gone
-                        }
-                    }
-                });
-
-            // Message loop with hook auto-recovery
+            // Simple message loop — the hook callback is kept fast enough that
+            // Windows will not silently remove it.
             let mut message: MSG = unsafe { std::mem::zeroed() };
             loop {
                 let result = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
                 if result <= 0 {
                     break;
-                }
-
-                if message.message == WM_HOOK_LIVENESS_CHECK {
-                    // Check if hook is still alive by verifying recent callback activity.
-                    // If we haven't received any keyboard event in 10s, the hook was
-                    // likely removed by Windows due to timeout — reinstall it.
-                    let last = HOOK_LAST_CALLBACK_MS.load(Ordering::Acquire);
-                    let now = now_unix_ms();
-                    let stale = now.saturating_sub(last) > 10_000;
-
-                    // Also verify with GetAsyncKeyState — if keys are being pressed
-                    // but our hook isn't firing, it's definitely dead
-                    if stale {
-                        log::warn!("键盘钩子可能已被系统移除（{}ms 无回调），正在重新安装", now.saturating_sub(last));
-                        unsafe { UnhookWindowsHookEx(hook_handle) };
-                        match install_hook_on_thread() {
-                            Ok(new_hook) => {
-                                hook_handle = new_hook;
-                                log::info!("键盘钩子重新安装成功");
-                            }
-                            Err(e) => {
-                                log::error!("键盘钩子重新安装失败: {}", e);
-                            }
-                        }
-                    }
-                    continue;
                 }
 
                 unsafe {
@@ -1189,6 +1447,16 @@ fn build_hook_state(
     spec: HotkeySpec,
     trigger: RecordingTrigger,
 ) -> Arc<UnifiedHookState> {
+    let backend = classify_backend(&spec);
+    build_hook_state_with_backend(app_handle, spec, trigger, backend)
+}
+
+fn build_hook_state_with_backend(
+    app_handle: tauri::AppHandle,
+    spec: HotkeySpec,
+    trigger: RecordingTrigger,
+    backend: HotkeyBackend,
+) -> Arc<UnifiedHookState> {
     let key_down_count = match &spec {
         HotkeySpec::ModifierOnly { required_vks, .. } => required_vks.len(),
         HotkeySpec::Standard { .. } => 0,
@@ -1196,6 +1464,7 @@ fn build_hook_state(
 
     Arc::new(UnifiedHookState {
         app_handle,
+        backend,
         spec,
         trigger,
         gate: HotkeyEventGate::default(),
@@ -1210,15 +1479,25 @@ fn build_hook_state(
 
 #[cfg(target_os = "windows")]
 fn sync_hotkey_monitor_lifecycle(app_handle: tauri::AppHandle) -> Result<(), AppError> {
-    let has_hotkeys = {
+    let (has_llkh, _has_any) = {
         let guard = match unified_hook_state_slot().lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
-        !guard.is_empty()
+        let has_llkh = [
+            guard.dictation.as_ref(),
+            guard.translation.as_ref(),
+            guard.assistant.as_ref(),
+        ]
+        .iter()
+        .flatten()
+        .any(|s| s.backend == HotkeyBackend::LowLevelHook);
+        let has_any = !guard.is_empty();
+        (has_llkh, has_any)
     };
 
-    if has_hotkeys {
+    // Only install LLKH when at least one hotkey actually needs it
+    if has_llkh {
         ensure_unified_hotkey_monitor(app_handle)
     } else {
         stop_unified_hotkey_monitor();
@@ -1379,6 +1658,93 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
     }
 }
 
+/// Register a hotkey on the appropriate backend. Returns the backend label on success.
+#[cfg(target_os = "windows")]
+fn register_on_chosen_backend(
+    app_handle: &tauri::AppHandle,
+    kind: HotkeyKind,
+    chosen_backend: HotkeyBackend,
+    hook_state: Arc<UnifiedHookState>,
+    previous_state: Option<Arc<UnifiedHookState>>,
+    label: &str,
+) -> Result<&'static str, AppError> {
+    if chosen_backend == HotkeyBackend::RegisterHotKey {
+        if let HotkeySpec::Standard { modifiers, main_vk, .. } = &hook_state.spec {
+            let (mods_copy, vk_copy) = (*modifiers, *main_vk);
+            match register_via_reg_hotkey(kind, &mods_copy, vk_copy, hook_state.clone()) {
+                Ok(()) => {
+                    // Sync LLKH lifecycle — may stop hook if not needed by others
+                    let _ = sync_hotkey_monitor_lifecycle(app_handle.clone());
+                    return Ok("registerHotKey");
+                }
+                Err(reg_err) => {
+                    // RegisterHotKey failed — rebuild state with LowLevelHook backend
+                    // so the LLKH callback will process this hotkey.
+                    log::warn!(
+                        "RegisterHotKey 注册 {} 失败，回退到低层键盘钩子: {}",
+                        label,
+                        reg_err
+                    );
+                    let fallback_state = build_hook_state_with_backend(
+                        hook_state.app_handle.clone(),
+                        hook_state.spec.clone(),
+                        hook_state.trigger,
+                        HotkeyBackend::LowLevelHook,
+                    );
+                    set_unified_hook_state(kind, Some(fallback_state));
+                    // Fall through to LLKH path below
+                }
+            }
+        }
+    }
+
+    // LLKH path (either direct or fallback from RegisterHotKey failure)
+    if let Err(err) = sync_hotkey_monitor_lifecycle(app_handle.clone()) {
+        let _ = set_unified_hook_state(kind, previous_state);
+        let _ = sync_hotkey_monitor_lifecycle(app_handle.clone());
+        let now_ms = now_unix_ms();
+        update_hotkey_diagnostic(app_handle, |diagnostic| {
+            diagnostic.shortcut = label.to_string();
+            diagnostic.registered = false;
+            diagnostic.backend = "none".to_string();
+            diagnostic.is_pressed = false;
+            diagnostic.last_error = Some(err.to_string());
+            diagnostic.warning = hotkey_warning_message(label);
+            diagnostic.last_event = Some("error".to_string());
+            diagnostic.last_event_at_ms = Some(now_ms);
+        });
+        return Err(err);
+    }
+
+    Ok("lowLevelHook")
+}
+
+/// Try to register a hotkey via RegisterHotKey if its backend demands it.
+/// On failure, rebuilds state with LowLevelHook backend in the slot.
+#[cfg(target_os = "windows")]
+fn try_register_hotkey_backend(kind: HotkeyKind, state: &Arc<UnifiedHookState>) {
+    if state.backend != HotkeyBackend::RegisterHotKey {
+        return;
+    }
+    if let HotkeySpec::Standard { modifiers, main_vk, .. } = &state.spec {
+        let (mods_copy, vk_copy) = (*modifiers, *main_vk);
+        if let Err(e) = register_via_reg_hotkey(kind, &mods_copy, vk_copy, state.clone()) {
+            log::warn!(
+                "{} RegisterHotKey 失败，回退到 LLKH: {}",
+                state.spec.label(),
+                e
+            );
+            let fallback = build_hook_state_with_backend(
+                state.app_handle.clone(),
+                state.spec.clone(),
+                state.trigger,
+                HotkeyBackend::LowLevelHook,
+            );
+            set_unified_hook_state(kind, Some(fallback));
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
@@ -1409,7 +1775,14 @@ pub async fn register_custom_hotkey(
     let label = spec.label().to_string();
     ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Dictation, &label)?;
 
-    // Probe system-wide conflict before consuming spec
+    // Unregister from the previous backend BEFORE probing — otherwise our own
+    // RegisterHotKey registration would cause a false positive system conflict.
+    #[cfg(target_os = "windows")]
+    {
+        unregister_via_reg_hotkey(HotkeyKind::Dictation);
+    }
+
+    // Probe system-wide conflict
     #[cfg(target_os = "windows")]
     let system_conflict = probe_system_hotkey_conflict(&spec);
     #[cfg(not(target_os = "windows"))]
@@ -1423,37 +1796,38 @@ pub async fn register_custom_hotkey(
     let hook_state = build_hook_state(app_handle.clone(), spec, RecordingTrigger::DictationOriginal);
 
     #[cfg(target_os = "windows")]
-    let previous_state = set_unified_hook_state(HotkeyKind::Dictation, Some(hook_state));
+    let chosen_backend = hook_state.backend;
+
+    #[cfg(target_os = "windows")]
+    let previous_state =
+        set_unified_hook_state(HotkeyKind::Dictation, Some(hook_state.clone()));
 
     #[cfg(target_os = "windows")]
     if let Some(previous) = previous_state.as_ref() {
-        force_release_hotkey(&previous);
+        force_release_hotkey(previous);
     }
 
-    sync_hotkey_monitor_lifecycle(app_handle.clone()).inspect_err(|err| {
-        #[cfg(target_os = "windows")]
-        {
-            let _ = set_unified_hook_state(HotkeyKind::Dictation, previous_state.clone());
-            let _ = sync_hotkey_monitor_lifecycle(app_handle.clone());
-        }
-        let now_ms = now_unix_ms();
-        update_hotkey_diagnostic(&app_handle, |diagnostic| {
-            diagnostic.shortcut = label.clone();
-            diagnostic.registered = false;
-            diagnostic.backend = "lowLevelHook".to_string();
-            diagnostic.is_pressed = false;
-            diagnostic.last_error = Some(err.to_string());
-            diagnostic.warning = hotkey_warning_message(&label);
-            diagnostic.last_event = Some("error".to_string());
-            diagnostic.last_event_at_ms = Some(now_ms);
-        });
-    })?;
+    #[cfg(target_os = "windows")]
+    let backend_label = register_on_chosen_backend(
+        &app_handle,
+        HotkeyKind::Dictation,
+        chosen_backend,
+        hook_state,
+        previous_state,
+        &label,
+    )?;
+
+    #[cfg(not(target_os = "windows"))]
+    let backend_label = {
+        sync_hotkey_monitor_lifecycle(app_handle.clone())?;
+        "lowLevelHook"
+    };
 
     let now_ms = now_unix_ms();
     update_hotkey_diagnostic(&app_handle, |diagnostic| {
         diagnostic.shortcut = label.clone();
         diagnostic.registered = true;
-        diagnostic.backend = "lowLevelHook".to_string();
+        diagnostic.backend = backend_label.to_string();
         diagnostic.is_pressed = false;
         diagnostic.last_error = None;
         diagnostic.warning = hotkey_warning_message(&label);
@@ -1463,7 +1837,7 @@ pub async fn register_custom_hotkey(
         diagnostic.last_registered_at_ms = Some(now_ms);
     });
 
-    log::info!("自定义快捷键 {} 已注册（统一低层键盘钩子）", label);
+    log::info!("自定义快捷键 {} 已注册（{}）", label, backend_label);
     Ok(format!("快捷键 {} 已注册", label))
 }
 
@@ -1492,6 +1866,9 @@ pub(crate) fn register_translation_hotkey_inner(
 
     #[cfg(target_os = "windows")]
     {
+        // Unregister from previous backend first
+        unregister_via_reg_hotkey(HotkeyKind::Translation);
+
         let next_state = if let Some(shortcut) = shortcut {
             let spec = normalize_shortcut(&shortcut)?;
             ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Translation, spec.label())?;
@@ -1507,7 +1884,11 @@ pub(crate) fn register_translation_hotkey_inner(
         let previous_state = set_unified_hook_state(HotkeyKind::Translation, next_state.clone());
 
         if let Some(previous) = previous_state.as_ref() {
-            force_release_hotkey(&previous);
+            force_release_hotkey(previous);
+        }
+
+        if let Some(ref state) = next_state {
+            try_register_hotkey_backend(HotkeyKind::Translation, state);
         }
 
         if let Err(err) = sync_hotkey_monitor_lifecycle(app_handle.clone()) {
@@ -1550,6 +1931,9 @@ pub(crate) fn register_assistant_hotkey_inner(
 
     #[cfg(target_os = "windows")]
     {
+        // Unregister from previous backend first
+        unregister_via_reg_hotkey(HotkeyKind::Assistant);
+
         let next_state = if let Some(shortcut) = shortcut {
             let spec = normalize_shortcut(&shortcut)?;
             ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Assistant, spec.label())?;
@@ -1565,7 +1949,11 @@ pub(crate) fn register_assistant_hotkey_inner(
         let previous_state = set_unified_hook_state(HotkeyKind::Assistant, next_state.clone());
 
         if let Some(previous) = previous_state.as_ref() {
-            force_release_hotkey(&previous);
+            force_release_hotkey(previous);
+        }
+
+        if let Some(ref state) = next_state {
+            try_register_hotkey_backend(HotkeyKind::Assistant, state);
         }
 
         if let Err(err) = sync_hotkey_monitor_lifecycle(app_handle.clone()) {
@@ -1587,6 +1975,12 @@ pub(crate) fn register_assistant_hotkey_inner(
 pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<String, AppError> {
     #[cfg(target_os = "windows")]
     {
+        // Unregister from RegisterHotKey backend
+        unregister_via_reg_hotkey(HotkeyKind::Dictation);
+        unregister_via_reg_hotkey(HotkeyKind::Translation);
+        unregister_via_reg_hotkey(HotkeyKind::Assistant);
+
+        // Unregister from LLKH backend
         if let Some(previous) = set_unified_hook_state(HotkeyKind::Dictation, None) {
             force_release_hotkey(&previous);
         }
@@ -1598,6 +1992,8 @@ pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<Stri
         }
     }
     stop_unified_hotkey_monitor();
+    #[cfg(target_os = "windows")]
+    stop_reg_hotkey_backend();
 
     let now_ms = now_unix_ms();
     update_hotkey_diagnostic(&app_handle, |diagnostic| {
@@ -1624,12 +2020,54 @@ pub async fn set_recording_mode(
         let active_trigger = state.recording.lock().as_ref().map(RecordingSlot::trigger);
         if let Some(trigger) = active_trigger {
             handle_hotkey_stop(
-                _app_handle,
+                _app_handle.clone(),
                 "切换到按住模式，停止当前录音".to_string(),
                 trigger,
             );
         }
     }
+
+    // Mode change may require backend migration for all registered hotkeys.
+    // Re-register each active hotkey so classify_backend picks the right backend.
+    #[cfg(target_os = "windows")]
+    {
+        let bundle = get_unified_hook_states();
+        for (kind, state) in [
+            (HotkeyKind::Dictation, bundle.dictation.as_ref()),
+            (HotkeyKind::Translation, bundle.translation.as_ref()),
+            (HotkeyKind::Assistant, bundle.assistant.as_ref()),
+        ] {
+            if let Some(old_state) = state {
+                let new_backend = classify_backend(&old_state.spec);
+                if new_backend != old_state.backend {
+                    let label = old_state.spec.label().to_string();
+                    log::info!(
+                        "模式切换：{} 从 {:?} 迁移到 {:?}",
+                        label,
+                        old_state.backend,
+                        new_backend
+                    );
+
+                    // Unregister from old backend
+                    unregister_via_reg_hotkey(kind);
+
+                    // Rebuild state with new backend classification
+                    let new_state = build_hook_state(
+                        old_state.app_handle.clone(),
+                        old_state.spec.clone(),
+                        old_state.trigger,
+                    );
+
+                    force_release_hotkey(old_state);
+                    set_unified_hook_state(kind, Some(new_state.clone()));
+
+                    try_register_hotkey_backend(kind, &new_state);
+                }
+            }
+        }
+        let _ = sync_hotkey_monitor_lifecycle(_app_handle.clone());
+    }
+
     log::info!("录音模式已设置为: {}", if toggle { "切换" } else { "按住" });
     Ok(())
 }
