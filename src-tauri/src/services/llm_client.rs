@@ -71,7 +71,7 @@ pub fn build_llm_body(
         ApiFormat::Anthropic => serde_json::json!({
             "model": endpoint.model,
             "max_tokens": 4096,
-            "system": system_prompt,
+            "system": [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
             "messages": [{"role": "user", "content": anthropic_user_content(user_input)}],
             "stream": options.stream,
         }),
