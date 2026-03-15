@@ -1,13 +1,35 @@
 use std::path::PathBuf;
 use tauri::Manager;
 
-const APP_IDENTIFIER: &str = "com.light-whisper.app";
+const APP_IDENTIFIER: &str = "com.light-whisper.desktop";
+const LEGACY_APP_IDENTIFIER: &str = "com.light-whisper.app";
 const DEFAULT_LOCAL_ENGINE: &str = "local";
 
 pub fn get_data_dir() -> PathBuf {
     let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from(".light-whisper"));
-
     let app_dir = base.join(APP_IDENTIFIER);
+    let legacy_dir = base.join(LEGACY_APP_IDENTIFIER);
+
+    if !app_dir.exists() && legacy_dir.exists() {
+        match std::fs::rename(&legacy_dir, &app_dir) {
+            Ok(()) => {
+                log::info!(
+                    "已将历史数据目录迁移到新的应用标识目录: {} -> {}",
+                    legacy_dir.display(),
+                    app_dir.display()
+                );
+            }
+            Err(err) => {
+                log::warn!(
+                    "迁移历史数据目录失败，继续使用新目录: {} -> {} ({})",
+                    legacy_dir.display(),
+                    app_dir.display(),
+                    err
+                );
+            }
+        }
+    }
+
     let _ = std::fs::create_dir_all(&app_dir);
 
     app_dir

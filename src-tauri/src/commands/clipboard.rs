@@ -313,9 +313,9 @@ pub async fn paste_text_impl(
     {
         let _ = method;
 
-        write_text_to_clipboard(app_handle, text)?;
         crate::services::permissions_service::ensure_accessibility_permission_for_input().await?;
         crate::services::permissions_service::ensure_automation_permission_for_input().await?;
+        write_text_to_clipboard(app_handle, text)?;
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
 
         let output = tokio::process::Command::new("osascript")

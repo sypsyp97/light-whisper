@@ -19,7 +19,14 @@ interface StatusIndicatorProps {
 
 function getDeviceLabel(device: string, gpuName: string | null): string {
   if (device === "cloud") return "在线";
-  if (device === "cuda" || device === "gpu") return gpuName || "GPU";
+  if (
+    device === "cuda"
+    || device === "gpu"
+    || device === "apple-silicon"
+    || device === "metal"
+  ) {
+    return gpuName || "GPU";
+  }
   return "CPU";
 }
 

@@ -4,6 +4,7 @@
 
 import os
 import platform
+import re
 import subprocess
 import sys
 import traceback
@@ -27,6 +28,43 @@ class WhisperServer(BaseASRServer):
         self.model = None
         self._mlx_module = None
         self._last_load_error = None
+
+    def _preferred_language(self, duration: float) -> str | None:
+        override = os.environ.get("LIGHT_WHISPER_LOCAL_LANGUAGE", "").strip().lower()
+        if override:
+            return None if override == "auto" else override
+
+        # 中文听写是主场景。短音频的自动语言检测在 MLX Whisper 上非常容易误判成英文，
+        # 进而触发重复/幻觉，所以这里对短音频直接偏向中文。
+        if 0 < duration <= 1.2:
+            return "zh"
+
+        return None
+
+    def _build_initial_prompt(self, hot_words) -> str | None:
+        if hot_words and isinstance(hot_words, list) and len(hot_words) > 0:
+            glossary = ", ".join(hot_words[:100])
+            logger.info(f"MLX Whisper initial_prompt 注入 {len(hot_words)} 个热词")
+            return f"术语表：{glossary}。以下是普通话语音转写。"
+        return None
+
+    def _is_pathological_short_result(self, text: str, duration: float, language: str, elapsed: float) -> bool:
+        if duration <= 0 or duration > 1.2:
+            return False
+
+        normalized = re.sub(r"[\s，。,.!?！？:：;；\"'“”‘’\-\(\)\[\]{}]+", "", text or "")
+        if not normalized:
+            return False
+
+        # 典型短音频幻觉：极短音频却产出很长文本，或单个字符/短词重复很多次。
+        if len(normalized) >= 12 and len(set(normalized)) <= 3:
+            return True
+        if len(normalized) >= max(16, int(duration * 14)):
+            return True
+        if language == "en" and elapsed >= 6.0:
+            return True
+
+        return False
 
     def _get_model_repos(self) -> list:
         return LOCAL_MODEL_REPOS
@@ -74,7 +112,17 @@ class WhisperServer(BaseASRServer):
                 )
                 self._mlx_module = mx
             self._last_load_error = None
-            logger.info("MLX Whisper 模型加载完成")
+            try:
+                device = mx.default_device()
+                device_info = mx.device_info(device)
+                logger.info(
+                    "MLX Whisper 模型加载完成，默认设备: %s，device_name=%s，memory_size=%.1fGB",
+                    device,
+                    device_info.get("device_name", "unknown"),
+                    device_info.get("memory_size", 0) / (1024**3),
+                )
+            except Exception:
+                logger.info("MLX Whisper 模型加载完成")
             return True
         except Exception as e:
             self._last_load_error = str(e)
@@ -186,29 +234,29 @@ class WhisperServer(BaseASRServer):
                 logger.warning(f"音频过短 ({duration:.2f}秒)，跳过转录")
                 return {"success": True, "text": "", "duration": duration}
 
-            # 构建 initial_prompt（注入热词作为 Glossary）
-            initial_prompt = "Hello, welcome. 你好，欢迎。"
-            if hot_words and isinstance(hot_words, list) and len(hot_words) > 0:
-                glossary = ", ".join(hot_words[:100])
-                initial_prompt = f"Glossary: {glossary}. {initial_prompt}"
-                logger.info(f"MLX Whisper initial_prompt 注入 {len(hot_words)} 个热词")
+            initial_prompt = self._build_initial_prompt(hot_words)
+            preferred_language = self._preferred_language(duration)
+            decode_kwargs = {
+                "path_or_hf_repo": LOCAL_ASR_REPO_ID,
+                "verbose": None,
+                "initial_prompt": initial_prompt,
+                "condition_on_previous_text": False,
+                "no_speech_threshold": 0.45,
+                "compression_ratio_threshold": 1.8,
+                "logprob_threshold": -0.6,
+                "temperature": 0.0,
+                "fp16": True,
+            }
+            if preferred_language:
+                decode_kwargs["language"] = preferred_language
+                logger.info("本地 MLX 使用固定语言: %s", preferred_language)
 
             # 执行 MLX Whisper 转录
             asr_start = time.time()
             with self.stdout_suppressor.suppress():
                 from mlx_whisper import transcribe
 
-                result = transcribe(
-                    audio_input,
-                    path_or_hf_repo=LOCAL_ASR_REPO_ID,
-                    verbose=None,
-                    initial_prompt=initial_prompt,
-                    condition_on_previous_text=False,
-                    no_speech_threshold=0.6,
-                    compression_ratio_threshold=2.4,
-                    logprob_threshold=-1.0,
-                    fp16=True,
-                )
+                result = transcribe(audio_input, **decode_kwargs)
             asr_elapsed = time.time() - asr_start
 
             final_text = result.get("text", "").strip()
@@ -223,6 +271,47 @@ class WhisperServer(BaseASRServer):
                 ]
                 if logprobs:
                     avg_logprob = sum(logprobs) / len(logprobs)
+
+            if (
+                preferred_language is None
+                and self._is_pathological_short_result(
+                    final_text,
+                    duration,
+                    detected_language,
+                    asr_elapsed,
+                )
+            ):
+                logger.warning(
+                    "检测到短音频疑似幻觉结果，回退为中文固定语言重试: duration=%.2fs, language=%s, elapsed=%.2fs, text=%s",
+                    duration,
+                    detected_language,
+                    asr_elapsed,
+                    final_text[:80],
+                )
+                retry_start = time.time()
+                with self.stdout_suppressor.suppress():
+                    result = transcribe(
+                        audio_input,
+                        **{
+                            **decode_kwargs,
+                            "language": "zh",
+                            "initial_prompt": initial_prompt,
+                        },
+                    )
+                asr_elapsed = time.time() - retry_start
+                final_text = result.get("text", "").strip()
+                detected_language = result.get("language") or "zh"
+                segments = result.get("segments") or []
+                avg_logprob = 0.0
+                if segments:
+                    logprobs = [
+                        segment.get("avg_logprob")
+                        for segment in segments
+                        if isinstance(segment, dict) and isinstance(segment.get("avg_logprob"), (int, float))
+                    ]
+                    if logprobs:
+                        avg_logprob = sum(logprobs) / len(logprobs)
+                logger.info("短音频中文重试完成，耗时: %.2f秒", asr_elapsed)
 
             logger.info(
                 "本地 MLX 识别完成，耗时: %.2f秒，语言: %s，文本: %s...",

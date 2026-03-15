@@ -42,10 +42,10 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     serve_p = sub.add_parser("serve")
-    serve_p.add_argument("--engine", required=True, choices=["local", "sensevoice", "whisper"])
+    serve_p.add_argument("--engine", required=True, choices=["local"])
 
     dl_p = sub.add_parser("download")
-    dl_p.add_argument("--engine", required=True, choices=["local", "sensevoice", "whisper"])
+    dl_p.add_argument("--engine", required=True, choices=["local"])
 
     args = parser.parse_args()
 

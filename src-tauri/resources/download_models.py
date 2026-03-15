@@ -222,7 +222,7 @@ def main(engine=None):
     if engine is None:
         import argparse
         parser = argparse.ArgumentParser()
-        parser.add_argument("--engine", default="local", choices=["local", "sensevoice", "whisper"])
+        parser.add_argument("--engine", default="local", choices=["local"])
         args = parser.parse_args()
         engine = args.engine
 

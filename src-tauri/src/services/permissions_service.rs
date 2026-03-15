@@ -6,6 +6,8 @@ use core_foundation::{
 };
 #[cfg(target_os = "macos")]
 use core_foundation_sys::{base::Boolean, dictionary::CFDictionaryRef, string::CFStringRef};
+#[cfg(target_os = "macos")]
+use core_graphics::access::ScreenCaptureAccess;
 
 #[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
@@ -71,6 +73,33 @@ pub async fn ensure_automation_permission_for_input() -> Result<(), AppError> {
 
 #[cfg(not(target_os = "macos"))]
 pub async fn ensure_automation_permission_for_input() -> Result<(), AppError> {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub async fn ensure_screen_capture_permission_for_assistant() -> Result<(), AppError> {
+    let granted = tokio::task::spawn_blocking(|| {
+        let access = ScreenCaptureAccess;
+        if access.preflight() {
+            true
+        } else {
+            access.request()
+        }
+    })
+    .await
+    .map_err(|err| AppError::Other(format!("请求屏幕录制权限失败: {}", err)))?;
+
+    if granted {
+        return Ok(());
+    }
+
+    Err(AppError::Other(
+        "屏幕感知需要“屏幕录制”权限。系统已尝试弹出授权框，请在 系统设置 > 隐私与安全性 > 屏幕录制 中允许当前应用；授权后通常需要彻底退出并重新打开 app。".to_string(),
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub async fn ensure_screen_capture_permission_for_assistant() -> Result<(), AppError> {
     Ok(())
 }
 
