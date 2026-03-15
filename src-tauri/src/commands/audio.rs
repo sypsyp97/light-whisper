@@ -222,7 +222,12 @@ pub async fn start_recording(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<u64, AppError> {
-    start_recording_inner(app_handle, state.inner(), RecordingTrigger::DictationOriginal).await
+    start_recording_inner(
+        app_handle,
+        state.inner(),
+        RecordingTrigger::DictationOriginal,
+    )
+    .await
 }
 
 #[tauri::command]

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2 } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
@@ -66,8 +66,7 @@ const themeOptions = [
 ] as const;
 
 const engineOptions = [
-  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", desc: "中英日韩粤语" },
-  { key: "whisper", icon: Zap, label: "Faster Whisper", desc: "99+语言，速度快" },
+  { key: "local", icon: AudioLines, label: "本地 MLX", desc: "Apple Silicon 离线识别" },
   { key: "glm-asr", icon: Globe, label: "GLM-ASR", desc: "智谱在线语音识别" },
 ] as const;
 
@@ -235,7 +234,7 @@ export default function SettingsPage({
 }) {
   const { isDark, theme, setTheme } = useTheme();
   const { isRecording, retryModel, hotkeyDisplay, setHotkey, hotkeyError, hotkeyDiagnostic } = useRecordingContext();
-  const [engine, setEngineState] = useState<string>("sensevoice");
+  const [engine, setEngineState] = useState<string>("local");
   const [engineLoading, setEngineLoading] = useState(true);
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);
@@ -256,6 +255,7 @@ export default function SettingsPage({
   const [micLevel, setMicLevel] = useState(0);
   const [micMonitorReady, setMicMonitorReady] = useState(false);
   const [micLevelMonitorEnabled, setMicLevelMonitorEnabled] = useState(() => readLocalStorage(MIC_LEVEL_MONITOR_ENABLED_KEY) === "true");
+  const isMac = useMemo(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform) || /Mac OS X/i.test(navigator.userAgent), []);
   const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
     return readLocalStorage(INPUT_METHOD_KEY) === "clipboard"
       ? "clipboard"
@@ -1580,11 +1580,11 @@ export default function SettingsPage({
               <AudioLines size={15} className="icon-accent" />
               <h2 className="settings-section-title">识别引擎</h2>
             </div>
-            <div className="settings-grid-3">
+            <div className="settings-grid-2 engine-options-grid">
               {engineOptions.map(({ key, icon: Icon, label, desc }) => (
                 <button
                   key={key}
-                  className="theme-btn settings-option-btn"
+                  className="theme-btn settings-option-btn engine-option-btn"
                   aria-label={label}
                   aria-pressed={engine === key}
                   disabled={engineLoading}
@@ -1596,6 +1596,12 @@ export default function SettingsPage({
                 </button>
               ))}
             </div>
+            {engine === "local" && (
+              <p className="settings-hint" style={{ marginTop: 10 }}>
+                本地模型已切换为 MLX 版 Whisper，面向 Apple Silicon；首次使用会下载
+                `mlx-community/whisper-large-v3-turbo`。
+              </p>
+            )}
             {engine === "glm-asr" && (
               <div className="settings-column" style={{ gap: 8, marginTop: 8 }}>
                 <div className="settings-column" style={{ gap: 4 }}>
@@ -1936,6 +1942,11 @@ export default function SettingsPage({
                 </button>
               ))}
             </div>
+            {isMac && (
+              <p className="settings-hint" style={{ marginTop: 10 }}>
+                macOS 当前通过剪贴板加 `Command+V` 完成自动输入；首次使用请在系统设置里允许“辅助功能”，否则无法把结果输送到前台应用。
+              </p>
+            )}
             <div className="settings-row" style={{ marginTop: 6 }}>
               <span className="permission-label">录音提示音</span>
               <button
@@ -2430,6 +2441,11 @@ export default function SettingsPage({
                     <span className="settings-hint" style={{ margin: 0 }}>
                       开启后，助手会尝试把当前整屏截图一并发给模型；如果当前接口或模型不支持图片输入，会自动回退到纯文本并记住结果。
                     </span>
+                    {isMac && (
+                      <span className="settings-hint" style={{ margin: 0 }}>
+                        macOS 首次开启时还需要在“隐私与安全性 &gt; 屏幕录制”里授权；系统放行后通常需要彻底退出应用再重开一次。
+                      </span>
+                    )}
                   </div>
                 </div>
                 <button
@@ -2976,6 +2992,15 @@ export default function SettingsPage({
             <div className="permission-list">
               <div className="settings-row">
                 <div className="permission-item">
+                  <Mic size={14} className="icon-tertiary" />
+                  <span className="permission-label">麦克风</span>
+                </div>
+                <span className="settings-hint" style={{ margin: 0 }}>
+                  首次录音时系统会弹出授权；如果被拒绝，需要到系统设置里手动开启。
+                </span>
+              </div>
+              <div className="settings-row">
+                <div className="permission-item">
                   <Accessibility size={14} className="icon-tertiary" />
                   <span className="permission-label">辅助功能 / 粘贴</span>
                 </div>
@@ -2983,9 +3008,23 @@ export default function SettingsPage({
                   try {
                     await pasteText("测试粘贴", inputMethod);
                     toast.success("粘贴功能正常");
-                  } catch { toast.error("粘贴功能异常"); }
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : "粘贴功能异常";
+                    toast.error(message);
+                  }
                 }}>测试</button>
               </div>
+              {isMac && (
+                <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                  <div className="permission-item">
+                    <Monitor size={14} className="icon-tertiary" />
+                    <span className="permission-label">屏幕录制 / 字幕置顶</span>
+                  </div>
+                  <span className="settings-hint" style={{ margin: 0, flex: 1 }}>
+                    启用屏幕感知助手需要屏幕录制权限。字幕窗已改为常驻最前并跨 Space 显示；如果仍被全屏应用或舞台管理压住，先重新显示字幕，再检查系统窗口管理设置。
+                  </span>
+                </div>
+              )}
             </div>
           </section>
 

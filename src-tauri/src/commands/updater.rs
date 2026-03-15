@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::AppError;
 
-const GITHUB_RELEASE_API: &str = "https://api.github.com/repos/sypsyp97/light-whisper/releases/latest";
+const GITHUB_RELEASE_API: &str =
+    "https://api.github.com/repos/sypsyp97/light-whisper/releases/latest";
 const GITHUB_RELEASES_URL: &str = "https://github.com/sypsyp97/light-whisper/releases";
 const UPDATER_USER_AGENT: &str = concat!("light-whisper/", env!("CARGO_PKG_VERSION"));
 

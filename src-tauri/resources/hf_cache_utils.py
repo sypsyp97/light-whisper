@@ -6,12 +6,8 @@
 
 import os
 
-ASR_REPO_ID = "FunAudioLLM/SenseVoiceSmall"
-VAD_REPO_ID = "funasr/fsmn-vad"
-MODEL_REPOS = [ASR_REPO_ID, VAD_REPO_ID]
-
-WHISPER_REPO_ID = "deepdml/faster-whisper-large-v3-turbo-ct2"
-WHISPER_MODEL_REPOS = [WHISPER_REPO_ID]
+LOCAL_ASR_REPO_ID = "mlx-community/whisper-large-v3-turbo"
+LOCAL_MODEL_REPOS = [LOCAL_ASR_REPO_ID]
 
 _WEIGHT_EXTS = (".pt", ".bin", ".safetensors", ".onnx")
 _MIN_WEIGHT_SIZE = 1_000_000  # 与 Rust 端阈值一致

@@ -35,8 +35,8 @@ use crate::utils::AppError;
 
 /// 引擎运行模式
 pub enum EngineRuntime {
-    /// 生产模式：直接运行打包的 engine.exe
-    Bundled { exe_path: String },
+    /// 生产模式：直接运行打包的引擎可执行文件。
+    Bundled { executable_path: String },
     /// 开发模式：使用系统 Python 解释器 + .py 脚本
     Development { python_path: String },
 }
@@ -140,9 +140,7 @@ pub struct ModelCheckResult {
     pub missing_models: Vec<String>,
 }
 
-const ASR_REPO_ID: &str = "FunAudioLLM/SenseVoiceSmall";
-const VAD_REPO_ID: &str = "funasr/fsmn-vad";
-const WHISPER_REPO_ID: &str = "deepdml/faster-whisper-large-v3-turbo-ct2";
+const LOCAL_ASR_REPO_ID: &str = "mlx-community/whisper-large-v3-turbo";
 
 /// Python 服务器的 JSON 响应
 ///
@@ -349,22 +347,24 @@ where
 /// 查找引擎运行时
 ///
 /// 按优先级：
-/// 1. 已解压到数据目录的 engine.exe（版本匹配时直接复用）
+/// 1. 已解压到数据目录的 engine 可执行文件（版本匹配时直接复用）
 /// 2. 未解压的引擎归档（engine.tar.xz / 兼容 engine.zip）→ 解压后使用
-/// 3. 资源目录中的 engine.exe（开发时直接放置 python-dist）
+/// 3. 资源目录中的 engine（开发时直接放置 python-dist）
 /// 4. 系统 Python（开发模式）
 pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime, AppError> {
     let expected_fingerprint = expected_engine_install_fingerprint(app_handle);
 
-    // 策略1：已解压的 engine.exe（版本匹配时使用）
-    if let Some(engine_path) = paths::get_engine_exe_path(app_handle) {
+    // 策略1：已解压的 engine 可执行文件（版本匹配时使用）
+    if let Some(engine_path) = paths::get_engine_executable_path(app_handle) {
         let version_file = paths::get_engine_dir().join(".version");
         let installed_version = std::fs::read_to_string(&version_file).unwrap_or_default();
 
         if installed_version.trim() == expected_fingerprint {
             let path_str = paths::strip_win_prefix(&engine_path);
             log::info!("找到引擎: {} ({})", path_str, expected_fingerprint);
-            return Ok(EngineRuntime::Bundled { exe_path: path_str });
+            return Ok(EngineRuntime::Bundled {
+                executable_path: path_str,
+            });
         }
 
         log::info!(
@@ -380,14 +380,18 @@ pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime,
         let engine_exe = extract_engine_archive(&archive_path, app_handle).await?;
         let path_str = paths::strip_win_prefix(&engine_exe);
         log::info!("引擎解压完成: {}", path_str);
-        return Ok(EngineRuntime::Bundled { exe_path: path_str });
+        return Ok(EngineRuntime::Bundled {
+            executable_path: path_str,
+        });
     }
 
-    // 策略3：资源目录中的 engine.exe（开发时直接 PyInstaller 输出）
-    if let Some(engine_path) = paths::get_resource_engine_exe_path(app_handle) {
+    // 策略3：资源目录中的 engine（开发时直接 PyInstaller 输出）
+    if let Some(engine_path) = paths::get_resource_engine_executable_path(app_handle) {
         let path_str = paths::strip_win_prefix(&engine_path);
         log::info!("找到资源目录引擎: {}", path_str);
-        return Ok(EngineRuntime::Bundled { exe_path: path_str });
+        return Ok(EngineRuntime::Bundled {
+            executable_path: path_str,
+        });
     }
 
     // 策略4：开发模式
@@ -442,7 +446,11 @@ async fn extract_engine_archive(
         let _ = std::fs::write(engine_dir.join(".version"), fingerprint);
 
         log::info!("引擎解压完成: {} 个条目", total);
-        Ok(engine_dir.join("engine.exe"))
+        Ok(engine_dir.join(if cfg!(target_os = "windows") {
+            "engine.exe"
+        } else {
+            "engine"
+        }))
     })
     .await
     .map_err(|e| AppError::Asr(format!("解压任务异常: {}", e)))?
@@ -576,21 +584,38 @@ async fn find_python() -> Result<String, AppError> {
     }
 
     for venv_dir in &venv_candidates {
-        let venv_python = venv_dir.join("Scripts").join("python.exe");
+        let candidates = if cfg!(target_os = "windows") {
+            vec![venv_dir.join("Scripts").join("python.exe")]
+        } else {
+            vec![
+                venv_dir.join("bin").join("python3"),
+                venv_dir.join("bin").join("python"),
+            ]
+        };
 
-        if tokio::fs::try_exists(&venv_python).await.unwrap_or(false) {
-            let path_str = to_normalized_path(&venv_python);
-            log::info!("找到虚拟环境 Python: {}", path_str);
-            return Ok(path_str);
+        for venv_python in candidates {
+            if tokio::fs::try_exists(&venv_python).await.unwrap_or(false) {
+                let path_str = to_normalized_path(&venv_python);
+                log::info!("找到虚拟环境 Python: {}", path_str);
+                return Ok(path_str);
+            }
         }
     }
 
     // ---- 策略2：在系统 PATH 中搜索 ----
-    // 尝试多个可能的 Python 命令名
-    let python_names = vec!["python.exe", "python3.exe", "python"];
+    let python_names: Vec<&str> = if cfg!(target_os = "windows") {
+        vec!["python.exe", "python3.exe", "python"]
+    } else {
+        vec!["python3", "python"]
+    };
+    let locator = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
 
     for name in &python_names {
-        let check_cmd = Command::new("where").arg(name).output().await;
+        let check_cmd = Command::new(locator).arg(name).output().await;
 
         if let Ok(output) = check_cmd {
             if output.status.success() {
@@ -700,19 +725,15 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     // 构建子进程命令
     let data_dir = paths::strip_win_prefix(&paths::get_data_dir());
     let mut cmd = match &runtime {
-        EngineRuntime::Bundled { exe_path } => {
-            log::info!("使用打包引擎: {} (engine={})", exe_path, engine);
-            let mut c = Command::new(exe_path);
+        EngineRuntime::Bundled { executable_path } => {
+            log::info!("使用打包引擎: {} (engine={})", executable_path, engine);
+            let mut c = Command::new(executable_path);
             c.arg("serve").arg("--engine").arg(&engine);
             c
         }
         EngineRuntime::Development { python_path } => {
             log::info!("使用开发模式 Python: {}", python_path);
-            let server_script = if engine == "whisper" {
-                paths::get_whisper_server_path(app_handle)
-            } else {
-                paths::get_funasr_server_path(app_handle)
-            };
+            let server_script = paths::get_local_asr_server_path(app_handle);
             let server_script_str = paths::strip_win_prefix(&server_script);
             log::info!(
                 "语音识别脚本路径 (engine={}): {}",
@@ -1419,12 +1440,7 @@ fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool 
     false
 }
 
-/// 检查模型文件是否已下载
-///
-/// 检查 HuggingFace 缓存中是否存在 SenseVoiceSmall 相关模型：
-/// - `FunAudioLLM/SenseVoiceSmall` + `funasr/fsmn-vad`
-///
-/// 注：SenseVoiceSmall 内置 ITN 标点恢复，不再需要独立的 ct-punc 模型
+/// 检查模型文件是否已下载。
 fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
     if paths::is_online_engine(&engine) {
         return ModelCheckResult {
@@ -1441,40 +1457,21 @@ fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
     let cache_root = get_hf_cache_root();
     let cache_path = cache_root.to_string_lossy().to_string();
 
-    if engine == "whisper" {
-        // Whisper 引擎：只需检查一个模型仓库，内置 VAD 和标点
-        let mut missing_models = Vec::new();
-        let asr_present =
-            report_model_repo_state(WHISPER_REPO_ID, "Whisper ASR模型", &mut missing_models);
+    let mut missing_models = Vec::new();
+    let asr_present = report_model_repo_state(
+        LOCAL_ASR_REPO_ID,
+        "本地 MLX Whisper 模型",
+        &mut missing_models,
+    );
 
-        ModelCheckResult {
-            all_present: asr_present,
-            asr_model: asr_present,
-            vad_model: true,  // Whisper 内置 Silero VAD
-            punc_model: true, // Whisper 内置标点
-            engine: "whisper".to_string(),
-            cache_path,
-            missing_models,
-        }
-    } else {
-        // SenseVoice 引擎：检查 ASR + VAD 模型
-        let mut missing_models = Vec::new();
-        let asr_present =
-            report_model_repo_state(ASR_REPO_ID, "ASR语音识别模型", &mut missing_models);
-        let vad_present =
-            report_model_repo_state(VAD_REPO_ID, "VAD语音活动检测模型", &mut missing_models);
-
-        let all_present = asr_present && vad_present;
-
-        ModelCheckResult {
-            all_present,
-            asr_model: asr_present,
-            vad_model: vad_present,
-            punc_model: true, // SenseVoiceSmall 内置 ITN，无需独立标点模型
-            engine: "sensevoice".to_string(),
-            cache_path,
-            missing_models,
-        }
+    ModelCheckResult {
+        all_present: asr_present,
+        asr_model: asr_present,
+        vad_model: true,
+        punc_model: true,
+        engine: engine.to_string(),
+        cache_path,
+        missing_models,
     }
 }
 

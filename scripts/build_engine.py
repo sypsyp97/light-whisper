@@ -4,7 +4,7 @@
 自动化 PyInstaller 构建脚本。
 
 流程：
-1. PyInstaller --onedir 构建 engine.exe
+1. PyInstaller --onedir 构建 engine 可执行文件
 2. 删除可安全裁剪的可选 CUDA DLL 和开发期库文件
 3. 压缩为 engine.tar.xz（适配 NSIS 2GB 限制）
 4. 输出到 src-tauri/resources/engine.tar.xz
@@ -37,15 +37,16 @@ ADD_DATA_FILES = [
 ]
 
 HIDDEN_IMPORTS = [
-    "funasr",
-    "funasr.utils.postprocess_utils",
-    "faster_whisper",
-    "ctranslate2",
+    "mlx",
+    "mlx.core",
+    "mlx._reprlib_fix",
+    "mlx.nn",
+    "mlx.utils",
+    "mlx_whisper",
+    "mlx_whisper.audio",
+    "mlx_whisper.transcribe",
     "requests",
     "certifi",
-    "torch",
-    "torchaudio",
-    "transformers",
     "librosa",
     "numpy",
     "scipy",
@@ -59,8 +60,8 @@ HIDDEN_IMPORTS = [
 # 需要完整收集的包（子模块 + 数据文件）
 # funasr 用 pkgutil.walk_packages 动态注册所有模型类，必须收集全部子模块
 COLLECT_ALL = [
-    "funasr",
-    "faster_whisper",
+    "mlx",
+    "mlx_whisper",
 ]
 
 EXCLUDE_MODULES = [
@@ -100,6 +101,7 @@ def find_7z_executable() -> str | None:
     candidates = [
         os.environ.get("SEVEN_ZIP"),
         shutil.which("7z"),
+        shutil.which("7zz"),
         r"C:\Program Files\7-Zip\7z.exe",
         r"C:\Program Files (x86)\7-Zip\7z.exe",
     ]
@@ -182,6 +184,8 @@ def strip_dev_artifacts(engine_dir: Path) -> float:
 
 def validate_torch_cuda_deps(engine_dir: Path) -> None:
     """校验 torch_cuda.dll 的直接 CUDA 依赖仍然存在。"""
+    if sys.platform != "win32":
+        return
     try:
         import pefile
     except ImportError:
@@ -305,7 +309,7 @@ def main():
         "--specpath", str(spec_dir),
     ]
 
-    if WINDOWS_MANIFEST.exists():
+    if sys.platform == "win32" and WINDOWS_MANIFEST.exists():
         cmd.extend(["--manifest", str(WINDOWS_MANIFEST)])
 
     for filename in ADD_DATA_FILES:

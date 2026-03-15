@@ -6,30 +6,30 @@ use crate::state::{AppState, RecordingSlot, RecordingTrigger};
 use crate::utils::AppError;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    OnceLock,
+    Arc, Mutex, OnceLock,
 };
-#[cfg(target_os = "windows")]
-use std::sync::{Arc, Mutex};
 #[cfg(target_os = "windows")]
 use std::thread::JoinHandle;
 use tauri::{Emitter, Manager};
+#[cfg(not(target_os = "windows"))]
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    RegisterHotKey, UnregisterHotKey, VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1,
-    VK_HOME, VK_INSERT, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR,
-    VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
-    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+    RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+    VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT, VK_LCONTROL,
+    VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RETURN, VK_RIGHT,
+    VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
     SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG,
-    PM_NOREMOVE, WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_NULL, WM_QUIT,
-    WM_SYSKEYDOWN, WM_SYSKEYUP,
+    PM_NOREMOVE, WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_NULL, WM_QUIT, WM_SYSKEYDOWN,
+    WM_SYSKEYUP,
 };
 
 const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
@@ -45,6 +45,7 @@ static IGNORED_INJECTED_COUNT: AtomicU64 = AtomicU64::new(0);
 // HotkeyBackend — selects between RegisterHotKey and low-level hook
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HotkeyBackend {
     /// Standard Windows RegisterHotKey — most stable, toggle-only
@@ -53,6 +54,7 @@ enum HotkeyBackend {
     LowLevelHook,
 }
 
+#[cfg(target_os = "windows")]
 fn classify_backend(spec: &HotkeySpec) -> HotkeyBackend {
     if is_toggle_mode() {
         match spec {
@@ -166,13 +168,16 @@ enum HotkeySpec {
     /// Pure modifier-key combination (e.g. Ctrl+Win, Alt alone)
     ModifierOnly {
         label: String,
+        #[cfg(target_os = "windows")]
         required_vks: Vec<u16>,
     },
     /// Modifier(s) + a main key (e.g. F2, Ctrl+Space)
     Standard {
         label: String,
         modifiers: ShortcutModifiers,
+        #[cfg(target_os = "windows")]
         main_vk: u16,
+        main_key: String,
     },
 }
 
@@ -183,6 +188,14 @@ impl HotkeySpec {
             Self::Standard { label, .. } => label,
         }
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+struct UnifiedHookState {
+    app_handle: tauri::AppHandle,
+    spec: HotkeySpec,
+    trigger: RecordingTrigger,
+    gate: HotkeyEventGate,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -217,7 +230,6 @@ fn reset_hotkey_event_gate(gate: &HotkeyEventGate) {
     gate.toggle_active.store(false, Ordering::Release);
 }
 
-#[cfg(target_os = "windows")]
 fn reset_hotkey_gate_for_trigger(trigger: RecordingTrigger) {
     let guard = match unified_hook_state_slot().lock() {
         Ok(g) => g,
@@ -232,9 +244,6 @@ fn reset_hotkey_gate_for_trigger(trigger: RecordingTrigger) {
         reset_hotkey_event_gate(&state.gate);
     }
 }
-
-#[cfg(not(target_os = "windows"))]
-fn reset_hotkey_gate_for_trigger(_trigger: RecordingTrigger) {}
 
 // ---------------------------------------------------------------------------
 // Toggle mode — persisted as a static AtomicBool
@@ -285,36 +294,27 @@ fn ensure_hotkey_not_conflicting(
     kind: HotkeyKind,
     candidate_label: &str,
 ) -> Result<(), AppError> {
-    #[cfg(target_os = "windows")]
-    {
-        let guard = match unified_hook_state_slot().lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        for (other_kind, state) in [
-            (HotkeyKind::Dictation, guard.dictation.as_ref()),
-            (HotkeyKind::Translation, guard.translation.as_ref()),
-            (HotkeyKind::Assistant, guard.assistant.as_ref()),
-        ] {
-            if other_kind == kind {
-                continue;
-            }
-            if let Some(state) = state {
-                if state.spec.label() == candidate_label {
-                    return Err(AppError::Other(format!(
-                        "快捷键 {} 已被{}热键占用，请使用不同的组合键",
-                        candidate_label,
-                        hotkey_kind_label(other_kind)
-                    )));
-                }
+    let guard = match unified_hook_state_slot().lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    for (other_kind, state) in [
+        (HotkeyKind::Dictation, guard.dictation.as_ref()),
+        (HotkeyKind::Translation, guard.translation.as_ref()),
+        (HotkeyKind::Assistant, guard.assistant.as_ref()),
+    ] {
+        if other_kind == kind {
+            continue;
+        }
+        if let Some(state) = state {
+            if state.spec.label() == candidate_label {
+                return Err(AppError::Other(format!(
+                    "快捷键 {} 已被{}热键占用，请使用不同的组合键",
+                    candidate_label,
+                    hotkey_kind_label(other_kind)
+                )));
             }
         }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = kind;
-        let _ = candidate_label;
     }
 
     Ok(())
@@ -464,10 +464,9 @@ fn dispatch_hotkey_press(
         .lock()
         .as_ref()
         .map(RecordingSlot::trigger);
-    let allow_toggle_stop =
-        is_toggle_mode()
-            && gate.toggle_active.load(Ordering::Acquire)
-            && active_trigger == Some(trigger);
+    let allow_toggle_stop = is_toggle_mode()
+        && gate.toggle_active.load(Ordering::Acquire)
+        && active_trigger == Some(trigger);
 
     if active_trigger.is_some() && !allow_toggle_stop {
         log::debug!(
@@ -597,7 +596,6 @@ struct UnifiedHookState {
     modifier_leaked: AtomicBool,
 }
 
-#[cfg(target_os = "windows")]
 #[derive(Default, Clone)]
 struct UnifiedHookBundle {
     dictation: Option<Arc<UnifiedHookState>>,
@@ -619,13 +617,11 @@ enum HotkeyKind {
     Assistant,
 }
 
-#[cfg(target_os = "windows")]
 fn unified_hook_state_slot() -> &'static Mutex<UnifiedHookBundle> {
     static SLOT: OnceLock<Mutex<UnifiedHookBundle>> = OnceLock::new();
     SLOT.get_or_init(|| Mutex::new(UnifiedHookBundle::default()))
 }
 
-#[cfg(target_os = "windows")]
 fn set_unified_hook_state(
     kind: HotkeyKind,
     state: Option<Arc<UnifiedHookState>>,
@@ -815,10 +811,14 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
     let vk = keyboard.vkCode;
 
     let mut swallow = false;
-    for state in [bundle.dictation.as_ref(), bundle.translation.as_ref(), bundle.assistant.as_ref()]
-        .into_iter()
-        .flatten()
-        .filter(|s| s.backend == HotkeyBackend::LowLevelHook)
+    for state in [
+        bundle.dictation.as_ref(),
+        bundle.translation.as_ref(),
+        bundle.assistant.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|s| s.backend == HotkeyBackend::LowLevelHook)
     {
         swallow |= match &state.spec {
             HotkeySpec::ModifierOnly {
@@ -829,6 +829,7 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
                 label,
                 modifiers,
                 main_vk,
+                ..
             } => handle_standard_event(state, vk, is_key_down, label, modifiers, *main_vk),
         };
     }
@@ -1034,8 +1035,7 @@ enum RegHotkeyCmd {
 }
 
 #[cfg(target_os = "windows")]
-fn reg_hotkey_cmd_channel(
-) -> &'static (
+fn reg_hotkey_cmd_channel() -> &'static (
     std::sync::mpsc::Sender<RegHotkeyCmd>,
     Mutex<std::sync::mpsc::Receiver<RegHotkeyCmd>>,
 ) {
@@ -1112,8 +1112,7 @@ fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
 
             // Ensure message queue exists
             let mut peek_msg: MSG = unsafe { std::mem::zeroed() };
-            let _ =
-                unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
+            let _ = unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
 
             if ready_tx.send(Ok(thread_id)).is_err() {
                 return;
@@ -1168,10 +1167,8 @@ fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
                                         let _ = result_tx.send(Ok(()));
                                     } else {
                                         let err = std::io::Error::last_os_error();
-                                        let _ = result_tx.send(Err(format!(
-                                            "RegisterHotKey 失败: {}",
-                                            err
-                                        )));
+                                        let _ = result_tx
+                                            .send(Err(format!("RegisterHotKey 失败: {}", err)));
                                     }
                                 }
                                 RegHotkeyCmd::Unregister { id } => {
@@ -1258,11 +1255,9 @@ fn register_via_reg_hotkey(
 /// Unregister a hotkey from the RegisterHotKey backend.
 #[cfg(target_os = "windows")]
 fn unregister_via_reg_hotkey(kind: HotkeyKind) {
-    let _ = reg_hotkey_cmd_channel()
-        .0
-        .send(RegHotkeyCmd::Unregister {
-            id: hotkey_kind_to_reg_id(kind),
-        });
+    let _ = reg_hotkey_cmd_channel().0.send(RegHotkeyCmd::Unregister {
+        id: hotkey_kind_to_reg_id(kind),
+    });
 
     let tid = {
         let guard = match reg_backend_slot().lock() {
@@ -1331,6 +1326,7 @@ fn stop_unified_hotkey_monitor() {}
 /// HHOOK is *mut c_void in windows-sys
 type HookHandle = *mut std::ffi::c_void;
 
+#[cfg(target_os = "windows")]
 fn install_hook_on_thread() -> Result<HookHandle, String> {
     let module = unsafe { GetModuleHandleW(std::ptr::null()) };
     let hook = unsafe {
@@ -1421,7 +1417,6 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
 fn force_release_hotkey(state: &UnifiedHookState) {
     let label = state.spec.label();
     dispatch_hotkey_release(
@@ -1434,13 +1429,6 @@ fn force_release_hotkey(state: &UnifiedHookState) {
     reset_hotkey_event_gate(&state.gate);
 }
 
-#[cfg(not(target_os = "windows"))]
-fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), AppError> {
-    Err(AppError::Other(
-        "当前系统暂不支持低层键盘钩子热键".to_string(),
-    ))
-}
-
 #[cfg(target_os = "windows")]
 fn build_hook_state(
     app_handle: tauri::AppHandle,
@@ -1451,6 +1439,21 @@ fn build_hook_state(
     build_hook_state_with_backend(app_handle, spec, trigger, backend)
 }
 
+#[cfg(not(target_os = "windows"))]
+fn build_hook_state(
+    app_handle: tauri::AppHandle,
+    spec: HotkeySpec,
+    trigger: RecordingTrigger,
+) -> Arc<UnifiedHookState> {
+    Arc::new(UnifiedHookState {
+        app_handle,
+        spec,
+        trigger,
+        gate: HotkeyEventGate::default(),
+    })
+}
+
+#[cfg(target_os = "windows")]
 fn build_hook_state_with_backend(
     app_handle: tauri::AppHandle,
     spec: HotkeySpec,
@@ -1503,11 +1506,6 @@ fn sync_hotkey_monitor_lifecycle(app_handle: tauri::AppHandle) -> Result<(), App
         stop_unified_hotkey_monitor();
         Ok(())
     }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn sync_hotkey_monitor_lifecycle(app_handle: tauri::AppHandle) -> Result<(), AppError> {
-    ensure_unified_hotkey_monitor(app_handle)
 }
 
 // ---------------------------------------------------------------------------
@@ -1572,6 +1570,52 @@ fn modifiers_to_required_vks(mods: &ShortcutModifiers) -> Vec<u16> {
     vks
 }
 
+fn normalize_main_key_label(main_key: &str) -> Result<String, AppError> {
+    let normalized = match main_key.to_ascii_lowercase().as_str() {
+        "escape" | "esc" => "Escape".to_string(),
+        "enter" | "return" => "Enter".to_string(),
+        "tab" => "Tab".to_string(),
+        "space" => "Space".to_string(),
+        "backspace" => "Backspace".to_string(),
+        "delete" | "del" => "Delete".to_string(),
+        "insert" | "ins" => "Insert".to_string(),
+        "home" => "Home".to_string(),
+        "end" => "End".to_string(),
+        "pageup" | "pgup" => "PageUp".to_string(),
+        "pagedown" | "pgdn" => "PageDown".to_string(),
+        "arrowup" | "up" => "ArrowUp".to_string(),
+        "arrowdown" | "down" => "ArrowDown".to_string(),
+        "arrowleft" | "left" => "ArrowLeft".to_string(),
+        "arrowright" | "right" => "ArrowRight".to_string(),
+        _ if main_key.len() == 1 => {
+            let byte = main_key.as_bytes()[0];
+            if byte.is_ascii_alphanumeric() {
+                (byte as char).to_ascii_uppercase().to_string()
+            } else {
+                return Err(AppError::Other(format!("无法识别的按键：{}", main_key)));
+            }
+        }
+        _ if main_key.len() >= 2
+            && main_key
+                .chars()
+                .next()
+                .is_some_and(|ch| ch == 'f' || ch == 'F') =>
+        {
+            let suffix = &main_key[1..];
+            let index = suffix
+                .parse::<u16>()
+                .map_err(|_| AppError::Other(format!("无法识别的按键：{}", main_key)))?;
+            if !(1..=24).contains(&index) {
+                return Err(AppError::Other(format!("无法识别的按键：{}", main_key)));
+            }
+            format!("F{}", index)
+        }
+        _ => return Err(AppError::Other(format!("无法识别的按键：{}", main_key))),
+    };
+
+    Ok(normalized)
+}
+
 // ---------------------------------------------------------------------------
 // normalize_shortcut → HotkeySpec
 // ---------------------------------------------------------------------------
@@ -1621,19 +1665,20 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
     }
 
     if let Some(ref mk) = main_key {
-        label_parts.push(mk);
+        let normalized_main_key = normalize_main_key_label(mk)?;
+        label_parts.push(normalized_main_key.as_str());
 
         #[cfg(target_os = "windows")]
-        let main_vk = parse_main_key_to_vk(mk)
+        let main_vk = parse_main_key_to_vk(&normalized_main_key)
             .ok_or_else(|| AppError::Other(format!("无法识别的按键：{}", mk)))?;
-        #[cfg(not(target_os = "windows"))]
-        let main_vk = 0u16;
 
         let label = label_parts.join("+");
         Ok(HotkeySpec::Standard {
             label,
             modifiers,
+            #[cfg(target_os = "windows")]
             main_vk,
+            main_key: normalized_main_key,
         })
     } else {
         // Pure modifier-only hotkey
@@ -1647,15 +1692,94 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
 
         #[cfg(target_os = "windows")]
         let required_vks = modifiers_to_required_vks(&modifiers);
-        #[cfg(not(target_os = "windows"))]
-        let required_vks = Vec::new();
 
         let label = label_parts.join("+");
         Ok(HotkeySpec::ModifierOnly {
             label,
+            #[cfg(target_os = "windows")]
             required_vks,
         })
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn shortcut_to_plugin_accelerator(spec: &HotkeySpec) -> Result<String, AppError> {
+    match spec {
+        HotkeySpec::ModifierOnly { label, .. } => Err(AppError::Other(format!(
+            "快捷键 {} 在 macOS 上暂不支持仅修饰键触发，请至少加一个主键，例如 Ctrl+Shift+R",
+            label
+        ))),
+        HotkeySpec::Standard {
+            modifiers,
+            main_key,
+            ..
+        } => {
+            let mut parts = Vec::with_capacity(5);
+            if modifiers.ctrl {
+                parts.push("Ctrl".to_string());
+            }
+            if modifiers.alt {
+                parts.push("Alt".to_string());
+            }
+            if modifiers.shift {
+                parts.push("Shift".to_string());
+            }
+            if modifiers.super_key {
+                parts.push("Super".to_string());
+            }
+            parts.push(main_key.clone());
+            Ok(parts.join("+"))
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unregister_plugin_hotkey(app_handle: &tauri::AppHandle, state: &UnifiedHookState) {
+    let Ok(shortcut) = shortcut_to_plugin_accelerator(&state.spec) else {
+        return;
+    };
+    if let Err(err) = app_handle.global_shortcut().unregister(shortcut.as_str()) {
+        log::debug!("注销快捷键 {} 失败（忽略）: {}", shortcut, err);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn register_plugin_hotkey(
+    app_handle: &tauri::AppHandle,
+    state: Arc<UnifiedHookState>,
+) -> Result<(), AppError> {
+    let shortcut = shortcut_to_plugin_accelerator(&state.spec)?;
+    let label = state.spec.label().to_string();
+    let pressed_log = format!("{} 按下，开始录音", label);
+    let released_log = format!("{} 松开，停止录音", label);
+    let handler_state = state.clone();
+
+    app_handle
+        .global_shortcut()
+        .on_shortcut(
+            shortcut.as_str(),
+            move |app, _shortcut, event| match event.state {
+                ShortcutState::Pressed => {
+                    dispatch_hotkey_press(
+                        app,
+                        &handler_state.gate,
+                        handler_state.trigger,
+                        &pressed_log,
+                        handler_state.spec.label(),
+                    );
+                }
+                ShortcutState::Released => {
+                    dispatch_hotkey_release(
+                        app,
+                        &handler_state.gate,
+                        handler_state.trigger,
+                        &released_log,
+                        handler_state.spec.label(),
+                    );
+                }
+            },
+        )
+        .map_err(|err| AppError::Other(format!("注册快捷键 {} 失败: {}", label, err)))
 }
 
 /// Register a hotkey on the appropriate backend. Returns the backend label on success.
@@ -1669,7 +1793,10 @@ fn register_on_chosen_backend(
     label: &str,
 ) -> Result<&'static str, AppError> {
     if chosen_backend == HotkeyBackend::RegisterHotKey {
-        if let HotkeySpec::Standard { modifiers, main_vk, .. } = &hook_state.spec {
+        if let HotkeySpec::Standard {
+            modifiers, main_vk, ..
+        } = &hook_state.spec
+        {
             let (mods_copy, vk_copy) = (*modifiers, *main_vk);
             match register_via_reg_hotkey(kind, &mods_copy, vk_copy, hook_state.clone()) {
                 Ok(()) => {
@@ -1726,7 +1853,10 @@ fn try_register_hotkey_backend(kind: HotkeyKind, state: &Arc<UnifiedHookState>) 
     if state.backend != HotkeyBackend::RegisterHotKey {
         return;
     }
-    if let HotkeySpec::Standard { modifiers, main_vk, .. } = &state.spec {
+    if let HotkeySpec::Standard {
+        modifiers, main_vk, ..
+    } = &state.spec
+    {
         let (mods_copy, vk_copy) = (*modifiers, *main_vk);
         if let Err(e) = register_via_reg_hotkey(kind, &mods_copy, vk_copy, state.clone()) {
             log::warn!(
@@ -1743,6 +1873,47 @@ fn try_register_hotkey_backend(kind: HotkeyKind, state: &Arc<UnifiedHookState>) 
             set_unified_hook_state(kind, Some(fallback));
         }
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn update_non_windows_hotkey(
+    app_handle: tauri::AppHandle,
+    kind: HotkeyKind,
+    trigger: RecordingTrigger,
+    shortcut: Option<String>,
+    success_prefix: &str,
+) -> Result<String, AppError> {
+    let next_state = if let Some(shortcut) = shortcut {
+        let spec = normalize_shortcut(&shortcut)?;
+        ensure_hotkey_not_conflicting(&app_handle, kind, spec.label())?;
+        Some(build_hook_state(app_handle.clone(), spec, trigger))
+    } else {
+        None
+    };
+
+    let previous_state = set_unified_hook_state(kind, next_state.clone());
+
+    if let Some(previous) = previous_state.as_ref() {
+        unregister_plugin_hotkey(&app_handle, previous);
+        force_release_hotkey(previous);
+    }
+
+    if let Some(ref state) = next_state {
+        if let Err(err) = register_plugin_hotkey(&app_handle, state.clone()) {
+            let _ = set_unified_hook_state(kind, previous_state.clone());
+            if let Some(previous) = previous_state {
+                let _ = register_plugin_hotkey(&app_handle, previous);
+            }
+            return Err(err);
+        }
+    }
+
+    let label = next_state
+        .as_ref()
+        .map(|state| state.spec.label().to_string())
+        .unwrap_or_else(|| "未设置".to_string());
+    log::info!("{}: {}", success_prefix, label);
+    Ok(format!("{}: {}", success_prefix, label))
 }
 
 // ---------------------------------------------------------------------------
@@ -1792,18 +1963,20 @@ pub async fn register_custom_hotkey(
         log::warn!("系统快捷键冲突检测: {}", msg);
     }
 
-    #[cfg(target_os = "windows")]
-    let hook_state = build_hook_state(app_handle.clone(), spec, RecordingTrigger::DictationOriginal);
+    let hook_state = build_hook_state(
+        app_handle.clone(),
+        spec,
+        RecordingTrigger::DictationOriginal,
+    );
 
     #[cfg(target_os = "windows")]
     let chosen_backend = hook_state.backend;
 
-    #[cfg(target_os = "windows")]
-    let previous_state =
-        set_unified_hook_state(HotkeyKind::Dictation, Some(hook_state.clone()));
+    let previous_state = set_unified_hook_state(HotkeyKind::Dictation, Some(hook_state.clone()));
 
-    #[cfg(target_os = "windows")]
     if let Some(previous) = previous_state.as_ref() {
+        #[cfg(not(target_os = "windows"))]
+        unregister_plugin_hotkey(&app_handle, previous);
         force_release_hotkey(previous);
     }
 
@@ -1818,9 +1991,27 @@ pub async fn register_custom_hotkey(
     )?;
 
     #[cfg(not(target_os = "windows"))]
-    let backend_label = {
-        sync_hotkey_monitor_lifecycle(app_handle.clone())?;
-        "lowLevelHook"
+    let backend_label = match register_plugin_hotkey(&app_handle, hook_state) {
+        Ok(()) => "tauriGlobalShortcut",
+        Err(err) => {
+            let _ = set_unified_hook_state(HotkeyKind::Dictation, previous_state.clone());
+            if let Some(previous) = previous_state {
+                let _ = register_plugin_hotkey(&app_handle, previous);
+            }
+            let now_ms = now_unix_ms();
+            update_hotkey_diagnostic(&app_handle, |diagnostic| {
+                diagnostic.shortcut = label.clone();
+                diagnostic.registered = false;
+                diagnostic.backend = "none".to_string();
+                diagnostic.is_pressed = false;
+                diagnostic.last_error = Some(err.to_string());
+                diagnostic.warning = hotkey_warning_message(&label);
+                diagnostic.system_conflict = None;
+                diagnostic.last_event = Some("error".to_string());
+                diagnostic.last_event_at_ms = Some(now_ms);
+            });
+            return Err(err);
+        }
     };
 
     let now_ms = now_unix_ms();
@@ -1858,10 +2049,13 @@ pub(crate) fn register_translation_hotkey_inner(
 ) -> Result<String, AppError> {
     #[cfg(not(target_os = "windows"))]
     {
-        if shortcut.is_some() {
-            ensure_unified_hotkey_monitor(app_handle)?;
-        }
-        return Ok("翻译热键已更新".to_string());
+        return update_non_windows_hotkey(
+            app_handle,
+            HotkeyKind::Translation,
+            RecordingTrigger::DictationTranslated,
+            shortcut,
+            "翻译热键已更新",
+        );
     }
 
     #[cfg(target_os = "windows")]
@@ -1923,10 +2117,13 @@ pub(crate) fn register_assistant_hotkey_inner(
 ) -> Result<String, AppError> {
     #[cfg(not(target_os = "windows"))]
     {
-        if shortcut.is_some() {
-            ensure_unified_hotkey_monitor(app_handle)?;
-        }
-        return Ok("助手热键已更新".to_string());
+        return update_non_windows_hotkey(
+            app_handle,
+            HotkeyKind::Assistant,
+            RecordingTrigger::Assistant,
+            shortcut,
+            "助手热键已更新",
+        );
     }
 
     #[cfg(target_os = "windows")]
@@ -1988,6 +2185,21 @@ pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<Stri
             force_release_hotkey(&previous);
         }
         if let Some(previous) = set_unified_hook_state(HotkeyKind::Assistant, None) {
+            force_release_hotkey(&previous);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Some(previous) = set_unified_hook_state(HotkeyKind::Dictation, None) {
+            unregister_plugin_hotkey(&app_handle, &previous);
+            force_release_hotkey(&previous);
+        }
+        if let Some(previous) = set_unified_hook_state(HotkeyKind::Translation, None) {
+            unregister_plugin_hotkey(&app_handle, &previous);
+            force_release_hotkey(&previous);
+        }
+        if let Some(previous) = set_unified_hook_state(HotkeyKind::Assistant, None) {
+            unregister_plugin_hotkey(&app_handle, &previous);
             force_release_hotkey(&previous);
         }
     }

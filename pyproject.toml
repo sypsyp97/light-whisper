@@ -5,24 +5,12 @@ description = "基于 FunASR 的中文语音转文字桌面应用"
 readme = "README.md"
 requires-python = ">=3.11, <3.13"
 dependencies = [
-    "funasr>=1.2.7",
-    "faster-whisper>=1.1.0",
     "huggingface-hub>=0.24.0",
     "librosa>=0.11.0",
+    "mlx>=0.29.2; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-whisper>=0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "numpy<2",
-    "pefile>=2024.8.26",
+    "pefile>=2024.8.26; sys_platform == 'win32'",
     "pyinstaller>=6.19.0",
     "requests>=2.28.1",
-    "torch==2.7.1",
-    "torchaudio==2.7.1",
-    "transformers>=4.45.0",
 ]
-
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[tool.uv.sources]
-torch = [{ index = "pytorch-cu128" }]
-torchaudio = [{ index = "pytorch-cu128" }]

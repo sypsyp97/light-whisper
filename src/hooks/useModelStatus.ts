@@ -41,7 +41,7 @@ const DOWNLOAD_STALL_HINT_MS = 20000;
 const AUTO_DOWNLOAD_MAX_RETRIES = 1;
 const AUTO_DOWNLOAD_RETRY_DELAY_MS = 3000;
 const ENGINE_START_FALLBACK_MESSAGE =
-  "语音引擎启动失败，请重试；如仍失败，请查看 %APPDATA%\\com.light-whisper.app\\funasr_stderr.log";
+  "语音引擎启动失败，请重试；如仍失败，请查看应用数据目录中的 funasr_stderr.log";
 
 function toErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;

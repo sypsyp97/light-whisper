@@ -8,7 +8,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 #[cfg(target_os = "windows")]
 #[link(name = "imm32")]
 extern "system" {
-    fn ImmGetDefaultIMEWnd(hwnd: windows_sys::Win32::Foundation::HWND) -> windows_sys::Win32::Foundation::HWND;
+    fn ImmGetDefaultIMEWnd(
+        hwnd: windows_sys::Win32::Foundation::HWND,
+    ) -> windows_sys::Win32::Foundation::HWND;
 }
 
 #[cfg(target_os = "windows")]
@@ -203,9 +205,7 @@ pub async fn paste_text_impl(
             send_inputs(&inputs)?;
         } else {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-            use windows_sys::Win32::UI::WindowsAndMessaging::{
-                GetForegroundWindow, SendMessageW,
-            };
+            use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SendMessageW};
 
             const VK_RETURN: u16 = 0x0D;
             const VK_TAB: u16 = 0x09;
@@ -223,8 +223,14 @@ pub async fn paste_text_impl(
 
             // ① 释放残留修饰键，防止目标应用将输入解读为快捷键
             let modifier_vks = [
-                VK_LWIN, VK_RWIN, VK_LMENU, VK_RMENU,
-                VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL,
+                VK_LWIN,
+                VK_RWIN,
+                VK_LMENU,
+                VK_RMENU,
+                VK_LSHIFT,
+                VK_RSHIFT,
+                VK_LCONTROL,
+                VK_RCONTROL,
             ];
             let mut release_inputs = Vec::new();
             for &vk in &modifier_vks {
@@ -244,9 +250,8 @@ pub async fn paste_text_impl(
             // 将 *mut c_void 转为 usize 以跨越 await（HWND 本质是个数值句柄）
             let ime_wnd = ime_wnd_ptr as usize;
             let ime_was_open = if ime_wnd != 0 {
-                let open = unsafe {
-                    SendMessageW(ime_wnd as _, WM_IME_CONTROL, IMC_GETOPENSTATUS, 0)
-                };
+                let open =
+                    unsafe { SendMessageW(ime_wnd as _, WM_IME_CONTROL, IMC_GETOPENSTATUS, 0) };
                 if open != 0 {
                     unsafe {
                         SendMessageW(ime_wnd as _, WM_IME_CONTROL, IMC_SETOPENSTATUS, 0);
@@ -304,14 +309,42 @@ pub async fn paste_text_impl(
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = method;
+
+        write_text_to_clipboard(app_handle, text)?;
+        crate::services::permissions_service::ensure_accessibility_permission_for_input().await?;
+        crate::services::permissions_service::ensure_automation_permission_for_input().await?;
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+        let output = tokio::process::Command::new("osascript")
+            .arg("-e")
+            .arg("tell application \"System Events\" to keystroke \"v\" using command down")
+            .output()
+            .await
+            .map_err(|e| AppError::Other(format!("启动 osascript 失败: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let detail = if stderr.is_empty() {
+                "系统没有返回更多错误信息".to_string()
+            } else {
+                stderr
+            };
+            return Err(AppError::Other(format!(
+                "macOS 自动输入失败。请确认“辅助功能”和“自动化 > System Events”都已允许，并在修改权限后彻底退出再重开 app。系统返回: {}",
+                detail
+            )));
+        }
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         let _ = app_handle;
         let _ = text;
         let _ = method;
-        return Err(AppError::Other(
-            "当前平台暂不支持自动输入，仅 Windows 可用".to_string(),
-        ));
+        return Err(AppError::Other("当前平台暂不支持自动输入".to_string()));
     }
 
     log::info!("已输入 {} 个字符", text.len());

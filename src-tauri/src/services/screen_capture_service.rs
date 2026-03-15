@@ -57,7 +57,51 @@ pub fn capture_full_screen_context() -> Result<Vec<CapturedScreen>, String> {
     Ok(captured)
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+pub fn capture_full_screen_context() -> Result<Vec<CapturedScreen>, String> {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use base64::Engine;
+
+    let temp_file = std::env::temp_dir().join(format!(
+        "light-whisper-screen-{}.jpg",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default()
+    ));
+
+    let status = std::process::Command::new("screencapture")
+        .arg("-x")
+        .arg("-t")
+        .arg("jpg")
+        .arg(&temp_file)
+        .status()
+        .map_err(|e| format!("启动 screencapture 失败: {e}"))?;
+
+    if !status.success() {
+        let _ = fs::remove_file(&temp_file);
+        return Err(
+            "截屏失败，请在 系统设置 > 隐私与安全性 > 屏幕录制 中允许本应用后重试".to_string(),
+        );
+    }
+
+    let bytes = fs::read(&temp_file).map_err(|e| format!("读取截图文件失败: {e}"))?;
+    let _ = fs::remove_file(&temp_file);
+
+    if bytes.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    Ok(vec![CapturedScreen {
+        label: "当前屏幕".to_string(),
+        mime_type: "image/jpeg".to_string(),
+        data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+    }])
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 pub fn capture_full_screen_context() -> Result<Vec<CapturedScreen>, String> {
     Ok(Vec::new())
 }

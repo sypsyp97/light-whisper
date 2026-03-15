@@ -1,121 +1,122 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Faster Whisper 模型服务器
-保持模型在内存中，通过stdin/stdout进行通信
-"""
+"""MLX Whisper 本地模型服务器."""
 
 import os
+import platform
+import subprocess
+import sys
 import traceback
 
 from server_common import (
     decode_inline_audio,
     apply_hf_env_defaults,
-    ensure_safe_cuda_env,
     setup_rotating_logger,
     BaseASRServer,
 )
 
 apply_hf_env_defaults()
-ensure_safe_cuda_env()
-logger = setup_rotating_logger(__name__, "whisper_server.log", "Whisper服务器")
+logger = setup_rotating_logger(__name__, "local_asr_server.log", "本地 MLX ASR 服务器")
 
-from hf_cache_utils import WHISPER_MODEL_REPOS
+from hf_cache_utils import LOCAL_ASR_REPO_ID, LOCAL_MODEL_REPOS
 
 
 class WhisperServer(BaseASRServer):
     def __init__(self):
-        super().__init__(engine="whisper", logger=logger)
+        super().__init__(engine="local", logger=logger)
         self.model = None
-        self.compute_type = "float16" if self.device == "cuda" else "int8"
+        self._mlx_module = None
         self._last_load_error = None
 
     def _get_model_repos(self) -> list:
-        return WHISPER_MODEL_REPOS
+        return LOCAL_MODEL_REPOS
 
     def _detect_device(self) -> str:
-        """Whisper-specific device detection: also checks CTranslate2 CUDA support."""
-        try:
-            import ctranslate2
-            if "cuda" in ctranslate2.get_supported_compute_types("cuda"):
-                try:
-                    import torch
-                    if torch.cuda.is_available():
-                        gpu_name = torch.cuda.get_device_name(0)
-                        gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                        logger.info(f"检测到 NVIDIA GPU: {gpu_name} ({gpu_mem:.1f}GB)，使用 CUDA 加速")
-                        return "cuda"
-                except Exception:
-                    pass
-                logger.info("CTranslate2 CUDA 可用，使用 CUDA 加速")
-                return "cuda"
-        except Exception:
-            pass
+        if sys.platform == "darwin" and platform.machine() == "arm64":
+            logger.info("检测到 Apple Silicon，使用 MLX 本地推理")
+            return "apple-silicon"
+        logger.warning("当前平台不是 Apple Silicon，本地 MLX ASR 不可用")
+        return "unsupported"
 
-        # Fall back to base detection (PyTorch CUDA check)
-        return super()._detect_device()
+    def _get_gpu_device_info(self) -> dict:
+        info = {"device": self.device}
+        if self.device == "apple-silicon":
+            try:
+                chip_name = (
+                    subprocess.check_output(
+                        ["sysctl", "-n", "machdep.cpu.brand_string"],
+                        text=True,
+                    )
+                    .strip()
+                )
+                if chip_name:
+                    info["gpu_name"] = chip_name
+            except Exception:
+                pass
+        return info
 
     def _load_model(self):
-        """加载 Faster Whisper 模型"""
-        try:
-            logger.info(f"开始加载 Faster Whisper 模型 (device={self.device}, compute_type={self.compute_type})...")
-            with self.stdout_suppressor.suppress():
-                from faster_whisper import WhisperModel
+        """预加载 MLX Whisper 模型。"""
+        if self.device != "apple-silicon":
+            self._last_load_error = "本地 MLX 模型仅支持 Apple Silicon（macOS arm64）"
+            logger.error(self._last_load_error)
+            return False
 
-                self.model = WhisperModel(
-                    "deepdml/faster-whisper-large-v3-turbo-ct2",
-                    device=self.device,
-                    compute_type=self.compute_type,
+        try:
+            logger.info("开始加载 MLX Whisper 模型...")
+            with self.stdout_suppressor.suppress():
+                import mlx.core as mx
+                from mlx_whisper.transcribe import ModelHolder
+
+                self.model = ModelHolder.get_model(
+                    LOCAL_ASR_REPO_ID,
+                    dtype=mx.float16,
                 )
+                self._mlx_module = mx
             self._last_load_error = None
-            logger.info(f"Faster Whisper 模型加载完成 (device={self.device})")
+            logger.info("MLX Whisper 模型加载完成")
             return True
         except Exception as e:
-            if self.device == "cuda":
-                logger.warning(f"Whisper模型GPU加载失败: {e}，回退到CPU")
-                self.device = "cpu"
-                self.compute_type = "int8"
-                return self._load_model()
             self._last_load_error = str(e)
-            logger.error(f"Whisper模型加载失败: {e}")
+            logger.error(f"MLX Whisper 模型加载失败: {e}")
             logger.error(traceback.format_exc())
             return False
 
     def initialize(self):
-        """初始化 Faster Whisper 模型"""
+        """初始化 MLX Whisper 模型"""
         if self.initialized:
             return {"success": True, "message": "模型已初始化"}
 
         try:
             import time
 
-            logger.info("正在初始化Faster Whisper模型...")
+            logger.info("正在初始化本地 MLX 模型...")
             start_time = time.time()
 
             if not self._load_model():
-                error_msg = self._last_load_error or "Whisper模型加载失败"
+                error_msg = self._last_load_error or "本地 MLX 模型加载失败"
                 logger.error(error_msg)
                 return {"success": False, "error": error_msg, "type": "init_error"}
 
             total_time = time.time() - start_time
             self.initialized = True
-            logger.info(f"Faster Whisper模型初始化完成，总耗时: {total_time:.2f}秒")
+            logger.info(f"本地 MLX 模型初始化完成，总耗时: {total_time:.2f}秒")
             return {
                 "success": True,
-                "message": f"Faster Whisper模型初始化成功，耗时: {total_time:.2f}秒",
+                "message": f"本地 MLX 模型初始化成功，耗时: {total_time:.2f}秒",
                 "model_loaded": True,
                 "engine": self.engine,
                 **self._get_gpu_device_info(),
             }
 
         except ImportError as e:
-            error_msg = f"Faster Whisper 依赖加载失败: {e}"
+            error_msg = f"MLX Whisper 依赖加载失败: {e}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             return {"success": False, "error": error_msg, "type": "import_error", "engine": self.engine}
 
         except Exception as e:
-            error_msg = f"Faster Whisper模型初始化失败: {e}"
+            error_msg = f"本地 MLX 模型初始化失败: {e}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             return {"success": False, "error": error_msg, "type": "init_error", "engine": self.engine}
@@ -188,28 +189,47 @@ class WhisperServer(BaseASRServer):
             # 构建 initial_prompt（注入热词作为 Glossary）
             initial_prompt = "Hello, welcome. 你好，欢迎。"
             if hot_words and isinstance(hot_words, list) and len(hot_words) > 0:
-                glossary = ", ".join(hot_words[:100])  # 限制数量避免超出 224 tokens
+                glossary = ", ".join(hot_words[:100])
                 initial_prompt = f"Glossary: {glossary}. {initial_prompt}"
-                logger.info(f"Whisper initial_prompt 注入 {len(hot_words)} 个热词")
+                logger.info(f"MLX Whisper initial_prompt 注入 {len(hot_words)} 个热词")
 
-            # 执行 Whisper 转录（内置 Silero VAD）
+            # 执行 MLX Whisper 转录
             asr_start = time.time()
             with self.stdout_suppressor.suppress():
-                segments, info = self.model.transcribe(
+                from mlx_whisper import transcribe
+
+                result = transcribe(
                     audio_input,
-                    language=None,
+                    path_or_hf_repo=LOCAL_ASR_REPO_ID,
+                    verbose=None,
                     initial_prompt=initial_prompt,
                     condition_on_previous_text=False,
-                    vad_filter=True,
-                    vad_parameters={"min_silence_duration_ms": 500},
+                    no_speech_threshold=0.6,
+                    compression_ratio_threshold=2.4,
+                    logprob_threshold=-1.0,
+                    fp16=True,
                 )
-                text_parts = [segment.text for segment in segments]
             asr_elapsed = time.time() - asr_start
 
-            final_text = "".join(text_parts).strip()
-            detected_language = info.language if info else "unknown"
+            final_text = result.get("text", "").strip()
+            detected_language = result.get("language") or "unknown"
+            segments = result.get("segments") or []
+            avg_logprob = 0.0
+            if segments:
+                logprobs = [
+                    segment.get("avg_logprob")
+                    for segment in segments
+                    if isinstance(segment, dict) and isinstance(segment.get("avg_logprob"), (int, float))
+                ]
+                if logprobs:
+                    avg_logprob = sum(logprobs) / len(logprobs)
 
-            logger.info(f"Whisper识别完成，耗时: {asr_elapsed:.2f}秒，语言: {detected_language}，文本: {final_text[:100]}...")
+            logger.info(
+                "本地 MLX 识别完成，耗时: %.2f秒，语言: %s，文本: %s...",
+                asr_elapsed,
+                detected_language,
+                final_text[:100],
+            )
 
             self.transcription_count += 1
             total_elapsed = time.time() - total_start
@@ -219,10 +239,10 @@ class WhisperServer(BaseASRServer):
                 "success": True,
                 "text": final_text,
                 "raw_text": final_text,
-                "confidence": info.language_probability if info else 0.0,
+                "confidence": avg_logprob,
                 "duration": duration,
                 "language": detected_language,
-                "model_type": "ctranslate2",
+                "model_type": "mlx-whisper",
                 "input_mode": input_mode,
             }
 
@@ -241,7 +261,6 @@ class WhisperServer(BaseASRServer):
             }
 
     def get_performance_stats(self):
-        """获取性能统计信息"""
         return {
             "transcription_count": self.transcription_count,
             "total_audio_duration": round(self.total_audio_duration, 2),
@@ -252,15 +271,14 @@ class WhisperServer(BaseASRServer):
             "engine": self.engine,
             "models_loaded": {
                 "asr": self.model is not None,
-                "vad": True,   # Whisper 内置 Silero VAD
-                "punc": True,  # Whisper 内置标点
+                "vad": True,
+                "punc": True,
             },
         }
 
     def check_status(self):
-        """检查 Whisper 状态"""
         try:
-            import faster_whisper
+            import mlx_whisper
 
             device_info = self._get_gpu_device_info()
             model_loaded = self.model is not None
@@ -269,18 +287,18 @@ class WhisperServer(BaseASRServer):
                 "success": True,
                 "installed": True,
                 "initialized": self.initialized,
-                "version": getattr(faster_whisper, "__version__", "unknown"),
+                "version": getattr(mlx_whisper, "__version__", "unknown"),
                 "engine": self.engine,
                 "model_loaded": model_loaded,
                 "models": {
                     "asr": model_loaded,
-                    "vad": True,   # 内置 Silero VAD
-                    "punc": True,  # 内置标点
+                    "vad": True,
+                    "punc": True,
                 },
                 **device_info,
             }
         except ImportError as e:
-            error_msg = f"Faster Whisper 依赖加载失败: {e}"
+            error_msg = f"MLX Whisper 依赖加载失败: {e}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             return {

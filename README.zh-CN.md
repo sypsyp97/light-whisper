@@ -2,7 +2,7 @@
 
 # Light-Whisper 轻语
 
-**本地 & 在线语音转文字 · Windows 桌面应用**
+**本地 & 在线语音转文字 · macOS Apple Silicon 桌面应用**
 
 简体中文 | [English](README.md)
 
@@ -27,6 +27,18 @@
 
 ## 安装
 
+> [!IMPORTANT]
+> **分支状态（`codex/apple-silicon-mlx-asr`）**
+> 这个分支把本地 ASR 迁移到了 Apple Silicon。
+> 当前只保留两个识别引擎：
+> - `local`：本地 MLX Whisper（`mlx-community/whisper-large-v3-turbo`）
+> - `glm-asr`：智谱在线 GLM-ASR
+>
+> 本分支已移除 SenseVoice / Faster Whisper。macOS 首次运行还需要处理这些权限：
+> - 麦克风：录音
+> - 辅助功能 + 自动化（`System Events`）：把结果输入到其他应用
+> - 屏幕录制：屏幕感知助手
+
 ### 方式一：安装包（推荐）
 
 从 [Releases](https://github.com/sypsyp97/light-whisper/releases/latest) 页面下载 `轻语.Whisper_x.x.x_x64-setup.exe`，运行安装即可。所有依赖已内置，无需安装 Python 或编译工具。ASR 模型会在首次使用时自动下载（约 1–1.5 GB）。
@@ -38,6 +50,14 @@
 
 参见下方[快速开始](#快速开始)。
 
+> [!NOTE]
+> 安装包里会带上应用自己的 Python 运行时（`engine.tar.xz`）。如果你改了 Python 依赖或本地 ASR 运行时代码，先重打 Python engine，再打桌面包：
+>
+> ```bash
+> uv run python scripts/build_engine.py
+> pnpm tauri build
+> ```
+
 ## 功能亮点
 
 <table>
@@ -47,11 +67,11 @@
 **一键听写**<br>
 按住 <kbd>F2</kbd>（可自定义）录音，松开自动转写并输入到当前活动窗口。
 
-**三大 ASR 引擎**<br>
-SenseVoice（中/英/日/韩/粤，内置标点恢复）、Faster Whisper（99+ 语言）或 GLM-ASR（在线，无需显卡，支持中文方言）。
+**两个 ASR 引擎**<br>
+本地 MLX Whisper（Apple Silicon）或 GLM-ASR 在线识别。
 
 **离线在线随心切**<br>
-SenseVoice 和 Whisper 完全本地运行；GLM-ASR 调用云端 API——只需填入 API Key，无需 Python 和显卡。
+MLX Whisper 完全本地运行；GLM-ASR 调用云端 API——只需填入 API Key。
 
 **GPU 加速**<br>
 本地引擎自动检测 NVIDIA GPU 启用 CUDA 推理，无 GPU 则回退 CPU。
@@ -138,20 +158,18 @@ SenseVoice 和 Whisper 完全本地运行；GLM-ASR 调用云端 API——只需
 ## 从源码构建 — 环境要求
 
 > [!IMPORTANT]
-> **Windows 10/11（x64）**，磁盘空间 ≥ 10 GB。以下要求仅用于源码构建——[安装包](#安装)已内置所有依赖。
+> **推荐 macOS 14+ / Apple Silicon**，磁盘空间 ≥ 10 GB。以下要求仅用于源码构建——打包后的 app 会自带运行时。
 
 | 工具 | 版本 | 用途 |
 |:-----|:-----|:-----|
-| [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) | 2019+ | MSVC C++ 编译链 |
 | [Rust](https://www.rust-lang.org/tools/install) | >= 1.75 | 后端编译 |
-| [Node.js](https://nodejs.org/) | >= 18 | 前端构建 |
+| [Node.js](https://nodejs.org/) | >= 18（建议 20 LTS） | 前端构建 |
 | [pnpm](https://pnpm.io/) | >= 8 | 前端包管理 |
-| [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python 环境（自动安装 Python 3.11） |
-
-**GPU（可选）：** NVIDIA 显卡 + 最新驱动即可，无需单独安装 CUDA Toolkit — PyTorch 自带 CUDA 12.8。
+| [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python 环境与 engine 打包 |
+| Xcode Command Line Tools | 最新版 | macOS 构建工具链 |
 
 > [!TIP]
-> **GLM-ASR 用户：** 如果只使用在线 GLM-ASR 引擎，只需安装 Rust、Node.js、pnpm 即可——无需 Python、uv 和显卡。构建后在设置中填入 API Key 即可使用。
+> **只用 GLM-ASR 也建议保持完整打包流程：** 这个分支默认仍按“带 Python engine 的桌面包”去构建和分发。
 
 <details>
 <summary><b>逐步安装指引</b></summary>
@@ -188,31 +206,27 @@ git clone https://github.com/sypsyp97/light-whisper.git
 cd light-whisper
 
 pnpm install          # 前端依赖
-uv sync               # Python 依赖（自动下载 Python 3.11、PyTorch CUDA 等，约 5-15 分钟）
+uv sync               # Python 依赖
+uv run python scripts/build_engine.py
 ```
-
-### 下载 ASR 模型（建议首次运行前手动下载）
-
-```bash
-# SenseVoice（默认，约 938 MB）
-uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/SenseVoiceSmall'); snapshot_download('funasr/fsmn-vad')"
-
-# Faster Whisper（约 1.5 GB）
-uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('deepdml/faster-whisper-large-v3-turbo-ct2')"
-```
-
-模型缓存在 `~/.cache/huggingface/hub/`，只需下载一次。
-
-> [!TIP]
-> **国内用户：** 下载前设置 `$env:HF_ENDPOINT = "https://hf-mirror.com"`。
 
 ### 构建运行
 
 ```bash
-pnpm tauri build      # 首次编译 Rust 依赖约 5-15 分钟
+pnpm tauri build
 ```
 
-安装包位于 `src-tauri/target/release/bundle/nsis/`，也可直接运行 `src-tauri/target/release/light-whisper.exe`。
+`.app` 位于 `src-tauri/target/release/bundle/macos/`，`.dmg` 位于 `src-tauri/target/release/bundle/dmg/`。
+
+## macOS 权限
+
+这个分支下，macOS 权限是正常使用流程的一部分：
+
+- 首次录音时申请麦克风权限
+- 真正需要把文字输入到别的应用时，才申请辅助功能 / 自动化权限
+- 使用屏幕感知助手时，才申请屏幕录制权限
+
+如果你已经授权但仍然输入失败，先彻底退出 app 再重新打开。对频繁重打的开发包，macOS 的 TCC 很容易留下旧授权记录；相比直接运行 `target/` 下的不同副本，始终从 `/Applications` 打开的同一份 app 更稳定。
 
 ## 架构
 

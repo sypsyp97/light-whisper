@@ -97,6 +97,20 @@ fn apply_subtitle_layout(
     Ok(())
 }
 
+fn reinforce_subtitle_topmost(window: &tauri::WebviewWindow) {
+    let _ = window.set_always_on_top(false);
+    if let Err(err) = window.set_always_on_top(true) {
+        log::warn!("设置字幕窗口置顶失败: {}", err);
+    }
+
+    if let Err(err) = window.set_visible_on_all_workspaces(true) {
+        log::warn!("设置字幕窗口全空间可见失败: {}", err);
+    }
+
+    #[cfg(target_os = "windows")]
+    force_window_topmost(window);
+}
+
 pub(crate) fn set_subtitle_window_interactive(
     app_handle: &tauri::AppHandle,
     interactive: bool,
@@ -125,7 +139,7 @@ pub async fn create_subtitle_window(app_handle: tauri::AppHandle) -> Result<Stri
 
     let (logical_width, logical_height, x, y) = resolve_subtitle_layout(&app_handle);
 
-    let window = tauri::WebviewWindowBuilder::new(
+    let window_builder = tauri::WebviewWindowBuilder::new(
         &app_handle,
         "subtitle",
         tauri::WebviewUrl::App("/?window=subtitle".into()),
@@ -133,20 +147,24 @@ pub async fn create_subtitle_window(app_handle: tauri::AppHandle) -> Result<Stri
     .title("字幕")
     .inner_size(logical_width, logical_height)
     .position(x, y)
-    .transparent(true)
     .decorations(false)
     .always_on_top(true)
+    .visible_on_all_workspaces(true)
     .skip_taskbar(true)
     .focused(false)
     .resizable(false)
     .shadow(false)
-    .visible(false)
-    .build()
-    .map_err(|e| tauri_error("创建字幕窗口失败", e))?;
+    .transparent(true)
+    .visible(false);
+
+    let window = window_builder
+        .build()
+        .map_err(|e| tauri_error("创建字幕窗口失败", e))?;
 
     if let Err(err) = window.set_ignore_cursor_events(true) {
         log::warn!("设置字幕窗口鼠标穿透失败，继续运行: {}", err);
     }
+    reinforce_subtitle_topmost(&window);
 
     Ok("字幕窗口已创建".to_string())
 }
@@ -166,15 +184,7 @@ pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String
         .show()
         .map_err(|e| tauri_error("显示字幕窗口失败", e))?;
 
-    // 确保窗口在最顶层（Windows 上 hide/show 后可能丢失置顶状态）
-    // 先用 Tauri API 置顶
-    let _ = window.set_always_on_top(false);
-    if let Err(err) = window.set_always_on_top(true) {
-        log::warn!("设置字幕窗口置顶失败: {}", err);
-    }
-    // 再通过 Windows API 强制置顶，避免被其他窗口遮挡
-    #[cfg(target_os = "windows")]
-    force_window_topmost(&window);
+    reinforce_subtitle_topmost(&window);
 
     if let Err(err) = set_subtitle_window_interactive(&app_handle, false) {
         log::warn!("重新设置字幕窗口鼠标穿透失败: {}", err);

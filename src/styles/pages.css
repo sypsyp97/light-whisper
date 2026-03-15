@@ -378,6 +378,10 @@
   gap: 10px;
 }
 
+.engine-options-grid {
+  width: 100%;
+}
+
 /* Settings option button — shared layout for theme/engine/input buttons */
 .settings-option-btn {
   display: flex;
@@ -410,6 +414,11 @@
 /* Theme option buttons have wider gap */
 .settings-option-btn.theme-option {
   gap: 8px;
+}
+
+.engine-option-btn {
+  width: 100%;
+  min-height: 132px;
 }
 
 /* Option button label */

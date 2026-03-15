@@ -968,6 +968,12 @@ async fn do_paste(app: &tauri::AppHandle, text: &str) {
     let method = state.input_method.lock().clone();
     if let Err(e) = crate::commands::clipboard::paste_text_impl(app, &full, &method).await {
         log::error!("自动粘贴失败: {}", e);
+        let _ = app.emit(
+            "recording-error",
+            serde_json::json!({
+                "message": format!("自动输入失败: {}", e),
+            }),
+        );
     }
 }
 

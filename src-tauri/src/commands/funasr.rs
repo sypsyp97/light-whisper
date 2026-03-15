@@ -101,9 +101,9 @@ pub async fn set_engine(
     state: tauri::State<'_, AppState>,
     engine: String,
 ) -> Result<String, AppError> {
-    if engine != "sensevoice" && engine != "whisper" && engine != "glm-asr" {
+    if engine != "local" && engine != "glm-asr" {
         return Err(AppError::Other(format!(
-            "不支持的引擎类型: {}，可选值: sensevoice, whisper, glm-asr",
+            "不支持的引擎类型: {}，可选值: local, glm-asr",
             engine
         )));
     }

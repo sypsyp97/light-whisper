@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "withGlobalTauri": false,
     "windows": [
       {
@@ -35,10 +36,14 @@
   "bundle": {
     "active": true,
     "targets": [
-      "nsis"
+      "nsis",
+      "app",
+      "dmg"
     ],
     "icon": [
-      "icons/icon.ico"
+      "icons/icon.ico",
+      "icons/icon.icns",
+      "icons/icon.png"
     ],
     "windows": {
       "nsis": {

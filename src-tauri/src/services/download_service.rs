@@ -121,16 +121,12 @@ pub async fn run_download(
 
     // 启动下载脚本（逐行读取 stdout 以转发进度）
     // 模型从 HuggingFace 下载，使用 HF 默认缓存目录
-    let engine = paths::read_engine_config();
-    let engine_arg = if engine == "whisper" {
-        "whisper"
-    } else {
-        "sensevoice"
-    };
+    let _engine = paths::read_engine_config();
+    let engine_arg = "local";
 
     let mut cmd = match &runtime {
-        funasr_service::EngineRuntime::Bundled { exe_path } => {
-            let mut c = Command::new(exe_path);
+        funasr_service::EngineRuntime::Bundled { executable_path } => {
+            let mut c = Command::new(executable_path);
             c.arg("download").arg("--engine").arg(engine_arg);
             c
         }

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 const APP_IDENTIFIER: &str = "com.light-whisper.app";
+const DEFAULT_LOCAL_ENGINE: &str = "local";
 
 pub fn get_data_dir() -> PathBuf {
     let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from(".light-whisper"));
@@ -23,11 +24,7 @@ fn get_resource_script_path(app: &tauri::AppHandle, filename: &str) -> PathBuf {
     PathBuf::from("resources").join(filename)
 }
 
-pub fn get_funasr_server_path(app: &tauri::AppHandle) -> PathBuf {
-    get_resource_script_path(app, "funasr_server.py")
-}
-
-pub fn get_whisper_server_path(app: &tauri::AppHandle) -> PathBuf {
+pub fn get_local_asr_server_path(app: &tauri::AppHandle) -> PathBuf {
     get_resource_script_path(app, "whisper_server.py")
 }
 
@@ -44,14 +41,19 @@ pub fn get_engine_config_path() -> PathBuf {
     get_data_dir().join("engine.json")
 }
 
+fn normalize_engine(engine: &str) -> &'static str {
+    match engine {
+        "glm-asr" => "glm-asr",
+        "local" | "sensevoice" | "whisper" => DEFAULT_LOCAL_ENGINE,
+        _ => DEFAULT_LOCAL_ENGINE,
+    }
+}
+
 pub fn read_engine_config() -> String {
     if let Some(engine) = read_engine_json().get("engine").and_then(|v| v.as_str()) {
-        match engine {
-            "whisper" | "sensevoice" | "glm-asr" => return engine.to_string(),
-            _ => {}
-        }
+        return normalize_engine(engine).to_string();
     }
-    "sensevoice".to_string()
+    DEFAULT_LOCAL_ENGINE.to_string()
 }
 
 pub fn is_online_engine(engine: &str) -> bool {
@@ -111,25 +113,33 @@ pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
     write_engine_json(&obj)
 }
 
-/// 查找已解压的 engine.exe
+fn engine_binary_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "engine.exe"
+    } else {
+        "engine"
+    }
+}
+
+/// 查找已解压的 engine 可执行文件。
 ///
 /// 仅检查数据目录（从引擎归档解压后的位置）。
-pub fn get_engine_exe_path(_app: &tauri::AppHandle) -> Option<PathBuf> {
-    let data_engine = get_data_dir().join("engine").join("engine.exe");
+pub fn get_engine_executable_path(_app: &tauri::AppHandle) -> Option<PathBuf> {
+    let data_engine = get_data_dir().join("engine").join(engine_binary_name());
     if data_engine.exists() {
         return Some(data_engine);
     }
     None
 }
 
-/// 查找资源目录中的 engine.exe（开发时直接放置 python-dist 的情况）。
-pub fn get_resource_engine_exe_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+/// 查找资源目录中的 engine 可执行文件（开发时直接放置 python-dist 的情况）。
+pub fn get_resource_engine_executable_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     if let Ok(resource_dir) = app.path().resource_dir() {
         let resource_engine = resource_dir
             .join("resources")
             .join("python-dist")
             .join("engine")
-            .join("engine.exe");
+            .join(engine_binary_name());
         if resource_engine.exists() {
             return Some(resource_engine);
         }
@@ -162,7 +172,7 @@ pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
     let mut obj = read_engine_json();
     obj.as_object_mut().unwrap().insert(
         "engine".to_string(),
-        serde_json::Value::String(engine.to_string()),
+        serde_json::Value::String(normalize_engine(engine).to_string()),
     );
     write_engine_json(&obj)
 }

@@ -5,12 +5,16 @@ ASR 模型下载脚本
 使用 requests 直接从 HuggingFace 下载，绕过 huggingface_hub 库的 Windows 文件锁 bug。
 """
 
-import sys
-import json
 import os
+import json
 import requests
+import sys
 
-from hf_cache_utils import is_hf_repo_ready, get_hf_cache_root, ASR_REPO_ID, VAD_REPO_ID, WHISPER_REPO_ID
+from hf_cache_utils import (
+    LOCAL_ASR_REPO_ID,
+    get_hf_cache_root,
+    is_hf_repo_ready,
+)
 
 DEFAULT_HF_ENDPOINT = "https://huggingface.co"
 DEFAULT_HF_FALLBACK_ENDPOINT = "https://hf-mirror.com"
@@ -218,19 +222,11 @@ def main(engine=None):
     if engine is None:
         import argparse
         parser = argparse.ArgumentParser()
-        parser.add_argument("--engine", default="sensevoice", choices=["sensevoice", "whisper"])
+        parser.add_argument("--engine", default="local", choices=["local", "sensevoice", "whisper"])
         args = parser.parse_args()
         engine = args.engine
 
-    if engine == "whisper":
-        models = [
-            {"name": WHISPER_REPO_ID, "type": "asr"},
-        ]
-    else:
-        models = [
-            {"name": ASR_REPO_ID, "type": "asr"},
-            {"name": VAD_REPO_ID, "type": "vad"},
-        ]
+    models = [{"name": LOCAL_ASR_REPO_ID, "type": "asr"}]
 
     _total_count = len(models)
     for m in models:

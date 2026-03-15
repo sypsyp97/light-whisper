@@ -2,7 +2,7 @@
 
 # Light-Whisper
 
-**Local & Online Speech-to-Text for Windows**
+**Local & Online Speech-to-Text for macOS Apple Silicon**
 
 [简体中文](README.zh-CN.md) | English
 
@@ -27,6 +27,18 @@
 
 ## Installation
 
+> [!IMPORTANT]
+> **Branch status (`codex/apple-silicon-mlx-asr`)**
+> This branch migrates the local ASR stack to Apple Silicon.
+> Current ASR options are:
+> - `local`: MLX Whisper on-device (`mlx-community/whisper-large-v3-turbo`)
+> - `glm-asr`: Zhipu GLM-ASR online API
+>
+> SenseVoice / Faster Whisper have been removed from this branch. macOS permissions now matter for first-run behavior:
+> - Microphone: recording
+> - Accessibility + Automation (`System Events`): paste text into other apps
+> - Screen Recording: screen-aware assistant
+
 ### Option A: Installer (recommended)
 
 Download `轻语.Whisper_x.x.x_x64-setup.exe` from the [Releases](https://github.com/sypsyp97/light-whisper/releases/latest) page. Run the installer — everything is bundled, no Python or build tools needed. ASR models will be downloaded on first use (~1–1.5 GB).
@@ -38,6 +50,14 @@ Download `轻语.Whisper_x.x.x_x64-setup.exe` from the [Releases](https://github
 
 See [Quick Start](#quick-start) below.
 
+> [!NOTE]
+> The packaged app bundles its own Python runtime as `engine.tar.xz`. If you change Python dependencies or ASR runtime code, rebuild the engine first:
+>
+> ```bash
+> uv run python scripts/build_engine.py
+> pnpm tauri build
+> ```
+
 ## Highlights
 
 <table>
@@ -47,11 +67,11 @@ See [Quick Start](#quick-start) below.
 **One-key dictation**<br>
 Hold <kbd>F2</kbd> (configurable) to record, release to transcribe & type into the active window.
 
-**Three ASR engines**<br>
-SenseVoice (zh/en/ja/ko/yue, built-in punctuation), Faster Whisper (99+ languages), or GLM-ASR (online, no GPU needed, Chinese dialect support).
+**Two ASR engines**<br>
+Local MLX Whisper on Apple Silicon, or GLM-ASR online (no local Python setup required for end users).
 
 **Offline or online — your choice**<br>
-SenseVoice & Whisper run fully local. GLM-ASR calls a cloud API — just add an API key, no Python or GPU required.
+MLX Whisper runs fully local on Apple Silicon. GLM-ASR calls a cloud API — just add an API key.
 
 **GPU accelerated**<br>
 Local engines auto-detect NVIDIA GPU for CUDA inference; fall back to CPU.
@@ -138,20 +158,18 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 ## Build from Source — Requirements
 
 > [!IMPORTANT]
-> **Windows 10/11 (x64) only.** Disk: ~10 GB free. These requirements are only needed for building from source — the [installer](#installation) bundles everything.
+> **macOS 14+ on Apple Silicon recommended.** Disk: ~10 GB free. These requirements are only needed for building from source — the packaged app bundles the runtime.
 
 | Tool | Version | Purpose |
 |:-----|:--------|:--------|
-| [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) | 2019+ | MSVC C++ toolchain |
 | [Rust](https://www.rust-lang.org/tools/install) | >= 1.75 | Backend |
-| [Node.js](https://nodejs.org/) | >= 18 | Frontend build |
+| [Node.js](https://nodejs.org/) | >= 18 (20 LTS recommended) | Frontend build |
 | [pnpm](https://pnpm.io/) | >= 8 | Frontend packages |
-| [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python env (auto-installs Python 3.11) |
-
-**GPU (optional):** NVIDIA GPU with up-to-date driver. No need to install CUDA Toolkit — PyTorch bundles CUDA 12.8.
+| [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python env + engine packaging |
+| Xcode Command Line Tools | latest | macOS toolchain |
 
 > [!TIP]
-> **GLM-ASR users:** If you only use the online GLM-ASR engine, you only need Rust, Node.js, and pnpm — no Python, uv, or GPU required. Just build and add your API key in Settings.
+> **GLM-ASR-only builds:** You can still build the app without using the local engine at runtime, but the packaged desktop app in this branch is expected to ship with the bundled Python engine.
 
 <details>
 <summary><b>Step-by-step tool installation</b></summary>
@@ -188,31 +206,27 @@ git clone https://github.com/sypsyp97/light-whisper.git
 cd light-whisper
 
 pnpm install          # Frontend deps
-uv sync               # Python deps (downloads Python 3.11, PyTorch CUDA, etc. ~5-15 min)
+uv sync               # Python deps
+uv run python scripts/build_engine.py
 ```
-
-### Download ASR models (recommended before first run)
-
-```bash
-# SenseVoice (default, ~938 MB)
-uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/SenseVoiceSmall'); snapshot_download('funasr/fsmn-vad')"
-
-# Faster Whisper (~1.5 GB)
-uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('deepdml/faster-whisper-large-v3-turbo-ct2')"
-```
-
-Models are cached in `~/.cache/huggingface/hub/`.
-
-> [!TIP]
-> **China mainland:** set `$env:HF_ENDPOINT = "https://hf-mirror.com"` before downloading.
 
 ### Build & Run
 
 ```bash
-pnpm tauri build      # First build ~5-15 min (compiles Rust deps)
+pnpm tauri build
 ```
 
-The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/target/release/light-whisper.exe` directly.
+The app bundle is in `src-tauri/target/release/bundle/macos/` and the DMG is in `src-tauri/target/release/bundle/dmg/`.
+
+## macOS Permissions
+
+On this branch, macOS privacy permissions are part of the normal app flow:
+
+- The app requests microphone permission when you first record.
+- The app requests Accessibility / Automation only when text input is actually needed.
+- The app requests Screen Recording when screen-aware assistant capture is used.
+
+If paste still fails after you allowed permissions, fully quit the app and reopen it. For repeated development builds, macOS TCC can keep stale trust records; installing and running the app consistently from `/Applications` is more reliable than launching different copies from `target/`.
 
 ## Architecture
 

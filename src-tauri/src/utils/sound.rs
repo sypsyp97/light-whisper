@@ -1,16 +1,26 @@
+#[cfg(target_os = "windows")]
 use std::sync::OnceLock;
 
+#[cfg(target_os = "windows")]
 use crate::services::audio_service;
 
+#[cfg(target_os = "windows")]
 const SAMPLE_RATE: u32 = 22050;
+#[cfg(target_os = "windows")]
 const AMPLITUDE: f32 = 0.25;
+#[cfg(target_os = "windows")]
 const SWEEP_RANGE: f32 = 0.5;
 
+#[cfg(target_os = "windows")]
 static START_WAV: OnceLock<Vec<u8>> = OnceLock::new();
+#[cfg(target_os = "windows")]
 static STOP_WAV: OnceLock<Vec<u8>> = OnceLock::new();
+#[cfg(target_os = "windows")]
 static ASSISTANT_START_WAV: OnceLock<Vec<u8>> = OnceLock::new();
+#[cfg(target_os = "windows")]
 static ASSISTANT_STOP_WAV: OnceLock<Vec<u8>> = OnceLock::new();
 
+#[cfg(target_os = "windows")]
 fn generate_tone(base_freq: f32, duration_ms: u32, ascending: bool) -> Vec<u8> {
     let num_samples = (SAMPLE_RATE as f32 * duration_ms as f32 / 1000.0) as usize;
     let samples: Vec<i16> = (0..num_samples)
@@ -32,6 +42,7 @@ fn generate_tone(base_freq: f32, duration_ms: u32, ascending: bool) -> Vec<u8> {
     audio_service::encode_wav(&samples, SAMPLE_RATE)
 }
 
+#[cfg(target_os = "windows")]
 fn generate_double_tone(base_freq: f32, tone_ms: u32, gap_ms: u32, ascending: bool) -> Vec<u8> {
     let tone_samples = (SAMPLE_RATE as f32 * tone_ms as f32 / 1000.0) as usize;
     let gap_samples = (SAMPLE_RATE as f32 * gap_ms as f32 / 1000.0) as usize;
