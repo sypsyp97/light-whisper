@@ -133,6 +133,10 @@ export function getAiPolishApiKey(): Promise<string> {
   return invokeCommand<string>("get_ai_polish_api_key");
 }
 
+export function setAiPolishScreenContextEnabled(enabled: boolean): Promise<void> {
+  return invokeCommand<void>("set_ai_polish_screen_context_enabled", { enabled });
+}
+
 export function listAiModels(
   provider: string,
   baseUrl: string | undefined,

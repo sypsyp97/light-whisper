@@ -191,6 +191,7 @@ pub fn run() {
             commands::audio::set_sound_enabled,
             commands::ai_polish::set_ai_polish_config,
             commands::ai_polish::get_ai_polish_api_key,
+            commands::ai_polish::set_ai_polish_screen_context_enabled,
             commands::ai_polish::list_ai_models,
             commands::profile::get_user_profile,
             commands::profile::add_hot_word,

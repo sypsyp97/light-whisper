@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   getHotkeyDiagnostic,
   registerCustomHotkey,
-  unregisterAllHotkeys,
 } from "@/api/tauri";
 import { DEFAULT_HOTKEY, HOTKEY_STORAGE_KEY } from "@/lib/constants";
 import { formatHotkeyForDisplay, normalizeHotkey } from "@/lib/hotkey";
@@ -85,13 +84,13 @@ export function useHotkey(): UseHotkeyReturn {
     }
   }, [registerShortcut]);
 
-  // Register on mount, unregister on unmount
+  // Register on mount. Do not unregister all hotkeys on cleanup because
+  // translation/assistant hotkeys are owned by other settings flows.
   useEffect(() => {
     mountedRef.current = true;
     void register();
     return () => {
       mountedRef.current = false;
-      void unregisterAllHotkeys().catch(() => undefined);
     };
   }, [register]);
 

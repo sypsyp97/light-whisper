@@ -17,6 +17,7 @@ import {
   testMicrophone,
   setInputMethodCommand,
   setAiPolishConfig,
+  setAiPolishScreenContextEnabled,
   getAiPolishApiKey,
   getUserProfile,
   addHotWord,
@@ -305,6 +306,7 @@ export default function SettingsPage({
   const [customPromptState, setCustomPromptState] = useState<string>("");
   const [assistantPromptState, setAssistantPromptState] = useState<string>("");
   const [assistantScreenContextEnabled, setAssistantScreenContextEnabledState] = useState(false);
+  const [aiPolishScreenContextEnabled, setAiPolishScreenContextEnabledState] = useState(false);
   const [appVersion, setAppVersion] = useState("");
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateStatusText, setUpdateStatusText] = useState("");
@@ -456,6 +458,7 @@ export default function SettingsPage({
       setAssistantHotkeyState(p.assistant_hotkey ? formatHotkeyForDisplay(p.assistant_hotkey) : "");
       setAssistantPromptState(p.assistant_system_prompt ?? "");
       setAssistantScreenContextEnabledState(Boolean(p.assistant_screen_context_enabled));
+      setAiPolishScreenContextEnabledState(Boolean(p.ai_polish_screen_context_enabled));
     } catch { /* ignore */ }
   }, [updateProviderDraft]);
 
@@ -1110,10 +1113,13 @@ export default function SettingsPage({
     await setAiPolishConfig(aiPolishEnabled, aiPolishApiKey).catch(() => {});
 
     const nextDraft = resolveProviderDraft(nextProvider);
+    const nextAssistantModel = assistantUseSeparateModel
+      ? assistantModel.trim() || nextDraft.model
+      : nextDraft.model;
     setLlmProvider(nextProvider);
     setCustomBaseUrl(nextDraft.baseUrl);
     setCustomModel(nextDraft.model);
-    setAssistantModel(nextDraft.model);
+    setAssistantModel(nextAssistantModel);
     updateProviderDraft(nextProvider, nextDraft.baseUrl, nextDraft.model);
     setProviderPickerOpen(false);
     setModelPickerOpen(false);
@@ -1130,7 +1136,7 @@ export default function SettingsPage({
       polishReasoningMode,
       assistantReasoningMode,
       assistantUseSeparateModel,
-      nextDraft.model,
+      nextAssistantModel,
     ).catch(() => {});
     await refreshAiPolishKey();
   }, [
@@ -1416,6 +1422,14 @@ export default function SettingsPage({
     setAssistantScreenContextEnabled(enabled).catch(() => {
       setAssistantScreenContextEnabledState(!enabled);
       toast.error("保存屏幕感知设置失败");
+    });
+  }, []);
+
+  const handleAiPolishScreenContextToggle = useCallback((enabled: boolean) => {
+    setAiPolishScreenContextEnabledState(enabled);
+    setAiPolishScreenContextEnabled(enabled).catch(() => {
+      setAiPolishScreenContextEnabledState(!enabled);
+      toast.error("保存 AI 润色屏幕感知设置失败");
     });
   }, []);
 
@@ -1991,6 +2005,40 @@ export default function SettingsPage({
                   }}
                 >
                   <div className="toggle-knob" style={{ transform: aiPolishEnabled ? "translateX(20px)" : "translateX(0)" }} />
+                </button>
+              </div>
+
+              <div className="settings-row">
+                <div className="permission-item" style={{ gap: 8 }}>
+                  <Monitor size={14} className="icon-tertiary" />
+                  <div className="settings-column" style={{ gap: 2 }}>
+                    <span className="permission-label">屏幕感知</span>
+                    <span className="settings-hint" style={{ margin: 0 }}>
+                      开启后，AI 润色会尝试把当前整屏截图一并发给模型辅助纠错；如果当前接口或模型不支持图片输入，会自动回退到纯文本。
+                    </span>
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={aiPolishScreenContextEnabled}
+                  aria-label="AI 润色屏幕感知"
+                  onClick={() => handleAiPolishScreenContextToggle(!aiPolishScreenContextEnabled)}
+                  className="toggle-switch"
+                  style={{
+                    background: aiPolishScreenContextEnabled
+                      ? "var(--color-accent)"
+                      : "var(--color-bg-tertiary)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    className="toggle-knob"
+                    style={{
+                      transform: aiPolishScreenContextEnabled
+                        ? "translateX(20px)"
+                        : "translateX(0)",
+                    }}
+                  />
                 </button>
               </div>
 

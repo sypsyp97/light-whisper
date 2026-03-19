@@ -1,11 +1,12 @@
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use tauri::Emitter;
 
 use serde::Deserialize;
 
-use crate::services::llm_client::LlmRequestOptions;
-use crate::services::{llm_client, llm_provider, profile_service};
+use crate::services::llm_client::{LlmImageInput, LlmRequestOptions};
+use crate::services::{llm_client, llm_provider, profile_service, screen_capture_service};
 use crate::state::user_profile::CorrectionSource;
 use crate::state::AppState;
 
@@ -260,16 +261,16 @@ async fn send_ai_polish_request(
     .await
 }
 
-async fn send_llm_request_with_fallback(
+async fn send_llm_request_with_transport_fallback(
     state: &AppState,
     endpoint: &llm_provider::LlmEndpoint,
     api_key: &str,
     system_prompt: &str,
-    user_content: &str,
+    user_input: &llm_client::LlmUserInput,
+    user_content_len: usize,
     app_handle: &tauri::AppHandle,
     session_id: u64,
 ) -> Result<String, String> {
-    let user_input = llm_client::LlmUserInput::from(user_content);
     let reasoning_mode = state.with_profile(|profile| profile.llm_provider.polish_reasoning_mode());
 
     let stream_json_options = LlmRequestOptions {
@@ -285,8 +286,8 @@ async fn send_llm_request_with_fallback(
         endpoint,
         api_key,
         system_prompt,
-        &user_input,
-        user_content.len(),
+        user_input,
+        user_content_len,
         Some(app_handle),
         stream_json_options,
     )
@@ -322,8 +323,8 @@ async fn send_llm_request_with_fallback(
                 endpoint,
                 api_key,
                 system_prompt,
-                &user_input,
-                user_content.len(),
+                user_input,
+                user_content_len,
                 Some(app_handle),
                 stream_plain_options,
             )
@@ -355,8 +356,8 @@ async fn send_llm_request_with_fallback(
                         endpoint,
                         api_key,
                         system_prompt,
-                        &user_input,
-                        user_content.len(),
+                        user_input,
+                        user_content_len,
                         None,
                         fallback_options,
                     )
@@ -385,8 +386,8 @@ async fn send_llm_request_with_fallback(
                 endpoint,
                 api_key,
                 system_prompt,
-                &user_input,
-                user_content.len(),
+                user_input,
+                user_content_len,
                 None,
                 fallback_options,
             )
@@ -398,6 +399,75 @@ async fn send_llm_request_with_fallback(
                 )
             })
         }
+    }
+}
+
+async fn send_llm_request_with_fallback(
+    state: &AppState,
+    endpoint: &llm_provider::LlmEndpoint,
+    api_key: &str,
+    system_prompt: &str,
+    user_input: &llm_client::LlmUserInput,
+    user_content_len: usize,
+    app_handle: &tauri::AppHandle,
+    session_id: u64,
+) -> Result<String, String> {
+    let cache_key = image_support_cache_key(endpoint);
+    match send_llm_request_with_transport_fallback(
+        state,
+        endpoint,
+        api_key,
+        system_prompt,
+        user_input,
+        user_content_len,
+        app_handle,
+        session_id,
+    )
+    .await
+    {
+        Ok(content) => {
+            if !user_input.images.is_empty() {
+                state.set_assistant_image_support(cache_key, true);
+            }
+            Ok(content)
+        }
+        Err(err)
+            if !user_input.images.is_empty()
+                && llm_provider::looks_like_image_input_unsupported_error(&err) =>
+        {
+            log::warn!(
+                "当前 AI 润色模型不支持图片输入，回退到纯文本请求: provider={}, model={}, err={}",
+                endpoint.provider,
+                endpoint.model,
+                err
+            );
+            state.set_assistant_image_support(cache_key, false);
+            emit_polish_status(
+                app_handle,
+                "fallback",
+                "",
+                "",
+                "当前模型不支持图片输入，已自动降级为纯文本重试",
+                session_id,
+            );
+
+            let fallback_input = llm_client::LlmUserInput {
+                text: user_input.text.clone(),
+                images: Vec::new(),
+            };
+            send_llm_request_with_transport_fallback(
+                state,
+                endpoint,
+                api_key,
+                system_prompt,
+                &fallback_input,
+                user_content_len,
+                app_handle,
+                session_id,
+            )
+            .await
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -421,7 +491,8 @@ pub async fn polish_text(
 
     let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
     let system_prompt = build_system_prompt(state, text, translation_target_override);
-    let user_content = build_user_content(text);
+    let user_input = build_polish_user_input(state, &endpoint, &api_key, text).await;
+    let user_content_len = user_input.text.len();
 
     log::info!(
         "AI 润色请求: 文本长度={}, format={:?}",
@@ -437,7 +508,8 @@ pub async fn polish_text(
         &endpoint,
         &api_key,
         &system_prompt,
-        &user_content,
+        &user_input,
+        user_content_len,
         app_handle,
         session_id,
     )
@@ -586,6 +658,7 @@ pub async fn edit_text(
         crate::utils::foreground::wrap_xml_cdata("selected_text", selected_text),
         crate::utils::foreground::wrap_xml_cdata("edit_instruction", instruction)
     );
+    let user_input = llm_client::LlmUserInput::from(user_content.as_str());
 
     let start = std::time::Instant::now();
     emit_polish_status(app_handle, "polishing", selected_text, "", "", session_id);
@@ -595,7 +668,8 @@ pub async fn edit_text(
         &endpoint,
         &api_key,
         system_prompt,
-        &user_content,
+        &user_input,
+        user_content.len(),
         app_handle,
         session_id,
     )
@@ -635,17 +709,174 @@ pub async fn edit_text(
     Ok(result)
 }
 
-fn build_user_content(text: &str) -> String {
+fn build_user_content(text: &str, has_screen_context: bool) -> String {
     let app_context = crate::utils::foreground::prompt_context_block();
-    render_polish_user_content(app_context.as_deref(), text)
+    render_polish_user_content(app_context.as_deref(), text, has_screen_context)
 }
 
-fn render_polish_user_content(app_context: Option<&str>, text: &str) -> String {
-    let wrapped_text = crate::utils::foreground::wrap_xml_cdata("asr_text", text);
+fn render_polish_user_content(app_context: Option<&str>, text: &str, has_screen_context: bool) -> String {
+    let mut sections = Vec::new();
     if let Some(app_context) = app_context {
-        return format!("{}\n\n{}", app_context, wrapped_text);
+        sections.push(app_context.to_string());
     }
-    wrapped_text
+    if has_screen_context {
+        sections.push(crate::utils::foreground::wrap_xml_cdata(
+            "screen_context",
+            "已附带当前整屏截图，仅在纠正当前 ASR 文本时参考其中信息。",
+        ));
+    }
+    sections.push(crate::utils::foreground::wrap_xml_cdata("asr_text", text));
+    sections.join("\n\n")
+}
+
+fn image_support_cache_key(endpoint: &llm_provider::LlmEndpoint) -> String {
+    format!(
+        "{:?}|{}|{}|{}",
+        endpoint.api_format,
+        endpoint.provider,
+        endpoint.api_url,
+        endpoint.model.trim().to_ascii_lowercase()
+    )
+}
+
+async fn probe_image_support_from_provider_metadata(
+    state: &AppState,
+    endpoint: &llm_provider::LlmEndpoint,
+    api_key: &str,
+) -> Option<bool> {
+    let mut probe_targets = Vec::new();
+    if let Some(url) = llm_provider::image_support_probe_url(endpoint) {
+        probe_targets.push((url, true));
+    }
+    if llm_provider::should_probe_cerebras_public_model_metadata(endpoint) {
+        if let Some(url) = llm_provider::cerebras_public_model_probe_url(&endpoint.model) {
+            if !probe_targets.iter().any(|(existing, _)| existing == &url) {
+                probe_targets.push((url, false));
+            }
+        }
+    }
+
+    for (url, use_auth) in probe_targets {
+        let mut request = state.http_client.get(&url).timeout(Duration::from_secs(2));
+        if use_auth {
+            let Ok(headers) = llm_provider::build_auth_headers(&endpoint.api_format, api_key) else {
+                continue;
+            };
+            request = request.headers(headers);
+        }
+
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(err) => {
+                log::debug!(
+                    "探测 AI 润色模型图片能力失败，跳过当前元数据源: url={}, err={}",
+                    url,
+                    err
+                );
+                continue;
+            }
+        };
+
+        if !response.status().is_success() {
+            log::debug!(
+                "AI 润色模型图片能力探测返回非成功状态，跳过当前元数据源: status={}, url={}",
+                response.status(),
+                url
+            );
+            continue;
+        }
+
+        let payload = match response.json::<serde_json::Value>().await {
+            Ok(payload) => payload,
+            Err(err) => {
+                log::debug!(
+                    "解析 AI 润色模型图片能力元数据失败，跳过当前元数据源: url={}, err={}",
+                    url,
+                    err
+                );
+                continue;
+            }
+        };
+
+        if let Some(supported) =
+            llm_provider::parse_image_input_support_from_model_metadata(&payload)
+        {
+            return Some(supported);
+        }
+    }
+
+    None
+}
+
+async fn build_polish_user_input(
+    state: &AppState,
+    endpoint: &llm_provider::LlmEndpoint,
+    api_key: &str,
+    text: &str,
+) -> llm_client::LlmUserInput {
+    let screen_context_enabled = state.with_profile(|profile| profile.ai_polish_screen_context_enabled);
+    let cache_key = image_support_cache_key(endpoint);
+    let cached_image_support = state.assistant_image_support(&cache_key);
+    let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
+        let support = probe_image_support_from_provider_metadata(state, endpoint, api_key).await;
+        if let Some(supported) = support {
+            state.set_assistant_image_support(cache_key.clone(), supported);
+            log::info!(
+                "根据模型元数据识别 AI 润色图片输入支持: provider={}, model={}, supported={}",
+                endpoint.provider,
+                endpoint.model,
+                supported
+            );
+        }
+        support
+    } else {
+        None
+    };
+    let effective_image_support = cached_image_support.or(probed_image_support);
+
+    let images = if screen_context_enabled && effective_image_support != Some(false) {
+        match screen_capture_service::capture_full_screen_context() {
+            Ok(captured) => {
+                if !captured.is_empty() {
+                    let labels = captured
+                        .iter()
+                        .map(|image| image.label.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    log::info!(
+                        "AI 润色已附带屏幕截图上下文: {} 张 ({})",
+                        captured.len(),
+                        labels
+                    );
+                }
+                captured
+                    .into_iter()
+                    .map(|image| LlmImageInput {
+                        mime_type: image.mime_type,
+                        data_base64: image.data_base64,
+                    })
+                    .collect::<Vec<_>>()
+            }
+            Err(err) => {
+                log::warn!("截取 AI 润色屏幕上下文失败，继续纯文本请求: {}", err);
+                Vec::new()
+            }
+        }
+    } else {
+        if screen_context_enabled && effective_image_support == Some(false) {
+            log::info!(
+                "当前 AI 润色模型已缓存为不支持图片输入，跳过屏幕截图上下文: provider={}, model={}",
+                endpoint.provider,
+                endpoint.model
+            );
+        }
+        Vec::new()
+    };
+
+    llm_client::LlmUserInput {
+        text: build_user_content(text, !images.is_empty()),
+        images,
+    }
 }
 
 /// 剥离 LLM 返回的 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
@@ -813,6 +1044,7 @@ mod tests {
         let content = render_polish_user_content(
             Some("<app_context><window_title><![CDATA[main.rs]]></window_title></app_context>"),
             "如果 a < b 并且原文里有 ]]> 就换行",
+            true,
         );
 
         assert!(content.contains(
@@ -820,6 +1052,9 @@ mod tests {
         ));
         assert!(content.contains(
             "<asr_text><![CDATA[如果 a < b 并且原文里有 ]]]]><![CDATA[> 就换行]]></asr_text>"
+        ));
+        assert!(content.contains(
+            "<screen_context><![CDATA[已附带当前整屏截图，仅在纠正当前 ASR 文本时参考其中信息。]]></screen_context>"
         ));
     }
 
