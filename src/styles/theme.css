@@ -110,11 +110,11 @@
   --z-toast: 400;
   --z-tooltip: 500;
 
-  /* Ambient background */
+  /* Ambient background — semi-transparent for Windows Acrylic */
   --bg-gradient:
     radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(193, 95, 60, 0.06), transparent 60%),
     radial-gradient(ellipse 800px 450px at 0% 100%, rgba(212, 137, 10, 0.04), transparent 60%),
-    linear-gradient(175deg, #F7F5F0 0%, #F2EDE6 100%);
+    linear-gradient(175deg, rgba(247, 245, 240, 0.78) 0%, rgba(242, 237, 230, 0.78) 100%);
 }
 
 /* ---------- Dark theme — evening warmth, not cold terminal ---------- */
@@ -163,7 +163,7 @@
   --bg-gradient:
     radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(212, 121, 78, 0.08), transparent 60%),
     radial-gradient(ellipse 800px 450px at 0% 100%, rgba(212, 137, 10, 0.05), transparent 60%),
-    linear-gradient(175deg, #1C1A16 0%, #141210 100%);
+    linear-gradient(175deg, rgba(28, 26, 22, 0.82) 0%, rgba(20, 18, 16, 0.82) 100%);
 }
 
 /* ============================================================

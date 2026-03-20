@@ -25,7 +25,11 @@
         "alwaysOnTop": false,
         "skipTaskbar": false,
         "center": true,
-        "url": "/"
+        "url": "/",
+        "windowEffects": {
+          "effects": ["acrylic"],
+          "state": "active"
+        }
       }
     ],
     "security": {

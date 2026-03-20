@@ -48,10 +48,43 @@ fn require_window(
         .ok_or_else(|| AppError::Tauri(missing_message.to_string()))
 }
 
+/// 获取光标所在显示器（物理坐标比对）
+#[cfg(target_os = "windows")]
+fn find_cursor_monitor(app_handle: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    let mut point = POINT { x: 0, y: 0 };
+    if unsafe { GetCursorPos(&mut point) } == 0 {
+        return None;
+    }
+
+    app_handle
+        .available_monitors()
+        .ok()?
+        .into_iter()
+        .find(|monitor| {
+            let pos = monitor.position();
+            let size = monitor.size();
+            point.x >= pos.x
+                && point.x < pos.x + size.width as i32
+                && point.y >= pos.y
+                && point.y < pos.y + size.height as i32
+        })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn find_cursor_monitor(_app_handle: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    None
+}
+
 fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64) {
-    let monitor = app_handle
-        .get_webview_window("main")
-        .and_then(|window| window.current_monitor().ok().flatten())
+    let monitor = find_cursor_monitor(app_handle)
+        .or_else(|| {
+            app_handle
+                .get_webview_window("main")
+                .and_then(|window| window.current_monitor().ok().flatten())
+        })
         .or_else(|| app_handle.primary_monitor().ok().flatten())
         .or_else(|| {
             app_handle
