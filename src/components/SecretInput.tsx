@@ -8,6 +8,7 @@ interface SecretInputProps {
   inputClassName?: string;
   inputStyle?: CSSProperties;
   buttonStyle?: CSSProperties;
+  ariaLabel?: string;
   ariaLabelShow?: string;
   ariaLabelHide?: string;
 }
@@ -19,6 +20,7 @@ export default function SecretInput({
   inputClassName = "settings-input",
   inputStyle,
   buttonStyle,
+  ariaLabel,
   ariaLabelShow = "显示",
   ariaLabelHide = "隐藏",
 }: SecretInputProps) {
@@ -30,6 +32,7 @@ export default function SecretInput({
         type={visible ? "text" : "password"}
         className={inputClassName}
         placeholder={placeholder}
+        aria-label={ariaLabel ?? placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         style={{ flex: 1, padding: "8px 36px 8px 10px", ...inputStyle }}

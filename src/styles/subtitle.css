@@ -49,9 +49,6 @@ body,
   overflow: hidden;
   animation: subtitle-fade-in 0.2s ease-out forwards;
   transition:
-    padding 0.26s cubic-bezier(0.22, 1, 0.36, 1),
-    max-width 0.26s cubic-bezier(0.22, 1, 0.36, 1),
-    max-height 0.26s cubic-bezier(0.22, 1, 0.36, 1),
     border-radius 0.26s cubic-bezier(0.22, 1, 0.36, 1),
     background-color 0.26s ease,
     box-shadow 0.26s ease;
@@ -94,13 +91,7 @@ body,
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
 }
 
-[data-theme="light"] .subtitle-text {
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .subtitle-hint {
-  color: var(--color-text-secondary);
-}
+/* subtitle-text and subtitle-hint now use CSS vars that auto-switch per theme */
 
 /* Fade-out state */
 .subtitle-capsule.subtitle-fade-out {
@@ -112,7 +103,7 @@ body,
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.5;
-  color: #F0EBE3;
+  color: var(--color-text-primary);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -133,7 +124,7 @@ body,
 .subtitle-hint {
   font-family: var(--font-sans);
   font-size: 13px;
-  color: rgba(200, 190, 175, 0.9);
+  color: var(--color-text-secondary);
 }
 
 /* Streaming token counter badge */
@@ -141,15 +132,13 @@ body,
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   line-height: 1;
-  color: rgba(200, 190, 175, 0.7);
+  color: var(--color-text-tertiary);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
   align-self: center;
 }
 
-[data-theme="light"] .subtitle-stream-badge {
-  color: var(--color-text-tertiary, rgba(0, 0, 0, 0.4));
-}
+/* subtitle-stream-badge uses --color-text-tertiary which auto-switches */
 
 .subtitle-assistant-actions {
   position: absolute;
@@ -165,7 +154,7 @@ body,
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   line-height: 1;
-  color: rgba(200, 190, 175, 0.76);
+  color: var(--color-text-tertiary);
   opacity: 0;
   transform: translateY(-3px);
   transition: opacity 0.18s ease, transform 0.22s ease;
@@ -176,9 +165,7 @@ body,
   transform: translateY(0);
 }
 
-[data-theme="light"] .subtitle-copy-status {
-  color: var(--color-text-tertiary, rgba(0, 0, 0, 0.42));
-}
+/* subtitle-copy-status uses --color-text-tertiary which auto-switches */
 
 .subtitle-copy-button {
   position: static;
@@ -186,7 +173,7 @@ body,
   border-radius: 999px;
   padding: 6px 10px;
   background: rgba(255, 255, 255, 0.12);
-  color: #f4efe6;
+  color: var(--color-text-primary);
   font: inherit;
   font-size: 12px;
   line-height: 1;
@@ -238,8 +225,8 @@ body,
   width: 10px;
   height: 10px;
   border-radius: 3px;
-  background: #8b5cf6;
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
+  background: var(--color-assistant);
+  box-shadow: 0 0 12px var(--color-assistant-glow);
   flex-shrink: 0;
   margin-top: 5px;
   animation: subtitle-sparkle 0.9s ease-in-out infinite;
@@ -272,9 +259,9 @@ body,
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 2px solid rgba(139, 92, 246, 0.18);
-  border-top-color: #8b5cf6;
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.28);
+  border: 2px solid color-mix(in srgb, var(--color-assistant) 18%, transparent);
+  border-top-color: var(--color-assistant);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-assistant) 28%, transparent);
   flex-shrink: 0;
   margin-top: 4px;
   animation: spin 0.7s linear infinite;
@@ -286,9 +273,9 @@ body,
 }
 
 [data-theme="light"] .subtitle-dot-assistant-processing {
-  border-color: rgba(139, 92, 246, 0.14);
-  border-top-color: #8b5cf6;
-  box-shadow: 0 0 10px rgba(139, 92, 246, 0.18);
+  border-color: color-mix(in srgb, var(--color-assistant) 14%, transparent);
+  border-top-color: var(--color-assistant);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-assistant) 18%, transparent);
 }
 
 /* ---- Animations ---- */

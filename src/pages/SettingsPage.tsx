@@ -150,7 +150,7 @@ const sourceLabels: Record<string, string> = {
 
 const sourceColors: Record<string, string> = {
   user: "var(--color-accent)",
-  learned: "#10b981",
+  learned: "var(--color-learned)",
 };
 
 interface MicrophoneLevelPayload {
@@ -1715,6 +1715,9 @@ export default function SettingsPage({
                     type="button"
                     className="picker-trigger"
                     data-open={recordingModePickerOpen}
+                    aria-haspopup="listbox"
+                    aria-expanded={recordingModePickerOpen}
+                    aria-label="录音模式"
                     onClick={() => {
                       setRecordingModePickerOpen((open) => !open);
                       setProviderPickerOpen(false);
@@ -1732,7 +1735,7 @@ export default function SettingsPage({
                   </button>
                   {recordingModePickerOpen && (
                     <div className="picker-popover">
-                      <div className="picker-list">
+                      <div className="picker-list" role="listbox">
                         {recordingModeOptions.map((option) => (
                           <button
                             key={`recording-mode-${option.key}`}
@@ -1820,6 +1823,9 @@ export default function SettingsPage({
                     type="button"
                     className="picker-trigger microphone-select"
                     data-open={microphonePickerOpen}
+                    aria-haspopup="listbox"
+                    aria-expanded={microphonePickerOpen}
+                    aria-label="选择麦克风"
                     disabled={deviceListLoading}
                     onClick={() => {
                       if (deviceListLoading) return;
@@ -1844,7 +1850,7 @@ export default function SettingsPage({
                   </button>
                   {microphonePickerOpen && (
                     <div className="picker-popover">
-                      <div className="picker-list">
+                      <div className="picker-list" role="listbox">
                         <button
                           type="button"
                           className="picker-option"
@@ -2050,6 +2056,9 @@ export default function SettingsPage({
                       type="button"
                       className="picker-trigger"
                       data-open={providerPickerOpen}
+                      aria-haspopup="listbox"
+                      aria-expanded={providerPickerOpen}
+                      aria-label="选择 LLM 供应商"
                       onClick={() => {
                         setProviderPickerOpen((open) => !open);
                         setModelPickerOpen(false);
@@ -2071,10 +2080,11 @@ export default function SettingsPage({
                           type="text"
                           className="settings-input picker-search-input"
                           placeholder="搜索服务商、描述或地址"
+                          aria-label="搜索服务商"
                           value={providerSearch}
                           onChange={(e) => setProviderSearch(e.target.value)}
                         />
-                        <div className="picker-list">
+                        <div className="picker-list" role="listbox">
                           {filteredProviderOptions.length > 0 ? filteredProviderOptions.map(({ key, label, desc, baseUrl, isCustom }) => (
                             <button
                               key={key}
@@ -2126,11 +2136,12 @@ export default function SettingsPage({
                               style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid var(--color-border)" }}
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <input className="settings-input" placeholder="名称" value={newProviderName} onChange={(e) => setNewProviderName(e.target.value)} style={{ fontSize: 12 }} />
-                              <input className="settings-input" placeholder="Base URL" value={newProviderBaseUrl} onChange={(e) => setNewProviderBaseUrl(e.target.value)} style={{ fontSize: 12 }} />
-                              <input className="settings-input" placeholder="默认模型" value={newProviderModel} onChange={(e) => setNewProviderModel(e.target.value)} style={{ fontSize: 12 }} />
+                              <input className="settings-input" placeholder="名称" aria-label="服务商名称" value={newProviderName} onChange={(e) => setNewProviderName(e.target.value)} style={{ fontSize: 12 }} />
+                              <input className="settings-input" placeholder="Base URL" aria-label="服务商 Base URL" value={newProviderBaseUrl} onChange={(e) => setNewProviderBaseUrl(e.target.value)} style={{ fontSize: 12 }} />
+                              <input className="settings-input" placeholder="默认模型" aria-label="服务商默认模型" value={newProviderModel} onChange={(e) => setNewProviderModel(e.target.value)} style={{ fontSize: 12 }} />
                               <select
                                 className="settings-input"
+                                aria-label="API 格式"
                                 value={newProviderFormat}
                                 onChange={(e) => setNewProviderFormat(e.target.value as ApiFormat)}
                                 style={{ fontSize: 12 }}
@@ -2189,6 +2200,7 @@ export default function SettingsPage({
                     type="text"
                     className="settings-input"
                     placeholder="Base URL 或完整接口地址"
+                    aria-label="接口地址"
                     value={customBaseUrl}
                     readOnly={!providerSupportsCustomEndpoint}
                     onChange={(e) => {
@@ -2239,6 +2251,7 @@ export default function SettingsPage({
                         type="text"
                         className="settings-input"
                         placeholder="模型名，可直接手动输入"
+                        aria-label="模型名称"
                         value={customModel}
                         onChange={(e) => {
                           const nextModel = e.target.value;
@@ -2262,6 +2275,8 @@ export default function SettingsPage({
                         type="button"
                         className="picker-inline-button"
                         data-open={modelPickerOpen}
+                        aria-haspopup="listbox"
+                        aria-expanded={modelPickerOpen}
                         onClick={() => {
                           setModelPickerOpen((open) => !open);
                           setProviderPickerOpen(false);
@@ -2286,6 +2301,7 @@ export default function SettingsPage({
                             type="text"
                             className="settings-input picker-search-input"
                             placeholder="搜索模型，回车可直接使用当前输入"
+                            aria-label="搜索模型"
                             value={aiModelSearch}
                             onChange={(e) => setAiModelSearch(e.target.value)}
                             onKeyDown={(e) => {
@@ -2320,7 +2336,7 @@ export default function SettingsPage({
                             </span>
                           </button>
                         ) : null}
-                        <div className="picker-list">
+                        <div className="picker-list" role="listbox">
                           {filteredAiModels.length > 0 ? filteredAiModels.map((model) => (
                             <button
                               key={model.id}
@@ -2355,6 +2371,9 @@ export default function SettingsPage({
                       type="button"
                       className="picker-trigger"
                       data-open={polishReasoningPickerOpen}
+                      aria-haspopup="listbox"
+                      aria-expanded={polishReasoningPickerOpen}
+                      aria-label="润色思考模式"
                       disabled={polishReasoningModeDisabled}
                       onClick={() => {
                         if (polishReasoningModeDisabled) return;
@@ -2378,7 +2397,7 @@ export default function SettingsPage({
                     </button>
                     {polishReasoningPickerOpen && (
                       <div className="picker-popover">
-                        <div className="picker-list">
+                        <div className="picker-list" role="listbox">
                           {reasoningModeOptions.map((option) => (
                             <button
                               key={option.key}
@@ -2409,6 +2428,7 @@ export default function SettingsPage({
                 <textarea
                   className="settings-input"
                   placeholder="例如：我是程序员，保留所有英文技术术语不翻译；遇到「光语」一律改为「轻语」"
+                  aria-label="自定义润色指令"
                   value={customPromptState}
                   onChange={(e) => handleCustomPromptChange(e.target.value)}
                   rows={3}
@@ -2549,6 +2569,7 @@ export default function SettingsPage({
                         type="text"
                         className="settings-input"
                         placeholder="助手模型名，可直接手动输入"
+                        aria-label="助手模型名称"
                         value={assistantModel}
                         onChange={(e) => {
                           const nextModel = e.target.value;
@@ -2568,6 +2589,8 @@ export default function SettingsPage({
                         type="button"
                         className="picker-inline-button"
                         data-open={assistantModelPickerOpen}
+                        aria-haspopup="listbox"
+                        aria-expanded={assistantModelPickerOpen}
                         onClick={() => {
                           setAssistantModelPickerOpen((open) => !open);
                           setProviderPickerOpen(false);
@@ -2592,6 +2615,7 @@ export default function SettingsPage({
                             type="text"
                             className="settings-input picker-search-input"
                             placeholder="搜索模型，回车可直接使用当前输入"
+                            aria-label="搜索助手模型"
                             value={assistantModelSearch}
                             onChange={(e) => setAssistantModelSearch(e.target.value)}
                             onKeyDown={(e) => {
@@ -2623,7 +2647,7 @@ export default function SettingsPage({
                             </span>
                           </button>
                         ) : null}
-                        <div className="picker-list">
+                        <div className="picker-list" role="listbox">
                           {filteredAssistantModels.length > 0 ? filteredAssistantModels.map((model) => (
                             <button
                               key={`assistant-model-${model.id}`}
@@ -2663,6 +2687,9 @@ export default function SettingsPage({
                     type="button"
                     className="picker-trigger"
                     data-open={assistantReasoningPickerOpen}
+                    aria-haspopup="listbox"
+                    aria-expanded={assistantReasoningPickerOpen}
+                    aria-label="助手思考模式"
                     disabled={assistantReasoningModeDisabled}
                     onClick={() => {
                       if (assistantReasoningModeDisabled) return;
@@ -2686,7 +2713,7 @@ export default function SettingsPage({
                   </button>
                   {assistantReasoningPickerOpen && (
                     <div className="picker-popover">
-                      <div className="picker-list">
+                      <div className="picker-list" role="listbox">
                         {reasoningModeOptions.map((option) => (
                           <button
                             key={`assistant-${option.key}`}
@@ -2716,6 +2743,7 @@ export default function SettingsPage({
                 <textarea
                   className="settings-input"
                   placeholder="例如：默认用简洁口吻；写邮件时偏正式；回复 IM 时保持自然口语"
+                  aria-label="助手系统提示词"
                   value={assistantPromptState}
                   onChange={(e) => handleAssistantPromptChange(e.target.value)}
                   rows={4}
@@ -2836,6 +2864,7 @@ export default function SettingsPage({
                         type="text"
                         className="settings-input"
                         placeholder="输入语言名称，如 Italiano、العربية"
+                        aria-label="自定义翻译目标语言"
                         value={customLangInput}
                         onChange={e => setCustomLangInput(e.target.value)}
                         onKeyDown={e => {
@@ -2882,6 +2911,7 @@ export default function SettingsPage({
                 <input
                   type="text"
                   placeholder="添加热词 (如 Claude Code)"
+                  aria-label="添加热词"
                   value={newHotWord}
                   onChange={(e) => setNewHotWord(e.target.value)}
                   onKeyDown={(e) => {

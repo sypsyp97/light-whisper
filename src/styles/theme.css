@@ -10,7 +10,7 @@
   --color-bg-primary: #F5F3EE;
   --color-bg-secondary: #EDE9E1;
   --color-bg-tertiary: #E4DED4;
-  --color-bg-elevated: #FFFFFF;
+  --color-bg-elevated: #FDFCFA;
   --color-bg-overlay: rgba(245, 243, 238, 0.92);
   --color-bg-sunken: #F9F7F3;
 
@@ -43,6 +43,11 @@
   --color-info: #2C6FBB;
   --color-info-bg: rgba(44, 111, 187, 0.08);
 
+  /* Semantic — assistant / learned */
+  --color-assistant: #8b5cf6;
+  --color-assistant-glow: rgba(139, 92, 246, 0.6);
+  --color-learned: #10b981;
+
   /* Shadows — multi-layer, realistic depth */
   --shadow-xs: 0 1px 1px rgba(45, 40, 32, 0.04);
   --shadow-sm: 0 1px 3px rgba(45, 40, 32, 0.06), 0 1px 2px rgba(45, 40, 32, 0.04);
@@ -72,8 +77,8 @@
   /* Transitions — perceptually tuned curves */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --ease-spring-soft: cubic-bezier(0.22, 1.2, 0.36, 1);
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring-soft: cubic-bezier(0.16, 1, 0.3, 1);
   --transition-fast: 120ms var(--ease-out-expo);
   --transition-normal: 200ms var(--ease-out-expo);
   --transition-slow: 350ms var(--ease-out-quart);
@@ -151,6 +156,10 @@
   --color-warning-bg: rgba(224, 160, 48, 0.10);
   --color-info: #5A9BD5;
   --color-info-bg: rgba(90, 155, 213, 0.10);
+
+  --color-assistant: #a78bfa;
+  --color-assistant-glow: rgba(167, 139, 250, 0.5);
+  --color-learned: #34d399;
 
   --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.15);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.20), 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -282,12 +291,11 @@ body {
 
 .animate-slide-up { animation: slide-up 0.38s var(--ease-out-expo) forwards; }
 
-/* Success pop — model ready chip bounce */
+/* Success pop — model ready chip entrance */
 @keyframes success-pop {
   0%   { opacity: 0; transform: scale(0.5); }
-  60%  { transform: scale(1.06); }
-  80%  { transform: scale(0.97); }
-  100% { opacity: 1; transform: scale(1); }
+  60%  { opacity: 1; transform: scale(1.04); }
+  100% { transform: scale(1); }
 }
 
 .animate-success { animation: success-pop 0.5s var(--ease-spring) forwards; }
