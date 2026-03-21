@@ -659,7 +659,7 @@ export default function SettingsPage({
       }
     } catch {
       setAutostart(prev); // revert
-      toast.error("设置失败");
+      toast.error("开机自启动设置失败");
     } finally {
       setAutostartLoading(false);
     }
@@ -1421,7 +1421,7 @@ export default function SettingsPage({
     setAssistantScreenContextEnabledState(enabled);
     setAssistantScreenContextEnabled(enabled).catch(() => {
       setAssistantScreenContextEnabledState(!enabled);
-      toast.error("保存屏幕感知设置失败");
+      toast.error("助手屏幕感知设置失败");
     });
   }, []);
 
@@ -1429,7 +1429,7 @@ export default function SettingsPage({
     setAiPolishScreenContextEnabledState(enabled);
     setAiPolishScreenContextEnabled(enabled).catch(() => {
       setAiPolishScreenContextEnabledState(!enabled);
-      toast.error("保存 AI 润色屏幕感知设置失败");
+      toast.error("润色屏幕感知设置失败");
     });
   }, []);
 
@@ -1914,12 +1914,12 @@ export default function SettingsPage({
               <div className="settings-row" style={{ gap: 10 }}>
                 <span className="settings-hint">
                   {!micLevelMonitorEnabled
-                    ? "电平监控已关闭，不会在空闲时占用麦克风。"
+                    ? "电平监控已关闭"
                     : isRecording
-                    ? "录音中已暂停电平预览，避免和正式录音抢占设备。"
+                    ? "录音中，电平预览已暂停"
                     : micMonitorReady
-                      ? "电平预览已开启，对着麦克风说话即可看到变化。"
-                      : "电平预览未启动，通常是设备忙或系统暂时拒绝访问。"}
+                      ? "对着麦克风说话可查看电平变化"
+                      : "电平预览未启动，设备可能被其他程序占用"}
                 </span>
                 <span className="settings-option-desc">{Math.round(micLevel * 100)}%</span>
               </div>
@@ -1935,7 +1935,7 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "150ms" }}>
             <div className="settings-section-header">
               <ClipboardPaste size={15} className="icon-accent" />
-              <h2 className="settings-section-title">输入</h2>
+              <h2 className="settings-section-title">输入方式</h2>
             </div>
             <div className="settings-grid-2">
               {inputOptions.map(({ key, icon: Icon, label, desc }) => (
@@ -1989,15 +1989,15 @@ export default function SettingsPage({
           >
             <div className="settings-section-header">
               <Sparkles size={15} className="icon-accent" />
-              <h2 className="settings-section-title">AI 纠错</h2>
+              <h2 className="settings-section-title">AI 润色</h2>
             </div>
             <div className="settings-column" style={{ gap: 10 }}>
               <div className="settings-row">
-                <span className="permission-label">启用 AI 文本润色</span>
+                <span className="permission-label">启用 AI 润色</span>
                 <button
                   role="switch"
                   aria-checked={aiPolishEnabled}
-                  aria-label="启用 AI 文本润色"
+                  aria-label="启用 AI 润色"
                   onClick={() => {
                     const next = !aiPolishEnabled;
                     aiPolishKeySave.cancel();
@@ -2020,7 +2020,7 @@ export default function SettingsPage({
                   <div className="settings-column" style={{ gap: 2 }}>
                     <span className="permission-label">屏幕感知</span>
                     <span className="settings-hint" style={{ margin: 0 }}>
-                      开启后，AI 润色会尝试把当前整屏截图一并发给模型辅助纠错；如果当前接口或模型不支持图片输入，会自动回退到纯文本。
+                      截取当前屏幕内容辅助润色。不支持图片的模型会自动回退到纯文本。
                     </span>
                   </div>
                 </div>
@@ -2184,7 +2184,7 @@ export default function SettingsPage({
                                       await refreshAiPolishKey();
                                     });
                                   }}
-                                >确定</button>
+                                >添加</button>
                               </div>
                             </div>
                           )}
@@ -2221,8 +2221,8 @@ export default function SettingsPage({
                   />
                   <p className="settings-hint">
                     {providerSupportsCustomEndpoint
-                      ? "参考 Cherry Studio：可以直接填根地址，例如 `https://api.openai.com`；如果你填完整接口地址，末尾加 `#` 可阻止自动补全路由。"
-                      : "预置服务商使用固定官方接口地址；如果要自定义地址，请选择“自定义兼容”或添加自定义服务商。"}
+                      ? "填写根地址即可，如 https://api.openai.com；填完整路径时末尾加 # 可阻止自动补全。"
+                      : "预置服务商使用官方接口地址。如需自定义，请选择「自定义兼容」或添加自定义服务商。"}
                   </p>
                 </div>
 
@@ -2250,7 +2250,7 @@ export default function SettingsPage({
                       <input
                         type="text"
                         className="settings-input"
-                        placeholder="模型名，可直接手动输入"
+                        placeholder="输入模型名称"
                         aria-label="模型名称"
                         value={customModel}
                         onChange={(e) => {
@@ -2291,7 +2291,7 @@ export default function SettingsPage({
                       </button>
                     </div>
                     <p className="settings-hint" style={{ margin: 0 }}>
-                      {selectedAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型，列表仅作参考，也可以直接手输完整模型名。` : "模型列表仅作参考，也可以直接手输完整模型名。")}
+                      {selectedAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型` : "可直接输入模型名称")}
                     </p>
                     {modelPickerOpen && (
                       <div className="picker-popover">
@@ -2300,7 +2300,7 @@ export default function SettingsPage({
                             ref={modelSearchInputRef}
                             type="text"
                             className="settings-input picker-search-input"
-                            placeholder="搜索模型，回车可直接使用当前输入"
+                            placeholder="搜索模型名称，回车确认"
                             aria-label="搜索模型"
                             value={aiModelSearch}
                             onChange={(e) => setAiModelSearch(e.target.value)}
@@ -2355,7 +2355,7 @@ export default function SettingsPage({
                             <div className="picker-empty">
                               {aiModelsLoading
                                 ? "正在从官方接口拉取模型列表..."
-                                : aiModelsError || "暂无模型列表，先填写接口地址和 API Key。"}
+                                : aiModelsError || "填写 API Key 后会自动加载模型列表"}
                             </div>
                           )}
                         </div>
@@ -2440,7 +2440,7 @@ export default function SettingsPage({
               </div>
 
               <p className="settings-hint">
-                AI 纠错会自动学习你的用词习惯，并将常用词汇注入热词列表提升识别准确率。
+                AI 润色会自动学习你的用词习惯，将常用词汇加入热词列表以提升识别准确率。
               </p>
             </div>
           </section>
@@ -2496,7 +2496,7 @@ export default function SettingsPage({
                   <div className="settings-column" style={{ gap: 2 }}>
                     <span className="permission-label">屏幕感知</span>
                     <span className="settings-hint" style={{ margin: 0 }}>
-                      开启后，助手会尝试把当前整屏截图一并发给模型；如果当前接口或模型不支持图片输入，会自动回退到纯文本并记住结果。
+                      截取当前屏幕内容辅助助手理解上下文。不支持图片的模型会自动回退到纯文本。
                     </span>
                   </div>
                 </div>
@@ -2568,7 +2568,7 @@ export default function SettingsPage({
                       <input
                         type="text"
                         className="settings-input"
-                        placeholder="助手模型名，可直接手动输入"
+                        placeholder="输入助手模型名称"
                         aria-label="助手模型名称"
                         value={assistantModel}
                         onChange={(e) => {
@@ -2605,7 +2605,7 @@ export default function SettingsPage({
                       </button>
                     </div>
                     <p className="settings-hint" style={{ margin: 0 }}>
-                      {selectedAssistantAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型，列表仅作参考，也可以直接手输完整模型名。` : "模型列表仅作参考，也可以直接手输完整模型名。")}
+                      {selectedAssistantAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型` : "可直接输入模型名称")}
                     </p>
                     {assistantModelPickerOpen && (
                       <div className="picker-popover">
@@ -2614,7 +2614,7 @@ export default function SettingsPage({
                             ref={assistantModelSearchInputRef}
                             type="text"
                             className="settings-input picker-search-input"
-                            placeholder="搜索模型，回车可直接使用当前输入"
+                            placeholder="搜索模型名称，回车确认"
                             aria-label="搜索助手模型"
                             value={assistantModelSearch}
                             onChange={(e) => setAssistantModelSearch(e.target.value)}
@@ -2666,7 +2666,7 @@ export default function SettingsPage({
                             <div className="picker-empty">
                               {aiModelsLoading
                                 ? "正在从官方接口拉取模型列表..."
-                                : aiModelsError || "暂无模型列表，先填写接口地址和 API Key。"}
+                                : aiModelsError || "填写 API Key 后会自动加载模型列表"}
                             </div>
                           )}
                         </div>
@@ -2793,7 +2793,7 @@ export default function SettingsPage({
                 </button>
               </div>
               <p className="settings-hint" style={{ margin: 0 }}>
-                开启翻译后，说话热键会输出原文；翻译热键会输出译文。未开启翻译时，翻译热键只会走普通润色。
+                说话热键输出原文，翻译热键输出译文。未开启翻译时，翻译热键等同于普通润色。
               </p>
               <div className="settings-row">
                 <span className="permission-label">{translationTarget ? `目标语言：${translationTarget}` : "未开启"}</span>
@@ -2814,7 +2814,7 @@ export default function SettingsPage({
               {translationPickerOpen && (
                 <div className="settings-column" style={{ gap: 8 }}>
                   <p className="settings-hint" style={{ margin: 0 }}>
-                    翻译热键会在 AI 润色后输出目标语言结果；普通说话热键仍输出原文校正结果。技术术语和专有名词保留原文。
+                    选择目标语言后，翻译热键会输出译文。技术术语和专有名词保留原文。
                   </p>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     <button
@@ -3012,12 +3012,12 @@ export default function SettingsPage({
                     a.download = "light-whisper-profile.json";
                     a.click();
                     setTimeout(() => URL.revokeObjectURL(url), 200);
-                    toast.success("画像已导出");
+                    toast.success("配置已导出");
                   } catch { toast.error("导出失败"); }
                 }}
                 style={{ flex: 1, fontSize: 12, padding: "8px" }}
               >
-                <Download size={13} style={{ marginRight: 4 }} />导出画像
+                <Download size={13} style={{ marginRight: 4 }} />导出配置
               </button>
               <button
                 className="btn-ghost"
@@ -3033,14 +3033,14 @@ export default function SettingsPage({
                       await importUserProfile(text);
                       refreshProfile();
                       await refreshAiPolishKey();
-                      toast.success("画像已导入");
-                    } catch { toast.error("导入失败，请检查文件格式"); }
+                      toast.success("配置已导入");
+                    } catch { toast.error("导入失败，请确认文件为有效的 JSON 格式"); }
                   };
                   input.click();
                 }}
                 style={{ flex: 1, fontSize: 12, padding: "8px" }}
               >
-                <Upload size={13} style={{ marginRight: 4 }} />导入画像
+                <Upload size={13} style={{ marginRight: 4 }} />导入配置
               </button>
             </div>
           </section>
@@ -3105,7 +3105,7 @@ export default function SettingsPage({
                   </p>
                   {latestAvailableVersion ? (
                     <p className="settings-hint">
-                      检测到新版本 v{latestAvailableVersion}，建议先在 GitHub Release 页面手动下载安装包验证升级流程。
+                      新版本 v{latestAvailableVersion} 可用，点击「前往下载」获取安装包。
                     </p>
                   ) : null}
                 </div>

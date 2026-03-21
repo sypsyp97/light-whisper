@@ -8,3 +8,4 @@ export const AI_POLISH_ENABLED_KEY = "light-whisper-ai-polish-enabled";
 export const SOUND_ENABLED_KEY = "light-whisper-sound-enabled";
 export const RECORDING_MODE_KEY = "light-whisper-recording-mode";
 export const MIC_LEVEL_MONITOR_ENABLED_KEY = "light-whisper-mic-level-monitor-enabled";
+export const ONBOARDING_DISMISSED_KEY = "light-whisper-onboarding-dismissed";
