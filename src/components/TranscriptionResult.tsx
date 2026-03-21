@@ -69,7 +69,9 @@ export default function TranscriptionResult({
                 识别结果
               </span>
               <button aria-label="复制" className="icon-btn" style={{ padding: 6 }} onClick={handleCopy}>
-                {copiedId === "original" ? <Check size={12} /> : <Copy size={12} strokeWidth={1.5} />}
+                {copiedId === "original"
+                  ? <span className="animate-check-draw"><Check size={12} /></span>
+                  : <Copy size={12} strokeWidth={1.5} />}
               </button>
             </div>
             <textarea

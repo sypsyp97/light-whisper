@@ -41,11 +41,18 @@
 }
 
 /* Result card — elevated container for transcription output */
+@keyframes result-arrive {
+  0%   { border-color: var(--color-border-subtle); box-shadow: var(--shadow-sm); }
+  35%  { border-color: var(--color-border-accent); box-shadow: var(--shadow-sm), 0 0 12px rgba(216, 90, 48, 0.12); }
+  100% { border-color: var(--color-border-subtle); box-shadow: var(--shadow-sm); }
+}
+
 .result-card {
   border-radius: 8px;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-subtle);
   box-shadow: var(--shadow-sm);
+  animation: result-arrive 1s var(--ease-out-expo);
   transition: box-shadow 0.3s var(--ease-out-expo),
               border-color 0.3s var(--ease-out-expo);
 }
@@ -236,7 +243,7 @@
   flex-shrink: 0;
 }
 
-/* History item */
+/* History item — staggered entrance */
 .history-item {
   padding: 8px 10px;
   border-radius: 6px;
@@ -245,6 +252,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  animation: fade-in 0.3s var(--ease-out-expo) both;
   transition: background 0.2s var(--ease-out-expo),
               border-color 0.2s var(--ease-out-expo),
               box-shadow 0.25s var(--ease-out-expo);
@@ -399,7 +407,7 @@
   border: 1px solid var(--color-border-accent);
   background: var(--color-accent-subtle);
   color: var(--color-accent);
-  box-shadow: 0 0 0 1px rgba(193, 95, 60, 0.06);
+  box-shadow: 0 0 0 1px rgba(216, 90, 48, 0.06);
 }
 
 .settings-option-btn[aria-pressed="false"] {
@@ -454,7 +462,7 @@
 
 .settings-input:focus {
   border-color: var(--color-border-accent);
-  box-shadow: 0 0 0 2.5px rgba(193, 95, 60, 0.08);
+  box-shadow: 0 0 0 2.5px rgba(216, 90, 48, 0.08);
 }
 
 [data-theme="dark"] .settings-input:focus,
@@ -553,7 +561,7 @@
 .picker-inline-button[data-open="true"] {
   border-color: var(--color-border-accent);
   background: var(--color-accent-subtle);
-  box-shadow: 0 0 0 1px rgba(193, 95, 60, 0.14);
+  box-shadow: 0 0 0 1px rgba(216, 90, 48, 0.14);
 }
 
 .picker-trigger {
@@ -581,7 +589,7 @@
 .picker-trigger[data-open="true"] {
   border-color: var(--color-border-accent);
   background: var(--color-accent-subtle);
-  box-shadow: 0 0 0 1px rgba(193, 95, 60, 0.14);
+  box-shadow: 0 0 0 1px rgba(216, 90, 48, 0.14);
 }
 
 .picker-trigger-copy {
@@ -755,7 +763,7 @@
   border: 1px solid var(--color-border-accent);
   background: var(--color-accent-subtle);
   color: var(--color-accent);
-  box-shadow: 0 0 0 2.5px rgba(193, 95, 60, 0.08);
+  box-shadow: 0 0 0 2.5px rgba(216, 90, 48, 0.08);
 }
 
 .hotkey-capture-btn[data-capturing="false"] {

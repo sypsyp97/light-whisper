@@ -21,14 +21,16 @@ export default function TranscriptionHistory({
 
   return (
     <div className="history-list">
-      {filtered.map((item) => (
-        <div key={item.id} className="history-item">
+      {filtered.map((item, idx) => (
+        <div key={item.id} className="history-item" style={{ animationDelay: `${idx * 50}ms` }}>
           <div className="history-item-body">
             <p className="history-item-text">{item.text}</p>
             <span className="history-item-time">{item.timeDisplay}</span>
           </div>
           <button aria-label="复制" className="icon-btn" style={{ padding: 4, flexShrink: 0 }} onClick={() => onCopy(item.text, item.id)}>
-            {copiedId === item.id ? <Check size={11} /> : <Copy size={11} strokeWidth={1.5} />}
+            {copiedId === item.id
+              ? <span className="animate-check-draw"><Check size={11} /></span>
+              : <Copy size={11} strokeWidth={1.5} />}
           </button>
         </div>
       ))}

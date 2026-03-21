@@ -111,7 +111,7 @@ export default function StatusIndicator({
             aria-valuenow={determinateProgress !== null ? Math.round(determinateProgress) : undefined}
             aria-valuemin={0}
             aria-valuemax={100}
-            className="download-progress-track"
+            className={`download-progress-track${determinateProgress !== null && determinateProgress >= 100 ? " progress-complete" : ""}`}
           >
             {determinateProgress !== null
               ? <div style={{ height: "100%", background: determinateProgress >= 100 ? "var(--color-success)" : "var(--color-accent)", borderRadius: 4, transition: "width 0.5s ease, background 0.3s ease", width: `${determinateProgress}%` }} />

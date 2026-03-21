@@ -95,7 +95,7 @@ export default function MainPage({ onNavigate }: {
       <TitleBar
         title="轻语 Whisper"
         leftAction={
-          <button aria-label="设置" className="icon-btn plain" onClick={() => flushPendingEditAndNavigate("settings")}>
+          <button aria-label="设置" className="icon-btn plain icon-btn-gear" onClick={() => flushPendingEditAndNavigate("settings")}>
             <Settings size={13} strokeWidth={1.5} />
           </button>
         }

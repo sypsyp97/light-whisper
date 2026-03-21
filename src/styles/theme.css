@@ -6,32 +6,32 @@
 
 /* ---------- Light theme (default) ---------- */
 :root {
-  /* Surfaces — warm cream palette inspired by Claude.ai */
-  --color-bg-primary: #F5F3EE;
-  --color-bg-secondary: #EDE9E1;
-  --color-bg-tertiary: #E4DED4;
+  /* Surfaces — Claude design system Gray ramp */
+  --color-bg-primary: #F4F3EE;
+  --color-bg-secondary: #EBE9E2;
+  --color-bg-tertiary: #E0DDD4;
   --color-bg-elevated: #FDFCFA;
-  --color-bg-overlay: rgba(245, 243, 238, 0.92);
-  --color-bg-sunken: #F9F7F3;
+  --color-bg-overlay: rgba(244, 243, 238, 0.92);
+  --color-bg-sunken: #F7F5F0;
 
-  /* Text — warm dark tones */
-  --color-text-primary: #2D2820;
-  --color-text-secondary: #5C5549;
-  --color-text-tertiary: #9B9284;
+  /* Text — Claude Gray ramp (900/600/400) */
+  --color-text-primary: #2C2C2A;
+  --color-text-secondary: #5F5E5A;
+  --color-text-tertiary: #888780;
   --color-text-inverse: #FDFCFB;
-  --color-text-brand: #AE5630;
+  --color-text-brand: #D85A30;
 
-  /* Brand accent — Claude's warm terracotta orange */
-  --color-accent: #C15F3C;
-  --color-accent-hover: #AE5630;
-  --color-accent-active: #9A4B28;
-  --color-accent-subtle: rgba(193, 95, 60, 0.10);
-  --color-accent-muted: rgba(193, 95, 60, 0.05);
+  /* Brand accent — Claude Coral ramp (400/600/800) */
+  --color-accent: #D85A30;
+  --color-accent-hover: #993C1D;
+  --color-accent-active: #712B13;
+  --color-accent-subtle: rgba(216, 90, 48, 0.10);
+  --color-accent-muted: rgba(216, 90, 48, 0.05);
 
-  /* Borders — warm, soft */
-  --color-border: #DDD6CC;
+  /* Borders — Gray ramp (100) */
+  --color-border: #D3D1C7;
   --color-border-subtle: rgba(0, 0, 0, 0.06);
-  --color-border-accent: rgba(193, 95, 60, 0.25);
+  --color-border-accent: rgba(216, 90, 48, 0.25);
 
   /* Status */
   --color-success: #2E8B57;
@@ -54,7 +54,7 @@
   --shadow-md: 0 4px 8px -1px rgba(45, 40, 32, 0.08), 0 2px 4px -1px rgba(45, 40, 32, 0.04);
   --shadow-lg: 0 10px 25px -3px rgba(45, 40, 32, 0.10), 0 4px 10px -2px rgba(45, 40, 32, 0.05);
   --shadow-xl: 0 20px 50px -5px rgba(45, 40, 32, 0.12), 0 8px 20px -4px rgba(45, 40, 32, 0.06);
-  --shadow-glow: 0 0 0 3px rgba(193, 95, 60, 0.15);
+  --shadow-glow: 0 0 0 3px rgba(216, 90, 48, 0.15);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.02);
 
   /* Radii */
@@ -117,9 +117,9 @@
 
   /* Ambient background — semi-transparent for Windows Acrylic */
   --bg-gradient:
-    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(193, 95, 60, 0.06), transparent 60%),
+    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(216, 90, 48, 0.06), transparent 60%),
     radial-gradient(ellipse 800px 450px at 0% 100%, rgba(212, 137, 10, 0.04), transparent 60%),
-    linear-gradient(175deg, rgba(247, 245, 240, 0.78) 0%, rgba(242, 237, 230, 0.78) 100%);
+    linear-gradient(175deg, rgba(244, 243, 238, 0.88) 0%, rgba(242, 240, 235, 0.88) 100%);
 }
 
 /* ---------- Dark theme — evening warmth, not cold terminal ---------- */
@@ -329,6 +329,28 @@ body {
 
 .animate-record-enter { animation: record-state-enter 0.45s var(--ease-spring); }
 
+/* Checkmark draw — satisfying stroke reveal on copy success */
+@keyframes check-draw {
+  from { stroke-dashoffset: 16; }
+  to   { stroke-dashoffset: 0; }
+}
+
+@keyframes check-pop {
+  0%   { transform: scale(0.6); opacity: 0; }
+  50%  { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-check-draw {
+  animation: check-pop 0.35s var(--ease-spring) forwards;
+}
+
+.animate-check-draw svg {
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  animation: check-draw 0.3s var(--ease-out-expo) 0.1s forwards;
+}
+
 /* Page transitions — smooth cross-fade with subtle scale */
 @keyframes page-enter-from-right {
   from { opacity: 0; transform: translateX(16px) scale(0.98); }
@@ -461,6 +483,18 @@ body {
   background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
   border-radius: 4px;
   animation: download-pulse 1.5s var(--ease-out-quart) infinite;
+}
+
+/* Progress bar completion — brief glow pulse at 100% */
+@keyframes progress-complete {
+  0%   { box-shadow: 0 0 0 0 rgba(46, 139, 87, 0); }
+  40%  { box-shadow: 0 0 8px 2px rgba(46, 139, 87, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(46, 139, 87, 0); }
+}
+
+.progress-complete {
+  animation: progress-complete 0.8s var(--ease-out-expo);
+  border-radius: 4px;
 }
 
 /* ============================================================
@@ -642,6 +676,15 @@ body {
   transition: transform 60ms ease-out;
 }
 
+/* Gear spin — settings icon rotates on hover */
+.icon-btn-gear svg {
+  transition: transform 0.5s var(--ease-spring);
+}
+
+.icon-btn-gear:hover svg {
+  transform: rotate(60deg);
+}
+
 /* Test button — settings page permission tests */
 .test-btn {
   padding: 8px 16px;
@@ -717,6 +760,15 @@ body {
   transition: background 0.35s var(--ease-out-expo),
               opacity 0.2s var(--ease-out-expo),
               box-shadow 0.35s var(--ease-out-expo);
+}
+
+.toggle-switch[aria-checked="true"] {
+  box-shadow: 0 0 8px rgba(216, 90, 48, 0.25);
+}
+
+[data-theme="dark"] .toggle-switch[aria-checked="true"],
+.dark .toggle-switch[aria-checked="true"] {
+  box-shadow: 0 0 10px rgba(212, 121, 78, 0.30);
 }
 
 .toggle-switch:active .toggle-knob {
