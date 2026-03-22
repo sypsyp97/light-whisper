@@ -95,6 +95,14 @@ pub(crate) async fn start_recording_inner(
         interim_cache.clone(),
     );
 
+    audio_service::spawn_waveform_emitter(
+        app_handle.clone(),
+        session_id,
+        stop_flag.clone(),
+        samples.clone(),
+        actual_sample_rate,
+    );
+
     let mut session = Some(RecordingSession {
         session_id,
         trigger,

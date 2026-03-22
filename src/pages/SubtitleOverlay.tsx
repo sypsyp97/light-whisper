@@ -30,6 +30,7 @@ export default function SubtitleOverlay() {
   const [text, setText] = useState("");
   const [fadingOut, setFadingOut] = useState(false);
   const [polishFlash, setPolishFlash] = useState(false);
+  const [waveformBars, setWaveformBars] = useState<number[]>([]);
   const [mode, setMode] = useState<"dictation" | "assistant">("dictation");
   const [assistantCopied, setAssistantCopied] = useState(false);
   const latestSessionIdRef = useRef(0);
@@ -98,6 +99,7 @@ export default function SubtitleOverlay() {
             clearFadeTimer();
             setFadingOut(false);
             setText("");
+            setWaveformBars([]);
             setAssistantCopied(false);
             shouldAutoScrollRef.current = true;
             setPhase("recording");
@@ -107,6 +109,7 @@ export default function SubtitleOverlay() {
           if (isProcessing) {
             clearFadeTimer();
             setFadingOut(false);
+            setWaveformBars([]);
             setPhase("processing");
           }
         });
@@ -217,6 +220,33 @@ export default function SubtitleOverlay() {
       unlisten?.();
     };
   }, [clearFadeTimer]);
+
+  // 监听录音波形数据
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        unlisten = await listen<{ sessionId?: number; bars: number[] }>("waveform", (event) => {
+          const { sessionId, bars } = event.payload;
+          if (typeof sessionId === "number" && sessionId < latestSessionIdRef.current) return;
+          setWaveformBars(bars);
+        });
+        if (disposed && unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!assistantPanelActive) {
@@ -333,6 +363,7 @@ export default function SubtitleOverlay() {
     clearFadeTimer();
     setFadingOut(false);
     setText("");
+    setWaveformBars([]);
     setAssistantCopied(false);
     setPhase("idle");
     void hideSubtitleWindow().catch(() => undefined);
@@ -378,7 +409,19 @@ export default function SubtitleOverlay() {
             </button>
           </div>
         )}
-        {indicatorClass && <div className={indicatorClass} />}
+        {phase === "recording" && waveformBars.length > 0 ? (
+          <div className={`subtitle-waveform-indicator${mode === "assistant" ? " is-assistant" : ""}`}>
+            {waveformBars.map((h, i) => (
+              <div
+                key={i}
+                className="subtitle-waveform-indicator-bar"
+                style={{ height: `${Math.max(2, h * 16)}px` }}
+              />
+            ))}
+          </div>
+        ) : indicatorClass ? (
+          <div className={indicatorClass} />
+        ) : null}
         {hasText && (
           <div
             ref={assistantTextRef}
@@ -392,7 +435,7 @@ export default function SubtitleOverlay() {
         {hasText && phase === "polishing" && streamTokens > 0 && (
           <span className="subtitle-stream-badge">{streamTokens}</span>
         )}
-        {!hasText && hintText && <span className="subtitle-hint">{hintText}</span>}
+        {!hasText && hintText && <span key={phase} className="subtitle-hint">{hintText}</span>}
       </div>
     </div>
   );

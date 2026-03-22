@@ -75,12 +75,13 @@ body,
   overflow: visible;
 }
 
-/* Reset dot margins inside pill-shaped status capsule */
+/* Reset dot / waveform-indicator margins inside pill-shaped status capsule */
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-recording,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-assistant,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-assistant-processing,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-polishing,
-.subtitle-capsule:has(.subtitle-hint) .subtitle-dot-processing {
+.subtitle-capsule:has(.subtitle-hint) .subtitle-dot-processing,
+.subtitle-capsule:has(.subtitle-hint) .subtitle-waveform-indicator {
   margin-top: 0;
 }
 
@@ -125,6 +126,7 @@ body,
   font-family: var(--font-sans);
   font-size: 13px;
   color: var(--color-text-secondary);
+  animation: subtitle-fade-in-subtle 0.2s ease-out;
 }
 
 /* Streaming token counter badge */
@@ -243,7 +245,7 @@ body,
   animation: subtitle-sparkle 0.8s ease-in-out infinite;
 }
 
-/* Processing dot — spinning */
+/* Processing dot — spinning with fade-in entrance */
 .subtitle-dot-processing {
   width: 12px;
   height: 12px;
@@ -252,7 +254,7 @@ body,
   border-top-color: var(--color-accent);
   flex-shrink: 0;
   margin-top: 4px;
-  animation: spin 0.7s linear infinite;
+  animation: subtitle-fade-in-subtle 0.15s ease-out, spin 0.7s linear infinite;
 }
 
 .subtitle-dot-assistant-processing {
@@ -264,7 +266,7 @@ body,
   box-shadow: 0 0 12px color-mix(in srgb, var(--color-assistant) 28%, transparent);
   flex-shrink: 0;
   margin-top: 4px;
-  animation: spin 0.7s linear infinite;
+  animation: subtitle-fade-in-subtle 0.15s ease-out, spin 0.7s linear infinite;
 }
 
 [data-theme="light"] .subtitle-dot-processing {
@@ -278,7 +280,54 @@ body,
   box-shadow: 0 0 10px color-mix(in srgb, var(--color-assistant) 18%, transparent);
 }
 
+/* ---- Waveform indicator (replaces dot during recording) ---- */
+
+.subtitle-waveform-indicator {
+  display: flex;
+  align-items: center;
+  gap: 1.5px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-top: 4px;
+  animation: subtitle-indicator-enter 0.18s ease-out;
+}
+
+.subtitle-waveform-indicator-bar {
+  width: 2px;
+  min-height: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+  opacity: 0.85;
+  transition: height 70ms ease-out;
+}
+
+.subtitle-waveform-indicator.is-assistant .subtitle-waveform-indicator-bar {
+  background: var(--color-assistant);
+}
+
 /* ---- Animations ---- */
+
+/* Indicator entrance — opacity + scale (for elements without conflicting transform animations) */
+@keyframes subtitle-indicator-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Subtle opacity-only fade-in (safe to compose with transform-based animations) */
+@keyframes subtitle-fade-in-subtle {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 
 @keyframes subtitle-fade-in {
   from {
@@ -376,8 +425,14 @@ body,
   .subtitle-dot-assistant-processing,
   .subtitle-dot-polishing,
   .subtitle-dot-processing,
-  .subtitle-polish-flash {
+  .subtitle-polish-flash,
+  .subtitle-waveform-indicator,
+  .subtitle-hint {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .subtitle-waveform-indicator-bar {
+    transition: none !important;
   }
 }

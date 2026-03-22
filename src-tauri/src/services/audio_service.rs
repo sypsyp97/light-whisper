@@ -317,6 +317,63 @@ fn peak_to_meter(peak: u32) -> u32 {
     ((peak.min(32767) as f32 / 32767.0) * 1000.0).round() as u32
 }
 
+// ---------- 录音波形可视化 ----------
+
+const WAVEFORM_BAR_COUNT: usize = 9;
+const WAVEFORM_EMIT_INTERVAL_MS: u64 = 55;
+const WAVEFORM_WINDOW_SECS: f64 = 0.12;
+
+fn compute_waveform_bars(samples: &[i16]) -> Vec<f32> {
+    let mut bars = vec![0.0f32; WAVEFORM_BAR_COUNT];
+    if samples.is_empty() {
+        return bars;
+    }
+    let chunk = samples.len() / WAVEFORM_BAR_COUNT;
+    if chunk == 0 {
+        return bars;
+    }
+    for (i, bar) in bars.iter_mut().enumerate() {
+        let start = i * chunk;
+        let end = (start + chunk).min(samples.len());
+        let rms = (samples[start..end]
+            .iter()
+            .map(|&s| (s as f32) * (s as f32))
+            .sum::<f32>()
+            / (end - start) as f32)
+            .sqrt();
+        *bar = (rms / 5000.0).min(1.0).sqrt();
+    }
+    bars
+}
+
+pub fn spawn_waveform_emitter(
+    app_handle: tauri::AppHandle,
+    session_id: u64,
+    stop_flag: Arc<AtomicBool>,
+    samples: Arc<parking_lot::Mutex<Vec<i16>>>,
+    sample_rate: u32,
+) {
+    let window_size = (sample_rate as f64 * WAVEFORM_WINDOW_SECS) as usize;
+
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(WAVEFORM_EMIT_INTERVAL_MS)).await;
+            if stop_flag.load(Ordering::Relaxed) {
+                break;
+            }
+            let bars = {
+                let guard = samples.lock();
+                let start = guard.len().saturating_sub(window_size);
+                compute_waveform_bars(&guard[start..])
+            };
+            let _ = app_handle.emit(
+                "waveform",
+                serde_json::json!({ "sessionId": session_id, "bars": bars }),
+            );
+        }
+    });
+}
+
 // ---------- 音频捕获线程 ----------
 
 pub fn spawn_audio_capture_thread(

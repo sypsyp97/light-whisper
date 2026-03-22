@@ -70,7 +70,7 @@ const BASE_SYSTEM_PROMPT: &str = r#"
 - learned_by_ai 可以作为辅证；若与当前上下文冲突，以当前上下文和更强证据为准。
 - 自我修正：若出现“不对”“不是，是”“我的意思是”“算了换个说法”“sorry I mean”“actually”等明确修正信号，保留最终说法，丢弃被否定内容。
 - 列举格式：检测到明确枚举结构时，可整理为编号列表。
-- 若 <app_context> 显示当前场景像代码编辑器、终端、文档编辑器或 IM，只能据此调整格式密度、换行和符号习惯，不能凭空加入上下文内容。
+- 根据 <app_context> 微调格式风格（代码/终端：积极转符号、保留英文大小写；IM/社交：保留口语感、句末不加句号；文档/邮件：标点完整、措辞略正式），但不凭空加入上下文内容。
 </specific_rules>
 
 <output_format>
@@ -132,6 +132,15 @@ const BASE_SYSTEM_PROMPT: &str = r#"
       <asr_text><![CDATA[第一 更新依赖 第二 重新打包 第三 发版]]></asr_text>
     </input>
     <output><![CDATA[{"polished":"1. 更新依赖\n2. 重新打包\n3. 发版","corrections":[],"key_terms":[]}]]></output>
+  </example>
+  <example>
+    <input>
+      <app_context>
+        <process_name><![CDATA[WeChat.exe]]></process_name>
+      </app_context>
+      <asr_text><![CDATA[好的 那我周四下午过去找你 到时候再说]]></asr_text>
+    </input>
+    <output><![CDATA[{"polished":"好的，那我周四下午过去找你，到时候再说","corrections":[],"key_terms":[]}]]></output>
   </example>
 </examples>
 "#;
