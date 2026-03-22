@@ -5,11 +5,13 @@ import {
   isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
 import type {
+  ApiFormat,
   AppUpdateInfo,
   AiModelListPayload,
   FunASRStatus,
   HotkeyDiagnostic,
   InputDeviceListPayload,
+  LlmReasoningMode,
   LlmReasoningSupport,
   ModelCheckResult,
   TranscriptionResult,
@@ -164,8 +166,8 @@ export function setLlmProviderConfig(
   active: string,
   customBaseUrl?: string,
   customModel?: string,
-  polishReasoningMode?: "provider_default" | "off" | "light" | "balanced" | "deep",
-  assistantReasoningMode?: "provider_default" | "off" | "light" | "balanced" | "deep",
+  polishReasoningMode?: LlmReasoningMode,
+  assistantReasoningMode?: LlmReasoningMode,
   assistantUseSeparateModel?: boolean,
   assistantModel?: string,
 ): Promise<void> {
@@ -184,7 +186,7 @@ export function getLlmReasoningSupport(
   provider: string,
   baseUrl?: string,
   model?: string,
-  apiFormat?: "openai_compat" | "anthropic",
+  apiFormat?: ApiFormat,
 ): Promise<LlmReasoningSupport> {
   return invokeCommand<LlmReasoningSupport>("get_llm_reasoning_support", {
     provider,

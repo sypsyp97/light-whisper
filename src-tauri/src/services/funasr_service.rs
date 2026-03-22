@@ -486,7 +486,7 @@ fn extract_zip_archive(
                 .map_err(|e| AppError::Asr(format!("写入文件失败: {}", e)))?;
         }
 
-        report_extract_progress(handle, i + 1, total);
+        report_extract_progress(handle, i + 1, Some(total), false);
     }
 
     Ok(total)
@@ -516,22 +516,33 @@ fn extract_tar_xz_archive(
             .map_err(|e| AppError::Asr(format!("写入文件失败: {}", e)))?;
         extracted += 1;
 
-        report_extract_stream_progress(handle, extracted, false);
+        report_extract_progress(handle, extracted, None, false);
     }
 
     if extracted > 0 && extracted % 200 != 0 {
-        report_extract_stream_progress(handle, extracted, true);
+        report_extract_progress(handle, extracted, None, true);
     }
 
     Ok(extracted)
 }
 
-fn report_extract_progress(handle: &tauri::AppHandle, current: usize, total: usize) {
-    if total == 0 {
+fn report_extract_progress(
+    handle: &tauri::AppHandle,
+    current: usize,
+    total: Option<usize>,
+    force: bool,
+) {
+    let should_emit = force
+        || current % 200 == 0
+        || total.is_some_and(|t| current == t);
+
+    if !should_emit {
         return;
     }
-
-    if current % 200 == 0 || current == total {
+    if let Some(total) = total {
+        if total == 0 {
+            return;
+        }
         let pct = current * 100 / total;
         let _ = handle.emit(
             "funasr-status",
@@ -540,21 +551,15 @@ fn report_extract_progress(handle: &tauri::AppHandle, current: usize, total: usi
                 "message": format!("正在解压引擎文件... {}%", pct)
             }),
         );
+    } else {
+        let _ = handle.emit(
+            "funasr-status",
+            serde_json::json!({
+                "status": "loading",
+                "message": format!("正在解压引擎文件... 已处理 {} 项", current)
+            }),
+        );
     }
-}
-
-fn report_extract_stream_progress(handle: &tauri::AppHandle, current: usize, force: bool) {
-    if !force && current % 200 != 0 {
-        return;
-    }
-
-    let _ = handle.emit(
-        "funasr-status",
-        serde_json::json!({
-            "status": "loading",
-            "message": format!("正在解压引擎文件... 已处理 {} 项", current)
-        }),
-    );
 }
 
 /// 查找可用的 Python 解释器（开发模式回退）
@@ -624,24 +629,6 @@ async fn find_python() -> Result<String, AppError> {
 }
 
 /// 启动 FunASR Python 服务器
-///
-/// 这个函数做以下事情：
-/// 1. 查找 Python 解释器
-/// 2. 以子进程方式启动 funasr_server.py
-/// 3. 等待服务器初始化完成（读取第一行 JSON 输出）
-/// 4. 把子进程句柄存储到全局状态中
-///
-/// # 参数
-/// - `app_handle`：Tauri 应用句柄，用于获取资源路径和发送事件
-/// - `state`：全局应用状态的引用
-///
-/// # Rust 知识点：async/await
-/// `async fn` 定义一个异步函数。异步函数不会阻塞当前线程，
-/// 而是在等待 IO 操作时让出执行权给其他任务。
-/// `await` 关键字用于等待异步操作完成。
-///
-/// 为什么要用异步？因为启动进程和等待初始化可能需要几秒钟，
-/// 如果用同步方式，整个 UI 线程会被阻塞，导致界面卡死。
 pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Result<(), AppError> {
     // 在线引擎不需要 Python 子进程
     if paths::is_online_engine(&paths::read_engine_config()) {
@@ -657,10 +644,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         }
     }
 
-    // 使用原子标志防止并发启动
-    // `compare_exchange` 是原子操作：如果当前值是 false，就设为 true 并返回 Ok；
-    // 如果已经是 true（说明另一个启动流程正在进行），就返回 Err。
-    // 这比持有 Mutex 锁更高效，因为模型加载可能需要 25+ 秒。
+    // 原子标志防止并发启动（模型加载可能 25+ 秒，比 Mutex 更高效）
     if state
         .funasr_starting
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -886,10 +870,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
 /// ```text
 /// 音频数据 -> 临时文件 -> 发送命令给 Python -> 等待结果 -> 返回文本
 /// ```
-///
-/// # Rust 知识点：Vec<u8>
-/// `Vec<u8>` 是一个字节数组，用于存储二进制数据（如音频文件内容）。
-/// `u8` 是无符号 8 位整数（0-255），一个字节。
 pub async fn transcribe(
     state: &AppState,
     audio_data: Vec<u8>,
@@ -962,26 +942,7 @@ fn encode_pcm16_base64(samples: &[i16]) -> String {
 }
 
 fn encode_wav_bytes(samples: &[i16], sample_rate: u32) -> Result<Vec<u8>, AppError> {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    let mut cursor = std::io::Cursor::new(Vec::with_capacity(44 + samples.len() * 2));
-    {
-        let mut writer = hound::WavWriter::new(&mut cursor, spec)
-            .map_err(|e| AppError::Asr(format!("创建 WAV 编码器失败: {}", e)))?;
-        for sample in samples {
-            writer
-                .write_sample(*sample)
-                .map_err(|e| AppError::Asr(format!("写入 WAV 数据失败: {}", e)))?;
-        }
-        writer
-            .finalize()
-            .map_err(|e| AppError::Asr(format!("完成 WAV 编码失败: {}", e)))?;
-    }
-    Ok(cursor.into_inner())
+    Ok(super::audio_service::encode_wav(samples, sample_rate))
 }
 
 fn create_temp_audio_path() -> std::path::PathBuf {
@@ -1297,9 +1258,6 @@ pub async fn check_status(
 /// 2. 等待一小段时间
 /// 3. 如果进程仍在运行，强制杀死
 ///
-/// # Rust 知识点：Option 的 take 方法
-/// `take()` 把 Option 中的值取出来，原位置变成 None。
-/// 这在需要获取所有权时很有用。
 pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
     // 递增代数，使正在进行的 start_server 感知到取消
     state.funasr_generation.fetch_add(1, Ordering::SeqCst);

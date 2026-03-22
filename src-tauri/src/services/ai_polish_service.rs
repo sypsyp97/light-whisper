@@ -1,5 +1,4 @@
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 use tauri::Emitter;
 
@@ -153,7 +152,6 @@ fn build_system_prompt(
 ) -> String {
     let mut prompt = BASE_SYSTEM_PROMPT.to_string();
 
-    // 在锁内一次性提取所需数据，避免克隆整个 profile
     let (hot_words, corrections, profile_translation_target, custom_prompt) =
         state.with_profile(|p| {
             (
@@ -168,7 +166,6 @@ fn build_system_prompt(
         });
     let translation_target = translation_target_override.unwrap_or(profile_translation_target);
 
-    // 注入用户常用词汇
     if !hot_words.is_empty() {
         prompt.push_str("\n\n<user_terms>\n");
         for hot_word in hot_words {
@@ -178,7 +175,6 @@ fn build_system_prompt(
         prompt.push_str("</user_terms>");
     }
 
-    // 注入相关纠错模式（精确子串匹配优先，高频兜底）
     if !corrections.is_empty() {
         let (user_corrs, ai_corrs): (Vec<_>, Vec<_>) = corrections
             .into_iter()
@@ -421,7 +417,7 @@ async fn send_llm_request_with_fallback(
     app_handle: &tauri::AppHandle,
     session_id: u64,
 ) -> Result<String, String> {
-    let cache_key = image_support_cache_key(endpoint);
+    let cache_key = llm_provider::image_support_cache_key(endpoint);
     match send_llm_request_with_transport_fallback(
         state,
         endpoint,
@@ -540,7 +536,6 @@ pub async fn polish_text(
         &raw_content[..raw_content.len().min(500)]
     );
 
-    // 尝试解析结构化 JSON 输出，失败则回退到纯文本 + 字符 diff
     let (polished, corrections, key_terms) = match parse_structured_response(raw_content) {
         Some(resp) => {
             // 只学习真正的 ASR 识别错误（homophone/term/pronoun），过滤掉风格改写
@@ -738,84 +733,7 @@ fn render_polish_user_content(app_context: Option<&str>, text: &str, has_screen_
     sections.join("\n\n")
 }
 
-fn image_support_cache_key(endpoint: &llm_provider::LlmEndpoint) -> String {
-    format!(
-        "{:?}|{}|{}|{}",
-        endpoint.api_format,
-        endpoint.provider,
-        endpoint.api_url,
-        endpoint.model.trim().to_ascii_lowercase()
-    )
-}
 
-async fn probe_image_support_from_provider_metadata(
-    state: &AppState,
-    endpoint: &llm_provider::LlmEndpoint,
-    api_key: &str,
-) -> Option<bool> {
-    let mut probe_targets = Vec::new();
-    if let Some(url) = llm_provider::image_support_probe_url(endpoint) {
-        probe_targets.push((url, true));
-    }
-    if llm_provider::should_probe_cerebras_public_model_metadata(endpoint) {
-        if let Some(url) = llm_provider::cerebras_public_model_probe_url(&endpoint.model) {
-            if !probe_targets.iter().any(|(existing, _)| existing == &url) {
-                probe_targets.push((url, false));
-            }
-        }
-    }
-
-    for (url, use_auth) in probe_targets {
-        let mut request = state.http_client.get(&url).timeout(Duration::from_secs(2));
-        if use_auth {
-            let Ok(headers) = llm_provider::build_auth_headers(&endpoint.api_format, api_key) else {
-                continue;
-            };
-            request = request.headers(headers);
-        }
-
-        let response = match request.send().await {
-            Ok(response) => response,
-            Err(err) => {
-                log::debug!(
-                    "探测 AI 润色模型图片能力失败，跳过当前元数据源: url={}, err={}",
-                    url,
-                    err
-                );
-                continue;
-            }
-        };
-
-        if !response.status().is_success() {
-            log::debug!(
-                "AI 润色模型图片能力探测返回非成功状态，跳过当前元数据源: status={}, url={}",
-                response.status(),
-                url
-            );
-            continue;
-        }
-
-        let payload = match response.json::<serde_json::Value>().await {
-            Ok(payload) => payload,
-            Err(err) => {
-                log::debug!(
-                    "解析 AI 润色模型图片能力元数据失败，跳过当前元数据源: url={}, err={}",
-                    url,
-                    err
-                );
-                continue;
-            }
-        };
-
-        if let Some(supported) =
-            llm_provider::parse_image_input_support_from_model_metadata(&payload)
-        {
-            return Some(supported);
-        }
-    }
-
-    None
-}
 
 async fn build_polish_user_input(
     state: &AppState,
@@ -824,10 +742,10 @@ async fn build_polish_user_input(
     text: &str,
 ) -> llm_client::LlmUserInput {
     let screen_context_enabled = state.with_profile(|profile| profile.ai_polish_screen_context_enabled);
-    let cache_key = image_support_cache_key(endpoint);
+    let cache_key = llm_provider::image_support_cache_key(endpoint);
     let cached_image_support = state.assistant_image_support(&cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
-        let support = probe_image_support_from_provider_metadata(state, endpoint, api_key).await;
+        let support = llm_provider::probe_image_support_from_provider_metadata(&state.http_client, endpoint, api_key).await;
         if let Some(supported) = support {
             state.set_assistant_image_support(cache_key.clone(), supported);
             log::info!(

@@ -288,6 +288,67 @@ pub fn parse_image_input_support_from_model_metadata(payload: &Value) -> Option<
     None
 }
 
+pub async fn probe_image_support_from_provider_metadata(
+    http_client: &reqwest::Client,
+    endpoint: &LlmEndpoint,
+    api_key: &str,
+) -> Option<bool> {
+    let mut probe_targets = Vec::new();
+    if let Some(url) = image_support_probe_url(endpoint) {
+        probe_targets.push((url, true));
+    }
+    if should_probe_cerebras_public_model_metadata(endpoint) {
+        if let Some(url) = cerebras_public_model_probe_url(&endpoint.model) {
+            if !probe_targets.iter().any(|(existing, _)| existing == &url) {
+                probe_targets.push((url, false));
+            }
+        }
+    }
+
+    for (url, use_auth) in probe_targets {
+        let mut request = http_client
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(2));
+        if use_auth {
+            let Ok(headers) = build_auth_headers(&endpoint.api_format, api_key) else {
+                continue;
+            };
+            request = request.headers(headers);
+        }
+
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(err) => {
+                log::debug!("探测模型图片能力失败: url={}, err={}", url, err);
+                continue;
+            }
+        };
+
+        if !response.status().is_success() {
+            log::debug!(
+                "模型图片能力探测返回非成功状态: status={}, url={}",
+                response.status(),
+                url
+            );
+            continue;
+        }
+
+        let payload = match response.json::<Value>().await {
+            Ok(payload) => payload,
+            Err(err) => {
+                log::debug!("解析模型图片能力元数据失败: url={}, err={}", url, err);
+                continue;
+            }
+        };
+
+        if let Some(supported) = parse_image_input_support_from_model_metadata(&payload) {
+            return Some(supported);
+        }
+    }
+
+    None
+}
+
 pub fn endpoint_for_preview(
     provider: &str,
     base_url: Option<&str>,
@@ -329,6 +390,26 @@ pub fn endpoint_for_preview(
     endpoint_for_config(&config)
 }
 
+pub fn image_support_cache_key(endpoint: &LlmEndpoint) -> String {
+    format!(
+        "{:?}|{}|{}|{}",
+        endpoint.api_format,
+        endpoint.provider,
+        endpoint.api_url,
+        endpoint.model.trim().to_ascii_lowercase()
+    )
+}
+
+fn indicates_unsupported(normalized: &str) -> bool {
+    normalized.contains("not supported")
+        || normalized.contains("unsupported")
+        || normalized.contains("does not support")
+        || normalized.contains("are not valid")
+        || normalized.contains("invalidparameter")
+        || normalized.contains("invalid parameter")
+        || normalized.contains("badrequest")
+}
+
 pub fn looks_like_image_input_unsupported_error(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     let mentions_image = normalized.contains("image")
@@ -337,17 +418,14 @@ pub fn looks_like_image_input_unsupported_error(message: &str) -> bool {
         || normalized.contains("input_image")
         || normalized.contains("image_url");
 
-    let indicates_unsupported = normalized.contains("not supported")
-        || normalized.contains("unsupported")
-        || normalized.contains("does not support")
-        || normalized.contains("invalid image")
-        || normalized.contains("invalid content type")
-        || normalized.contains("unsupported content type")
-        || normalized.contains("unsupported modality")
-        || normalized.contains("modalities are not supported")
-        || normalized.contains("invalid_value");
-
-    mentions_image && indicates_unsupported
+    mentions_image
+        && (indicates_unsupported(&normalized)
+            || normalized.contains("invalid image")
+            || normalized.contains("invalid content type")
+            || normalized.contains("unsupported content type")
+            || normalized.contains("unsupported modality")
+            || normalized.contains("modalities are not supported")
+            || normalized.contains("invalid_value"))
 }
 
 pub fn looks_like_json_output_unsupported_error(message: &str) -> bool {
@@ -358,14 +436,7 @@ pub fn looks_like_json_output_unsupported_error(message: &str) -> bool {
         || normalized.contains("json schema")
         || normalized.contains("structured output");
 
-    let indicates_unsupported = normalized.contains("not supported")
-        || normalized.contains("unsupported")
-        || normalized.contains("are not valid")
-        || normalized.contains("invalidparameter")
-        || normalized.contains("invalid parameter")
-        || normalized.contains("badrequest");
-
-    mentions_json_output && indicates_unsupported
+    mentions_json_output && indicates_unsupported(&normalized)
 }
 
 pub fn looks_like_reasoning_unsupported_error(message: &str) -> bool {
@@ -376,15 +447,9 @@ pub fn looks_like_reasoning_unsupported_error(message: &str) -> bool {
         || normalized.contains("budget_tokens")
         || normalized.contains("reasoning_content");
 
-    let indicates_unsupported = normalized.contains("not supported")
-        || normalized.contains("unsupported")
-        || normalized.contains("are not valid")
-        || normalized.contains("invalidparameter")
-        || normalized.contains("invalid parameter")
-        || normalized.contains("unknown parameter")
-        || normalized.contains("badrequest");
-
-    mentions_reasoning && indicates_unsupported
+    mentions_reasoning
+        && (indicates_unsupported(&normalized)
+            || normalized.contains("unknown parameter"))
 }
 
 pub fn is_volcengine_like_endpoint(endpoint: &LlmEndpoint) -> bool {

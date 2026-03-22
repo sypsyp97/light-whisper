@@ -182,8 +182,7 @@ export default function MainPage({ onNavigate }: {
         />
         {/* First-use onboarding hint */}
         {!onboardingDismissed && !transcriptionResult && !isProcessing && isReady && history.length === 0 && (
-          <div className="animate-fade-in" style={{ marginTop: 8 }}>
-            <div className="result-card" style={{ animation: "none" }}>
+          <div className="result-card animate-fade-in" style={{ marginTop: 8 }}>
               <div className="result-card-header">
                 <span className="result-card-title">
                   <span className="result-dot" />
@@ -210,7 +209,6 @@ export default function MainPage({ onNavigate }: {
                   热键和更多选项可在左上角设置中调整。
                 </p>
               </div>
-            </div>
           </div>
         )}
       </div>

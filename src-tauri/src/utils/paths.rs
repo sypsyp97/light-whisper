@@ -1,15 +1,18 @@
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
 use tauri::Manager;
 
 const APP_IDENTIFIER: &str = "com.light-whisper.app";
 
-pub fn get_data_dir() -> PathBuf {
-    let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from(".light-whisper"));
-
-    let app_dir = base.join(APP_IDENTIFIER);
-    let _ = std::fs::create_dir_all(&app_dir);
-
-    app_dir
+pub fn get_data_dir() -> &'static PathBuf {
+    static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+    DATA_DIR.get_or_init(|| {
+        let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from(".light-whisper"));
+        let app_dir = base.join(APP_IDENTIFIER);
+        let _ = std::fs::create_dir_all(&app_dir);
+        app_dir
+    })
 }
 
 fn get_resource_script_path(app: &tauri::AppHandle, filename: &str) -> PathBuf {
@@ -101,14 +104,18 @@ pub fn read_online_asr_endpoint() -> String {
     }
 }
 
-/// `region`: `"international"` 或 `"domestic"`
-pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
+fn update_engine_json_field(key: &str, value: &str) -> Result<(), std::io::Error> {
     let mut obj = read_engine_json();
     obj.as_object_mut().unwrap().insert(
-        "glm_endpoint".to_string(),
-        serde_json::Value::String(region.to_string()),
+        key.to_string(),
+        serde_json::Value::String(value.to_string()),
     );
     write_engine_json(&obj)
+}
+
+/// `region`: `"international"` 或 `"domestic"`
+pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
+    update_engine_json_field("glm_endpoint", region)
 }
 
 /// 查找已解压的 engine.exe
@@ -159,10 +166,5 @@ pub fn get_engine_dir() -> PathBuf {
 }
 
 pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
-    let mut obj = read_engine_json();
-    obj.as_object_mut().unwrap().insert(
-        "engine".to_string(),
-        serde_json::Value::String(engine.to_string()),
-    );
-    write_engine_json(&obj)
+    update_engine_json_field("engine", engine)
 }

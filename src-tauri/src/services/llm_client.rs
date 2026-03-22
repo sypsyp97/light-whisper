@@ -177,39 +177,21 @@ fn anthropic_user_content(user_input: &LlmUserInput) -> Value {
     Value::Array(content)
 }
 
-fn emit_stream_chunk(
+fn emit_stream_event(
     app_handle: &tauri::AppHandle,
     event_name: Option<&str>,
     session_id: Option<u64>,
-    chunk: &str,
+    chunk: Option<&str>,
     tokens: usize,
 ) {
     if let Some(event_name) = event_name {
-        let mut payload = serde_json::json!({
-            "status": "streaming",
-            "chunk": chunk,
-        });
+        let mut payload = serde_json::json!({ "status": "streaming" });
+        if let Some(chunk) = chunk {
+            payload["chunk"] = serde_json::json!(chunk);
+        }
         if tokens > 0 {
             payload["tokens"] = serde_json::json!(tokens);
         }
-        if let Some(session_id) = session_id {
-            payload["sessionId"] = serde_json::json!(session_id);
-        }
-        let _ = app_handle.emit(event_name, payload);
-    }
-}
-
-fn emit_stream_tokens(
-    app_handle: &tauri::AppHandle,
-    event_name: Option<&str>,
-    session_id: Option<u64>,
-    tokens: usize,
-) {
-    if let Some(event_name) = event_name {
-        let mut payload = serde_json::json!({
-            "status": "streaming",
-            "tokens": tokens,
-        });
         if let Some(session_id) = session_id {
             payload["sessionId"] = serde_json::json!(session_id);
         }
@@ -249,7 +231,7 @@ pub async fn read_sse_stream(
                     if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                         accumulated.push_str(content);
                         token_count += 1;
-                        emit_stream_chunk(app_handle, event_name, session_id, content, token_count);
+                        emit_stream_event(app_handle, event_name, session_id, Some(content), token_count);
                     }
                 }
             }
@@ -312,11 +294,11 @@ pub async fn read_openai_responses_sse_stream(
                         if let Some(delta) = json["delta"].as_str() {
                             accumulated.push_str(delta);
                             token_count += 1;
-                            emit_stream_chunk(
+                            emit_stream_event(
                                 app_handle,
                                 event_name,
                                 session_id,
-                                delta,
+                                Some(delta),
                                 token_count,
                             );
                         }
@@ -325,11 +307,11 @@ pub async fn read_openai_responses_sse_stream(
                         if let Some(text) = json["text"].as_str() {
                             accumulated.push_str(text);
                             token_count += 1;
-                            emit_stream_chunk(
+                            emit_stream_event(
                                 app_handle,
                                 event_name,
                                 session_id,
-                                text,
+                                Some(text),
                                 token_count,
                             );
                         }
@@ -394,7 +376,7 @@ pub async fn read_anthropic_sse_stream(
                     if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
                         if let Some(tokens) = anthropic_output_tokens(&json) {
                             output_tokens = tokens;
-                            emit_stream_tokens(app_handle, event_name, session_id, output_tokens);
+                            emit_stream_event(app_handle, event_name, session_id, None, output_tokens);
                         }
                     }
                 }
@@ -404,11 +386,11 @@ pub async fn read_anthropic_sse_stream(
                         if matches!(delta_type, Some("text_delta") | None) {
                             if let Some(text) = json["delta"]["text"].as_str() {
                                 accumulated.push_str(text);
-                                emit_stream_chunk(
+                                emit_stream_event(
                                     app_handle,
                                     event_name,
                                     session_id,
-                                    text,
+                                    Some(text),
                                     output_tokens,
                                 );
                             }
@@ -543,12 +525,8 @@ pub async fn send_llm_request(
         headers: reqwest::header::HeaderMap,
         body: &Value,
         timeout: Duration,
-        stream: bool,
     ) -> Result<reqwest::Response, String> {
-        let mut request = http_client.post(&endpoint.api_url).headers(headers);
-        if !stream {
-            request = request.timeout(timeout);
-        }
+        let request = http_client.post(&endpoint.api_url).headers(headers);
         tokio::time::timeout(timeout, request.json(body).send())
             .await
             .map_err(|_| format!("请求超时（{} 秒）", timeout.as_secs()))?
@@ -561,7 +539,6 @@ pub async fn send_llm_request(
         headers.clone(),
         body,
         timeout,
-        options.stream,
     )
     .await?;
 
@@ -587,7 +564,6 @@ pub async fn send_llm_request(
                     headers.clone(),
                     body,
                     timeout,
-                    options.stream,
                 )
                 .await?;
                 if response.status().is_success() {
@@ -622,7 +598,6 @@ pub async fn send_llm_request(
                 headers,
                 &fallback_body,
                 timeout,
-                options.stream,
             )
             .await?;
             if !response.status().is_success() {

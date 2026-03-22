@@ -1,9 +1,11 @@
-use crate::state::user_profile::*;
-use crate::state::AppState;
-use crate::utils::paths;
 use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+
+use crate::state::user_profile::*;
+use crate::state::AppState;
+use crate::utils::foreground::normalize_whitespace;
+use crate::utils::paths;
 
 const MAX_CORRECTION_PATTERNS: usize = 500;
 const MAX_HOT_WORDS: usize = 300;
@@ -226,7 +228,7 @@ fn now_secs() -> u64 {
 }
 
 fn normalize_hot_word_text(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    normalize_whitespace(text)
 }
 
 fn normalize_hot_word_key(text: &str) -> Option<(String, String)> {

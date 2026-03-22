@@ -21,7 +21,7 @@ pub fn wrap_xml_cdata(tag: &str, value: &str) -> String {
 
 fn format_prompt_context(app: &ForegroundApp) -> Option<String> {
     let process_name = truncate_chars(
-        &normalize_context_value(&app.process_name),
+        &normalize_whitespace(&app.process_name),
         PROCESS_NAME_MAX_CHARS,
     );
     let window_title = summarize_window_title(&app.window_title);
@@ -57,7 +57,7 @@ fn format_prompt_context(app: &ForegroundApp) -> Option<String> {
 }
 
 fn summarize_window_title(title: &str) -> String {
-    let normalized = normalize_context_value(title);
+    let normalized = normalize_whitespace(title);
     if normalized.is_empty() {
         return normalized;
     }
@@ -77,7 +77,7 @@ fn summarize_window_title(title: &str) -> String {
     truncate_chars(&summary, WINDOW_TITLE_MAX_CHARS)
 }
 
-fn normalize_context_value(value: &str) -> String {
+pub fn normalize_whitespace(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
