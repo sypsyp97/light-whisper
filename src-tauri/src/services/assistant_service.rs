@@ -190,7 +190,7 @@ pub async fn generate_content(
     app_handle: &tauri::AppHandle,
     session_id: u64,
 ) -> Result<String, AppError> {
-    let api_key = state.read_ai_polish_api_key();
+    let api_key = state.read_assistant_api_key();
     if api_key.trim().is_empty() {
         return Err(AppError::Other(
             "AI 助手未配置 API Key，无法生成内容".to_string(),

@@ -156,6 +156,9 @@ pub struct LlmProviderConfig {
     /// AI 助手独立模型；仅在 assistant_use_separate_model = true 时生效
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assistant_model: Option<String>,
+    /// AI 助手独立供应商；仅在 assistant_use_separate_model = true 时生效
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_provider: Option<String>,
     /// 用户自定义服务商列表
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_providers: Vec<CustomProvider>,
@@ -172,6 +175,7 @@ impl Default for LlmProviderConfig {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: Vec::new(),
         }
     }
@@ -243,6 +247,20 @@ impl LlmProviderConfig {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
+    }
+
+    /// 解析助手实际使用的 provider（独立配置 > 润色 active）
+    pub fn resolve_assistant_provider(&self) -> String {
+        if self.assistant_use_separate_model {
+            if let Some(ref p) = self.assistant_provider {
+                if Self::is_builtin_provider(p)
+                    || self.custom_providers.iter().any(|cp| cp.id == *p)
+                {
+                    return p.clone();
+                }
+            }
+        }
+        self.resolve_active_provider()
     }
 }
 
@@ -333,6 +351,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: vec![custom_provider("a"), custom_provider("b")],
         };
 
@@ -350,6 +369,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: vec![
                 custom_provider("a"),
                 custom_provider("b"),
@@ -371,6 +391,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: vec![
                 custom_provider("a"),
                 custom_provider("b"),
@@ -392,6 +413,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: Vec::new(),
         };
 

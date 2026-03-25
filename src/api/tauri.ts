@@ -170,6 +170,7 @@ export function setLlmProviderConfig(
   assistantReasoningMode?: LlmReasoningMode,
   assistantUseSeparateModel?: boolean,
   assistantModel?: string,
+  assistantProvider?: string | null,
 ): Promise<void> {
   return invokeCommand<void>("set_llm_provider_config", {
     active,
@@ -179,7 +180,16 @@ export function setLlmProviderConfig(
     assistantReasoningMode: assistantReasoningMode ?? null,
     assistantUseSeparateModel: assistantUseSeparateModel ?? null,
     assistantModel: assistantModel ?? null,
+    assistantProvider: assistantProvider !== undefined ? assistantProvider : null,
   });
+}
+
+export function setAssistantApiKey(apiKey: string): Promise<void> {
+  return invokeCommand<void>("set_assistant_api_key", { apiKey });
+}
+
+export function getAssistantApiKey(): Promise<string> {
+  return invokeCommand<string>("get_assistant_api_key", {});
 }
 
 export function getLlmReasoningSupport(

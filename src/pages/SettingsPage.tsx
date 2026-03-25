@@ -45,6 +45,8 @@ import {
   setAssistantScreenContextEnabled,
   setAssistantSystemPrompt,
   getLlmReasoningSupport,
+  setAssistantApiKey,
+  getAssistantApiKey,
 } from "@/api/tauri";
 import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
@@ -269,6 +271,8 @@ export default function SettingsPage({
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
+  const [assistantModels, setAssistantModels] = useState<AiModelInfo[]>([]);
+  const [assistantModelsLoading, setAssistantModelsLoading] = useState(false);
   const [aiModelSearch, setAiModelSearch] = useState("");
   const [assistantModelSearch, setAssistantModelSearch] = useState("");
   const [aiModelsLoading, setAiModelsLoading] = useState(false);
@@ -317,6 +321,11 @@ export default function SettingsPage({
   const [customModel, setCustomModel] = useState("");
   const [assistantUseSeparateModel, setAssistantUseSeparateModel] = useState(false);
   const [assistantModel, setAssistantModel] = useState("");
+  const [assistantProvider, setAssistantProviderState] = useState("");
+  const [assistantApiKeyState, setAssistantApiKeyState] = useState("");
+  const [assistantProviderPickerOpen, setAssistantProviderPickerOpen] = useState(false);
+  const [assistantProviderSearch, setAssistantProviderSearch] = useState("");
+  const assistantProviderPickerRef = useRef<HTMLDivElement | null>(null);
   const [polishReasoningMode, setPolishReasoningMode] = useState<LlmReasoningMode>("provider_default");
   const [assistantReasoningMode, setAssistantReasoningMode] = useState<LlmReasoningMode>("provider_default");
   const [polishReasoningSupport, setPolishReasoningSupportState] = useState<LlmReasoningSupport>({
@@ -342,6 +351,10 @@ export default function SettingsPage({
     setAiPolishConfig(enabled, value).catch(() => {});
   }, 600, { onUnmount: "flush" });
 
+  const assistantKeySave = useDebouncedCallback((value: string) => {
+    setAssistantApiKey(value).catch(() => {});
+  }, 600, { onUnmount: "flush" });
+
   const llmConfigSave = useDebouncedCallback((
     provider: string,
     baseUrl: string,
@@ -350,6 +363,7 @@ export default function SettingsPage({
     nextAssistantReasoningMode: LlmReasoningMode,
     nextAssistantUseSeparateModel: boolean,
     nextAssistantModel: string,
+    nextAssistantProvider?: string | null,
   ) => {
     setLlmProviderConfig(
       provider,
@@ -359,6 +373,7 @@ export default function SettingsPage({
       nextAssistantReasoningMode,
       nextAssistantUseSeparateModel,
       nextAssistantModel || undefined,
+      nextAssistantProvider,
     ).catch(() => {});
   }, 400, { onUnmount: "flush" });
 
@@ -422,6 +437,17 @@ export default function SettingsPage({
     }
   }, [aiPolishEnabled]);
 
+  const refreshAssistantKey = useCallback(async () => {
+    try {
+      const key = (await getAssistantApiKey()) || "";
+      setAssistantApiKeyState(key);
+      return key;
+    } catch {
+      setAssistantApiKeyState("");
+      return "";
+    }
+  }, []);
+
   // 从系统密钥环加载 API Key，并同步 enabled 状态到后端
   useEffect(() => {
     void refreshAiPolishKey(readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
@@ -449,6 +475,7 @@ export default function SettingsPage({
       setCustomModel(nextModel);
       setAssistantUseSeparateModel(Boolean(p.llm_provider.assistant_use_separate_model));
       setAssistantModel((p.llm_provider.assistant_model ?? nextModel).trim() || nextModel);
+      setAssistantProviderState(p.llm_provider.assistant_provider ?? nextProvider);
       setPolishReasoningMode(p.llm_provider.polish_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
       setAssistantReasoningMode(p.llm_provider.assistant_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
@@ -463,8 +490,8 @@ export default function SettingsPage({
   }, [updateProviderDraft]);
 
   useEffect(() => {
-    refreshProfile();
-  }, [refreshProfile]);
+    refreshProfile().then(() => refreshAssistantKey());
+  }, [refreshProfile, refreshAssistantKey]);
 
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
@@ -986,6 +1013,7 @@ export default function SettingsPage({
     nextAssistantReasoningMode: LlmReasoningMode,
     nextAssistantUseSeparateModel: boolean,
     nextAssistantModel: string,
+    nextAssistantProvider?: string | null,
   ) => {
     llmConfigSave.schedule(
       provider,
@@ -995,6 +1023,7 @@ export default function SettingsPage({
       nextAssistantReasoningMode,
       nextAssistantUseSeparateModel,
       nextAssistantModel,
+      nextAssistantProvider,
     );
   }, [llmConfigSave]);
 
@@ -1032,6 +1061,38 @@ export default function SettingsPage({
     void refreshAiModels(silent);
   }, 700);
 
+  // 助手独立模型列表：provider 不同时独立拉取，相同时复用润色列表
+  const refreshAssistantModels = useCallback(async (silent = false) => {
+    const effectiveProvider = assistantProvider || llmProvider;
+    // 同 provider 时复用润色模型列表
+    if (effectiveProvider === llmProvider) {
+      setAssistantModels(aiModels);
+      return;
+    }
+    const apiKey = assistantApiKeyState.trim();
+    if (!apiKey) {
+      setAssistantModels([]);
+      return;
+    }
+    // 解析助手 provider 的 base_url
+    const cp = customProviders.find((p) => p.id === effectiveProvider);
+    const baseUrl = cp ? cp.base_url : findLlmPreset(effectiveProvider).baseUrl;
+
+    setAssistantModelsLoading(true);
+    try {
+      const payload = await listAiModels(effectiveProvider, baseUrl || undefined, apiKey);
+      setAssistantModels(payload.models);
+    } catch {
+      if (!silent) setAssistantModels([]);
+    } finally {
+      setAssistantModelsLoading(false);
+    }
+  }, [aiModels, assistantApiKeyState, assistantProvider, customProviders, llmProvider]);
+
+  const assistantModelsFetch = useDebouncedCallback((silent: boolean) => {
+    void refreshAssistantModels(silent);
+  }, 700);
+
   useEffect(() => {
     if (!aiPolishApiKey.trim()) {
       aiModelsFetch.cancel();
@@ -1048,6 +1109,26 @@ export default function SettingsPage({
       aiModelsFetch.cancel();
     };
   }, [aiModelsFetch, aiPolishApiKey, customBaseUrl, llmProvider]);
+
+  // 助手独立模型列表自动刷新
+  useEffect(() => {
+    if (!assistantUseSeparateModel) {
+      return;
+    }
+    const effectiveProvider = assistantProvider || llmProvider;
+    if (effectiveProvider === llmProvider) {
+      // 同 provider 时直接同步润色列表
+      setAssistantModels(aiModels);
+      return;
+    }
+    if (!assistantApiKeyState.trim()) {
+      assistantModelsFetch.cancel();
+      setAssistantModels([]);
+      return;
+    }
+    assistantModelsFetch.schedule(true);
+    return () => { assistantModelsFetch.cancel(); };
+  }, [aiModels, assistantApiKeyState, assistantModelsFetch, assistantProvider, assistantUseSeparateModel, llmProvider]);
 
   const handleAddHotWord = useCallback(() => {
     const word = newHotWord.trim();
@@ -1069,6 +1150,13 @@ export default function SettingsPage({
     if (cp) return { key: cp.id, label: cp.name, desc: cp.api_format === "anthropic" ? "Anthropic" : "OpenAI 兼容", baseUrl: cp.base_url, defaultModel: cp.model, models: [] as string[] };
     return findLlmPreset(effectiveProvider);
   }, [llmProvider, customProviders]);
+  const currentAssistantPreset = useMemo(() => {
+    const p = assistantProvider || llmProvider;
+    const cp = customProviders.find((c) => c.id === p);
+    if (cp) return { key: cp.id, label: cp.name, desc: cp.api_format === "anthropic" ? "Anthropic" : "OpenAI 兼容", baseUrl: cp.base_url, defaultModel: cp.model };
+    return findLlmPreset(p);
+  }, [assistantProvider, llmProvider, customProviders]);
+  const assistantProviderDiffers = assistantUseSeparateModel && assistantProvider && assistantProvider !== llmProvider;
   const allProviderOptions = useMemo(() => {
     const presets = llmProviderOptions.map(({ key, label, desc, baseUrl }) => ({ key, label, desc, baseUrl, isCustom: false as const }));
     const customs = customProviders.map((cp) => ({
@@ -1087,18 +1175,28 @@ export default function SettingsPage({
       || desc.toLowerCase().includes(keyword)
       || baseUrl.toLowerCase().includes(keyword);
   }), [allProviderOptions, providerSearch]);
+  const filteredAssistantProviderOptions = useMemo(() => allProviderOptions.filter(({ label, desc, baseUrl }) => {
+    const keyword = assistantProviderSearch.trim().toLowerCase();
+    if (!keyword) return true;
+    return label.toLowerCase().includes(keyword)
+      || desc.toLowerCase().includes(keyword)
+      || baseUrl.toLowerCase().includes(keyword);
+  }), [allProviderOptions, assistantProviderSearch]);
   const filteredAiModels = useMemo(() => aiModels.filter((model) => {
     const keyword = aiModelSearch.trim().toLowerCase();
     if (!keyword) return true;
     return model.id.toLowerCase().includes(keyword) || (model.ownedBy ?? "").toLowerCase().includes(keyword);
   }), [aiModels, aiModelSearch]);
-  const filteredAssistantModels = useMemo(() => aiModels.filter((model) => {
+  const effectiveAssistantModels = assistantUseSeparateModel && assistantProvider && assistantProvider !== llmProvider
+    ? assistantModels
+    : aiModels;
+  const filteredAssistantModels = useMemo(() => effectiveAssistantModels.filter((model) => {
     const keyword = assistantModelSearch.trim().toLowerCase();
     if (!keyword) return true;
     return model.id.toLowerCase().includes(keyword) || (model.ownedBy ?? "").toLowerCase().includes(keyword);
-  }), [aiModels, assistantModelSearch]);
+  }), [effectiveAssistantModels, assistantModelSearch]);
   const selectedAiModel = aiModels.find((model) => model.id === customModel);
-  const selectedAssistantAiModel = aiModels.find((model) => model.id === assistantModel);
+  const selectedAssistantAiModel = effectiveAssistantModels.find((model) => model.id === assistantModel);
 
   const handleProviderSelect = useCallback(async (nextProvider: string) => {
     if (nextProvider === llmProvider) {
@@ -1120,10 +1218,15 @@ export default function SettingsPage({
     setCustomBaseUrl(nextDraft.baseUrl);
     setCustomModel(nextDraft.model);
     setAssistantModel(nextAssistantModel);
+    // 若未开启独立模式，助手 provider 跟随润色
+    if (!assistantUseSeparateModel) {
+      setAssistantProviderState(nextProvider);
+    }
     updateProviderDraft(nextProvider, nextDraft.baseUrl, nextDraft.model);
     setProviderPickerOpen(false);
     setModelPickerOpen(false);
     setAssistantModelPickerOpen(false);
+    setAssistantProviderPickerOpen(false);
     setAssistantReasoningPickerOpen(false);
     setPolishReasoningPickerOpen(false);
     setProviderSearch("");
@@ -1137,11 +1240,16 @@ export default function SettingsPage({
       assistantReasoningMode,
       assistantUseSeparateModel,
       nextAssistantModel,
+      assistantUseSeparateModel ? assistantProvider : undefined,
     ).catch(() => {});
     await refreshAiPolishKey();
+    if (!assistantUseSeparateModel) {
+      await refreshAssistantKey();
+    }
   }, [
     aiPolishApiKey,
     aiPolishEnabled,
+    assistantProvider,
     customBaseUrl,
     customModel,
     llmProvider,
@@ -1152,6 +1260,7 @@ export default function SettingsPage({
     aiPolishKeySave,
     llmConfigSave,
     refreshAiPolishKey,
+    refreshAssistantKey,
     resolveProviderDraft,
     updateProviderDraft,
   ]);
@@ -1180,10 +1289,17 @@ export default function SettingsPage({
   const handleAssistantModelToggle = useCallback((enabled: boolean) => {
     setAssistantUseSeparateModel(enabled);
     setAssistantModelPickerOpen(false);
+    setAssistantProviderPickerOpen(false);
     if (!enabled) {
       setAssistantModel(customModel);
-    } else if (!assistantModel.trim()) {
-      setAssistantModel(customModel);
+    } else {
+      if (!assistantModel.trim()) {
+        setAssistantModel(customModel);
+      }
+      // 开启时默认跟随润色 provider（若尚未独立设定）
+      if (!assistantProvider || assistantProvider === llmProvider) {
+        setAssistantProviderState(llmProvider);
+      }
     }
     scheduleCustomLlmConfigSave(
       llmProvider,
@@ -1193,8 +1309,35 @@ export default function SettingsPage({
       assistantReasoningMode,
       enabled,
       (enabled ? assistantModel : customModel).trim() || customModel,
+      enabled ? (assistantProvider || llmProvider) : undefined,
     );
-  }, [assistantModel, assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave]);
+    if (enabled) {
+      void refreshAssistantKey();
+    }
+  }, [assistantModel, assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, refreshAssistantKey, scheduleCustomLlmConfigSave]);
+
+  const handleAssistantProviderSelect = useCallback(async (nextProvider: string) => {
+    if (nextProvider === assistantProvider) {
+      setAssistantProviderPickerOpen(false);
+      setAssistantProviderSearch("");
+      return;
+    }
+    setAssistantProviderState(nextProvider);
+    setAssistantProviderPickerOpen(false);
+    setAssistantProviderSearch("");
+    // 先保存 config（含新 assistantProvider），再加载对应 key
+    await setLlmProviderConfig(
+      llmProvider,
+      customBaseUrl || undefined,
+      customModel || undefined,
+      polishReasoningMode,
+      assistantReasoningMode,
+      true,
+      assistantModel || undefined,
+      nextProvider,
+    ).catch(() => {});
+    await refreshAssistantKey();
+  }, [assistantModel, assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, refreshAssistantKey]);
 
   const handleAssistantModelSelect = useCallback((nextModel: string) => {
     const normalizedModel = nextModel.trim();
@@ -1210,8 +1353,9 @@ export default function SettingsPage({
       assistantReasoningMode,
       true,
       normalizedModel,
+      assistantProvider,
     );
-  }, [assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave]);
+  }, [assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave]);
 
   const handleTranslationSelect = useCallback(async (target: string | null) => {
     setTranslationTargetState(target);
@@ -1477,6 +1621,7 @@ export default function SettingsPage({
       !providerPickerOpen
       && !modelPickerOpen
       && !assistantModelPickerOpen
+      && !assistantProviderPickerOpen
       && !assistantReasoningPickerOpen
       && !polishReasoningPickerOpen
       && !recordingModePickerOpen
@@ -1499,6 +1644,13 @@ export default function SettingsPage({
         && !assistantModelPickerRef.current.contains(target)
       ) {
         setAssistantModelPickerOpen(false);
+      }
+      if (
+        assistantProviderPickerOpen
+        && assistantProviderPickerRef.current
+        && !assistantProviderPickerRef.current.contains(target)
+      ) {
+        setAssistantProviderPickerOpen(false);
       }
       if (
         assistantReasoningPickerOpen
@@ -1535,6 +1687,7 @@ export default function SettingsPage({
         setProviderPickerOpen(false);
         setModelPickerOpen(false);
         setAssistantModelPickerOpen(false);
+        setAssistantProviderPickerOpen(false);
         setAssistantReasoningPickerOpen(false);
         setPolishReasoningPickerOpen(false);
         setRecordingModePickerOpen(false);
@@ -1548,7 +1701,7 @@ export default function SettingsPage({
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [assistantModelPickerOpen, assistantReasoningPickerOpen, microphonePickerOpen, modelPickerOpen, polishReasoningPickerOpen, providerPickerOpen, recordingModePickerOpen]);
+  }, [assistantModelPickerOpen, assistantProviderPickerOpen, assistantReasoningPickerOpen, microphonePickerOpen, modelPickerOpen, polishReasoningPickerOpen, providerPickerOpen, recordingModePickerOpen]);
 
   return (
     <div className="page-root">
@@ -2527,16 +2680,16 @@ export default function SettingsPage({
                 <div className="permission-item" style={{ gap: 8 }}>
                   <Sparkles size={14} className="icon-tertiary" />
                   <div className="settings-column" style={{ gap: 2 }}>
-                    <span className="permission-label">使用独立模型</span>
+                    <span className="permission-label">使用独立配置</span>
                     <span className="settings-hint" style={{ margin: 0 }}>
-                      关闭时跟随 AI 润色的模型；开启后，助手可以单独选择自己的模型。
+                      关闭时跟随 AI 润色；开启后，助手可以单独选择供应商和模型。
                     </span>
                   </div>
                 </div>
                 <button
                   role="switch"
                   aria-checked={assistantUseSeparateModel}
-                  aria-label="助手使用独立模型"
+                  aria-label="助手使用独立配置"
                   onClick={() => handleAssistantModelToggle(!assistantUseSeparateModel)}
                   className="toggle-switch"
                   style={{
@@ -2559,9 +2712,87 @@ export default function SettingsPage({
 
               {assistantUseSeparateModel ? (
                 <div className="settings-column" style={{ gap: 6 }}>
+                  {/* 助手供应商选择器 */}
+                  <span className="settings-option-desc">助手供应商</span>
+                  <div className="picker-shell" ref={assistantProviderPickerRef}>
+                    <button
+                      type="button"
+                      className="picker-trigger"
+                      onClick={() => {
+                        setAssistantProviderPickerOpen((open) => !open);
+                        setProviderPickerOpen(false);
+                        setModelPickerOpen(false);
+                        setAssistantModelPickerOpen(false);
+                        setAssistantReasoningPickerOpen(false);
+                        setPolishReasoningPickerOpen(false);
+                      }}
+                      aria-haspopup="listbox"
+                      aria-expanded={assistantProviderPickerOpen}
+                    >
+                      <span className="picker-trigger-copy">
+                        <strong>{currentAssistantPreset.label}</strong>
+                        <span>{currentAssistantPreset.baseUrl}</span>
+                      </span>
+                      <ChevronsUpDown size={14} className="icon-tertiary" />
+                    </button>
+                    {assistantProviderPickerOpen && (
+                      <div className="picker-popover">
+                        <div className="picker-toolbar">
+                          <input
+                            type="text"
+                            className="settings-input picker-search-input"
+                            placeholder="搜索供应商"
+                            aria-label="搜索助手供应商"
+                            value={assistantProviderSearch}
+                            onChange={(e) => setAssistantProviderSearch(e.target.value)}
+                            autoFocus
+                          />
+                        </div>
+                        <div className="picker-list" role="listbox">
+                          {filteredAssistantProviderOptions.map((opt) => (
+                            <button
+                              key={`assistant-provider-${opt.key}`}
+                              type="button"
+                              className="picker-option"
+                              data-active={assistantProvider === opt.key}
+                              onClick={() => handleAssistantProviderSelect(opt.key)}
+                            >
+                              <span className="picker-option-copy">
+                                <strong>{opt.label}</strong>
+                                <span>{opt.desc}</span>
+                              </span>
+                              {assistantProvider === opt.key ? <Check size={14} className="icon-accent" /> : null}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 助手独立 API Key（仅当 provider 与润色不同时显示） */}
+                  {assistantProviderDiffers ? (
+                    <div className="settings-column" style={{ gap: 4 }}>
+                      <span className="settings-option-desc">{currentAssistantPreset.label} API Key</span>
+                      <input
+                        type="password"
+                        className="settings-input"
+                        placeholder={`${currentAssistantPreset.label} API Key`}
+                        aria-label="助手 API Key"
+                        value={assistantApiKeyState}
+                        autoComplete="off"
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setAssistantApiKeyState(value);
+                          assistantKeySave.schedule(value);
+                        }}
+                      />
+                    </div>
+                  ) : null}
+
+                  {/* 助手模型选择器 */}
                   <div className="settings-row">
                     <span className="settings-option-desc">助手模型</span>
-                    <span className="settings-option-desc">{filteredAssistantModels.length}/{aiModels.length}</span>
+                    <span className="settings-option-desc">{filteredAssistantModels.length}/{effectiveAssistantModels.length}</span>
                   </div>
                   <div className="picker-shell" ref={assistantModelPickerRef}>
                     <div className="picker-inline-row">
@@ -2582,6 +2813,7 @@ export default function SettingsPage({
                             assistantReasoningMode,
                             true,
                             nextModel,
+                            assistantProvider,
                           );
                         }}
                       />
@@ -2595,6 +2827,7 @@ export default function SettingsPage({
                           setAssistantModelPickerOpen((open) => !open);
                           setProviderPickerOpen(false);
                           setModelPickerOpen(false);
+                          setAssistantProviderPickerOpen(false);
                           setAssistantReasoningPickerOpen(false);
                           setPolishReasoningPickerOpen(false);
                         }}
@@ -2605,7 +2838,7 @@ export default function SettingsPage({
                       </button>
                     </div>
                     <p className="settings-hint" style={{ margin: 0 }}>
-                      {selectedAssistantAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型` : "可直接输入模型名称")}
+                      {selectedAssistantAiModel?.ownedBy || (effectiveAssistantModels.length > 0 ? `${effectiveAssistantModels.length} 个可选模型` : "可直接输入模型名称")}
                     </p>
                     {assistantModelPickerOpen && (
                       <div className="picker-popover">
@@ -2628,11 +2861,11 @@ export default function SettingsPage({
                           <button
                             type="button"
                             className="btn-ghost"
-                            onClick={() => { void refreshAiModels(); }}
-                            disabled={aiModelsLoading}
-                            style={{ fontSize: 12, padding: "8px 10px", opacity: aiModelsLoading ? 0.7 : 1 }}
+                            onClick={() => { void (assistantProviderDiffers ? refreshAssistantModels() : refreshAiModels()); }}
+                            disabled={assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading}
+                            style={{ fontSize: 12, padding: "8px 10px", opacity: (assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading) ? 0.7 : 1 }}
                           >
-                            {aiModelsLoading ? "拉取中..." : "刷新"}
+                            {(assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading) ? "拉取中..." : "刷新"}
                           </button>
                         </div>
                         {assistantModelSearch.trim() ? (
@@ -2658,15 +2891,17 @@ export default function SettingsPage({
                             >
                               <span className="picker-option-copy">
                                 <strong>{model.id}</strong>
-                                <span>{model.ownedBy || currentLlmPreset.label}</span>
+                                <span>{model.ownedBy || currentAssistantPreset.label}</span>
                               </span>
                               {assistantModel === model.id ? <Check size={14} className="icon-accent" /> : null}
                             </button>
                           )) : (
                             <div className="picker-empty">
-                              {aiModelsLoading
+                              {(assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading)
                                 ? "正在从官方接口拉取模型列表..."
-                                : aiModelsError || "填写 API Key 后会自动加载模型列表"}
+                                : (assistantProviderDiffers && !assistantApiKeyState.trim())
+                                  ? "填写助手 API Key 后会自动加载模型列表"
+                                  : aiModelsError || "填写 API Key 后会自动加载模型列表"}
                             </div>
                           )}
                         </div>
@@ -2676,7 +2911,7 @@ export default function SettingsPage({
                 </div>
               ) : (
                 <p className="settings-hint" style={{ margin: 0 }}>
-                  当前与 AI 润色共用模型：{customModel || currentLlmPreset.defaultModel}
+                  当前与 AI 润色共用供应商和模型：{currentLlmPreset.label} / {customModel || currentLlmPreset.defaultModel}
                 </p>
               )}
 

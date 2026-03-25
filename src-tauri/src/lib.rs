@@ -193,6 +193,8 @@ pub fn run() {
             commands::ai_polish::get_ai_polish_api_key,
             commands::ai_polish::set_ai_polish_screen_context_enabled,
             commands::ai_polish::list_ai_models,
+            commands::ai_polish::set_assistant_api_key,
+            commands::ai_polish::get_assistant_api_key,
             commands::profile::get_user_profile,
             commands::profile::add_hot_word,
             commands::profile::remove_hot_word,

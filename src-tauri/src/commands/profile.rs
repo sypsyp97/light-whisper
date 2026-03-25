@@ -197,6 +197,7 @@ pub async fn set_llm_provider_config(
     assistant_reasoning_mode: Option<LlmReasoningMode>,
     assistant_use_separate_model: Option<bool>,
     assistant_model: Option<String>,
+    assistant_provider: Option<Option<String>>,
 ) -> Result<(), String> {
     let normalized_base_url = custom_base_url
         .map(|value| value.trim().to_string())
@@ -223,6 +224,9 @@ pub async fn set_llm_provider_config(
         }
         if assistant_model_provided {
             profile.llm_provider.assistant_model = normalized_assistant_model.clone();
+        }
+        if let Some(ap) = &assistant_provider {
+            profile.llm_provider.assistant_provider = ap.clone();
         }
         // 自定义 provider → 同步到 custom_providers，不污染旧字段
         if let Some(cp) = profile
@@ -347,6 +351,9 @@ pub async fn remove_custom_provider(
         profile.llm_provider.custom_providers.retain(|p| p.id != id);
         if profile.llm_provider.active == id {
             profile.llm_provider.active = fallback_provider;
+        }
+        if profile.llm_provider.assistant_provider.as_deref() == Some(&*id) {
+            profile.llm_provider.assistant_provider = None;
         }
     });
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());

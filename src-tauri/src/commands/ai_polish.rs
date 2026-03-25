@@ -35,6 +35,12 @@ pub async fn set_ai_polish_config(
 
     state.set_ai_polish_api_key(api_key.clone());
 
+    // 若助手与润色共享 provider，同步助手缓存
+    let assistant_provider = state.with_profile(|p| p.llm_provider.resolve_assistant_provider());
+    if assistant_provider == provider {
+        state.set_assistant_api_key(api_key.clone());
+    }
+
     if !api_key.is_empty() {
         if let Err(e) = app_handle.keyring().set_password(
             llm_provider::KEYRING_SERVICE,
@@ -186,4 +192,51 @@ pub async fn list_ai_models(
     models.dedup_by(|a, b| a.id == b.id);
 
     Ok(AiModelListPayload { models, source_url })
+}
+
+#[tauri::command]
+pub async fn set_assistant_api_key(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    api_key: String,
+) -> Result<(), String> {
+    let provider = state.with_profile(|p| p.llm_provider.resolve_assistant_provider());
+    let keyring_user = llm_provider::keyring_user_for_provider(&provider);
+
+    state.set_assistant_api_key(api_key.clone());
+
+    if !api_key.is_empty() {
+        if let Err(e) = app_handle.keyring().set_password(
+            llm_provider::KEYRING_SERVICE,
+            &keyring_user,
+            &api_key,
+        ) {
+            log::warn!("保存助手 API Key 到密钥环失败: {}", e);
+        }
+    } else {
+        let _ = app_handle
+            .keyring()
+            .delete_password(llm_provider::KEYRING_SERVICE, &keyring_user);
+    }
+
+    // 若与润色共享 provider，同步润色缓存
+    let polish_provider = state.active_llm_provider();
+    if provider == polish_provider {
+        state.set_ai_polish_api_key(api_key);
+    }
+
+    log::info!("助手 API Key 已更新: provider={}", provider);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_assistant_api_key(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let provider = state.with_profile(|p| p.llm_provider.resolve_assistant_provider());
+    Ok(llm_provider::load_api_key_for_provider(
+        &app_handle,
+        &provider,
+    ))
 }

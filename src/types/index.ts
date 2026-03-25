@@ -145,6 +145,7 @@ export interface LlmProviderConfig {
   assistant_reasoning_mode?: LlmReasoningMode;
   assistant_use_separate_model?: boolean;
   assistant_model?: string;
+  assistant_provider?: string;
   custom_providers?: CustomProvider[];
 }
 

@@ -186,26 +186,37 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
 }
 
 pub fn assistant_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
-    let Some(assistant_model) = config.assistant_model() else {
-        return endpoint_for_config(config);
-    };
+    let assistant_provider = config.resolve_assistant_provider();
+    let active_provider = config.resolve_active_provider();
 
-    let mut overridden = config.clone();
-    let active_provider = overridden.resolve_active_provider();
-
-    if is_preset(&active_provider) {
-        overridden.custom_model = Some(assistant_model.to_string());
-    } else if let Some(cp) = overridden
-        .custom_providers
-        .iter_mut()
-        .find(|provider| provider.id == active_provider)
-    {
-        cp.model = assistant_model.to_string();
-    } else {
-        overridden.custom_model = Some(assistant_model.to_string());
+    // 构建 base config：若助手 provider 与润色不同，临时切换 active
+    let mut resolved = config.clone();
+    if assistant_provider != active_provider {
+        resolved.active = assistant_provider;
+        // 对 preset provider，清掉 custom_model/custom_base_url（不能沿用润色的覆盖值）
+        if is_preset(&resolved.active) {
+            resolved.custom_model = None;
+            resolved.custom_base_url = None;
+        }
     }
 
-    endpoint_for_config(&overridden)
+    // 叠加 assistant_model 覆盖
+    if let Some(assistant_model) = config.assistant_model() {
+        let target_provider = resolved.resolve_active_provider();
+        if is_preset(&target_provider) {
+            resolved.custom_model = Some(assistant_model.to_string());
+        } else if let Some(cp) = resolved
+            .custom_providers
+            .iter_mut()
+            .find(|p| p.id == target_provider)
+        {
+            cp.model = assistant_model.to_string();
+        } else {
+            resolved.custom_model = Some(assistant_model.to_string());
+        }
+    }
+
+    endpoint_for_config(&resolved)
 }
 
 pub fn image_support_probe_url(endpoint: &LlmEndpoint) -> Option<String> {
@@ -365,6 +376,7 @@ pub fn endpoint_for_preview(
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: Vec::new(),
         }
     } else {
@@ -377,6 +389,7 @@ pub fn endpoint_for_preview(
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: vec![CustomProvider {
                 id: provider.to_string(),
                 name: provider.to_string(),
@@ -860,9 +873,16 @@ pub fn load_api_key_for_active_provider(app_handle: &tauri::AppHandle, state: &A
     load_api_key_for_provider(app_handle, &state.active_llm_provider())
 }
 
+pub fn sync_assistant_api_key(app_handle: &tauri::AppHandle, state: &AppState) {
+    let provider = state.with_profile(|p| p.llm_provider.resolve_assistant_provider());
+    let key = load_api_key_for_provider(app_handle, &provider);
+    state.set_assistant_api_key(key);
+}
+
 pub fn sync_runtime_api_key(app_handle: &tauri::AppHandle, state: &AppState) -> String {
     let api_key = load_api_key_for_active_provider(app_handle, state);
     state.set_ai_polish_api_key(api_key.clone());
+    sync_assistant_api_key(app_handle, state);
     api_key
 }
 
@@ -881,6 +901,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: Vec::new(),
         };
 
@@ -905,6 +926,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: Vec::new(),
         };
 
@@ -925,6 +947,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: Vec::new(),
         };
 
@@ -946,6 +969,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: false,
             assistant_model: None,
+            assistant_provider: None,
             custom_providers: vec![
                 crate::state::user_profile::CustomProvider {
                     id: "custom_a".to_string(),
@@ -985,6 +1009,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: true,
             assistant_model: Some("gpt-oss-20b".to_string()),
+            assistant_provider: None,
             custom_providers: Vec::new(),
         };
 
@@ -1009,6 +1034,7 @@ mod tests {
             assistant_reasoning_mode: None,
             assistant_use_separate_model: true,
             assistant_model: Some("assistant-model".to_string()),
+            assistant_provider: None,
             custom_providers: vec![crate::state::user_profile::CustomProvider {
                 id: "custom_a".to_string(),
                 name: "Custom A".to_string(),
