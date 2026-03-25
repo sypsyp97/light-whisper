@@ -230,41 +230,36 @@ def create_tar_xz_with_python(engine_dir: Path, output: Path) -> float:
 
 
 def create_tar_xz_with_7z(engine_dir: Path, output: Path, seven_zip: str) -> float:
-    """使用 7-Zip 构建 tar.xz，返回压缩包大小 MB。"""
+    """使用 7-Zip 构建 tar.xz，返回压缩包大小 MB。
+
+    分两步：先打 tar，再用 7z 多线程压缩为 xz，避免 Windows 管道写入问题。
+    """
     output = output.resolve()
+    tar_path = output.with_suffix("")  # engine.tar
     files = [f for f in engine_dir.rglob("*") if f.is_file()]
     total = len(files)
     if not files:
         raise RuntimeError("engine 目录为空，无法创建归档")
 
     print(f"正在用 7-Zip 构建 {output.name} ...")
-    print("  阶段 1/1: 流式打包 tar 并多线程压缩 xz")
-    cmd = [seven_zip, "a", "-txz", "-mx=9", "-mmt=on", str(output), "-si"]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, cwd=output.parent)
 
+    # 阶段 1: 打 tar
+    print(f"  阶段 1/2: 打包 tar ({total} 文件)")
+    with tarfile.open(tar_path, mode="w") as tf:
+        for i, filepath in enumerate(files, 1):
+            arcname = filepath.relative_to(engine_dir)
+            tf.add(filepath, arcname=str(arcname), recursive=False)
+            if i % 500 == 0 or i == total:
+                print(f"  打包进度: {i}/{total} ({i * 100 // total}%)")
+
+    # 阶段 2: 用 7z 压缩为 xz
+    tar_mb = tar_path.stat().st_size / (1024 * 1024)
+    print(f"  阶段 2/2: 7-Zip 多线程压缩 xz ({tar_mb:.0f} MB)")
+    cmd = [seven_zip, "a", "-txz", "-mx=9", "-mmt=on", str(output), str(tar_path)]
     try:
-        if proc.stdin is None:
-            raise RuntimeError("7-Zip 未提供可写入的标准输入")
-
-        with proc.stdin:
-            with tarfile.open(fileobj=proc.stdin, mode="w|") as tf:
-                for i, filepath in enumerate(files, 1):
-                    arcname = filepath.relative_to(engine_dir)
-                    tf.add(filepath, arcname=str(arcname), recursive=False)
-                    if i % 500 == 0 or i == total:
-                        print(f"  压缩进度: {i}/{total} ({i * 100 // total}%)")
-    except Exception:
-        proc.kill()
-        proc.wait()
-        if output.exists():
-            output.unlink()
-        raise
-
-    returncode = proc.wait()
-    if returncode != 0:
-        if output.exists():
-            output.unlink()
-        raise subprocess.CalledProcessError(returncode, cmd)
+        subprocess.run(cmd, check=True, cwd=output.parent)
+    finally:
+        tar_path.unlink(missing_ok=True)
 
     return output.stat().st_size / (1024 * 1024)
 
