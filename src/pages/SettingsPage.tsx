@@ -5,6 +5,8 @@ import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, Cli
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
+import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
+import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 import {
   checkAppUpdate,
   disableAutostart,
@@ -53,13 +55,7 @@ import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
-import {
-  HOTKEY_MODIFIER_ORDER,
-  type HotkeyModifier,
-  formatHotkeyForDisplay,
-  keyboardEventToHotkey,
-  modifierFromKeyboardEvent,
-} from "@/lib/hotkey";
+import { formatHotkeyForDisplay } from "@/lib/hotkey";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 
 const themeOptions = [
@@ -238,18 +234,41 @@ export default function SettingsPage({
 }) {
   const { isDark, theme, setTheme } = useTheme();
   const { isRecording, retryModel, hotkeyDisplay, setHotkey, hotkeyError, hotkeyDiagnostic } = useRecordingContext();
+
+  // --- Picker group (mutually exclusive dropdowns) ---
+  type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone";
+  const picker = useExclusivePicker<PickerId>();
+  const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const modelSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const assistantModelSearchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // --- Hotkey capture (3 instances share 1 hook) ---
+  const [translationHotkeyDisplay, setTranslationHotkeyDisplay] = useState("");
+  const [assistantHotkeyDisplay, setAssistantHotkeyDisplay] = useState("");
+  const mainHotkeyCapture = useHotkeyCapture({
+    save: async (shortcut) => { await setHotkey(shortcut); },
+    label: "说话热键",
+  });
+  const translationHotkeyCapture = useHotkeyCapture({
+    save: async (shortcut) => {
+      await setTranslationHotkey(shortcut);
+      setTranslationHotkeyDisplay(formatHotkeyForDisplay(shortcut));
+    },
+    label: "翻译热键",
+  });
+  const assistantHotkeyCapture = useHotkeyCapture({
+    save: async (shortcut) => {
+      await setAssistantHotkey(shortcut);
+      setAssistantHotkeyDisplay(formatHotkeyForDisplay(shortcut));
+    },
+    label: "助手热键",
+  });
+
+  // --- Core state ---
   const [engine, setEngineState] = useState<string>("sensevoice");
   const [engineLoading, setEngineLoading] = useState(true);
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);
-  const [capturingHotkey, setCapturingHotkey] = useState(false);
-  const [hotkeySaving, setHotkeySaving] = useState(false);
-  const [translationHotkey, setTranslationHotkeyState] = useState("");
-  const [capturingTranslationHotkey, setCapturingTranslationHotkey] = useState(false);
-  const [translationHotkeySaving, setTranslationHotkeySaving] = useState(false);
-  const [assistantHotkey, setAssistantHotkeyState] = useState("");
-  const [capturingAssistantHotkey, setCapturingAssistantHotkey] = useState(false);
-  const [assistantHotkeySaving, setAssistantHotkeySaving] = useState(false);
   const [recordingMode, setRecordingModeState] = useState<"hold" | "toggle">(() => {
     return readLocalStorage(RECORDING_MODE_KEY) === "toggle" ? "toggle" : "hold";
   });
@@ -260,9 +279,7 @@ export default function SettingsPage({
   const [micMonitorReady, setMicMonitorReady] = useState(false);
   const [micLevelMonitorEnabled, setMicLevelMonitorEnabled] = useState(() => readLocalStorage(MIC_LEVEL_MONITOR_ENABLED_KEY) === "true");
   const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
-    return readLocalStorage(INPUT_METHOD_KEY) === "clipboard"
-      ? "clipboard"
-      : "sendInput";
+    return readLocalStorage(INPUT_METHOD_KEY) === "clipboard" ? "clipboard" : "sendInput";
   });
   const [soundEnabled, setSoundEnabledState] = useState(() => readLocalStorage(SOUND_ENABLED_KEY) !== "false");
   const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
@@ -270,6 +287,8 @@ export default function SettingsPage({
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
+
+  // --- AI models ---
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
   const [assistantModels, setAssistantModels] = useState<AiModelInfo[]>([]);
   const [assistantModelsLoading, setAssistantModelsLoading] = useState(false);
@@ -278,31 +297,34 @@ export default function SettingsPage({
   const [aiModelsLoading, setAiModelsLoading] = useState(false);
   const [aiModelsError, setAiModelsError] = useState("");
   const [aiModelsSourceUrl, setAiModelsSourceUrl] = useState("");
-  const [providerDrafts, setProviderDrafts] = useState<LlmProviderDraftMap>(() => readLlmProviderDrafts());
-  const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [providerSearch, setProviderSearch] = useState("");
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [assistantModelPickerOpen, setAssistantModelPickerOpen] = useState(false);
-  const [assistantReasoningPickerOpen, setAssistantReasoningPickerOpen] = useState(false);
-  const [polishReasoningPickerOpen, setPolishReasoningPickerOpen] = useState(false);
-  const [recordingModePickerOpen, setRecordingModePickerOpen] = useState(false);
-  const [microphonePickerOpen, setMicrophonePickerOpen] = useState(false);
-  const providerPickerRef = useRef<HTMLDivElement | null>(null);
-  const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const modelPickerRef = useRef<HTMLDivElement | null>(null);
-  const modelSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const assistantModelPickerRef = useRef<HTMLDivElement | null>(null);
-  const assistantModelSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const assistantReasoningPickerRef = useRef<HTMLDivElement | null>(null);
-  const polishReasoningPickerRef = useRef<HTMLDivElement | null>(null);
-  const recordingModePickerRef = useRef<HTMLDivElement | null>(null);
-  const microphonePickerRef = useRef<HTMLDivElement | null>(null);
+  const [assistantProviderSearch, setAssistantProviderSearch] = useState("");
 
-  // Agent profile state
+  // --- LLM provider ---
+  const [providerDrafts, setProviderDrafts] = useState<LlmProviderDraftMap>(() => readLlmProviderDrafts());
+  const [llmProvider, setLlmProvider] = useState("cerebras");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customModel, setCustomModel] = useState("");
+  const [assistantUseSeparateModel, setAssistantUseSeparateModel] = useState(false);
+  const [assistantModel, setAssistantModel] = useState("");
+  const [assistantProvider, setAssistantProviderState] = useState("");
+  const [assistantApiKeyState, setAssistantApiKeyState] = useState("");
+  const [polishReasoningMode, setPolishReasoningMode] = useState<LlmReasoningMode>("provider_default");
+  const [assistantReasoningMode, setAssistantReasoningMode] = useState<LlmReasoningMode>("provider_default");
+  const defaultReasoningSupport: LlmReasoningSupport = { supported: false, strategy: null, summary: "正在识别当前模型的思考控制能力..." };
+  const [polishReasoningSupport, setPolishReasoningSupportState] = useState<LlmReasoningSupport>(defaultReasoningSupport);
+  const [assistantReasoningSupport, setAssistantReasoningSupportState] = useState<LlmReasoningSupport>(defaultReasoningSupport);
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
+  const [addingProvider, setAddingProvider] = useState(false);
+  const [newProviderName, setNewProviderName] = useState("");
+  const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
+  const [newProviderModel, setNewProviderModel] = useState("");
+  const [newProviderFormat, setNewProviderFormat] = useState<ApiFormat>("openai_compat");
+  const providerSupportsCustomEndpoint = llmProvider === "custom" || customProviders.some((p) => p.id === llmProvider);
+
+  // --- Profile & misc ---
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [newHotWord, setNewHotWord] = useState("");
-
-  // Translation state — translation_target 是唯一真相，非空即开启
   const [translationTarget, setTranslationTargetState] = useState<string | null>(null);
   const [translationPickerOpen, setTranslationPickerOpen] = useState(false);
   const [customLangInput, setCustomLangInput] = useState("");
@@ -316,36 +338,6 @@ export default function SettingsPage({
   const [updateStatusText, setUpdateStatusText] = useState("");
   const [latestAvailableVersion, setLatestAvailableVersion] = useState<string | null>(null);
   const [latestReleaseUrl, setLatestReleaseUrl] = useState<string | null>(null);
-  const [llmProvider, setLlmProvider] = useState("cerebras");
-  const [customBaseUrl, setCustomBaseUrl] = useState("");
-  const [customModel, setCustomModel] = useState("");
-  const [assistantUseSeparateModel, setAssistantUseSeparateModel] = useState(false);
-  const [assistantModel, setAssistantModel] = useState("");
-  const [assistantProvider, setAssistantProviderState] = useState("");
-  const [assistantApiKeyState, setAssistantApiKeyState] = useState("");
-  const [assistantProviderPickerOpen, setAssistantProviderPickerOpen] = useState(false);
-  const [assistantProviderSearch, setAssistantProviderSearch] = useState("");
-  const assistantProviderPickerRef = useRef<HTMLDivElement | null>(null);
-  const [polishReasoningMode, setPolishReasoningMode] = useState<LlmReasoningMode>("provider_default");
-  const [assistantReasoningMode, setAssistantReasoningMode] = useState<LlmReasoningMode>("provider_default");
-  const [polishReasoningSupport, setPolishReasoningSupportState] = useState<LlmReasoningSupport>({
-    supported: false,
-    strategy: null,
-    summary: "正在识别当前模型的思考控制能力...",
-  });
-  const [assistantReasoningSupport, setAssistantReasoningSupportState] = useState<LlmReasoningSupport>({
-    supported: false,
-    strategy: null,
-    summary: "正在识别当前模型的思考控制能力...",
-  });
-  // 自定义 provider 相关
-  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
-  const [addingProvider, setAddingProvider] = useState(false);
-  const [newProviderName, setNewProviderName] = useState("");
-  const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
-  const [newProviderModel, setNewProviderModel] = useState("");
-  const [newProviderFormat, setNewProviderFormat] = useState<ApiFormat>("openai_compat");
-  const providerSupportsCustomEndpoint = llmProvider === "custom" || customProviders.some((p) => p.id === llmProvider);
 
   const aiPolishKeySave = useDebouncedCallback((value: string, enabled: boolean) => {
     setAiPolishConfig(enabled, value).catch(() => {});
@@ -480,9 +472,9 @@ export default function SettingsPage({
       setAssistantReasoningMode(p.llm_provider.assistant_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
       setTranslationTargetState(p.translation_target ?? null);
-      setTranslationHotkeyState(p.translation_hotkey ? formatHotkeyForDisplay(p.translation_hotkey) : "");
+      setTranslationHotkeyDisplay(p.translation_hotkey ? formatHotkeyForDisplay(p.translation_hotkey) : "");
       setCustomPromptState(p.custom_prompt ?? "");
-      setAssistantHotkeyState(p.assistant_hotkey ? formatHotkeyForDisplay(p.assistant_hotkey) : "");
+      setAssistantHotkeyDisplay(p.assistant_hotkey ? formatHotkeyForDisplay(p.assistant_hotkey) : "");
       setAssistantPromptState(p.assistant_system_prompt ?? "");
       setAssistantScreenContextEnabledState(Boolean(p.assistant_screen_context_enabled));
       setAiPolishScreenContextEnabledState(Boolean(p.ai_polish_screen_context_enabled));
@@ -692,340 +684,49 @@ export default function SettingsPage({
     }
   };
 
-  useEffect(() => {
-    if (!capturingHotkey) return;
-
-    const activeModifiers = new Set<HotkeyModifier>();
-    // Track the peak set of modifiers held simultaneously (for modifier-only hotkeys)
-    const peakModifiers = new Set<HotkeyModifier>();
-    let mainKeyPressed = false;
-    let applied = false;
-    const clearModifiers = () => {
-      activeModifiers.clear();
-      peakModifiers.clear();
-      mainKeyPressed = false;
-    };
-
-    const applyShortcut = (shortcut: string) => {
-      if (applied) return;
-      applied = true;
-      setHotkeySaving(true);
-      void setHotkey(shortcut)
-        .then(() => {
-          toast.success(`说话热键已设置为 ${formatHotkeyForDisplay(shortcut)}`);
-        })
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : "设置热键失败";
-          toast.error(message);
-        })
-        .finally(() => {
-          setHotkeySaving(false);
-          setCapturingHotkey(false);
-          clearModifiers();
-        });
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (event.key === "Escape") {
-        setCapturingHotkey(false);
-        clearModifiers();
-        return;
-      }
-
-      const modifier = modifierFromKeyboardEvent(event);
-      if (modifier) {
-        activeModifiers.add(modifier);
-        // Update peak: snapshot of all modifiers currently held
-        for (const m of activeModifiers) peakModifiers.add(m);
-        return;
-      }
-
-      mainKeyPressed = true;
-      const shortcut = keyboardEventToHotkey(event, activeModifiers);
-      if (!shortcut) return;
-
-      applyShortcut(shortcut);
-    };
-
-    const onKeyUp = (event: KeyboardEvent) => {
-      const modifier = modifierFromKeyboardEvent(event);
-      if (!modifier || applied) return;
-
-      activeModifiers.delete(modifier);
-
-      // When all modifiers are released and no main key was pressed,
-      // apply the peak modifier set as a modifier-only hotkey.
-      if (activeModifiers.size === 0 && !mainKeyPressed && peakModifiers.size > 0) {
-        const combo = HOTKEY_MODIFIER_ORDER
-          .filter((key) => peakModifiers.has(key))
-          .join("+");
-        if (combo) {
-          applyShortcut(combo);
-        }
-      }
-    };
-
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        clearModifiers();
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
-    window.addEventListener("blur", clearModifiers);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
-      window.removeEventListener("blur", clearModifiers);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [capturingHotkey, setHotkey]);
-
-  useEffect(() => {
-    if (!capturingAssistantHotkey) return;
-
-    const activeModifiers = new Set<HotkeyModifier>();
-    const peakModifiers = new Set<HotkeyModifier>();
-    let mainKeyPressed = false;
-    let applied = false;
-    const clearModifiers = () => {
-      activeModifiers.clear();
-      peakModifiers.clear();
-      mainKeyPressed = false;
-    };
-
-    const applyShortcut = (shortcut: string) => {
-      if (applied) return;
-      applied = true;
-      setAssistantHotkeySaving(true);
-      const normalized = formatHotkeyForDisplay(shortcut);
-      void setAssistantHotkey(shortcut)
-        .then(() => {
-          setAssistantHotkeyState(normalized);
-          toast.success(`助手热键已设置为 ${normalized}`);
-        })
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : "设置助手热键失败";
-          toast.error(message);
-        })
-        .finally(() => {
-          setAssistantHotkeySaving(false);
-          setCapturingAssistantHotkey(false);
-          clearModifiers();
-        });
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (event.key === "Escape") {
-        setCapturingAssistantHotkey(false);
-        clearModifiers();
-        return;
-      }
-
-      const modifier = modifierFromKeyboardEvent(event);
-      if (modifier) {
-        activeModifiers.add(modifier);
-        for (const key of activeModifiers) peakModifiers.add(key);
-        return;
-      }
-
-      mainKeyPressed = true;
-      const shortcut = keyboardEventToHotkey(event, activeModifiers);
-      if (!shortcut) return;
-      applyShortcut(shortcut);
-    };
-
-    const onKeyUp = (event: KeyboardEvent) => {
-      const modifier = modifierFromKeyboardEvent(event);
-      if (!modifier || applied) return;
-
-      activeModifiers.delete(modifier);
-      if (activeModifiers.size === 0 && !mainKeyPressed && peakModifiers.size > 0) {
-        const combo = HOTKEY_MODIFIER_ORDER
-          .filter((key) => peakModifiers.has(key))
-          .join("+");
-        if (combo) applyShortcut(combo);
-      }
-    };
-
-    const onVisibilityChange = () => {
-      if (document.hidden) clearModifiers();
-    };
-
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
-    window.addEventListener("blur", clearModifiers);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
-      window.removeEventListener("blur", clearModifiers);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [capturingAssistantHotkey]);
-
-  useEffect(() => {
-    if (!capturingTranslationHotkey) return;
-
-    const activeModifiers = new Set<HotkeyModifier>();
-    const peakModifiers = new Set<HotkeyModifier>();
-    let mainKeyPressed = false;
-    let applied = false;
-    const clearModifiers = () => {
-      activeModifiers.clear();
-      peakModifiers.clear();
-      mainKeyPressed = false;
-    };
-
-    const applyShortcut = (shortcut: string) => {
-      if (applied) return;
-      applied = true;
-      setTranslationHotkeySaving(true);
-      const normalized = formatHotkeyForDisplay(shortcut);
-      void setTranslationHotkey(shortcut)
-        .then(() => {
-          setTranslationHotkeyState(normalized);
-          toast.success(`翻译热键已设置为 ${normalized}`);
-        })
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : "设置翻译热键失败";
-          toast.error(message);
-        })
-        .finally(() => {
-          setTranslationHotkeySaving(false);
-          setCapturingTranslationHotkey(false);
-          clearModifiers();
-        });
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (event.key === "Escape") {
-        setCapturingTranslationHotkey(false);
-        clearModifiers();
-        return;
-      }
-
-      const modifier = modifierFromKeyboardEvent(event);
-      if (modifier) {
-        activeModifiers.add(modifier);
-        for (const key of activeModifiers) peakModifiers.add(key);
-        return;
-      }
-
-      mainKeyPressed = true;
-      const shortcut = keyboardEventToHotkey(event, activeModifiers);
-      if (!shortcut) return;
-      applyShortcut(shortcut);
-    };
-
-    const onKeyUp = (event: KeyboardEvent) => {
-      const modifier = modifierFromKeyboardEvent(event);
-      if (!modifier || applied) return;
-
-      activeModifiers.delete(modifier);
-      if (activeModifiers.size === 0 && !mainKeyPressed && peakModifiers.size > 0) {
-        const combo = HOTKEY_MODIFIER_ORDER
-          .filter((key) => peakModifiers.has(key))
-          .join("+");
-        if (combo) applyShortcut(combo);
-      }
-    };
-
-    const onVisibilityChange = () => {
-      if (document.hidden) clearModifiers();
-    };
-
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
-    window.addEventListener("blur", clearModifiers);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
-      window.removeEventListener("blur", clearModifiers);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [capturingTranslationHotkey]);
+  // (hotkey capture effects are now in useHotkeyCapture hook)
 
   const handleResetHotkey = async () => {
-    if (hotkeySaving) return;
-    setHotkeySaving(true);
+    if (mainHotkeyCapture.saving) return;
+    mainHotkeyCapture.cancelCapture();
     try {
       await setHotkey(DEFAULT_HOTKEY);
       toast.success("已恢复默认热键 F2");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "恢复默认热键失败";
-      toast.error(message);
-    } finally {
-      setHotkeySaving(false);
-      setCapturingHotkey(false);
+      toast.error(err instanceof Error ? err.message : "恢复默认热键失败");
     }
   };
 
-  const handleClearTranslationHotkey = async () => {
-    if (translationHotkeySaving) return;
-    setTranslationHotkeySaving(true);
-    try {
-      await setTranslationHotkey(null);
-      setTranslationHotkeyState("");
-      toast.success("已清除翻译热键");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "清除翻译热键失败";
-      toast.error(message);
-    } finally {
-      setTranslationHotkeySaving(false);
-      setCapturingTranslationHotkey(false);
-    }
-  };
-
-  const handleClearAssistantHotkey = async () => {
-    if (assistantHotkeySaving) return;
-    setAssistantHotkeySaving(true);
-    try {
-      await setAssistantHotkey(null);
-      setAssistantHotkeyState("");
-      toast.success("已清除助手热键");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "清除助手热键失败";
-      toast.error(message);
-    } finally {
-      setAssistantHotkeySaving(false);
-      setCapturingAssistantHotkey(false);
-    }
-  };
-
-  const scheduleCustomLlmConfigSave = useCallback((
-    provider: string,
-    baseUrl: string,
-    model: string,
-    nextPolishReasoningMode: LlmReasoningMode,
-    nextAssistantReasoningMode: LlmReasoningMode,
-    nextAssistantUseSeparateModel: boolean,
-    nextAssistantModel: string,
-    nextAssistantProvider?: string | null,
+  const handleClearHotkey = async (
+    saveFn: (v: string | null) => Promise<unknown>,
+    setDisplay: (v: string) => void,
+    label: string,
+    cancelCapture?: () => void,
   ) => {
-    llmConfigSave.schedule(
-      provider,
-      baseUrl,
-      model,
-      nextPolishReasoningMode,
-      nextAssistantReasoningMode,
-      nextAssistantUseSeparateModel,
-      nextAssistantModel,
-      nextAssistantProvider,
-    );
-  }, [llmConfigSave]);
+    cancelCapture?.();
+    try {
+      await saveFn(null);
+      setDisplay("");
+      toast.success(`已清除${label}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `清除${label}失败`);
+    }
+  };
+
+  // Unified picker focus/clear-search effect (replaces 6 individual effects)
+  useEffect(() => {
+    setProviderSearch("");
+    setAiModelSearch("");
+    setAssistantModelSearch("");
+    setAssistantProviderSearch("");
+    if (picker.active === "provider") {
+      providerSearchInputRef.current?.focus();
+    } else if (picker.active === "model") {
+      modelSearchInputRef.current?.focus();
+    } else if (picker.active === "assistantModel") {
+      assistantModelSearchInputRef.current?.focus();
+    }
+  }, [picker.active]);
 
   const refreshAiModels = useCallback(async (silent = false) => {
     const apiKey = aiPolishApiKey.trim();
@@ -1200,7 +901,7 @@ export default function SettingsPage({
 
   const handleProviderSelect = useCallback(async (nextProvider: string) => {
     if (nextProvider === llmProvider) {
-      setProviderPickerOpen(false);
+      picker.close();
       setProviderSearch("");
       return;
     }
@@ -1223,12 +924,7 @@ export default function SettingsPage({
       setAssistantProviderState(nextProvider);
     }
     updateProviderDraft(nextProvider, nextDraft.baseUrl, nextDraft.model);
-    setProviderPickerOpen(false);
-    setModelPickerOpen(false);
-    setAssistantModelPickerOpen(false);
-    setAssistantProviderPickerOpen(false);
-    setAssistantReasoningPickerOpen(false);
-    setPolishReasoningPickerOpen(false);
+    picker.close();
     setProviderSearch("");
     setAiModelSearch("");
     setAssistantModelSearch("");
@@ -1270,7 +966,7 @@ export default function SettingsPage({
     if (!normalizedModel) return;
     setCustomModel(normalizedModel);
     updateProviderDraft(llmProvider, customBaseUrl, normalizedModel);
-    scheduleCustomLlmConfigSave(
+    llmConfigSave.schedule(
       llmProvider,
       customBaseUrl,
       normalizedModel,
@@ -1279,17 +975,16 @@ export default function SettingsPage({
       assistantUseSeparateModel,
       assistantModel,
     );
-    setModelPickerOpen(false);
+    picker.close();
     setAiModelSearch("");
     if (!assistantUseSeparateModel) {
       setAssistantModel(normalizedModel);
     }
-  }, [assistantModel, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave, updateProviderDraft]);
+  }, [assistantModel, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, llmProvider, picker, polishReasoningMode, llmConfigSave, updateProviderDraft]);
 
   const handleAssistantModelToggle = useCallback((enabled: boolean) => {
     setAssistantUseSeparateModel(enabled);
-    setAssistantModelPickerOpen(false);
-    setAssistantProviderPickerOpen(false);
+    picker.close();
     if (!enabled) {
       setAssistantModel(customModel);
     } else {
@@ -1301,7 +996,7 @@ export default function SettingsPage({
         setAssistantProviderState(llmProvider);
       }
     }
-    scheduleCustomLlmConfigSave(
+    llmConfigSave.schedule(
       llmProvider,
       customBaseUrl,
       customModel,
@@ -1314,16 +1009,16 @@ export default function SettingsPage({
     if (enabled) {
       void refreshAssistantKey();
     }
-  }, [assistantModel, assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, refreshAssistantKey, scheduleCustomLlmConfigSave]);
+  }, [assistantModel, assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, refreshAssistantKey, llmConfigSave]);
 
   const handleAssistantProviderSelect = useCallback(async (nextProvider: string) => {
     if (nextProvider === assistantProvider) {
-      setAssistantProviderPickerOpen(false);
+      picker.close();
       setAssistantProviderSearch("");
       return;
     }
     setAssistantProviderState(nextProvider);
-    setAssistantProviderPickerOpen(false);
+    picker.close();
     setAssistantProviderSearch("");
     // 先保存 config（含新 assistantProvider），再加载对应 key
     await setLlmProviderConfig(
@@ -1343,9 +1038,9 @@ export default function SettingsPage({
     const normalizedModel = nextModel.trim();
     if (!normalizedModel) return;
     setAssistantModel(normalizedModel);
-    setAssistantModelPickerOpen(false);
+    picker.close();
     setAssistantModelSearch("");
-    scheduleCustomLlmConfigSave(
+    llmConfigSave.schedule(
       llmProvider,
       customBaseUrl,
       customModel,
@@ -1355,7 +1050,7 @@ export default function SettingsPage({
       normalizedModel,
       assistantProvider,
     );
-  }, [assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave]);
+  }, [assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, llmConfigSave]);
 
   const handleTranslationSelect = useCallback(async (target: string | null) => {
     setTranslationTargetState(target);
@@ -1527,8 +1222,8 @@ export default function SettingsPage({
   const handlePolishReasoningModeChange = useCallback((mode: LlmReasoningMode) => {
     if (polishReasoningModeDisabled) return;
     setPolishReasoningMode(mode);
-    setPolishReasoningPickerOpen(false);
-    scheduleCustomLlmConfigSave(
+    picker.close();
+    llmConfigSave.schedule(
       llmProvider,
       customBaseUrl,
       customModel,
@@ -1537,13 +1232,13 @@ export default function SettingsPage({
       assistantUseSeparateModel,
       assistantModel,
     );
-  }, [assistantModel, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, polishReasoningModeDisabled, scheduleCustomLlmConfigSave]);
+  }, [assistantModel, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningModeDisabled, llmConfigSave]);
 
   const handleAssistantReasoningModeChange = useCallback((mode: LlmReasoningMode) => {
     if (assistantReasoningModeDisabled) return;
     setAssistantReasoningMode(mode);
-    setAssistantReasoningPickerOpen(false);
-    scheduleCustomLlmConfigSave(
+    picker.close();
+    llmConfigSave.schedule(
       llmProvider,
       customBaseUrl,
       customModel,
@@ -1552,11 +1247,11 @@ export default function SettingsPage({
       assistantUseSeparateModel,
       assistantModel,
     );
-  }, [assistantModel, assistantReasoningModeDisabled, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, polishReasoningMode, scheduleCustomLlmConfigSave]);
+  }, [assistantModel, assistantReasoningModeDisabled, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, llmConfigSave]);
 
   const handleRecordingModeChange = useCallback((mode: "hold" | "toggle") => {
     setRecordingModeState(mode);
-    setRecordingModePickerOpen(false);
+    picker.close();
     writeLocalStorage(RECORDING_MODE_KEY, mode);
     setRecordingMode(mode === "toggle").catch(() => {});
   }, []);
@@ -1576,132 +1271,6 @@ export default function SettingsPage({
       toast.error("润色屏幕感知设置失败");
     });
   }, []);
-
-  useEffect(() => {
-    if (providerPickerOpen) {
-      providerSearchInputRef.current?.focus();
-      providerSearchInputRef.current?.select();
-    }
-  }, [providerPickerOpen]);
-
-  useEffect(() => {
-    if (!providerPickerOpen && providerSearch) {
-      setProviderSearch("");
-    }
-  }, [providerPickerOpen, providerSearch]);
-
-  useEffect(() => {
-    if (modelPickerOpen) {
-      modelSearchInputRef.current?.focus();
-      modelSearchInputRef.current?.select();
-    }
-  }, [modelPickerOpen]);
-
-  useEffect(() => {
-    if (!modelPickerOpen && aiModelSearch) {
-      setAiModelSearch("");
-    }
-  }, [aiModelSearch, modelPickerOpen]);
-
-  useEffect(() => {
-    if (assistantModelPickerOpen) {
-      assistantModelSearchInputRef.current?.focus();
-      assistantModelSearchInputRef.current?.select();
-    }
-  }, [assistantModelPickerOpen]);
-
-  useEffect(() => {
-    if (!assistantModelPickerOpen && assistantModelSearch) {
-      setAssistantModelSearch("");
-    }
-  }, [assistantModelPickerOpen, assistantModelSearch]);
-
-  useEffect(() => {
-    if (
-      !providerPickerOpen
-      && !modelPickerOpen
-      && !assistantModelPickerOpen
-      && !assistantProviderPickerOpen
-      && !assistantReasoningPickerOpen
-      && !polishReasoningPickerOpen
-      && !recordingModePickerOpen
-      && !microphonePickerOpen
-    ) {
-      return;
-    }
-
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (providerPickerOpen && providerPickerRef.current && !providerPickerRef.current.contains(target)) {
-        setProviderPickerOpen(false);
-      }
-      if (modelPickerOpen && modelPickerRef.current && !modelPickerRef.current.contains(target)) {
-        setModelPickerOpen(false);
-      }
-      if (
-        assistantModelPickerOpen
-        && assistantModelPickerRef.current
-        && !assistantModelPickerRef.current.contains(target)
-      ) {
-        setAssistantModelPickerOpen(false);
-      }
-      if (
-        assistantProviderPickerOpen
-        && assistantProviderPickerRef.current
-        && !assistantProviderPickerRef.current.contains(target)
-      ) {
-        setAssistantProviderPickerOpen(false);
-      }
-      if (
-        assistantReasoningPickerOpen
-        && assistantReasoningPickerRef.current
-        && !assistantReasoningPickerRef.current.contains(target)
-      ) {
-        setAssistantReasoningPickerOpen(false);
-      }
-      if (
-        polishReasoningPickerOpen
-        && polishReasoningPickerRef.current
-        && !polishReasoningPickerRef.current.contains(target)
-      ) {
-        setPolishReasoningPickerOpen(false);
-      }
-      if (
-        recordingModePickerOpen
-        && recordingModePickerRef.current
-        && !recordingModePickerRef.current.contains(target)
-      ) {
-        setRecordingModePickerOpen(false);
-      }
-      if (
-        microphonePickerOpen
-        && microphonePickerRef.current
-        && !microphonePickerRef.current.contains(target)
-      ) {
-        setMicrophonePickerOpen(false);
-      }
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setProviderPickerOpen(false);
-        setModelPickerOpen(false);
-        setAssistantModelPickerOpen(false);
-        setAssistantProviderPickerOpen(false);
-        setAssistantReasoningPickerOpen(false);
-        setPolishReasoningPickerOpen(false);
-        setRecordingModePickerOpen(false);
-        setMicrophonePickerOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [assistantModelPickerOpen, assistantProviderPickerOpen, assistantReasoningPickerOpen, microphonePickerOpen, modelPickerOpen, polishReasoningPickerOpen, providerPickerOpen, recordingModePickerOpen]);
 
   return (
     <div className="page-root">
@@ -1817,7 +1386,7 @@ export default function SettingsPage({
             style={{
               animationDelay: "100ms",
               position: "relative",
-              zIndex: recordingModePickerOpen ? 9 : 1,
+              zIndex: picker.isOpen("recordingMode") ? 9 : 1,
             }}
           >
             <div className="settings-section-header">
@@ -1828,25 +1397,25 @@ export default function SettingsPage({
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
                 <button
                   className="theme-btn hotkey-capture-btn"
-                  onClick={() => setCapturingHotkey(true)}
-                  disabled={hotkeySaving}
-                  data-capturing={capturingHotkey}
+                  onClick={() => mainHotkeyCapture.startCapture()}
+                  disabled={mainHotkeyCapture.saving}
+                  data-capturing={mainHotkeyCapture.capturing}
                   style={{
-                    cursor: hotkeySaving ? "wait" : "pointer",
-                    opacity: hotkeySaving ? 0.7 : 1,
+                    cursor: mainHotkeyCapture.saving ? "wait" : "pointer",
+                    opacity: mainHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
-                  {capturingHotkey ? "请按下组合键..." : hotkeyDisplay}
+                  {mainHotkeyCapture.capturing ? "请按下组合键..." : hotkeyDisplay}
                 </button>
                 <button
                   className="btn-ghost"
                   onClick={handleResetHotkey}
-                  disabled={hotkeySaving}
+                  disabled={mainHotkeyCapture.saving}
                   style={{
                     fontSize: 12,
                     padding: "8px 10px",
-                    cursor: hotkeySaving ? "wait" : "pointer",
-                    opacity: hotkeySaving ? 0.7 : 1,
+                    cursor: mainHotkeyCapture.saving ? "wait" : "pointer",
+                    opacity: mainHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
                   恢复 F2
@@ -1858,26 +1427,21 @@ export default function SettingsPage({
               <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
                 <span className="settings-option-desc">录音模式</span>
                 <div
-                  ref={recordingModePickerRef}
+                  ref={picker.setRef("recordingMode")}
                   style={{
                     position: "relative",
-                    zIndex: recordingModePickerOpen ? 2 : 1,
+                    zIndex: picker.isOpen("recordingMode") ? 2 : 1,
                   }}
                 >
                   <button
                     type="button"
                     className="picker-trigger"
-                    data-open={recordingModePickerOpen}
+                    data-open={picker.isOpen("recordingMode")}
                     aria-haspopup="listbox"
-                    aria-expanded={recordingModePickerOpen}
+                    aria-expanded={picker.isOpen("recordingMode")}
                     aria-label="录音模式"
                     onClick={() => {
-                      setRecordingModePickerOpen((open) => !open);
-                      setProviderPickerOpen(false);
-                      setModelPickerOpen(false);
-                      setAssistantModelPickerOpen(false);
-                      setAssistantReasoningPickerOpen(false);
-                      setPolishReasoningPickerOpen(false);
+                      picker.toggle("recordingMode");
                     }}
                   >
                     <span className="picker-trigger-copy">
@@ -1886,7 +1450,7 @@ export default function SettingsPage({
                     </span>
                     <ChevronsUpDown size={14} className="icon-tertiary" />
                   </button>
-                  {recordingModePickerOpen && (
+                  {picker.isOpen("recordingMode") && (
                     <div className="picker-popover">
                       <div className="picker-list" role="listbox">
                         {recordingModeOptions.map((option) => (
@@ -1947,7 +1511,7 @@ export default function SettingsPage({
             style={{
               animationDelay: "125ms",
               position: "relative",
-              zIndex: microphonePickerOpen ? 8 : 1,
+              zIndex: picker.isOpen("microphone") ? 8 : 1,
             }}
           >
             <div className="settings-section-header">
@@ -1971,24 +1535,18 @@ export default function SettingsPage({
             </div>
             <div className="settings-column">
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
-                <div ref={microphonePickerRef} style={{ position: "relative", flex: 1, minWidth: 0 }}>
+                <div ref={picker.setRef("microphone")} style={{ position: "relative", flex: 1, minWidth: 0 }}>
                   <button
                     type="button"
                     className="picker-trigger microphone-select"
-                    data-open={microphonePickerOpen}
+                    data-open={picker.isOpen("microphone")}
                     aria-haspopup="listbox"
-                    aria-expanded={microphonePickerOpen}
+                    aria-expanded={picker.isOpen("microphone")}
                     aria-label="选择麦克风"
                     disabled={deviceListLoading}
                     onClick={() => {
                       if (deviceListLoading) return;
-                      setMicrophonePickerOpen((open) => !open);
-                      setProviderPickerOpen(false);
-                      setModelPickerOpen(false);
-                      setAssistantModelPickerOpen(false);
-                      setAssistantReasoningPickerOpen(false);
-                      setPolishReasoningPickerOpen(false);
-                      setRecordingModePickerOpen(false);
+                      picker.toggle("microphone");
                     }}
                     style={{
                       opacity: deviceListLoading ? 0.7 : 1,
@@ -2001,7 +1559,7 @@ export default function SettingsPage({
                     </span>
                     <ChevronsUpDown size={14} className="icon-tertiary" />
                   </button>
-                  {microphonePickerOpen && (
+                  {picker.isOpen("microphone") && (
                     <div className="picker-popover">
                       <div className="picker-list" role="listbox">
                         <button
@@ -2137,7 +1695,7 @@ export default function SettingsPage({
             style={{
               animationDelay: "200ms",
               position: "relative",
-              zIndex: providerPickerOpen || modelPickerOpen || polishReasoningPickerOpen ? 8 : 1,
+              zIndex: picker.isOpen("provider") || picker.isOpen("model") || picker.isOpen("polishReasoning") ? 8 : 1,
             }}
           >
             <div className="settings-section-header">
@@ -2204,20 +1762,16 @@ export default function SettingsPage({
               <div className="settings-column" style={{ gap: 10 }}>
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">服务商</span>
-                  <div className="picker-shell" ref={providerPickerRef}>
+                  <div className="picker-shell" ref={picker.setRef("provider")}>
                     <button
                       type="button"
                       className="picker-trigger"
-                      data-open={providerPickerOpen}
+                      data-open={picker.isOpen("provider")}
                       aria-haspopup="listbox"
-                      aria-expanded={providerPickerOpen}
+                      aria-expanded={picker.isOpen("provider")}
                       aria-label="选择 LLM 供应商"
                       onClick={() => {
-                        setProviderPickerOpen((open) => !open);
-                        setModelPickerOpen(false);
-                        setAssistantModelPickerOpen(false);
-                        setAssistantReasoningPickerOpen(false);
-                        setPolishReasoningPickerOpen(false);
+                        picker.toggle("provider");
                       }}
                     >
                       <span className="picker-trigger-copy">
@@ -2226,7 +1780,7 @@ export default function SettingsPage({
                       </span>
                       <ChevronsUpDown size={14} className="icon-tertiary" />
                     </button>
-                    {providerPickerOpen && (
+                    {picker.isOpen("provider") && (
                       <div className="picker-popover">
                         <input
                           ref={providerSearchInputRef}
@@ -2361,7 +1915,7 @@ export default function SettingsPage({
                       const nextBaseUrl = e.target.value;
                       setCustomBaseUrl(nextBaseUrl);
                       updateProviderDraft(llmProvider, nextBaseUrl, customModel);
-                      scheduleCustomLlmConfigSave(
+                      llmConfigSave.schedule(
                         llmProvider,
                         nextBaseUrl,
                         customModel,
@@ -2398,7 +1952,7 @@ export default function SettingsPage({
                     <span className="settings-option-desc">模型</span>
                     <span className="settings-option-desc">{filteredAiModels.length}/{aiModels.length}</span>
                   </div>
-                  <div className="picker-shell" ref={modelPickerRef}>
+                  <div className="picker-shell" ref={picker.setRef("model")}>
                     <div className="picker-inline-row">
                       <input
                         type="text"
@@ -2410,7 +1964,7 @@ export default function SettingsPage({
                           const nextModel = e.target.value;
                           setCustomModel(nextModel);
                           updateProviderDraft(llmProvider, customBaseUrl, nextModel);
-                          scheduleCustomLlmConfigSave(
+                          llmConfigSave.schedule(
                             llmProvider,
                             customBaseUrl,
                             nextModel,
@@ -2427,15 +1981,11 @@ export default function SettingsPage({
                       <button
                         type="button"
                         className="picker-inline-button"
-                        data-open={modelPickerOpen}
+                        data-open={picker.isOpen("model")}
                         aria-haspopup="listbox"
-                        aria-expanded={modelPickerOpen}
+                        aria-expanded={picker.isOpen("model")}
                         onClick={() => {
-                          setModelPickerOpen((open) => !open);
-                          setProviderPickerOpen(false);
-                          setAssistantModelPickerOpen(false);
-                          setAssistantReasoningPickerOpen(false);
-                          setPolishReasoningPickerOpen(false);
+                          picker.toggle("model");
                         }}
                         aria-label="打开模型列表"
                         title="打开模型列表"
@@ -2446,7 +1996,7 @@ export default function SettingsPage({
                     <p className="settings-hint" style={{ margin: 0 }}>
                       {selectedAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型` : "可直接输入模型名称")}
                     </p>
-                    {modelPickerOpen && (
+                    {picker.isOpen("model") && (
                       <div className="picker-popover">
                         <div className="picker-toolbar">
                           <input
@@ -2519,22 +2069,18 @@ export default function SettingsPage({
 
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">润色思考模式</span>
-                  <div ref={polishReasoningPickerRef} style={{ position: "relative" }}>
+                  <div ref={picker.setRef("polishReasoning")} style={{ position: "relative" }}>
                     <button
                       type="button"
                       className="picker-trigger"
-                      data-open={polishReasoningPickerOpen}
+                      data-open={picker.isOpen("polishReasoning")}
                       aria-haspopup="listbox"
-                      aria-expanded={polishReasoningPickerOpen}
+                      aria-expanded={picker.isOpen("polishReasoning")}
                       aria-label="润色思考模式"
                       disabled={polishReasoningModeDisabled}
                       onClick={() => {
                         if (polishReasoningModeDisabled) return;
-                        setPolishReasoningPickerOpen((open) => !open);
-                        setAssistantReasoningPickerOpen(false);
-                        setAssistantModelPickerOpen(false);
-                        setProviderPickerOpen(false);
-                        setModelPickerOpen(false);
+                        picker.toggle("polishReasoning");
                       }}
                       title={polishReasoningModeHint}
                       style={{
@@ -2548,7 +2094,7 @@ export default function SettingsPage({
                       </span>
                       <ChevronsUpDown size={14} className="icon-tertiary" />
                     </button>
-                    {polishReasoningPickerOpen && (
+                    {picker.isOpen("polishReasoning") && (
                       <div className="picker-popover">
                         <div className="picker-list" role="listbox">
                           {reasoningModeOptions.map((option) => (
@@ -2603,7 +2149,7 @@ export default function SettingsPage({
             style={{
               animationDelay: "206ms",
               position: "relative",
-              zIndex: assistantModelPickerOpen || assistantReasoningPickerOpen ? 8 : 1,
+              zIndex: picker.isOpen("assistantModel") || picker.isOpen("assistantReasoning") ? 8 : 1,
             }}
           >
             <div className="settings-section-header">
@@ -2614,27 +2160,27 @@ export default function SettingsPage({
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
                 <button
                   className="theme-btn hotkey-capture-btn"
-                  onClick={() => setCapturingAssistantHotkey(true)}
-                  disabled={assistantHotkeySaving}
-                  data-capturing={capturingAssistantHotkey}
+                  onClick={() => assistantHotkeyCapture.startCapture()}
+                  disabled={assistantHotkeyCapture.saving}
+                  data-capturing={assistantHotkeyCapture.capturing}
                   style={{
-                    cursor: assistantHotkeySaving ? "wait" : "pointer",
-                    opacity: assistantHotkeySaving ? 0.7 : 1,
+                    cursor: assistantHotkeyCapture.saving ? "wait" : "pointer",
+                    opacity: assistantHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
-                  {capturingAssistantHotkey
+                  {assistantHotkeyCapture.capturing
                     ? "请按下助手热键..."
-                    : assistantHotkey || "未设置助手热键"}
+                    : assistantHotkeyDisplay || "未设置助手热键"}
                 </button>
                 <button
                   className="btn-ghost"
-                  onClick={handleClearAssistantHotkey}
-                  disabled={assistantHotkeySaving}
+                  onClick={() => handleClearHotkey(setAssistantHotkey, setAssistantHotkeyDisplay, "助手热键", assistantHotkeyCapture.cancelCapture)}
+                  disabled={assistantHotkeyCapture.saving}
                   style={{
                     fontSize: 12,
                     padding: "8px 10px",
-                    cursor: assistantHotkeySaving ? "wait" : "pointer",
-                    opacity: assistantHotkeySaving ? 0.7 : 1,
+                    cursor: assistantHotkeyCapture.saving ? "wait" : "pointer",
+                    opacity: assistantHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
                   清除
@@ -2714,20 +2260,15 @@ export default function SettingsPage({
                 <div className="settings-column" style={{ gap: 6 }}>
                   {/* 助手供应商选择器 */}
                   <span className="settings-option-desc">助手供应商</span>
-                  <div className="picker-shell" ref={assistantProviderPickerRef}>
+                  <div className="picker-shell" ref={picker.setRef("assistantProvider")}>
                     <button
                       type="button"
                       className="picker-trigger"
                       onClick={() => {
-                        setAssistantProviderPickerOpen((open) => !open);
-                        setProviderPickerOpen(false);
-                        setModelPickerOpen(false);
-                        setAssistantModelPickerOpen(false);
-                        setAssistantReasoningPickerOpen(false);
-                        setPolishReasoningPickerOpen(false);
+                        picker.toggle("assistantProvider");
                       }}
                       aria-haspopup="listbox"
-                      aria-expanded={assistantProviderPickerOpen}
+                      aria-expanded={picker.isOpen("assistantProvider")}
                     >
                       <span className="picker-trigger-copy">
                         <strong>{currentAssistantPreset.label}</strong>
@@ -2735,7 +2276,7 @@ export default function SettingsPage({
                       </span>
                       <ChevronsUpDown size={14} className="icon-tertiary" />
                     </button>
-                    {assistantProviderPickerOpen && (
+                    {picker.isOpen("assistantProvider") && (
                       <div className="picker-popover">
                         <div className="picker-toolbar">
                           <input
@@ -2794,7 +2335,7 @@ export default function SettingsPage({
                     <span className="settings-option-desc">助手模型</span>
                     <span className="settings-option-desc">{filteredAssistantModels.length}/{effectiveAssistantModels.length}</span>
                   </div>
-                  <div className="picker-shell" ref={assistantModelPickerRef}>
+                  <div className="picker-shell" ref={picker.setRef("assistantModel")}>
                     <div className="picker-inline-row">
                       <input
                         type="text"
@@ -2805,7 +2346,7 @@ export default function SettingsPage({
                         onChange={(e) => {
                           const nextModel = e.target.value;
                           setAssistantModel(nextModel);
-                          scheduleCustomLlmConfigSave(
+                          llmConfigSave.schedule(
                             llmProvider,
                             customBaseUrl,
                             customModel,
@@ -2820,16 +2361,11 @@ export default function SettingsPage({
                       <button
                         type="button"
                         className="picker-inline-button"
-                        data-open={assistantModelPickerOpen}
+                        data-open={picker.isOpen("assistantModel")}
                         aria-haspopup="listbox"
-                        aria-expanded={assistantModelPickerOpen}
+                        aria-expanded={picker.isOpen("assistantModel")}
                         onClick={() => {
-                          setAssistantModelPickerOpen((open) => !open);
-                          setProviderPickerOpen(false);
-                          setModelPickerOpen(false);
-                          setAssistantProviderPickerOpen(false);
-                          setAssistantReasoningPickerOpen(false);
-                          setPolishReasoningPickerOpen(false);
+                          picker.toggle("assistantModel");
                         }}
                         aria-label="打开助手模型列表"
                         title="打开助手模型列表"
@@ -2840,7 +2376,7 @@ export default function SettingsPage({
                     <p className="settings-hint" style={{ margin: 0 }}>
                       {selectedAssistantAiModel?.ownedBy || (effectiveAssistantModels.length > 0 ? `${effectiveAssistantModels.length} 个可选模型` : "可直接输入模型名称")}
                     </p>
-                    {assistantModelPickerOpen && (
+                    {picker.isOpen("assistantModel") && (
                       <div className="picker-popover">
                         <div className="picker-toolbar">
                           <input
@@ -2917,22 +2453,18 @@ export default function SettingsPage({
 
               <div className="settings-column" style={{ gap: 6 }}>
                 <span className="settings-option-desc">助手思考模式</span>
-                <div ref={assistantReasoningPickerRef} style={{ position: "relative" }}>
+                <div ref={picker.setRef("assistantReasoning")} style={{ position: "relative" }}>
                   <button
                     type="button"
                     className="picker-trigger"
-                    data-open={assistantReasoningPickerOpen}
+                    data-open={picker.isOpen("assistantReasoning")}
                     aria-haspopup="listbox"
-                    aria-expanded={assistantReasoningPickerOpen}
+                    aria-expanded={picker.isOpen("assistantReasoning")}
                     aria-label="助手思考模式"
                     disabled={assistantReasoningModeDisabled}
                     onClick={() => {
                       if (assistantReasoningModeDisabled) return;
-                      setAssistantReasoningPickerOpen((open) => !open);
-                      setAssistantModelPickerOpen(false);
-                      setPolishReasoningPickerOpen(false);
-                      setProviderPickerOpen(false);
-                      setModelPickerOpen(false);
+                      picker.toggle("assistantReasoning");
                     }}
                     title={assistantReasoningModeHint}
                     style={{
@@ -2946,7 +2478,7 @@ export default function SettingsPage({
                     </span>
                     <ChevronsUpDown size={14} className="icon-tertiary" />
                   </button>
-                  {assistantReasoningPickerOpen && (
+                  {picker.isOpen("assistantReasoning") && (
                     <div className="picker-popover">
                       <div className="picker-list" role="listbox">
                         {reasoningModeOptions.map((option) => (
@@ -3001,27 +2533,27 @@ export default function SettingsPage({
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
                 <button
                   className="theme-btn hotkey-capture-btn"
-                  onClick={() => setCapturingTranslationHotkey(true)}
-                  disabled={translationHotkeySaving}
-                  data-capturing={capturingTranslationHotkey}
+                  onClick={() => translationHotkeyCapture.startCapture()}
+                  disabled={translationHotkeyCapture.saving}
+                  data-capturing={translationHotkeyCapture.capturing}
                   style={{
-                    cursor: translationHotkeySaving ? "wait" : "pointer",
-                    opacity: translationHotkeySaving ? 0.7 : 1,
+                    cursor: translationHotkeyCapture.saving ? "wait" : "pointer",
+                    opacity: translationHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
-                  {capturingTranslationHotkey
+                  {translationHotkeyCapture.capturing
                     ? "请按下翻译热键..."
-                    : translationHotkey || "未设置翻译热键"}
+                    : translationHotkeyDisplay || "未设置翻译热键"}
                 </button>
                 <button
                   className="btn-ghost"
-                  onClick={handleClearTranslationHotkey}
-                  disabled={translationHotkeySaving}
+                  onClick={() => handleClearHotkey(setTranslationHotkey, setTranslationHotkeyDisplay, "翻译热键", translationHotkeyCapture.cancelCapture)}
+                  disabled={translationHotkeyCapture.saving}
                   style={{
                     fontSize: 12,
                     padding: "8px 10px",
-                    cursor: translationHotkeySaving ? "wait" : "pointer",
-                    opacity: translationHotkeySaving ? 0.7 : 1,
+                    cursor: translationHotkeyCapture.saving ? "wait" : "pointer",
+                    opacity: translationHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
                   清除

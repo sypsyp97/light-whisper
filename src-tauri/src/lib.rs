@@ -80,63 +80,40 @@ pub fn run() {
                 log::info!("已加载用户画像");
             }
 
+            // 注册翻译/助手热键
             {
                 let state = app_handle.state::<AppState>();
-                if let Some(shortcut) = state
-                    .with_profile(|profile| profile.translation_hotkey.clone())
-                    .filter(|value| !value.trim().is_empty())
-                {
-                    if let Err(err) = commands::hotkey::register_translation_hotkey_inner(
-                        app_handle.clone(),
-                        Some(shortcut),
-                    ) {
-                        log::warn!("注册翻译热键失败: {}", err);
+                let hotkeys: [(&str, &dyn Fn(tauri::AppHandle, Option<String>) -> Result<String, utils::AppError>, Option<String>); 2] = [
+                    ("翻译", &commands::hotkey::register_translation_hotkey_inner, state.with_profile(|p| p.translation_hotkey.clone())),
+                    ("助手", &commands::hotkey::register_assistant_hotkey_inner, state.with_profile(|p| p.assistant_hotkey.clone())),
+                ];
+                for (label, register, shortcut) in hotkeys {
+                    if let Some(s) = shortcut.filter(|v| !v.trim().is_empty()) {
+                        if let Err(err) = register(app_handle.clone(), Some(s)) {
+                            log::warn!("注册{}热键失败: {}", label, err);
+                        }
                     }
                 }
             }
 
+            // 启动时从系统密钥环加载 API Key
             {
-                let state = app_handle.state::<AppState>();
-                if let Some(shortcut) = state
-                    .with_profile(|profile| profile.assistant_hotkey.clone())
-                    .filter(|value| !value.trim().is_empty())
-                {
-                    if let Err(err) = commands::hotkey::register_assistant_hotkey_inner(
-                        app_handle.clone(),
-                        Some(shortcut),
-                    ) {
-                        log::warn!("注册助手热键失败: {}", err);
-                    }
-                }
-            }
-
-            // 启动时根据活跃 provider 从系统密钥环加载对应 API Key
-            {
+                use tauri_plugin_keyring::KeyringExt;
                 let state = app_handle.state::<AppState>();
                 let provider = state.active_llm_provider();
                 let key = services::llm_provider::sync_runtime_api_key(&app_handle, state.inner());
                 if !key.is_empty() {
-                    log::info!(
-                        "已从系统密钥环加载 AI 润色 API Key (provider: {})",
-                        provider
-                    );
+                    log::info!("已从密钥环加载 AI 润色 API Key (provider: {})", provider);
                 }
-            }
-
-            // 启动时从系统密钥环加载在线 ASR API Key
-            {
-                let state = app_handle.state::<AppState>();
-                use tauri_plugin_keyring::KeyringExt;
-                if let Some(key) = app_handle
+                if let Some(asr_key) = app_handle
                     .keyring()
                     .get_password("light-whisper", "glm-asr-api-key")
                     .ok()
                     .flatten()
+                    .filter(|k| !k.is_empty())
                 {
-                    if !key.is_empty() {
-                        state.set_online_asr_api_key(&key);
-                        log::info!("已从系统密钥环加载在线 ASR API Key");
-                    }
+                    state.set_online_asr_api_key(&asr_key);
+                    log::info!("已从密钥环加载在线 ASR API Key");
                 }
             }
 

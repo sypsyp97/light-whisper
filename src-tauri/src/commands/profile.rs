@@ -57,18 +57,17 @@ async fn extract_corrections_via_llm(
     );
 
     let system = "你是文本差异提取工具，只输出 JSON。";
+    let opts = LlmRequestOptions {
+        json_output: true,
+        reasoning_mode: config.polish_reasoning_mode(),
+        ..Default::default()
+    };
 
     let body = llm_client::build_llm_body(
         &endpoint,
         system,
         &LlmUserInput::from(prompt.as_str()),
-        LlmRequestOptions {
-            stream: false,
-            json_output: true,
-            reasoning_mode: config.polish_reasoning_mode(),
-            stream_event: None,
-            session_id: None,
-        },
+        opts,
     );
 
     let raw = match llm_client::send_llm_request(
@@ -78,13 +77,7 @@ async fn extract_corrections_via_llm(
         &body,
         prompt.len(),
         None,
-        LlmRequestOptions {
-            stream: false,
-            json_output: true,
-            reasoning_mode: config.polish_reasoning_mode(),
-            stream_event: None,
-            session_id: None,
-        },
+        opts,
     )
     .await
     {
@@ -115,39 +108,25 @@ async fn extract_corrections_via_llm(
 }
 
 fn parse_correction_pairs(raw: &str) -> Vec<(String, String)> {
-    // 尝试直接解析为数组
-    if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
-        return arr
-            .iter()
+    let extract = |arr: &[serde_json::Value]| -> Vec<(String, String)> {
+        arr.iter()
             .filter_map(|item| {
                 let from = item["from"].as_str()?;
                 let to = item["to"].as_str()?;
-                if !from.is_empty() && !to.is_empty() && from != to {
-                    Some((from.to_string(), to.to_string()))
-                } else {
-                    None
-                }
+                (!from.is_empty() && !to.is_empty() && from != to)
+                    .then(|| (from.to_string(), to.to_string()))
             })
-            .collect();
+            .collect()
+    };
+
+    if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
+        return extract(&arr);
     }
-    // json_object 模式可能返回 {"corrections": [...]} 或其他 key
     if let Ok(obj) = serde_json::from_str::<serde_json::Value>(raw) {
-        // 遍历对象中所有值为数组的字段
         if let Some(map) = obj.as_object() {
-            for (_key, val) in map {
+            for val in map.values() {
                 if let Some(arr) = val.as_array() {
-                    let pairs: Vec<_> = arr
-                        .iter()
-                        .filter_map(|item| {
-                            let from = item["from"].as_str()?;
-                            let to = item["to"].as_str()?;
-                            if !from.is_empty() && !to.is_empty() && from != to {
-                                Some((from.to_string(), to.to_string()))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                    let pairs = extract(arr);
                     if !pairs.is_empty() {
                         return pairs;
                     }
@@ -155,7 +134,7 @@ fn parse_correction_pairs(raw: &str) -> Vec<(String, String)> {
             }
         }
     }
-    vec![]
+    Vec::new()
 }
 
 #[tauri::command]
