@@ -266,6 +266,15 @@ async fn send_ai_polish_request(
     .await
 }
 
+/// 线性降级链：格式优先于流式
+///
+/// 1. stream + json  （最优：结构化 + 流式预览）
+/// 2. nostream + json（保留结构化输出，可能只是 json+stream 组合不兼容）
+/// 3. stream + nojson（JSON 确认不支持，用 prompt 约束 + 流式）
+/// 4. nostream + nojson（最终兜底）
+///
+/// 阶段 2→3 的跳转条件：阶段 2 的错误明确指向 json 格式不被支持。
+/// 如果阶段 2 失败但不是 json 问题（网络/鉴权/限流等），直接报错不再继续。
 async fn send_llm_request_with_transport_fallback(
     state: &AppState,
     endpoint: &llm_provider::LlmEndpoint,
@@ -278,133 +287,89 @@ async fn send_llm_request_with_transport_fallback(
 ) -> Result<String, String> {
     let reasoning_mode = state.with_profile(|profile| profile.llm_provider.polish_reasoning_mode());
 
-    let stream_json_options = LlmRequestOptions {
+    // ── 阶段 1: stream + json ──
+    let stage1 = LlmRequestOptions {
         stream: true,
         json_output: true,
         reasoning_mode,
         stream_event: Some("ai-polish-status"),
         session_id: Some(session_id),
     };
-
     match send_ai_polish_request(
-        state,
-        endpoint,
-        api_key,
-        system_prompt,
-        user_input,
-        user_content_len,
-        Some(app_handle),
-        stream_json_options,
+        state, endpoint, api_key, system_prompt, user_input, user_content_len,
+        Some(app_handle), stage1,
     )
     .await
     {
-        Ok(content) => Ok(content),
-        Err(stream_json_err)
-            if llm_provider::looks_like_json_output_unsupported_error(&stream_json_err) =>
-        {
-            log::warn!(
-                "AI 润色模型不支持结构化 JSON 参数，改用 prompt 约束重试: {}",
-                stream_json_err
-            );
-            emit_polish_status(
-                app_handle,
-                "fallback",
-                "",
-                "",
-                "当前模型不支持 response_format，已自动降级重试",
-                session_id,
-            );
-
-            let stream_plain_options = LlmRequestOptions {
-                stream: true,
-                json_output: false,
-                reasoning_mode,
-                stream_event: Some("ai-polish-status"),
-                session_id: Some(session_id),
-            };
-
-            match send_ai_polish_request(
-                state,
-                endpoint,
-                api_key,
-                system_prompt,
-                user_input,
-                user_content_len,
-                Some(app_handle),
-                stream_plain_options,
-            )
-            .await
-            {
-                Ok(content) => Ok(content),
-                Err(stream_plain_err) => {
-                    log::warn!(
-                        "AI 润色降级后的流式请求失败，回退到非流式: {}",
-                        stream_plain_err
-                    );
-                    emit_polish_status(
-                        app_handle,
-                        "fallback",
-                        "",
-                        "",
-                        &stream_plain_err,
-                        session_id,
-                    );
-                    let fallback_options = LlmRequestOptions {
-                        stream: false,
-                        json_output: false,
-                        reasoning_mode,
-                        stream_event: None,
-                        session_id: Some(session_id),
-                    };
-                    send_ai_polish_request(
-                        state,
-                        endpoint,
-                        api_key,
-                        system_prompt,
-                        user_input,
-                        user_content_len,
-                        None,
-                        fallback_options,
-                    )
-                    .await
-                    .map_err(|fallback_err| {
-                        format!(
-                            "结构化输出不兼容：{}；降级流式失败：{}；非流式回退也失败：{}",
-                            stream_json_err, stream_plain_err, fallback_err
-                        )
-                    })
-                }
-            }
-        }
-        Err(stream_err) => {
-            log::warn!("AI 润色流式请求失败，回退到非流式: {}", stream_err);
-            emit_polish_status(app_handle, "fallback", "", "", &stream_err, session_id);
-            let fallback_options = LlmRequestOptions {
-                stream: false,
-                json_output: true,
-                reasoning_mode,
-                stream_event: None,
-                session_id: Some(session_id),
-            };
-            send_ai_polish_request(
-                state,
-                endpoint,
-                api_key,
-                system_prompt,
-                user_input,
-                user_content_len,
-                None,
-                fallback_options,
-            )
-            .await
-            .map_err(|fallback_err| {
-                format!(
-                    "流式失败：{}；非流式回退也失败：{}",
-                    stream_err, fallback_err
-                )
-            })
+        Ok(content) => return Ok(content),
+        Err(err) => {
+            log::warn!("AI 润色 stream+json 失败: {}", err);
+            emit_polish_status(app_handle, "fallback", "", "", &err, session_id);
         }
     }
+
+    // ── 阶段 2: nostream + json（优先保留结构化输出）──
+    let stage2 = LlmRequestOptions {
+        stream: false,
+        json_output: true,
+        reasoning_mode,
+        stream_event: None,
+        session_id: Some(session_id),
+    };
+    match send_ai_polish_request(
+        state, endpoint, api_key, system_prompt, user_input, user_content_len,
+        None, stage2,
+    )
+    .await
+    {
+        Ok(content) => return Ok(content),
+        Err(err) if llm_provider::looks_like_json_output_unsupported_error(&err) => {
+            log::warn!("AI 润色确认 JSON 格式不被支持，降级到 prompt 约束: {}", err);
+            emit_polish_status(
+                app_handle, "fallback", "", "",
+                "当前模型不支持 response_format，已自动降级重试", session_id,
+            );
+        }
+        Err(err) => {
+            return Err(format!("stream+json 和 nostream+json 均失败: {}", err));
+        }
+    }
+
+    // ── 阶段 3: stream + nojson（JSON 不支持，保留流式）──
+    let stage3 = LlmRequestOptions {
+        stream: true,
+        json_output: false,
+        reasoning_mode,
+        stream_event: Some("ai-polish-status"),
+        session_id: Some(session_id),
+    };
+    match send_ai_polish_request(
+        state, endpoint, api_key, system_prompt, user_input, user_content_len,
+        Some(app_handle), stage3,
+    )
+    .await
+    {
+        Ok(content) => return Ok(content),
+        Err(err) => {
+            log::warn!("AI 润色 stream+nojson 也失败，最终回退: {}", err);
+            emit_polish_status(app_handle, "fallback", "", "", &err, session_id);
+        }
+    }
+
+    // ── 阶段 4: nostream + nojson（最终兜底）──
+    let stage4 = LlmRequestOptions {
+        stream: false,
+        json_output: false,
+        reasoning_mode,
+        stream_event: None,
+        session_id: Some(session_id),
+    };
+    send_ai_polish_request(
+        state, endpoint, api_key, system_prompt, user_input, user_content_len,
+        None, stage4,
+    )
+    .await
+    .map_err(|err| format!("所有传输策略均失败: {}", err))
 }
 
 async fn send_llm_request_with_fallback(

@@ -495,7 +495,7 @@ fn is_siliconflow_like_endpoint(endpoint: &LlmEndpoint) -> bool {
             .contains("siliconflow.com")
 }
 
-fn is_cerebras_like_endpoint(endpoint: &LlmEndpoint) -> bool {
+pub fn is_cerebras_like_endpoint(endpoint: &LlmEndpoint) -> bool {
     endpoint.provider == CEREBRAS
         || endpoint
             .api_url
@@ -695,6 +695,11 @@ pub fn apply_reasoning_controls(
     };
 
     match (kind, mode) {
+        // Cerebras 推理模型：ProviderDefault 映射到 low（恢复重构前的硬编码行为，
+        // 避免服务端默认推理强度过高导致 TTFT 和生成时间显著增加）
+        (ReasoningControlKind::CerebrasReasoningEffort, LlmReasoningMode::ProviderDefault) => {
+            body["reasoning_effort"] = serde_json::json!("low");
+        }
         (_, LlmReasoningMode::ProviderDefault) => {}
         (ReasoningControlKind::AnthropicThinking, _) => {
             if mode == LlmReasoningMode::Off {

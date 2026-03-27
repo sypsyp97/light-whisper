@@ -112,7 +112,18 @@ pub fn build_llm_body(
                 options.reasoning_mode,
             );
 
-            if options.stream {
+            if is_responses_api {
+                body["max_output_tokens"] = serde_json::json!(4096);
+            } else {
+                body["max_tokens"] = serde_json::json!(4096);
+            }
+
+            // Cerebras json_object 与 stream 不兼容：结构化输出优先，放弃流式
+            if options.stream
+                && !(options.json_output
+                    && !is_responses_api
+                    && llm_provider::is_cerebras_like_endpoint(endpoint))
+            {
                 body["stream"] = serde_json::json!(true);
             }
 
@@ -177,12 +188,57 @@ fn anthropic_user_content(user_input: &LlmUserInput) -> Value {
     Value::Array(content)
 }
 
+/// 从流式累积的 JSON 中增量提取 "polished" 字段值（用于实时预览）
+fn try_extract_partial_polished(accumulated: &str) -> Option<String> {
+    let idx = accumulated.find("\"polished\"")?;
+    let rest = accumulated[idx + "\"polished\"".len()..].trim_start();
+    let rest = rest.strip_prefix(':')?;
+    let rest = rest.trim_start().strip_prefix('"')?;
+
+    let mut result = String::new();
+    let mut chars = rest.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('t') => result.push('\t'),
+                Some('r') => result.push('\r'),
+                Some('"') => result.push('"'),
+                Some('\\') => result.push('\\'),
+                Some('/') => result.push('/'),
+                Some('u') => {
+                    let hex: String = chars.by_ref().take(4).collect();
+                    if let Ok(code) = u32::from_str_radix(&hex, 16) {
+                        if let Some(c) = char::from_u32(code) {
+                            result.push(c);
+                        }
+                    }
+                }
+                Some(other) => {
+                    result.push('\\');
+                    result.push(other);
+                }
+                None => break, // trailing backslash, value still streaming
+            },
+            '"' => break,
+            _ => result.push(ch),
+        }
+    }
+
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
 fn emit_stream_event(
     app_handle: &tauri::AppHandle,
     event_name: Option<&str>,
     session_id: Option<u64>,
     chunk: Option<&str>,
     tokens: usize,
+    partial_text: Option<&str>,
 ) {
     if let Some(event_name) = event_name {
         let mut payload = serde_json::json!({ "status": "streaming" });
@@ -191,6 +247,9 @@ fn emit_stream_event(
         }
         if tokens > 0 {
             payload["tokens"] = serde_json::json!(tokens);
+        }
+        if let Some(partial_text) = partial_text {
+            payload["partialText"] = serde_json::json!(partial_text);
         }
         if let Some(session_id) = session_id {
             payload["sessionId"] = serde_json::json!(session_id);
@@ -217,6 +276,7 @@ pub async fn read_sse_stream(
 
     let mut accumulated = String::new();
     let mut token_count: usize = 0;
+    let is_polish = event_name == Some("ai-polish-status");
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let mut stream = response.bytes_stream().eventsource();
 
@@ -231,7 +291,12 @@ pub async fn read_sse_stream(
                     if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                         accumulated.push_str(content);
                         token_count += 1;
-                        emit_stream_event(app_handle, event_name, session_id, Some(content), token_count);
+                        let partial = if is_polish {
+                            try_extract_partial_polished(&accumulated)
+                        } else {
+                            None
+                        };
+                        emit_stream_event(app_handle, event_name, session_id, Some(content), token_count, partial.as_deref());
                     }
                 }
             }
@@ -260,6 +325,7 @@ pub async fn read_openai_responses_sse_stream(
     let mut accumulated = String::new();
     let mut fallback_content: Option<String> = None;
     let mut token_count: usize = 0;
+    let is_polish = event_name == Some("ai-polish-status");
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let mut stream = response.bytes_stream().eventsource();
 
@@ -294,12 +360,18 @@ pub async fn read_openai_responses_sse_stream(
                         if let Some(delta) = json["delta"].as_str() {
                             accumulated.push_str(delta);
                             token_count += 1;
+                            let partial = if is_polish {
+                                try_extract_partial_polished(&accumulated)
+                            } else {
+                                None
+                            };
                             emit_stream_event(
                                 app_handle,
                                 event_name,
                                 session_id,
                                 Some(delta),
                                 token_count,
+                                partial.as_deref(),
                             );
                         }
                     }
@@ -307,12 +379,18 @@ pub async fn read_openai_responses_sse_stream(
                         if let Some(text) = json["text"].as_str() {
                             accumulated.push_str(text);
                             token_count += 1;
+                            let partial = if is_polish {
+                                try_extract_partial_polished(&accumulated)
+                            } else {
+                                None
+                            };
                             emit_stream_event(
                                 app_handle,
                                 event_name,
                                 session_id,
                                 Some(text),
                                 token_count,
+                                partial.as_deref(),
                             );
                         }
                     }
@@ -366,6 +444,7 @@ pub async fn read_anthropic_sse_stream(
 
     let mut accumulated = String::new();
     let mut output_tokens: usize = 0;
+    let is_polish = event_name == Some("ai-polish-status");
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let mut stream = response.bytes_stream().eventsource();
 
@@ -376,7 +455,7 @@ pub async fn read_anthropic_sse_stream(
                     if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
                         if let Some(tokens) = anthropic_output_tokens(&json) {
                             output_tokens = tokens;
-                            emit_stream_event(app_handle, event_name, session_id, None, output_tokens);
+                            emit_stream_event(app_handle, event_name, session_id, None, output_tokens, None);
                         }
                     }
                 }
@@ -386,12 +465,18 @@ pub async fn read_anthropic_sse_stream(
                         if matches!(delta_type, Some("text_delta") | None) {
                             if let Some(text) = json["delta"]["text"].as_str() {
                                 accumulated.push_str(text);
+                                let partial = if is_polish {
+                                    try_extract_partial_polished(&accumulated)
+                                } else {
+                                    None
+                                };
                                 emit_stream_event(
                                     app_handle,
                                     event_name,
                                     session_id,
                                     Some(text),
                                     output_tokens,
+                                    partial.as_deref(),
                                 );
                             }
                         }
@@ -611,7 +696,14 @@ pub async fn send_llm_request(
         }
     }
 
-    if options.stream {
+    // 根据 body 中实际是否启用了 stream 来决定响应解析方式
+    // （build_llm_body 可能因供应商限制而跳过 stream，如 Cerebras json_object 不兼容流式）
+    let actually_streaming = body
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    if actually_streaming {
         let app_handle = app_handle.ok_or_else(|| "流式请求缺少 app_handle".to_string())?;
         match endpoint.api_format {
             ApiFormat::Anthropic => {
@@ -657,7 +749,8 @@ pub async fn send_llm_request(
 mod tests {
     use super::{
         build_llm_body, extract_api_error_message, extract_openai_compat_error_message,
-        is_retryable_overload_error, LlmRequestOptions, LlmUserInput,
+        is_retryable_overload_error, try_extract_partial_polished, LlmRequestOptions,
+        LlmUserInput,
     };
     use crate::services::llm_provider::LlmEndpoint;
     use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
@@ -804,5 +897,131 @@ mod tests {
             reqwest::StatusCode::BAD_REQUEST,
             "queue_exceeded"
         ));
+    }
+
+    #[test]
+    fn chat_body_sets_max_tokens_for_openai_compat() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+
+        assert_eq!(body["max_tokens"], serde_json::json!(4096));
+    }
+
+    #[test]
+    fn responses_body_sets_max_output_tokens() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+
+        assert_eq!(body["max_output_tokens"], serde_json::json!(4096));
+    }
+
+    #[test]
+    fn cerebras_json_output_disables_stream_to_preserve_response_format() {
+        let endpoint = LlmEndpoint {
+            provider: "cerebras".to_string(),
+            api_url: "https://api.cerebras.ai/v1/chat/completions".to_string(),
+            model: "gpt-oss-120b".to_string(),
+            timeout_secs: 5,
+            api_format: ApiFormat::OpenaiCompat,
+        };
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                stream: true,
+                json_output: true,
+                reasoning_mode: LlmReasoningMode::ProviderDefault,
+                stream_event: None,
+                session_id: None,
+            },
+        );
+
+        // json_object 优先于 stream：保留 response_format，放弃流式
+        assert_eq!(
+            body["response_format"],
+            serde_json::json!({"type": "json_object"})
+        );
+        assert!(
+            !body
+                .get("stream")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn cerebras_without_json_output_keeps_stream() {
+        let endpoint = LlmEndpoint {
+            provider: "cerebras".to_string(),
+            api_url: "https://api.cerebras.ai/v1/chat/completions".to_string(),
+            model: "gpt-oss-120b".to_string(),
+            timeout_secs: 5,
+            api_format: ApiFormat::OpenaiCompat,
+        };
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                stream: true,
+                json_output: false,
+                reasoning_mode: LlmReasoningMode::ProviderDefault,
+                stream_event: None,
+                session_id: None,
+            },
+        );
+
+        assert!(body.get("response_format").is_none());
+        assert_eq!(body["stream"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn extracts_partial_polished_from_incomplete_json() {
+        assert_eq!(
+            try_extract_partial_polished(r#"{"polished":"Hello world"#),
+            Some("Hello world".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_polished_from_complete_json() {
+        assert_eq!(
+            try_extract_partial_polished(
+                r#"{"polished":"Hello world","corrections":[],"key_terms":[]}"#
+            ),
+            Some("Hello world".to_string())
+        );
+    }
+
+    #[test]
+    fn handles_escape_sequences_in_partial_polished() {
+        assert_eq!(
+            try_extract_partial_polished(r#"{"polished":"Line 1\nLine 2"#),
+            Some("Line 1\nLine 2".to_string())
+        );
+    }
+
+    #[test]
+    fn returns_none_when_no_polished_field() {
+        assert_eq!(
+            try_extract_partial_polished(r#"{"result":"Hello"}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn returns_none_for_empty_polished_value() {
+        assert_eq!(try_extract_partial_polished(r#"{"polished":""#), None);
     }
 }
