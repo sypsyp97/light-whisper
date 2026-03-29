@@ -180,3 +180,5 @@ promo/
 *.tar
 *.tar.gz
 *.tar.xz
+
+.impeccable.md

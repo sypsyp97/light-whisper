@@ -1451,7 +1451,7 @@ export default function SettingsPage({
                     <ChevronsUpDown size={14} className="icon-tertiary" />
                   </button>
                   {picker.isOpen("recordingMode") && (
-                    <div className="picker-popover">
+                    <div className={picker.popoverClass("recordingMode")}>
                       <div className="picker-list" role="listbox">
                         {recordingModeOptions.map((option) => (
                           <button
@@ -1560,7 +1560,7 @@ export default function SettingsPage({
                     <ChevronsUpDown size={14} className="icon-tertiary" />
                   </button>
                   {picker.isOpen("microphone") && (
-                    <div className="picker-popover">
+                    <div className={picker.popoverClass("microphone")}>
                       <div className="picker-list" role="listbox">
                         <button
                           type="button"
@@ -1781,7 +1781,7 @@ export default function SettingsPage({
                       <ChevronsUpDown size={14} className="icon-tertiary" />
                     </button>
                     {picker.isOpen("provider") && (
-                      <div className="picker-popover">
+                      <div className={picker.popoverClass("provider")}>
                         <input
                           ref={providerSearchInputRef}
                           type="text"
@@ -1997,7 +1997,7 @@ export default function SettingsPage({
                       {selectedAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型` : "可直接输入模型名称")}
                     </p>
                     {picker.isOpen("model") && (
-                      <div className="picker-popover">
+                      <div className={picker.popoverClass("model")}>
                         <div className="picker-toolbar">
                           <input
                             ref={modelSearchInputRef}
@@ -2095,7 +2095,7 @@ export default function SettingsPage({
                       <ChevronsUpDown size={14} className="icon-tertiary" />
                     </button>
                     {picker.isOpen("polishReasoning") && (
-                      <div className="picker-popover">
+                      <div className={picker.popoverClass("polishReasoning")}>
                         <div className="picker-list" role="listbox">
                           {reasoningModeOptions.map((option) => (
                             <button
@@ -2277,7 +2277,7 @@ export default function SettingsPage({
                       <ChevronsUpDown size={14} className="icon-tertiary" />
                     </button>
                     {picker.isOpen("assistantProvider") && (
-                      <div className="picker-popover">
+                      <div className={picker.popoverClass("assistantProvider")}>
                         <div className="picker-toolbar">
                           <input
                             type="text"
@@ -2377,7 +2377,7 @@ export default function SettingsPage({
                       {selectedAssistantAiModel?.ownedBy || (effectiveAssistantModels.length > 0 ? `${effectiveAssistantModels.length} 个可选模型` : "可直接输入模型名称")}
                     </p>
                     {picker.isOpen("assistantModel") && (
-                      <div className="picker-popover">
+                      <div className={picker.popoverClass("assistantModel")}>
                         <div className="picker-toolbar">
                           <input
                             ref={assistantModelSearchInputRef}
@@ -2479,7 +2479,7 @@ export default function SettingsPage({
                     <ChevronsUpDown size={14} className="icon-tertiary" />
                   </button>
                   {picker.isOpen("assistantReasoning") && (
-                    <div className="picker-popover">
+                    <div className={picker.popoverClass("assistantReasoning")}>
                       <div className="picker-list" role="listbox">
                         {reasoningModeOptions.map((option) => (
                           <button

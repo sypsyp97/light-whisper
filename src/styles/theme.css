@@ -300,17 +300,27 @@ body {
 
 .animate-success { animation: success-pop 0.5s var(--ease-spring) forwards; }
 
-/* Gentle shake — error prompt */
+/* Gentle shake — error prompt with fade entrance */
 @keyframes gentle-shake {
-  0%, 100% { transform: translateX(0); }
+  0%       { transform: translateX(0); opacity: 0; }
+  10%      { opacity: 1; }
   12%      { transform: translateX(-5px); }
   28%      { transform: translateX(4px); }
   42%      { transform: translateX(-3px); }
   56%      { transform: translateX(2px); }
   70%      { transform: translateX(-1px); }
+  100%     { transform: translateX(0); }
 }
 
-.animate-shake { animation: gentle-shake 0.5s var(--ease-out-expo); }
+.animate-shake { animation: gentle-shake 0.5s var(--ease-out-expo) both; }
+
+/* Text swap — subtle opacity fade for inline text changes */
+@keyframes text-swap {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-text-swap { animation: text-swap 0.2s var(--ease-out-expo); }
 
 /* Recording pulse — dual-ring expanding with stagger */
 @keyframes recording-pulse {

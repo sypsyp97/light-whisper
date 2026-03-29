@@ -89,7 +89,11 @@ export default function StatusIndicator({
 
       {children}
 
-      <p aria-live="polite" className="status-text">
+      <p
+        key={isRecording ? "recording" : isProcessing ? "processing" : isReady ? "ready" : stage}
+        aria-live="polite"
+        className="status-text animate-text-swap"
+      >
         {getStatusText(isRecording, isProcessing, isReady, stage, downloadProgress, downloadMessage)}
       </p>
 

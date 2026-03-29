@@ -100,7 +100,8 @@
   font-family: inherit;
   box-sizing: border-box;
   white-space: pre-wrap;
-  transition: background 0.2s var(--ease-out-expo);
+  transition: background 0.2s var(--ease-out-expo),
+              box-shadow 0.25s var(--ease-out-expo);
 }
 
 .result-card-body:focus {
@@ -621,6 +622,17 @@
   }
 }
 
+@keyframes popover-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+}
+
 .picker-popover {
   position: absolute;
   top: calc(100% + 8px);
@@ -637,6 +649,11 @@
   box-shadow: var(--shadow-lg);
   animation: popover-enter 0.22s var(--ease-out-expo) forwards;
   transform-origin: top center;
+}
+
+.picker-popover-exit {
+  animation: popover-exit 0.16s var(--ease-out-quart) forwards;
+  pointer-events: none;
 }
 
 .picker-toolbar {
