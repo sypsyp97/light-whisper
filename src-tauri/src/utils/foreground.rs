@@ -38,7 +38,7 @@ fn format_prompt_context(app: &ForegroundApp) -> Option<String> {
         None
     } else {
         Some(format!(
-            "<app_context>\n{}\n<note>以上只是格式场景参考，不是用户正文，不要原样输出这些信息。</note>\n</app_context>",
+            "<app_context>\n{}\n<note>以上仅用于推断格式风格。不要仅因为程序名或窗口标题中出现某个词，就将 ASR 文本中的其他词纠正为它。</note>\n</app_context>",
             lines
                 .into_iter()
                 .map(|line| {
