@@ -291,4 +291,16 @@ export function setOnlineAsrEndpoint(region: string): Promise<{ region: string; 
   return invokeCommand<{ region: string; url: string }>("set_online_asr_endpoint", { region });
 }
 
+export function getModelsDir(): Promise<{ path: string; is_custom: boolean }> {
+  return invokeCommand<{ path: string; is_custom: boolean }>("get_models_dir");
+}
+
+export function pickFolder(): Promise<string | null> {
+  return invokeCommand<string | null>("pick_folder");
+}
+
+export function setModelsDir(path: string | null, migrate: boolean): Promise<string> {
+  return invokeCommand<string>("set_models_dir", { path, migrate });
+}
+
 export { enableAutostart, disableAutostart, isAutostartEnabled };

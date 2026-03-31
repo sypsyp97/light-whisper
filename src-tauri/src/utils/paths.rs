@@ -168,3 +168,49 @@ pub fn get_engine_dir() -> PathBuf {
 pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
     update_engine_json_field("engine", engine)
 }
+
+/// 读取用户自定义模型目录（None 表示使用默认 HF 缓存）
+pub fn read_models_dir() -> Option<String> {
+    read_engine_json()
+        .get("models_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// 写入自定义模型目录（None 表示恢复默认）
+pub fn write_models_dir(dir: Option<&str>) -> Result<(), std::io::Error> {
+    let mut obj = read_engine_json();
+    let map = obj.as_object_mut().unwrap();
+    match dir.filter(|s| !s.is_empty()) {
+        Some(d) => {
+            map.insert(
+                "models_dir".to_string(),
+                serde_json::Value::String(d.to_string()),
+            );
+        }
+        None => {
+            map.remove("models_dir");
+        }
+    }
+    write_engine_json(&obj)
+}
+
+/// 默认 HF 缓存根目录（不考虑自定义配置）
+fn default_hf_cache_root() -> PathBuf {
+    if let Ok(hf_home) = std::env::var("HF_HOME") {
+        return PathBuf::from(hf_home).join("hub");
+    }
+    if let Some(home) = dirs::home_dir() {
+        return home.join(".cache").join("huggingface").join("hub");
+    }
+    PathBuf::from(".cache").join("huggingface").join("hub")
+}
+
+/// 获取生效的模型缓存目录：自定义路径 > HF_HOME > 默认
+pub fn get_effective_models_dir() -> PathBuf {
+    if let Some(custom) = read_models_dir() {
+        return PathBuf::from(custom);
+    }
+    default_hf_cache_root()
+}

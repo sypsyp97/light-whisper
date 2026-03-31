@@ -18,7 +18,13 @@ _MIN_WEIGHT_SIZE = 1_000_000  # 与 Rust 端阈值一致
 
 
 def get_hf_cache_root():
-    """返回 HuggingFace 默认缓存根目录"""
+    """返回 HuggingFace 缓存根目录
+
+    优先级：HF_HUB_CACHE（由 Rust 设置的自定义路径）> HF_HOME/hub > 默认
+    """
+    hf_hub_cache = os.environ.get("HF_HUB_CACHE")
+    if hf_hub_cache:
+        return hf_hub_cache
     hf_home = os.environ.get("HF_HOME")
     if hf_home:
         return os.path.join(hf_home, "hub")

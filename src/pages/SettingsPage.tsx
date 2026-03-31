@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2 } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
@@ -41,6 +41,9 @@ import {
   getOnlineAsrApiKey,
   getOnlineAsrEndpoint,
   setOnlineAsrEndpoint,
+  getModelsDir,
+  pickFolder,
+  setModelsDir,
   addCustomProvider,
   removeCustomProvider,
   setAssistantHotkey,
@@ -287,6 +290,10 @@ export default function SettingsPage({
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
+  const [modelsDir, setModelsDirState] = useState("");
+  const [modelsDirCustom, setModelsDirCustom] = useState(false);
+  const [modelsDirMigrating, setModelsDirMigrating] = useState(false);
+  const [modelsMigrateMsg, setModelsMigrateMsg] = useState("");
 
   // --- AI models ---
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
@@ -497,6 +504,25 @@ export default function SettingsPage({
       setOnlineAsrRegion(ep.region);
       setOnlineAsrUrl(ep.url);
     }).catch(() => {});
+    getModelsDir().then(info => {
+      setModelsDirState(info.path);
+      setModelsDirCustom(info.is_custom);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<{ status: string; message?: string; progress?: number }>(
+      "models-migrate-status",
+      (event) => {
+        const { status, message } = event.payload;
+        if (status === "migrating" && message) {
+          setModelsMigrateMsg(message);
+        } else if (status === "completed") {
+          setModelsMigrateMsg("");
+        }
+      },
+    );
+    return () => { unlisten.then(fn => fn()); };
   }, []);
 
   const handleEngineSwitch = async (newEngine: string) => {
@@ -1376,6 +1402,72 @@ export default function SettingsPage({
                     }}
                   />
                 </div>
+              </div>
+            )}
+            {/* Model Directory */}
+            {engine !== "glm-asr" && (
+              <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
+                <div className="settings-row" style={{ gap: 6, alignItems: "center" }}>
+                  <HardDrive size={13} style={{ opacity: 0.6, flexShrink: 0 }} />
+                  <span className="settings-option-desc" style={{ flex: 1 }}>模型存储目录</span>
+                  {modelsDirCustom && (
+                    <button
+                      className="theme-btn"
+                      style={{ fontSize: 11, padding: "2px 8px", gap: 4 }}
+                      disabled={modelsDirMigrating}
+                      onClick={async () => {
+                        try {
+                          setModelsDirMigrating(true);
+                          await setModelsDir(null, false);
+                          const info = await getModelsDir();
+                          setModelsDirState(info.path);
+                          setModelsDirCustom(info.is_custom);
+                          toast.success("已恢复默认模型目录，原目录中的模型文件不会被删除");
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "恢复失败");
+                        } finally {
+                          setModelsDirMigrating(false);
+                        }
+                      }}
+                    >
+                      <RotateCcw size={11} />
+                      恢复默认
+                    </button>
+                  )}
+                  <button
+                    className="theme-btn"
+                    style={{ fontSize: 11, padding: "2px 8px", gap: 4 }}
+                    disabled={modelsDirMigrating}
+                    onClick={async () => {
+                      try {
+                        const folder = await pickFolder();
+                        if (!folder) return;
+                        setModelsDirMigrating(true);
+                        await setModelsDir(folder, true);
+                        const info = await getModelsDir();
+                        setModelsDirState(info.path);
+                        setModelsDirCustom(info.is_custom);
+                        toast.success("模型目录已更新");
+                        retryModel();
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "更改失败");
+                        retryModel();
+                      } finally {
+                        setModelsDirMigrating(false);
+                        setModelsMigrateMsg("");
+                      }
+                    }}
+                  >
+                    <FolderOpen size={11} />
+                    {modelsDirMigrating ? (modelsMigrateMsg || "迁移中...") : "更改"}
+                  </button>
+                </div>
+                <span
+                  className="settings-option-desc"
+                  style={{ fontSize: 11, opacity: 0.5, wordBreak: "break-all", userSelect: "text" }}
+                >
+                  {modelsDir || "加载中..."}
+                </span>
               </div>
             )}
           </section>

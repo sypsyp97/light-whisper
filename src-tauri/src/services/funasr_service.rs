@@ -717,9 +717,11 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         }
     };
 
+    let models_dir = paths::strip_win_prefix(&paths::get_effective_models_dir());
     cmd.env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
+        .env("HF_HUB_CACHE", &models_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr({
@@ -1304,17 +1306,9 @@ pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
 
 /// 获取 HuggingFace 缓存根目录
 ///
-/// 按照 HuggingFace 的标准缓存路径规则：
-/// 1. `HF_HOME` 环境变量 + `/hub/`
-/// 2. `~/.cache/huggingface/hub/`
+/// 优先使用用户自定义模型目录，其次按 HuggingFace 标准规则。
 fn get_hf_cache_root() -> PathBuf {
-    if let Ok(hf_home) = std::env::var("HF_HOME") {
-        return PathBuf::from(hf_home).join("hub");
-    }
-    if let Some(home) = dirs::home_dir() {
-        return home.join(".cache").join("huggingface").join("hub");
-    }
-    PathBuf::from(".cache").join("huggingface").join("hub")
+    paths::get_effective_models_dir()
 }
 
 /// 检查 HuggingFace 模型是否已缓存且包含实际模型权重文件
