@@ -48,49 +48,31 @@
 按住 <kbd>F2</kbd>（可自定义）录音，松开自动转写并输入到当前活动窗口。
 
 **三大 ASR 引擎**<br>
-SenseVoice（中/英/日/韩/粤，内置标点恢复）、Faster Whisper（99+ 语言）或 GLM-ASR（在线，无需显卡，支持中文方言）。
-
-**离线在线随心切**<br>
-SenseVoice 和 Whisper 完全本地运行；GLM-ASR 调用云端 API——只需填入 API Key，无需 Python 和显卡。
-
-**GPU 加速**<br>
-本地引擎自动检测 NVIDIA GPU 启用 CUDA 推理，无 GPU 则回退 CPU。
-
-**字幕悬浮窗**<br>
-透明浮窗实时显示听写状态，也可承载助手结果。
-
-**语音助手模式**<br>
-支持单独热键：说出任务后生成一个悬浮答案卡，手动复制即可。
-
-**屏幕感知助手**<br>
-可选功能：自动截取全屏画面作为助手的视觉上下文。自动检测模型是否支持图片输入，不支持时自动回退。
-
-**按住 / 切换**<br>
-录音模式：按住说话 或 按一下开始/再按一下结束。
-
-</td>
-<td width="50%">
+SenseVoice（中/英/日/韩/粤）和 Faster Whisper（99+ 语言）完全本地运行，支持 CUDA 加速；GLM-ASR 在线调用——只需填入 API Key，无需 Python 和显卡。
 
 **AI 润色**<br>
-可选 LLM 后处理：修正同音字、标点、口头禅；自动检测前台应用适配语气。
-
-**多 LLM 后端**<br>
-内置 OpenAI、DeepSeek、Cerebras、SiliconFlow 预设，也可接入任意 OpenAI 兼容端点。
+可选 LLM 后处理：修正同音字、标点、口头禅；自动检测前台应用适配语气。内置 OpenAI / DeepSeek / Cerebras / SiliconFlow 预设，支持 OpenAI 兼容和 Anthropic API 格式。
 
 **自适应学习**<br>
 只学习结构化纠错和术语；手动删除的脏热词会进入黑名单，不再自动长回来。
 
+**字幕悬浮窗**<br>
+透明浮窗实时显示听写状态和助手结果。
+
+</td>
+<td width="50%">
+
+**语音助手**<br>
+独立热键触发悬浮答案卡。可自动读取选中文本、前台应用和全屏截图作为上下文，自动检测模型图片支持。
+
 **编辑选中文本**<br>
 选中文字后按热键，说出指令（"翻译成英文"、"改成正式语气"），原地改写。
-
-**上下文感知助手**<br>
-助手模式会读取选中文本和当前前台应用，把它们作为生成上下文。
 
 **实时翻译**<br>
 设置目标语言（8 种预设 + 自定义），转写结果自动翻译后输出。
 
-**输入队列**<br>
-连续快速说多段，结果按顺序输入，不会丢字。
+**更多**<br>
+按住说话 / 切换模式 · 输入队列 · 中英文界面 · 自动更新检查
 
 </td>
 </tr>
@@ -100,24 +82,15 @@ SenseVoice 和 Whisper 完全本地运行；GLM-ASR 调用云端 API——只需
 
 | 功能 | Light-Whisper | Typeless |
 |:-----|:---:|:---:|
-| **价格** | 免费开源 | 30 天免费试用；免费版 (4k 词/周)；$12–30/月 |
-| **隐私** | 完全离线，数据不出本机 | 云端处理，零数据留存 |
+| **价格** | 免费开源 | 免费版 (4k 词/周)；$12–30/月 |
+| **隐私** | 完全离线（本地引擎） | 云端处理，零数据留存 |
 | **开源** | ✅ | ❌ |
-| **平台** | Windows | Windows、Mac、iOS、Android；定价页还列出 Web |
-| **需要联网** | ❌ 本地引擎离线；GLM-ASR 和 AI 润色需 API | 云服务；官网未公开说明离线模式 |
-| **ASR 引擎** | SenseVoice + Faster Whisper + GLM-ASR（可切换） | 云端专有服务 |
-| **语言数** | 5 (SenseVoice) / 99+ (Whisper) / 中文方言 (GLM-ASR) | 100+ |
-| **GPU 加速** | 本地 NVIDIA CUDA；GLM-ASR 无需显卡 | 不适用（云端） |
-| **AI 润色** | 多 LLM 后端，自带 key | 内置自动编辑 |
-| **去口头禅** | ✅ 通过 AI 润色 | ✅ 内置 |
-| **应用感知语气** | ✅ 检测前台应用 | ✅ 根据上下文调整 |
-| **自适应学习** | ✅ 学习结构化纠错，并支持热词黑名单 | ✅ |
-| **编辑选中文本** | ✅ 语音指令改写 | ✅ |
-| **语音助手模式** | ✅ 独立热键 + 悬浮答案卡 | ✅ Ask anything / Quick answers |
-| **实时翻译** | ✅ 8 种预设 + 自定义 | ✅ |
-| **屏幕感知助手** | ✅ 自动截屏作为视觉上下文 | ❌ |
+| **平台** | Windows | Windows、Mac、iOS、Android、Web |
+| **ASR 引擎** | 3 种可切换（本地 + 在线） | 云端专有 |
+| **语言数** | 5–99+（取决于引擎） | 100+ |
+| **AI 润色** | 多 LLM 后端，自带 key | 内置 |
+| **屏幕感知助手** | ✅ | ❌ |
 | **字幕悬浮窗** | ✅ | ❌ |
-| **输入队列** | ✅ | 未知 |
 
 ## 引擎对比
 
@@ -233,8 +206,8 @@ pnpm tauri build      # 首次编译 Rust 依赖约 5-15 分钟
 
 | 层 | 路径 |
 |:---|:-----|
-| **前端** | `src/pages/`, `src/components/`, `src/hooks/`, `src/styles/` |
-| **Rust 命令** | `src-tauri/src/commands/` — audio, assistant, clipboard, hotkey, ai_polish, profile, window |
+| **前端** | `src/pages/`, `src/components/`, `src/hooks/`, `src/i18n/`, `src/styles/` |
+| **Rust 命令** | `src-tauri/src/commands/` — audio, assistant, clipboard, funasr, hotkey, ai_polish, profile, updater, window |
 | **Rust 服务** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service, screen_capture_service, download_service |
 | **状态** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
@@ -287,29 +260,14 @@ cd src-tauri && cargo check   # Rust 类型检查
 <details>
 <summary><b>热键没反应</b></summary>
 
-默认听写热键是 F2。助手模式也支持单独热键。如果任一热键被别的软件占用，可在设置中换成别的组合键（如 `Ctrl+Win+R`）。
-
-</details>
-
-<details>
-<summary><b>为什么助手模式不自动输入？</b></summary>
-
-助手模式现在使用悬浮答案卡，而不是直接自动输入。这样可以避免把生成内容误写进错误的输入框。需要时点击浮窗右上角 `复制`，再手动粘贴。
-
-</details>
-
-<details>
-<summary><b>为什么以前删掉的脏热词又回来了？</b></summary>
-
-旧版本只会把热词从当前列表里删掉，不会阻止它从学习词频里重新提升回来。新版本会同时清掉对应学习词频，并加入热词黑名单，所以手动删除后不应该再自动回流。
+默认听写热键是 F2。如果被其他软件占用，可在设置中更换（如 `Ctrl+Win+R`）。
 
 </details>
 
 <details>
 <summary><b>日志位置</b></summary>
 
-- `%APPDATA%\com.light-whisper.app\logs\funasr_server.log`
-- `%APPDATA%\com.light-whisper.app\logs\whisper_server.log`
+`%APPDATA%\com.light-whisper.app\logs\` — `funasr_server.log` / `whisper_server.log`
 
 </details>
 

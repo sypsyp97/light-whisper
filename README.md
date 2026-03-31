@@ -48,49 +48,31 @@ See [Quick Start](#quick-start) below.
 Hold <kbd>F2</kbd> (configurable) to record, release to transcribe & type into the active window.
 
 **Three ASR engines**<br>
-SenseVoice (zh/en/ja/ko/yue, built-in punctuation), Faster Whisper (99+ languages), or GLM-ASR (online, no GPU needed, Chinese dialect support).
+SenseVoice (zh/en/ja/ko/yue) and Faster Whisper (99+ languages) run fully local with CUDA acceleration; GLM-ASR is online — just add an API key, no Python or GPU needed.
 
-**Offline or online — your choice**<br>
-SenseVoice & Whisper run fully local. GLM-ASR calls a cloud API — just add an API key, no Python or GPU required.
+**AI polish**<br>
+Optional LLM post-processing: fix homophones, punctuation, filler words; adapts tone to the foreground app. Built-in presets (OpenAI / DeepSeek / Cerebras / SiliconFlow) plus OpenAI-compatible and Anthropic API formats.
 
-**GPU accelerated**<br>
-Local engines auto-detect NVIDIA GPU for CUDA inference; fall back to CPU.
+**Adaptive learning**<br>
+Learns structured ASR corrections and key terms; manually deleted hot words are blocked from coming back.
 
 **Subtitle overlay**<br>
 Transparent floating window shows live dictation status and assistant output.
 
-**Voice assistant mode**<br>
-Set a separate hotkey for assistant mode: speak a task, get a floating answer card with manual copy.
-
-**Screen-aware assistant**<br>
-Optional: capture full-screen screenshots as visual context for assistant mode. Auto-detects model image support; falls back gracefully.
-
-**Hold or toggle**<br>
-Recording mode: hold-to-talk or press-to-start / press-to-stop.
-
 </td>
 <td width="50%">
 
-**AI polish**<br>
-Optional LLM post-processing: fix homophones, punctuation, filler words; adapts tone to the foreground app.
-
-**Multi-backend LLM**<br>
-Built-in presets for OpenAI, DeepSeek, Cerebras, SiliconFlow — or any OpenAI-compatible endpoint.
-
-**Adaptive learning**<br>
-Learns structured ASR corrections and key terms; manually deleted hot words are blocked from coming back automatically.
+**Voice assistant**<br>
+Separate hotkey triggers a floating answer card. Optionally reads selected text, foreground app, and full-screen screenshots as context. Auto-detects model image support.
 
 **Edit selected text**<br>
 Select text anywhere, press the hotkey, speak an instruction ("translate to English", "make it formal") to rewrite in-place.
 
-**Context-aware assistant**<br>
-If text is selected, assistant mode includes the selection and foreground app as context before generating.
-
 **Real-time translation**<br>
 Set a target language (8 presets + custom) — transcription results are translated before output.
 
-**Input queue**<br>
-Rapid consecutive dictations are queued and typed in order — nothing is lost.
+**& more**<br>
+Hold-to-talk or toggle mode · input queue · multilingual UI (en/zh) · auto-update check.
 
 </td>
 </tr>
@@ -100,24 +82,15 @@ Rapid consecutive dictations are queued and typed in order — nothing is lost.
 
 | Feature | Light-Whisper | Typeless |
 |:--------|:---:|:---:|
-| **Pricing** | Free & open-source | 30-day free trial; Free tier (4k words/week); $12–30/mo |
-| **Privacy** | Fully offline, data never leaves your machine | Cloud-based, zero-data-retention |
+| **Pricing** | Free & open-source | Free tier (4k words/week); $12–30/mo |
+| **Privacy** | Fully offline (local engines) | Cloud-based, zero-data-retention |
 | **Open source** | ✅ | ❌ |
-| **Platform** | Windows | Windows, Mac, iOS, Android; Web listed on pricing page |
-| **Internet required** | ❌ Local engines offline; GLM-ASR & AI polish need API | Cloud service; no offline mode publicly documented |
-| **ASR engines** | SenseVoice + Faster Whisper + GLM-ASR (switchable) | Cloud-based proprietary service |
-| **Languages** | 5 (SenseVoice) / 99+ (Whisper) / zh dialects (GLM-ASR) | 100+ |
-| **GPU acceleration** | Local NVIDIA CUDA; GLM-ASR needs no GPU | N/A (cloud) |
-| **AI polish** | Multi-backend LLM, bring your own key | Built-in auto-editing |
-| **Filler word removal** | ✅ Via AI polish | ✅ Built-in |
-| **App-aware tone** | ✅ Detects foreground app | ✅ Adjusts based on context |
-| **Adaptive learning** | ✅ Learns structured corrections; supports hot-word blacklist | ✅ |
-| **Edit selected text** | ✅ Voice instruction rewrite | ✅ |
-| **Voice assistant mode** | ✅ Separate hotkey + floating answer card | ✅ Ask-anything / quick-answer features |
-| **Real-time translation** | ✅ 8 presets + custom | ✅ |
-| **Screen-aware assistant** | ✅ Auto-captures screen for visual context | ❌ |
+| **Platform** | Windows | Windows, Mac, iOS, Android, Web |
+| **ASR engines** | 3 switchable (local + online) | Cloud proprietary |
+| **Languages** | 5–99+ (engine dependent) | 100+ |
+| **AI polish** | Multi-backend LLM, bring your own key | Built-in |
+| **Screen-aware assistant** | ✅ | ❌ |
 | **Subtitle overlay** | ✅ | ❌ |
-| **Input queue** | ✅ | Unknown |
 
 ## Engine Comparison
 
@@ -233,8 +206,8 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 
 | Layer | Paths |
 |:------|:------|
-| **Frontend** | `src/pages/`, `src/components/`, `src/hooks/`, `src/styles/` |
-| **Rust commands** | `src-tauri/src/commands/` — audio, assistant, clipboard, hotkey, ai_polish, profile, window |
+| **Frontend** | `src/pages/`, `src/components/`, `src/hooks/`, `src/i18n/`, `src/styles/` |
+| **Rust commands** | `src-tauri/src/commands/` — audio, assistant, clipboard, funasr, hotkey, ai_polish, profile, updater, window |
 | **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service, screen_capture_service, download_service |
 | **State** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
@@ -289,29 +262,14 @@ Enable Windows UTF-8 system locale support to resolve encoding issues:
 <details>
 <summary><b>Hotkey not working</b></summary>
 
-Default dictation hotkey is F2. Assistant mode supports a separate hotkey in Settings. If either is occupied by another program, change it to another combo (for example `Ctrl+Win+R`).
-
-</details>
-
-<details>
-<summary><b>Why does assistant mode not type automatically?</b></summary>
-
-Assistant mode now uses a floating answer card instead of auto-typing. This avoids writing generated content into the wrong place. Click `Copy` in the overlay if you want to paste it manually.
-
-</details>
-
-<details>
-<summary><b>Why did a deleted hot word come back before?</b></summary>
-
-Older builds only removed the item from the current hot-word list. New builds also remove its learning frequency and add it to a hot-word blacklist, so manually deleted noise should not come back automatically.
+Default dictation hotkey is F2. If occupied by another program, change it in Settings (e.g. `Ctrl+Win+R`).
 
 </details>
 
 <details>
 <summary><b>Log locations</b></summary>
 
-- `%APPDATA%\com.light-whisper.app\logs\funasr_server.log`
-- `%APPDATA%\com.light-whisper.app\logs\whisper_server.log`
+`%APPDATA%\com.light-whisper.app\logs\` — `funasr_server.log` / `whisper_server.log`
 
 </details>
 
