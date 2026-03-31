@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import i18n from "@/i18n";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
@@ -42,7 +43,7 @@ function normalizeInvokeError(command: string, err: unknown): Error {
       // Fall through to generic message.
     }
   }
-  return new Error(`${command} 调用失败`);
+  return new Error(i18n.t("toast.invokeFailed", { command }));
 }
 
 function invokeCommand<T>(

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
+import i18n from "@/i18n";
 import {
   cancelModelDownload,
   checkFunASRStatus,
@@ -40,8 +41,9 @@ const DOWNLOAD_STALL_HINT_MS = 20000;
 /** Auto-download retries when app cold-starts without models. */
 const AUTO_DOWNLOAD_MAX_RETRIES = 1;
 const AUTO_DOWNLOAD_RETRY_DELAY_MS = 3000;
-const ENGINE_START_FALLBACK_MESSAGE =
-  "语音引擎启动失败，请重试；如仍失败，请查看 %APPDATA%\\com.light-whisper.app\\funasr_stderr.log";
+function getEngineStartFallbackMessage(): string {
+  return i18n.t("model.engineStartFailed");
+}
 
 function toErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
@@ -150,10 +152,10 @@ export function useModelStatus(): UseModelStatusReturn {
       const silentFor = Date.now() - lastDownloadEventAtRef.current;
       if (silentFor >= DOWNLOAD_STALL_HINT_MS) {
         setDownloadMessage((prev) => {
-          if (prev && prev.includes("网络较慢")) return prev;
+          if (prev && prev.includes(i18n.t("model.slowNetwork"))) return prev;
           return prev
-            ? `${prev}（网络较慢，仍在下载...）`
-            : "网络较慢，仍在下载...";
+            ? `${prev} (${i18n.t("model.slowNetworkStillDownloading")})`
+            : i18n.t("model.slowNetworkStillDownloading");
         });
       }
       startDownloadWatchdog();
@@ -189,7 +191,7 @@ export function useModelStatus(): UseModelStatusReturn {
 
       // 在线引擎 running 但 not ready = 缺 API Key
       if (status.running && !status.ready && status.device === "cloud") {
-        enterErrorState(status.message || "请在设置中配置在线 ASR API Key");
+        enterErrorState(status.message || i18n.t("model.needApiKey"));
         return;
       }
 
@@ -222,13 +224,13 @@ export function useModelStatus(): UseModelStatusReturn {
         enterErrorState(
           toErrorMessage(
             startErr,
-            ENGINE_START_FALLBACK_MESSAGE
+            getEngineStartFallbackMessage()
           )
         );
       }
     } catch (err) {
       if (!mountedRef.current) return;
-      enterErrorState(toErrorMessage(err, "检查模型状态失败"));
+      enterErrorState(toErrorMessage(err, i18n.t("model.checkStatusFailed")));
     }
   }, [applyStatusSnapshot, clearPolling, enterErrorState, enterNeedDownloadState]);
 
@@ -280,7 +282,7 @@ export function useModelStatus(): UseModelStatusReturn {
             clearPolling();
           } else if (status === "need_api_key") {
             setStage("error");
-            setError(message ?? "请在设置中配置在线 ASR API Key");
+            setError(message ?? i18n.t("model.needApiKey"));
             clearPolling();
           } else if (status === "loading") {
             setStage("loading");
@@ -290,11 +292,11 @@ export function useModelStatus(): UseModelStatusReturn {
               enterNeedDownloadState();
               return;
             }
-            enterErrorState(message ?? ENGINE_START_FALLBACK_MESSAGE);
+            enterErrorState(message ?? getEngineStartFallbackMessage());
           } else if (status === "crashed") {
             setStage("loading");
             setError(null);
-            setDownloadMessage(message ?? "服务异常，正在重启...");
+            setDownloadMessage(message ?? i18n.t("model.serviceRestarting"));
             // Reset counters and trigger restart via polling
             startFailuresRef.current = 0;
             restartAttemptedRef.current = false;
@@ -358,7 +360,7 @@ export function useModelStatus(): UseModelStatusReturn {
                 clearDownloadWatchdog();
                 setDownloadingState(false);
                 setDownloadProgress(0);
-                setDownloadMessage(message ?? "下载已取消");
+                setDownloadMessage(message ?? i18n.t("model.downloadCancelled"));
                 autoDownloadTriggeredRef.current = false;
                 setStage("need_download");
                 break;
@@ -367,7 +369,7 @@ export function useModelStatus(): UseModelStatusReturn {
                 clearDownloadWatchdog();
                 setDownloadingState(false);
                 autoDownloadTriggeredRef.current = false;
-                setError(payloadError || message || "模型下载失败");
+                setError(payloadError || message || i18n.t("model.downloadFailed"));
                 setStage("error");
                 break;
               }
@@ -389,7 +391,7 @@ export function useModelStatus(): UseModelStatusReturn {
         }
       } catch (err) {
         if (!mountedRef.current) return;
-        setError(toErrorMessage(err, "监听模型下载状态失败"));
+        setError(toErrorMessage(err, i18n.t("model.listenFailed")));
         setStage("error");
       }
     };
@@ -416,7 +418,7 @@ export function useModelStatus(): UseModelStatusReturn {
       startDownloadWatchdog();
       setStage("downloading");
       setDownloadProgress(0);
-      setDownloadMessage("准备下载...");
+      setDownloadMessage(i18n.t("model.preparingDownload"));
       setError(null);
       await downloadModels();
       if (!mountedRef.current) return;
@@ -433,7 +435,7 @@ export function useModelStatus(): UseModelStatusReturn {
       clearDownloadWatchdog();
       setDownloadingState(false);
       if (!mountedRef.current) return;
-      const message = toErrorMessage(err, "模型下载失败");
+      const message = toErrorMessage(err, i18n.t("model.downloadFailed"));
 
       if (
         source === "auto" &&
@@ -443,7 +445,7 @@ export function useModelStatus(): UseModelStatusReturn {
         setError(null);
         setStage("need_download");
         setDownloadMessage(
-          `下载失败，${Math.ceil(AUTO_DOWNLOAD_RETRY_DELAY_MS / 1000)} 秒后自动重试...`
+          i18n.t("model.retryIn", { seconds: Math.ceil(AUTO_DOWNLOAD_RETRY_DELAY_MS / 1000) })
         );
         setTimeout(() => {
           if (!mountedRef.current || downloadingRef.current) return;
@@ -464,7 +466,7 @@ export function useModelStatus(): UseModelStatusReturn {
       await cancelModelDownload();
     } catch (err) {
       if (!mountedRef.current) return;
-      setError(toErrorMessage(err, "取消下载失败"));
+      setError(toErrorMessage(err, i18n.t("model.cancelFailed")));
       setStage("error");
     }
   }, []);

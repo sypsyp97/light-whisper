@@ -1319,14 +1319,27 @@ fn is_hf_repo_ready(repo_id: &str) -> bool {
     let cache_root = get_hf_cache_root();
     let dir_name = format!("models--{}", repo_id.replace('/', "--"));
     let repo_dir = cache_root.join(&dir_name);
+
+    log::info!(
+        "模型检查: repo={}, cache_root={}, repo_dir={}, exists={}",
+        repo_id,
+        cache_root.display(),
+        repo_dir.display(),
+        repo_dir.is_dir()
+    );
+
     if !repo_dir.is_dir() {
+        log::warn!("模型目录不存在: {}", repo_dir.display());
         return false;
     }
 
     let snapshots_dir = repo_dir.join("snapshots");
     let entries = match std::fs::read_dir(&snapshots_dir) {
         Ok(e) => e,
-        Err(_) => return false,
+        Err(err) => {
+            log::warn!("无法读取 snapshots 目录: {} — {}", snapshots_dir.display(), err);
+            return false;
+        }
     };
 
     const MIN_SIZE: u64 = 1_000_000; // 1MB
@@ -1337,12 +1350,19 @@ fn is_hf_repo_ready(repo_id: &str) -> bool {
         if !snapshot_path.is_dir() {
             continue;
         }
+        log::info!("检查 snapshot: {}", snapshot_path.display());
         // 递归遍历 snapshot 目录查找模型权重文件
         if has_weight_file(&snapshot_path, weight_exts, MIN_SIZE) {
+            log::info!("模型就绪: {} (在 {})", repo_id, snapshot_path.display());
             return true;
         }
     }
 
+    log::warn!(
+        "模型未就绪: {} — snapshots 中未找到 >1MB 的权重文件 ({:?})",
+        repo_id,
+        weight_exts
+    );
     false
 }
 

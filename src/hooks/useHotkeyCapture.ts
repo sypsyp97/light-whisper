@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
+import i18n from "@/i18n";
 import {
   HOTKEY_MODIFIER_ORDER,
   type HotkeyModifier,
@@ -48,9 +49,9 @@ export function useHotkeyCapture(config: HotkeyCaptureConfig) {
       const display = formatHotkeyForDisplay(shortcut);
       const { save, label } = configRef.current;
       void save(shortcut)
-        .then(() => toast.success(`${label}已设置为 ${display}`))
+        .then(() => toast.success(i18n.t("toast.hotkeySet", { label, display })))
         .catch((err) => {
-          toast.error(err instanceof Error ? err.message : `设置${label}失败`);
+          toast.error(err instanceof Error ? err.message : i18n.t("toast.hotkeySetFailed", { label }));
         })
         .finally(() => { setSaving(false); setCapturing(false); reset(); });
     };

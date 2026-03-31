@@ -10,12 +10,14 @@ import StatusIndicator from "@/components/StatusIndicator";
 import TranscriptionResult from "@/components/TranscriptionResult";
 import TranscriptionHistory from "@/components/TranscriptionHistory";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
+import { useTranslation } from "react-i18next";
 import { PADDING, ONBOARDING_DISMISSED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 
 export default function MainPage({ onNavigate }: {
   onNavigate: (v: "main" | "settings") => void;
 }) {
+  const { t } = useTranslation();
   const {
     isRecording, isProcessing, startRecording, stopRecording,
     recordingError, transcriptionResult, originalAsrText, setOriginalAsrText, setTranscriptionResult,
@@ -43,24 +45,24 @@ export default function MainPage({ onNavigate }: {
 
   const correctionSubmit = useDebouncedCallback((previousText: string, nextText: string) => {
     submitUserCorrection(previousText, nextText)
-      .then(() => toast.success("已记录修改偏好", { duration: 1500 }))
-      .catch(() => toast.error("记录修改偏好失败"));
+      .then(() => toast.success(t("toast.correctionRecorded"), { duration: 1500 }))
+      .catch(() => toast.error(t("toast.correctionFailed")));
   }, 900, { onUnmount: "flush" });
 
   const handleCopy = useCallback(async (text: string, id: string) => {
     try {
       await copyToClipboard(text);
       setCopiedId(id);
-      toast.success("已复制到剪贴板");
+      toast.success(t("common.copiedToClipboard"));
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       copyTimerRef.current = setTimeout(() => {
         setCopiedId(null);
         copyTimerRef.current = null;
       }, 1500);
     } catch {
-      toast.error("复制失败");
+      toast.error(t("common.copyFailed"));
     }
-  }, []);
+  }, [t]);
 
   const handleDraftChange = useCallback((newText: string) => {
     setTranscriptionResult(newText);
@@ -103,18 +105,18 @@ export default function MainPage({ onNavigate }: {
     <div className="page-root">
 
       <TitleBar
-        title="轻语 Whisper"
+        title={t("app.title")}
         leftAction={
-          <button aria-label="设置" className="icon-btn plain icon-btn-gear" onClick={() => flushPendingEditAndNavigate("settings")}>
+          <button aria-label={t("common.settings")} className="icon-btn plain icon-btn-gear" onClick={() => flushPendingEditAndNavigate("settings")}>
             <Settings size={13} strokeWidth={1.5} />
           </button>
         }
         rightActions={
           <>
-            <button aria-label="最小化" className="icon-btn" onClick={() => getCurrentWindow().minimize()}>
+            <button aria-label={t("common.minimize")} className="icon-btn" onClick={() => getCurrentWindow().minimize()}>
               <Minus size={12} strokeWidth={1.5} />
             </button>
-            <button aria-label="关闭" className="icon-btn" onClick={() => hideMainWindow()}>
+            <button aria-label={t("common.close")} className="icon-btn" onClick={() => hideMainWindow()}>
               <X size={12} strokeWidth={1.5} />
             </button>
           </>
@@ -151,11 +153,11 @@ export default function MainPage({ onNavigate }: {
           <div className="error-banner">
             <div className="error-banner-inner">
               <p style={{ fontSize: 12, color: "var(--color-error)", lineHeight: 1.6, flex: 1 }}>{recordingError || modelError}</p>
-              <button onClick={() => setErrorDismissed(true)} aria-label="关闭" className="error-dismiss-btn">
+              <button onClick={() => setErrorDismissed(true)} aria-label={t("common.close")} className="error-dismiss-btn">
                 <X size={12} />
               </button>
             </div>
-            {stage === "error" && <button onClick={retryModel} className="error-retry-link">重试</button>}
+            {stage === "error" && <button onClick={retryModel} className="error-retry-link">{t("common.retry")}</button>}
           </div>
         </div>
       )}
@@ -186,10 +188,10 @@ export default function MainPage({ onNavigate }: {
               <div className="result-card-header">
                 <span className="result-card-title">
                   <span className="result-dot" />
-                  快速开始
+                  {t("main.quickStart")}
                 </span>
                 <button
-                  aria-label="关闭"
+                  aria-label={t("common.close")}
                   className="icon-btn"
                   style={{ padding: 6 }}
                   onClick={() => {
@@ -202,11 +204,11 @@ export default function MainPage({ onNavigate }: {
               </div>
               <div style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.8, color: "var(--color-text-secondary)" }}>
                 <p style={{ margin: "0 0 6px" }}>
-                  按下 <strong style={{ color: "var(--color-accent)" }}>{hotkeyDisplay}</strong> {isToggleMode ? "开始说话，再按一次结束识别。" : "开始说话，松开即完成识别。"}
+                  {t("main.pressHotkey")} <strong style={{ color: "var(--color-accent)" }}>{hotkeyDisplay}</strong> {isToggleMode ? t("main.hotkeyHintToggle") : t("main.hotkeyHintHold")}
                 </p>
-                <p style={{ margin: "0 0 6px" }}>识别结果会自动输入到当前光标位置，同时在屏幕底部显示字幕浮层。</p>
+                <p style={{ margin: "0 0 6px" }}>{t("main.autoInputHint")}</p>
                 <p style={{ margin: 0, fontSize: 12, color: "var(--color-text-tertiary)" }}>
-                  热键和更多选项可在左上角设置中调整。
+                  {t("main.settingsHint")}
                 </p>
               </div>
           </div>

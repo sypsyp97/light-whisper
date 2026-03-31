@@ -1,4 +1,5 @@
 import { useRef, useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, Copy, Check } from "lucide-react";
 
 interface TranscriptionResultProps {
@@ -14,11 +15,6 @@ interface TranscriptionResultProps {
   detectedLanguage?: string | null;
 }
 
-function formatStats(charCount: number, durationSec: number): string {
-  const cpm = Math.round((charCount / durationSec) * 60);
-  return `${charCount}字 · ${durationSec.toFixed(1)}秒 · ${cpm}字/分钟`;
-}
-
 export default function TranscriptionResult({
   text,
   originalText,
@@ -31,6 +27,7 @@ export default function TranscriptionResult({
   charCount,
   detectedLanguage,
 }: TranscriptionResultProps) {
+  const { t } = useTranslation();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [draftText, setDraftText] = useState(text ?? "");
   const hasResult = text !== null;
@@ -66,9 +63,9 @@ export default function TranscriptionResult({
             <div className="result-card-header">
               <span className="result-card-title">
                 <span className="result-dot" />
-                识别结果
+                {t("result.title")}
               </span>
-              <button aria-label="复制" className="icon-btn" style={{ padding: 6 }} onClick={handleCopy}>
+              <button aria-label={t("common.copy")} className="icon-btn" style={{ padding: 6 }} onClick={handleCopy}>
                 {copiedId === "original"
                   ? <span className="animate-check-draw"><Check size={12} /></span>
                   : <Copy size={12} strokeWidth={1.5} />}
@@ -88,7 +85,7 @@ export default function TranscriptionResult({
                 {detectedLanguage && (
                   <span className="result-lang-tag">{detectedLanguage}</span>
                 )}
-                {formatStats(charCount, durationSec)}
+                {t("result.stats", { chars: charCount, duration: durationSec.toFixed(1), cpm: Math.round((charCount / durationSec) * 60) })}
               </p>
             )}
           </div>
@@ -98,7 +95,7 @@ export default function TranscriptionResult({
         <div className="animate-fade-in">
           <div className="skeleton-shimmer skeleton-indicator">
             <Loader2 size={14} className="animate-spin icon-tertiary" />
-            <span className="skeleton-indicator-text">正在识别语音...</span>
+            <span className="skeleton-indicator-text">{t("result.recognizingSpeech")}</span>
           </div>
         </div>
       )}

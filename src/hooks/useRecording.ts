@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
+import i18n from "@/i18n";
 import type { HistoryItem, RecordingMode, TranscriptionResult } from "@/types";
 
 interface UseRecordingReturn {
@@ -126,8 +127,8 @@ export function useRecording(): UseRecordingReturn {
   });
 
   useTauriEvent<{ status: string; error: string }>("ai-polish-status", ({ status, error: errMsg }) => {
-    if (status === "applied") toast.success("AI 润色已应用", { duration: 1500 });
-    else if (status === "error") toast.error(`AI 润色失败: ${errMsg}`, { duration: 2500 });
+    if (status === "applied") toast.success(i18n.t("toast.aiPolishApplied"), { duration: 1500 });
+    else if (status === "error") toast.error(i18n.t("toast.aiPolishFailed", { error: errMsg }), { duration: 2500 });
   });
 
   const startRecording = useCallback(async () => {

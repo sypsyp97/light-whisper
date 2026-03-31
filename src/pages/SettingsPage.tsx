@@ -57,32 +57,41 @@ import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiForm
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import TitleBar from "@/components/TitleBar";
-import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
+import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
+import { useTranslation } from "react-i18next";
 
 const themeOptions = [
-  { mode: "light" as const, icon: Sun, label: "浅色" },
-  { mode: "dark" as const, icon: Moon, label: "深色" },
-  { mode: "system" as const, icon: Monitor, label: "跟随系统" },
+  { mode: "light" as const, icon: Sun, labelKey: "settings.themeLight" },
+  { mode: "dark" as const, icon: Moon, labelKey: "settings.themeDark" },
+  { mode: "system" as const, icon: Monitor, labelKey: "settings.themeSystem" },
 ] as const;
 
 const engineOptions = [
-  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", desc: "中英日韩粤语" },
-  { key: "whisper", icon: Zap, label: "Faster Whisper", desc: "99+语言，速度快" },
-  { key: "glm-asr", icon: Globe, label: "GLM-ASR", desc: "智谱在线语音识别" },
+  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", descKey: "settings.sensevoiceDesc" },
+  { key: "whisper", icon: Zap, label: "Faster Whisper", descKey: "settings.whisperDesc" },
+  { key: "glm-asr", icon: Globe, label: "GLM-ASR", descKey: "settings.glmAsrDesc" },
 ] as const;
 
 const inputOptions = [
-  { key: "sendInput" as const, icon: Keyboard, label: "直接输入", desc: "不占用剪贴板" },
-  { key: "clipboard" as const, icon: ClipboardPaste, label: "剪贴板粘贴", desc: "兼容中文输入法" },
+  { key: "sendInput" as const, icon: Keyboard, labelKey: "settings.directInput", descKey: "settings.directInputDesc" },
+  { key: "clipboard" as const, icon: ClipboardPaste, labelKey: "settings.clipboardPaste", descKey: "settings.clipboardPasteDesc" },
 ];
 
-const llmProviderOptions = [
+const llmProviderOptions: ReadonlyArray<{
+  key: string;
+  label: string;
+  labelKey?: string;
+  descKey: string;
+  baseUrl: string;
+  defaultModel: string;
+  models: readonly string[];
+}> = [
   {
     key: "openai",
     label: "OpenAI",
-    desc: "通用 Chat Completions",
+    descKey: "settings.openaiDesc",
     baseUrl: "https://api.openai.com",
     defaultModel: "gpt-4.1-mini",
     models: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"],
@@ -90,7 +99,7 @@ const llmProviderOptions = [
   {
     key: "deepseek",
     label: "DeepSeek",
-    desc: "官方兼容接口",
+    descKey: "settings.deepseekDesc",
     baseUrl: "https://api.deepseek.com",
     defaultModel: "deepseek-chat",
     models: ["deepseek-chat", "deepseek-reasoner"],
@@ -98,7 +107,7 @@ const llmProviderOptions = [
   {
     key: "cerebras",
     label: "Cerebras",
-    desc: "极速推理",
+    descKey: "settings.cerebrasDesc",
     baseUrl: "https://api.cerebras.ai",
     defaultModel: "gpt-oss-120b",
     models: ["gpt-oss-120b", "gpt-oss-20b"],
@@ -106,47 +115,48 @@ const llmProviderOptions = [
   {
     key: "siliconflow",
     label: "SiliconFlow",
-    desc: "OpenAI 兼容",
+    descKey: "settings.siliconflowDesc",
     baseUrl: "https://api.siliconflow.cn",
     defaultModel: "Qwen/Qwen3-32B",
     models: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-7B-Instruct"],
   },
   {
     key: "custom",
-    label: "自定义兼容",
-    desc: "vLLM / OneAPI / New API",
+    label: "custom",
+    labelKey: "settings.customCompatLabel",
+    descKey: "settings.customCompatDesc",
     baseUrl: "http://127.0.0.1:8000",
     defaultModel: "gpt-4.1-mini",
     models: ["gpt-4.1-mini", "gpt-4o-mini", "deepseek-chat"],
   },
-] as const;
+];
 
 const LLM_PROVIDER_DRAFTS_KEY = "light-whisper-llm-provider-drafts";
 
 const reasoningModeOptions: Array<{
   key: LlmReasoningMode;
-  label: string;
-  desc: string;
+  labelKey: string;
+  descKey: string;
 }> = [
-  { key: "provider_default", label: "默认", desc: "走供应商默认策略" },
-  { key: "off", label: "关闭", desc: "尽量关闭或压低思考" },
-  { key: "light", label: "轻量", desc: "更偏向快速直接" },
-  { key: "balanced", label: "标准", desc: "速度和思考相对均衡" },
-  { key: "deep", label: "深度", desc: "优先更完整的思考" },
+  { key: "provider_default", labelKey: "settings.reasoningDefault", descKey: "settings.reasoningDefaultDesc" },
+  { key: "off", labelKey: "settings.reasoningOff", descKey: "settings.reasoningOffDesc" },
+  { key: "light", labelKey: "settings.reasoningLight", descKey: "settings.reasoningLightDesc" },
+  { key: "balanced", labelKey: "settings.reasoningBalanced", descKey: "settings.reasoningBalancedDesc" },
+  { key: "deep", labelKey: "settings.reasoningDeep", descKey: "settings.reasoningDeepDesc" },
 ];
 
 const recordingModeOptions: Array<{
   key: "hold" | "toggle";
-  label: string;
-  desc: string;
+  labelKey: string;
+  descKey: string;
 }> = [
-  { key: "hold", label: "按住说话", desc: "按住热键录音，松开立即结束" },
-  { key: "toggle", label: "切换开关", desc: "按一下开始，再按一下结束" },
+  { key: "hold", labelKey: "settings.holdToTalk", descKey: "settings.holdToTalkDesc" },
+  { key: "toggle", labelKey: "settings.toggleMode", descKey: "settings.toggleModeDesc" },
 ];
 
 const sourceLabels: Record<string, string> = {
-  user: "手动",
-  learned: "学习",
+  user: "settings.sourceManual",
+  learned: "settings.sourceLearned",
 };
 
 const sourceColors: Record<string, string> = {
@@ -235,6 +245,7 @@ export default function SettingsPage({
   onNavigate: (v: "main" | "settings") => void;
   active: boolean;
 }) {
+  const { t, i18n } = useTranslation();
   const { isDark, theme, setTheme } = useTheme();
   const { isRecording, retryModel, hotkeyDisplay, setHotkey, hotkeyError, hotkeyDiagnostic } = useRecordingContext();
 
@@ -250,21 +261,21 @@ export default function SettingsPage({
   const [assistantHotkeyDisplay, setAssistantHotkeyDisplay] = useState("");
   const mainHotkeyCapture = useHotkeyCapture({
     save: async (shortcut) => { await setHotkey(shortcut); },
-    label: "说话热键",
+    label: t("settings.hotkeyLabel"),
   });
   const translationHotkeyCapture = useHotkeyCapture({
     save: async (shortcut) => {
       await setTranslationHotkey(shortcut);
       setTranslationHotkeyDisplay(formatHotkeyForDisplay(shortcut));
     },
-    label: "翻译热键",
+    label: t("settings.translationHotkeyLabel"),
   });
   const assistantHotkeyCapture = useHotkeyCapture({
     save: async (shortcut) => {
       await setAssistantHotkey(shortcut);
       setAssistantHotkeyDisplay(formatHotkeyForDisplay(shortcut));
     },
-    label: "助手热键",
+    label: t("settings.assistantHotkeyLabel"),
   });
 
   // --- Core state ---
@@ -318,7 +329,7 @@ export default function SettingsPage({
   const [assistantApiKeyState, setAssistantApiKeyState] = useState("");
   const [polishReasoningMode, setPolishReasoningMode] = useState<LlmReasoningMode>("provider_default");
   const [assistantReasoningMode, setAssistantReasoningMode] = useState<LlmReasoningMode>("provider_default");
-  const defaultReasoningSupport: LlmReasoningSupport = { supported: false, strategy: null, summary: "正在识别当前模型的思考控制能力..." };
+  const defaultReasoningSupport: LlmReasoningSupport = { supported: false, strategy: null, summary: t("model.reasoningDetecting") };
   const [polishReasoningSupport, setPolishReasoningSupportState] = useState<LlmReasoningSupport>(defaultReasoningSupport);
   const [assistantReasoningSupport, setAssistantReasoningSupportState] = useState<LlmReasoningSupport>(defaultReasoningSupport);
   const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
@@ -382,13 +393,13 @@ export default function SettingsPage({
 
   const customPromptSave = useDebouncedCallback((value: string) => {
     setCustomPrompt(value.trim() || null).catch(() => {
-      toast.error("保存自定义指令失败");
+      toast.error(t("toast.customPromptSaveFailed"));
     });
   }, 800, { onUnmount: "flush" });
 
   const assistantPromptSave = useDebouncedCallback((value: string) => {
     setAssistantSystemPrompt(value.trim() || null).catch(() => {
-      toast.error("保存助手提示词失败");
+      toast.error(t("toast.assistantPromptSaveFailed"));
     });
   }, 800, { onUnmount: "flush" });
 
@@ -532,10 +543,10 @@ export default function SettingsPage({
       await setEngine(newEngine);
       setEngineState(newEngine);
       const label = engineOptions.find((o) => o.key === newEngine)?.label ?? newEngine;
-      toast.success(`已切换为 ${label} 引擎`);
+      toast.success(t("toast.switchedToEngine", { label }));
       retryModel();
     } catch {
-      toast.error("切换引擎失败");
+      toast.error(t("toast.switchEngineFailed"));
     } finally {
       setEngineLoading(false);
     }
@@ -547,22 +558,22 @@ export default function SettingsPage({
     setUpdateChecking(true);
     setLatestAvailableVersion(null);
     setLatestReleaseUrl(null);
-    setUpdateStatusText("正在检查 GitHub Release...");
+    setUpdateStatusText(t("toast.checkingGitHub"));
 
     try {
       const updateInfo = await checkAppUpdate();
       setLatestReleaseUrl(updateInfo.releaseUrl ?? null);
       if (!updateInfo.available || !updateInfo.latestVersion) {
-        setUpdateStatusText("当前已是最新版本");
-        toast.success("当前已是最新版本");
+        setUpdateStatusText(t("toast.alreadyLatest"));
+        toast.success(t("toast.alreadyLatest"));
         return;
       }
 
       setLatestAvailableVersion(updateInfo.latestVersion);
-      setUpdateStatusText(`发现新版本 v${updateInfo.latestVersion}，可前往 GitHub 下载`);
-      toast.info(`发现新版本 v${updateInfo.latestVersion}`);
+      setUpdateStatusText(t("toast.newVersionFound", { version: updateInfo.latestVersion }));
+      toast.info(t("toast.newVersionToast", { version: updateInfo.latestVersion }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "检查更新失败";
+      const message = error instanceof Error ? error.message : t("toast.checkUpdateFailed");
       setUpdateStatusText(message);
       toast.error(message);
     } finally {
@@ -575,7 +586,7 @@ export default function SettingsPage({
       const message = await openAppReleasePage(latestReleaseUrl);
       toast.success(message);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "打开下载页面失败";
+      const message = error instanceof Error ? error.message : t("toast.openReleaseFailed");
       setUpdateStatusText(message);
       toast.error(message);
     }
@@ -595,7 +606,7 @@ export default function SettingsPage({
       setInputDevices(payload.devices);
       setSelectedInputDeviceName(payload.selectedDeviceName ?? "");
     } catch {
-      toast.error("读取麦克风列表失败");
+      toast.error(t("toast.micListFailed"));
     } finally {
       setDeviceListLoading(false);
     }
@@ -673,7 +684,7 @@ export default function SettingsPage({
       setSelectedInputDeviceName(name);
       await refreshInputDevices();
     } catch {
-      toast.error("切换麦克风失败");
+      toast.error(t("toast.micSwitchFailed"));
     } finally {
       setDeviceListLoading(false);
     }
@@ -697,14 +708,14 @@ export default function SettingsPage({
     try {
       if (prev) {
         await disableAutostart();
-        toast.success("已关闭开机自启动", { duration: 1100 });
+        toast.success(t("toast.autostartDisabled"), { duration: 1100 });
       } else {
         await enableAutostart();
-        toast.success("已开启开机自启动", { duration: 1100 });
+        toast.success(t("toast.autostartEnabled"), { duration: 1100 });
       }
     } catch {
       setAutostart(prev); // revert
-      toast.error("开机自启动设置失败");
+      toast.error(t("toast.autostartFailed"));
     } finally {
       setAutostartLoading(false);
     }
@@ -717,9 +728,9 @@ export default function SettingsPage({
     mainHotkeyCapture.cancelCapture();
     try {
       await setHotkey(DEFAULT_HOTKEY);
-      toast.success("已恢复默认热键 F2");
+      toast.success(t("toast.hotkeyReset"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "恢复默认热键失败");
+      toast.error(err instanceof Error ? err.message : t("toast.hotkeyResetFailed"));
     }
   };
 
@@ -733,9 +744,9 @@ export default function SettingsPage({
     try {
       await saveFn(null);
       setDisplay("");
-      toast.success(`已清除${label}`);
+      toast.success(t("toast.hotkeyCleared", { label }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : `清除${label}失败`);
+      toast.error(err instanceof Error ? err.message : t("toast.hotkeyClearFailed", { label }));
     }
   };
 
@@ -760,7 +771,7 @@ export default function SettingsPage({
     if (!apiKey) {
       setAiModels([]);
       setAiModelsSourceUrl("");
-      setAiModelsError("请先填写 API Key，再拉取模型列表。");
+      setAiModelsError(t("settings.apiKeyMissing"));
       return;
     }
 
@@ -773,9 +784,9 @@ export default function SettingsPage({
       const payload = await listAiModels(llmProvider, baseUrl || undefined, apiKey);
       setAiModels(payload.models);
       setAiModelsSourceUrl(payload.sourceUrl);
-      setAiModelsError(payload.models.length === 0 ? "模型列表为空。" : "");
+      setAiModelsError(payload.models.length === 0 ? t("settings.modelListEmpty") : "");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "拉取模型列表失败";
+      const message = err instanceof Error ? err.message : t("settings.fetchModelsFailed");
       setAiModels([]);
       setAiModelsSourceUrl("");
       setAiModelsError(message);
@@ -864,8 +875,8 @@ export default function SettingsPage({
     addHotWord(word, 3).then(() => {
       setNewHotWord("");
       refreshProfile();
-      toast.success(`已添加热词: ${word}`);
-    }).catch(() => toast.error("添加失败"));
+      toast.success(t("toast.hotWordAdded", { word }));
+    }).catch(() => toast.error(t("toast.hotWordAddFailed")));
   }, [newHotWord, refreshProfile]);
 
   const hotkeyStatusError = hotkeyError || hotkeyDiagnostic?.lastError || null;
@@ -874,27 +885,29 @@ export default function SettingsPage({
   const currentLlmPreset = useMemo(() => {
     const effectiveProvider = resolveEffectiveProvider(llmProvider, customProviders);
     const cp = customProviders.find((p) => p.id === effectiveProvider);
-    if (cp) return { key: cp.id, label: cp.name, desc: cp.api_format === "anthropic" ? "Anthropic" : "OpenAI 兼容", baseUrl: cp.base_url, defaultModel: cp.model, models: [] as string[] };
-    return findLlmPreset(effectiveProvider);
-  }, [llmProvider, customProviders]);
+    if (cp) return { key: cp.id, label: cp.name, descKey: undefined as string | undefined, baseUrl: cp.base_url, defaultModel: cp.model, models: [] as string[], desc: cp.api_format === "anthropic" ? "Anthropic" : t("settings.openaiCompat") };
+    const preset = findLlmPreset(effectiveProvider);
+    return { ...preset, label: preset.labelKey ? t(preset.labelKey) : preset.label, desc: t(preset.descKey) };
+  }, [llmProvider, customProviders, t]);
   const currentAssistantPreset = useMemo(() => {
     const p = assistantProvider || llmProvider;
     const cp = customProviders.find((c) => c.id === p);
-    if (cp) return { key: cp.id, label: cp.name, desc: cp.api_format === "anthropic" ? "Anthropic" : "OpenAI 兼容", baseUrl: cp.base_url, defaultModel: cp.model };
-    return findLlmPreset(p);
-  }, [assistantProvider, llmProvider, customProviders]);
+    if (cp) return { key: cp.id, label: cp.name, baseUrl: cp.base_url, defaultModel: cp.model, desc: cp.api_format === "anthropic" ? "Anthropic" : t("settings.openaiCompat") };
+    const preset = findLlmPreset(p);
+    return { ...preset, label: preset.labelKey ? t(preset.labelKey) : preset.label, desc: t(preset.descKey) };
+  }, [assistantProvider, llmProvider, customProviders, t]);
   const assistantProviderDiffers = assistantUseSeparateModel && assistantProvider && assistantProvider !== llmProvider;
   const allProviderOptions = useMemo(() => {
-    const presets = llmProviderOptions.map(({ key, label, desc, baseUrl }) => ({ key, label, desc, baseUrl, isCustom: false as const }));
+    const presets = llmProviderOptions.map((opt) => ({ key: opt.key, label: opt.labelKey ? t(opt.labelKey) : opt.label, desc: t(opt.descKey), baseUrl: opt.baseUrl, isCustom: false as const }));
     const customs = customProviders.map((cp) => ({
       key: cp.id,
       label: cp.name,
-      desc: cp.api_format === "anthropic" ? "Anthropic" : "OpenAI 兼容",
+      desc: cp.api_format === "anthropic" ? "Anthropic" : t("settings.openaiCompat"),
       baseUrl: cp.base_url,
       isCustom: true as const,
     }));
     return [...presets, ...customs];
-  }, [customProviders]);
+  }, [customProviders, t]);
   const filteredProviderOptions = useMemo(() => allProviderOptions.filter(({ label, desc, baseUrl }) => {
     const keyword = providerSearch.trim().toLowerCase();
     if (!keyword) return true;
@@ -1090,10 +1103,10 @@ export default function SettingsPage({
         setAiPolishEnabled(true);
         writeLocalStorage(AI_POLISH_ENABLED_KEY, "true");
         await setAiPolishConfig(true, aiPolishApiKey).catch(() => {});
-        toast.success("已自动开启 AI 润色");
+        toast.success(t("toast.translationAutoPolish"));
       }
     } catch {
-      toast.error("保存翻译设置失败");
+      toast.error(t("toast.translationSaveFailed"));
     }
   }, [aiPolishApiKey, aiPolishKeySave]);
 
@@ -1131,7 +1144,7 @@ export default function SettingsPage({
     setPolishReasoningSupportState({
       supported: false,
       strategy: null,
-      summary: "正在识别当前模型的思考控制能力...",
+      summary: t("model.reasoningDetecting"),
     });
 
     void getLlmReasoningSupport(
@@ -1148,7 +1161,7 @@ export default function SettingsPage({
         setPolishReasoningSupportState({
           supported: false,
           strategy: null,
-          summary: "暂时无法识别当前模型的思考控制能力，已按不支持处理。",
+          summary: t("model.reasoningUnavailable"),
         });
       }
     });
@@ -1163,7 +1176,7 @@ export default function SettingsPage({
     setAssistantReasoningSupportState({
       supported: false,
       strategy: null,
-      summary: "正在识别当前模型的思考控制能力...",
+      summary: t("model.reasoningDetecting"),
     });
 
     void getLlmReasoningSupport(
@@ -1180,7 +1193,7 @@ export default function SettingsPage({
         setAssistantReasoningSupportState({
           supported: false,
           strategy: null,
-          summary: "暂时无法识别当前模型的思考控制能力，已按不支持处理。",
+          summary: t("model.reasoningUnavailable"),
         });
       }
     });
@@ -1195,10 +1208,10 @@ export default function SettingsPage({
       return support.summary;
     }
     if (selectedMode !== "provider_default") {
-      return `${support.summary} 当前已保存的档位不会生效，实际会按模型默认行为处理。`;
+      return support.summary + t("model.reasoningFallback");
     }
     return support.summary;
-  }, []);
+  }, [t]);
 
   const polishReasoningModeDisabled = !polishReasoningSupport.supported;
   const assistantReasoningModeDisabled = !assistantReasoningSupport.supported;
@@ -1218,8 +1231,8 @@ export default function SettingsPage({
     if (!selectedInputDeviceName) {
       const systemDefaultDevice = inputDevices.find((device) => device.isDefault);
       return {
-        label: "跟随系统默认麦克风",
-        desc: systemDefaultDevice ? `当前默认：${systemDefaultDevice.name}` : "自动使用系统当前默认输入设备",
+        label: t("settings.followSystemMic"),
+        desc: systemDefaultDevice ? t("settings.currentDefault", { name: systemDefaultDevice.name }) : t("settings.autoUseDefault"),
       };
     }
 
@@ -1227,15 +1240,15 @@ export default function SettingsPage({
     if (activeDevice) {
       return {
         label: activeDevice.name,
-        desc: activeDevice.isDefault ? "当前也是系统默认设备" : "固定使用这支麦克风",
+        desc: activeDevice.isDefault ? t("settings.alsoSystemDefault") : t("settings.fixedMic"),
       };
     }
 
     return {
       label: selectedInputDeviceName,
-      desc: "当前设备不可用，录音时会回退到系统默认设备",
+      desc: t("settings.deviceUnavailable"),
     };
-  }, [inputDevices, selectedInputDeviceName]);
+  }, [inputDevices, selectedInputDeviceName, t]);
   const polishReasoningModeHint = useMemo(
     () => buildReasoningModeHint(polishReasoningSupport, polishReasoningMode),
     [buildReasoningModeHint, polishReasoningMode, polishReasoningSupport],
@@ -1286,7 +1299,7 @@ export default function SettingsPage({
     setAssistantScreenContextEnabledState(enabled);
     setAssistantScreenContextEnabled(enabled).catch(() => {
       setAssistantScreenContextEnabledState(!enabled);
-      toast.error("助手屏幕感知设置失败");
+      toast.error(t("toast.assistantScreenContextFailed"));
     });
   }, []);
 
@@ -1294,7 +1307,7 @@ export default function SettingsPage({
     setAiPolishScreenContextEnabledState(enabled);
     setAiPolishScreenContextEnabled(enabled).catch(() => {
       setAiPolishScreenContextEnabledState(!enabled);
-      toast.error("润色屏幕感知设置失败");
+      toast.error(t("toast.polishScreenContextFailed"));
     });
   }, []);
 
@@ -1302,9 +1315,9 @@ export default function SettingsPage({
     <div className="page-root">
 
       <TitleBar
-        title="设置"
+        title={t("settings.title")}
         leftAction={
-          <button aria-label="返回" className="icon-btn plain" onClick={() => onNavigate("main")}>
+          <button aria-label={t("common.back")} className="icon-btn plain" onClick={() => onNavigate("main")}>
             <ArrowLeft size={14} strokeWidth={1.5} />
           </button>
         }
@@ -1318,21 +1331,43 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "0ms" }}>
             <div className="settings-section-header">
               {isDark ? <Moon size={15} className="icon-accent" /> : <Sun size={15} className="icon-accent" />}
-              <h2 className="settings-section-title">外观</h2>
+              <h2 className="settings-section-title">{t("settings.appearance")}</h2>
             </div>
             <div className="settings-grid-3">
-              {themeOptions.map(({ mode, icon: Icon, label }) => (
+              {themeOptions.map(({ mode, icon: Icon, labelKey }) => (
                 <button
                   key={mode}
                   className="theme-btn settings-option-btn theme-option"
-                  aria-label={`切换为${label}模式`}
+                  aria-label={t("settings.switchToTheme", { label: t(labelKey) })}
                   aria-pressed={theme === mode}
                   onClick={() => setTheme(mode)}
                 >
                   <Icon size={20} strokeWidth={1.5} />
-                  <span className="settings-option-label">{label}</span>
+                  <span className="settings-option-label">{t(labelKey)}</span>
                 </button>
               ))}
+            </div>
+            <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
+              <span className="settings-option-desc">{t("settings.language")}</span>
+              <div className="settings-grid-2">
+                {([
+                  { lang: "zh", label: "中文" },
+                  { lang: "en", label: "English" },
+                ] as const).map(({ lang, label }) => (
+                  <button
+                    key={lang}
+                    className="theme-btn settings-option-btn theme-option"
+                    aria-pressed={i18n.language.startsWith(lang)}
+                    onClick={() => {
+                      i18n.changeLanguage(lang);
+                      writeLocalStorage(LANGUAGE_STORAGE_KEY, lang);
+                    }}
+                  >
+                    <Languages size={16} strokeWidth={1.5} />
+                    <span className="settings-option-label">{label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </section>
 
@@ -1340,10 +1375,10 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "50ms" }}>
             <div className="settings-section-header">
               <AudioLines size={15} className="icon-accent" />
-              <h2 className="settings-section-title">识别引擎</h2>
+              <h2 className="settings-section-title">{t("settings.engine")}</h2>
             </div>
             <div className="settings-grid-3">
-              {engineOptions.map(({ key, icon: Icon, label, desc }) => (
+              {engineOptions.map(({ key, icon: Icon, label, descKey }) => (
                 <button
                   key={key}
                   className="theme-btn settings-option-btn"
@@ -1354,19 +1389,19 @@ export default function SettingsPage({
                 >
                   <Icon size={20} strokeWidth={1.5} />
                   <span className="settings-option-label">{label}</span>
-                  <span className="settings-option-desc">{desc}</span>
+                  <span className="settings-option-desc">{t(descKey)}</span>
                 </button>
               ))}
             </div>
             {engine === "glm-asr" && (
               <div className="settings-column" style={{ gap: 8, marginTop: 8 }}>
                 <div className="settings-column" style={{ gap: 4 }}>
-                  <span className="settings-option-desc">API 端点</span>
+                  <span className="settings-option-desc">{t("settings.apiEndpoint")}</span>
                   <div className="settings-row" style={{ gap: 6 }}>
                     {([
-                      { region: "international", label: "国际站" },
-                      { region: "domestic", label: "国内站" },
-                    ] as const).map(({ region, label }) => (
+                      { region: "international", labelKey: "settings.international" },
+                      { region: "domestic", labelKey: "settings.domestic" },
+                    ] as const).map(({ region, labelKey }) => (
                       <button
                         key={region}
                         className={`theme-btn${onlineAsrRegion === region ? " active" : ""}`}
@@ -1379,7 +1414,7 @@ export default function SettingsPage({
                         }}
                         style={{ flex: 1 }}
                       >
-                        {label}
+                        {t(labelKey)}
                       </button>
                     ))}
                   </div>
@@ -1390,12 +1425,12 @@ export default function SettingsPage({
                   )}
                 </div>
                 <div className="settings-column" style={{ gap: 4 }}>
-                  <span className="settings-option-desc">API Key</span>
+                  <span className="settings-option-desc">{t("settings.apiKey")}</span>
                   <SecretInput
                     value={onlineAsrApiKey}
-                    placeholder="输入智谱 GLM-ASR API Key"
-                    ariaLabelShow="显示 API Key"
-                    ariaLabelHide="隐藏 API Key"
+                    placeholder={t("settings.glmApiKeyPlaceholder")}
+                    ariaLabelShow={t("settings.showApiKey")}
+                    ariaLabelHide={t("settings.hideApiKey")}
                     onChange={(value) => {
                       setOnlineAsrApiKeyState(value);
                       onlineAsrKeySave.schedule(value);
@@ -1409,7 +1444,7 @@ export default function SettingsPage({
               <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
                 <div className="settings-row" style={{ gap: 6, alignItems: "center" }}>
                   <HardDrive size={13} style={{ opacity: 0.6, flexShrink: 0 }} />
-                  <span className="settings-option-desc" style={{ flex: 1 }}>模型存储目录</span>
+                  <span className="settings-option-desc" style={{ flex: 1 }}>{t("settings.modelStorageDir")}</span>
                   {modelsDirCustom && (
                     <button
                       className="theme-btn"
@@ -1422,16 +1457,16 @@ export default function SettingsPage({
                           const info = await getModelsDir();
                           setModelsDirState(info.path);
                           setModelsDirCustom(info.is_custom);
-                          toast.success("已恢复默认模型目录，原目录中的模型文件不会被删除");
+                          toast.success(t("toast.modelsDirResetDefault"));
                         } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "恢复失败");
+                          toast.error(e instanceof Error ? e.message : t("toast.modelsDirResetFailed"));
                         } finally {
                           setModelsDirMigrating(false);
                         }
                       }}
                     >
                       <RotateCcw size={11} />
-                      恢复默认
+                      {t("settings.restoreDefault")}
                     </button>
                   )}
                   <button
@@ -1447,10 +1482,10 @@ export default function SettingsPage({
                         const info = await getModelsDir();
                         setModelsDirState(info.path);
                         setModelsDirCustom(info.is_custom);
-                        toast.success("模型目录已更新");
+                        toast.success(t("toast.modelsDirUpdated"));
                         retryModel();
                       } catch (e) {
-                        toast.error(e instanceof Error ? e.message : "更改失败");
+                        toast.error(e instanceof Error ? e.message : t("toast.modelsDirChangeFailed"));
                         retryModel();
                       } finally {
                         setModelsDirMigrating(false);
@@ -1459,14 +1494,14 @@ export default function SettingsPage({
                     }}
                   >
                     <FolderOpen size={11} />
-                    {modelsDirMigrating ? (modelsMigrateMsg || "迁移中...") : "更改"}
+                    {modelsDirMigrating ? (modelsMigrateMsg || t("settings.migrating")) : t("common.change")}
                   </button>
                 </div>
                 <span
                   className="settings-option-desc"
                   style={{ fontSize: 11, opacity: 0.5, wordBreak: "break-all", userSelect: "text" }}
                 >
-                  {modelsDir || "加载中..."}
+                  {modelsDir || t("common.loading")}
                 </span>
               </div>
             )}
@@ -1483,7 +1518,7 @@ export default function SettingsPage({
           >
             <div className="settings-section-header">
               <Keyboard size={15} className="icon-accent" />
-              <h2 className="settings-section-title">说话热键</h2>
+              <h2 className="settings-section-title">{t("settings.hotkeySection")}</h2>
             </div>
             <div className="settings-column">
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
@@ -1497,7 +1532,7 @@ export default function SettingsPage({
                     opacity: mainHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
-                  {mainHotkeyCapture.capturing ? "请按下组合键..." : hotkeyDisplay}
+                  {mainHotkeyCapture.capturing ? t("settings.pressCombo") : hotkeyDisplay}
                 </button>
                 <button
                   className="btn-ghost"
@@ -1510,14 +1545,14 @@ export default function SettingsPage({
                     opacity: mainHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
-                  恢复 F2
+                  {t("settings.resetF2")}
                 </button>
               </div>
               <p className="settings-hint">
-                点击上方按钮后按下新热键，支持任意组合键（如 Ctrl+Win、独立 Alt、F2）。按 Esc 取消设置。
+                {t("settings.hotkeyHint")}
               </p>
               <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
-                <span className="settings-option-desc">录音模式</span>
+                <span className="settings-option-desc">{t("settings.recordingMode")}</span>
                 <div
                   ref={picker.setRef("recordingMode")}
                   style={{
@@ -1531,14 +1566,14 @@ export default function SettingsPage({
                     data-open={picker.isOpen("recordingMode")}
                     aria-haspopup="listbox"
                     aria-expanded={picker.isOpen("recordingMode")}
-                    aria-label="录音模式"
+                    aria-label={t("settings.recordingModeLabel")}
                     onClick={() => {
                       picker.toggle("recordingMode");
                     }}
                   >
                     <span className="picker-trigger-copy">
-                      <strong>{selectedRecordingModeOption.label}</strong>
-                      <span>{selectedRecordingModeOption.desc}</span>
+                      <strong>{t(selectedRecordingModeOption.labelKey)}</strong>
+                      <span>{t(selectedRecordingModeOption.descKey)}</span>
                     </span>
                     <ChevronsUpDown size={14} className="icon-tertiary" />
                   </button>
@@ -1554,8 +1589,8 @@ export default function SettingsPage({
                             onClick={() => handleRecordingModeChange(option.key)}
                           >
                             <span className="picker-option-copy">
-                              <strong>{option.label}</strong>
-                              <span>{option.desc}</span>
+                              <strong>{t(option.labelKey)}</strong>
+                              <span>{t(option.descKey)}</span>
                             </span>
                             {recordingMode === option.key ? <Check size={14} className="icon-accent" /> : null}
                           </button>
@@ -1567,23 +1602,23 @@ export default function SettingsPage({
               </div>
               <div className="diagnostic-grid">
                 <div className="diagnostic-item">
-                  <span className="settings-option-desc">热键状态</span>
-                  <strong>{hotkeyDiagnostic?.registered ? "已注册" : "未注册"}</strong>
+                  <span className="settings-option-desc">{t("settings.hotkeyStatus")}</span>
+                  <strong>{hotkeyDiagnostic?.registered ? t("settings.registered") : t("settings.notRegistered")}</strong>
                 </div>
                 <div className="diagnostic-item">
-                  <span className="settings-option-desc">当前状态</span>
+                  <span className="settings-option-desc">{t("settings.currentStatus")}</span>
                   <strong>
                     {isRecording
-                      ? "录音中"
+                      ? t("settings.statusRecording")
                       : hotkeyDiagnostic?.isPressed
-                        ? "按下中"
-                        : "待命"}
+                        ? t("settings.statusPressed")
+                        : t("settings.statusReady")}
                   </strong>
                 </div>
                 {hotkeyDiagnostic?.backend && hotkeyDiagnostic.backend !== "none" && (
                   <div className="diagnostic-item">
-                    <span className="settings-option-desc">后端</span>
-                    <strong>{hotkeyDiagnostic.backend === "registerHotKey" ? "RegisterHotKey" : "低层键盘钩子"}</strong>
+                    <span className="settings-option-desc">{t("settings.backendLabel")}</span>
+                    <strong>{hotkeyDiagnostic.backend === "registerHotKey" ? t("settings.registerHotKeyBackend") : t("settings.lowLevelHook")}</strong>
                   </div>
                 )}
               </div>
@@ -1608,13 +1643,13 @@ export default function SettingsPage({
           >
             <div className="settings-section-header">
               <Mic size={15} className="icon-accent" />
-              <h2 className="settings-section-title">麦克风</h2>
+              <h2 className="settings-section-title">{t("settings.microphone")}</h2>
               <div className="settings-row" style={{ marginLeft: "auto", gap: 8, flex: "0 0 auto" }}>
-                <span className="settings-option-desc" style={{ whiteSpace: "nowrap" }}>电平监控</span>
+                <span className="settings-option-desc" style={{ whiteSpace: "nowrap" }}>{t("settings.levelMonitor")}</span>
                 <button
                   role="switch"
                   aria-checked={micLevelMonitorEnabled}
-                  aria-label="麦克风电平监控"
+                  aria-label={t("settings.micLevelMonitor")}
                   onClick={() => handleMicLevelMonitorToggle(!micLevelMonitorEnabled)}
                   className="toggle-switch"
                   style={{
@@ -1634,7 +1669,7 @@ export default function SettingsPage({
                     data-open={picker.isOpen("microphone")}
                     aria-haspopup="listbox"
                     aria-expanded={picker.isOpen("microphone")}
-                    aria-label="选择麦克风"
+                    aria-label={t("settings.selectMic")}
                     disabled={deviceListLoading}
                     onClick={() => {
                       if (deviceListLoading) return;
@@ -1661,9 +1696,9 @@ export default function SettingsPage({
                           onClick={() => { void handleInputDeviceChange(""); }}
                         >
                           <span className="picker-option-copy">
-                            <strong>跟随系统默认麦克风</strong>
+                            <strong>{t("settings.followSystemMic")}</strong>
                             <span>
-                              {inputDevices.find((device) => device.isDefault)?.name ?? "自动使用系统当前默认输入设备"}
+                              {inputDevices.find((device) => device.isDefault)?.name ?? t("settings.autoUseDefault")}
                             </span>
                           </span>
                           {!selectedInputDeviceName ? <Check size={14} className="icon-accent" /> : null}
@@ -1678,7 +1713,7 @@ export default function SettingsPage({
                           >
                             <span className="picker-option-copy">
                               <strong>{device.name}</strong>
-                              <span>{device.isDefault ? "系统默认设备" : "可固定选择"}</span>
+                              <span>{device.isDefault ? t("settings.systemDefaultDevice") : t("settings.canSelect")}</span>
                             </span>
                             {selectedInputDeviceName === device.name ? <Check size={14} className="icon-accent" /> : null}
                           </button>
@@ -1693,7 +1728,7 @@ export default function SettingsPage({
                   onClick={() => { void refreshInputDevices(); }}
                   style={{ fontSize: 12, padding: "8px 10px", opacity: deviceListLoading ? 0.7 : 1 }}
                 >
-                  刷新
+                  {t("common.refresh")}
                 </button>
                 <button className="test-btn" onClick={async () => {
                   try {
@@ -1707,28 +1742,28 @@ export default function SettingsPage({
                       setMicMonitorReady(true);
                     }
                   } catch {
-                    toast.error("麦克风测试失败");
+                    toast.error(t("toast.micTestFailed"));
                   }
-                }}>测试</button>
+                }}>{t("common.test")}</button>
               </div>
-              <div className="mic-level-shell" aria-label="麦克风电平预览">
+              <div className="mic-level-shell" aria-label={t("settings.micLevelPreview")}>
                 <div className="mic-level-fill" style={{ width: `${Math.round(micLevel * 100)}%` }} />
               </div>
               <div className="settings-row" style={{ gap: 10 }}>
                 <span className="settings-hint">
                   {!micLevelMonitorEnabled
-                    ? "电平监控已关闭"
+                    ? t("settings.micMonitorOff")
                     : isRecording
-                    ? "录音中，电平预览已暂停"
+                    ? t("settings.micRecordingPaused")
                     : micMonitorReady
-                      ? "对着麦克风说话可查看电平变化"
-                      : "电平预览未启动，设备可能被其他程序占用"}
+                      ? t("settings.micSpeakToTest")
+                      : t("settings.micNotStarted")}
                 </span>
                 <span className="settings-option-desc">{Math.round(micLevel * 100)}%</span>
               </div>
               {selectedDeviceMissing && (
                 <p className="settings-error">
-                  已保存的麦克风当前不可用，录音时会回退到系统默认设备。
+                  {t("settings.savedMicUnavailable")}
                 </p>
               )}
             </div>
@@ -1738,14 +1773,14 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "150ms" }}>
             <div className="settings-section-header">
               <ClipboardPaste size={15} className="icon-accent" />
-              <h2 className="settings-section-title">输入方式</h2>
+              <h2 className="settings-section-title">{t("settings.inputMethod")}</h2>
             </div>
             <div className="settings-grid-2">
-              {inputOptions.map(({ key, icon: Icon, label, desc }) => (
+              {inputOptions.map(({ key, icon: Icon, labelKey, descKey }) => (
                 <button
                   key={key}
                   className="theme-btn settings-option-btn"
-                  aria-label={label}
+                  aria-label={t(labelKey)}
                   aria-pressed={inputMethod === key}
                   onClick={() => {
                     setInputMethod(key);
@@ -1754,17 +1789,17 @@ export default function SettingsPage({
                   }}
                 >
                   <Icon size={20} strokeWidth={1.5} />
-                  <span className="settings-option-label">{label}</span>
-                  <span className="settings-option-desc">{desc}</span>
+                  <span className="settings-option-label">{t(labelKey)}</span>
+                  <span className="settings-option-desc">{t(descKey)}</span>
                 </button>
               ))}
             </div>
             <div className="settings-row" style={{ marginTop: 6 }}>
-              <span className="permission-label">录音提示音</span>
+              <span className="permission-label">{t("settings.recordingSound")}</span>
               <button
                 role="switch"
                 aria-checked={soundEnabled}
-                aria-label="录音提示音"
+                aria-label={t("settings.recordingSound")}
                 onClick={() => {
                   const next = !soundEnabled;
                   setSoundEnabledState(next);
@@ -1792,15 +1827,15 @@ export default function SettingsPage({
           >
             <div className="settings-section-header">
               <Sparkles size={15} className="icon-accent" />
-              <h2 className="settings-section-title">AI 润色</h2>
+              <h2 className="settings-section-title">{t("settings.aiPolish")}</h2>
             </div>
             <div className="settings-column" style={{ gap: 10 }}>
               <div className="settings-row">
-                <span className="permission-label">启用 AI 润色</span>
+                <span className="permission-label">{t("settings.enableAiPolish")}</span>
                 <button
                   role="switch"
                   aria-checked={aiPolishEnabled}
-                  aria-label="启用 AI 润色"
+                  aria-label={t("settings.enableAiPolish")}
                   onClick={() => {
                     const next = !aiPolishEnabled;
                     aiPolishKeySave.cancel();
@@ -1821,16 +1856,16 @@ export default function SettingsPage({
                 <div className="permission-item" style={{ gap: 8 }}>
                   <Monitor size={14} className="icon-tertiary" />
                   <div className="settings-column" style={{ gap: 2 }}>
-                    <span className="permission-label">屏幕感知</span>
+                    <span className="permission-label">{t("settings.screenContext")}</span>
                     <span className="settings-hint" style={{ margin: 0 }}>
-                      截取当前屏幕内容辅助润色。不支持图片的模型会自动回退到纯文本。
+                      {t("settings.screenContextPolishHint")}
                     </span>
                   </div>
                 </div>
                 <button
                   role="switch"
                   aria-checked={aiPolishScreenContextEnabled}
-                  aria-label="AI 润色屏幕感知"
+                  aria-label={t("settings.screenContext")}
                   onClick={() => handleAiPolishScreenContextToggle(!aiPolishScreenContextEnabled)}
                   className="toggle-switch"
                   style={{
@@ -1853,7 +1888,7 @@ export default function SettingsPage({
 
               <div className="settings-column" style={{ gap: 10 }}>
                 <div className="settings-column" style={{ gap: 6 }}>
-                  <span className="settings-option-desc">服务商</span>
+                  <span className="settings-option-desc">{t("settings.provider")}</span>
                   <div className="picker-shell" ref={picker.setRef("provider")}>
                     <button
                       type="button"
@@ -1861,7 +1896,7 @@ export default function SettingsPage({
                       data-open={picker.isOpen("provider")}
                       aria-haspopup="listbox"
                       aria-expanded={picker.isOpen("provider")}
-                      aria-label="选择 LLM 供应商"
+                      aria-label={t("settings.selectProvider")}
                       onClick={() => {
                         picker.toggle("provider");
                       }}
@@ -1878,8 +1913,8 @@ export default function SettingsPage({
                           ref={providerSearchInputRef}
                           type="text"
                           className="settings-input picker-search-input"
-                          placeholder="搜索服务商、描述或地址"
-                          aria-label="搜索服务商"
+                          placeholder={t("settings.searchProvider")}
+                          aria-label={t("settings.searchProviderLabel")}
                           value={providerSearch}
                           onChange={(e) => setProviderSearch(e.target.value)}
                         />
@@ -1904,7 +1939,7 @@ export default function SettingsPage({
                                     role="button"
                                     tabIndex={0}
                                     style={{ padding: 2, cursor: "pointer", opacity: 0.5 }}
-                                    title="删除此服务商"
+                                    title={t("settings.deleteProvider")}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       void removeCustomProvider(key).then(async () => { await refreshProfile(); await refreshAiPolishKey(); });
@@ -1916,7 +1951,7 @@ export default function SettingsPage({
                               </span>
                             </button>
                           )) : (
-                            <div className="picker-empty">没有匹配的服务商。</div>
+                            <div className="picker-empty">{t("settings.noMatchingProvider")}</div>
                           )}
                           {/* 添加自定义服务商 */}
                           {!addingProvider ? (
@@ -1927,7 +1962,7 @@ export default function SettingsPage({
                               onClick={(e) => { e.stopPropagation(); setAddingProvider(true); }}
                             >
                               <span className="picker-option-copy">
-                                <strong><Plus size={12} style={{ verticalAlign: -1, marginRight: 4 }} />添加自定义服务商</strong>
+                                <strong><Plus size={12} style={{ verticalAlign: -1, marginRight: 4 }} />{t("settings.addCustomProvider")}</strong>
                               </span>
                             </button>
                           ) : (
@@ -1935,21 +1970,21 @@ export default function SettingsPage({
                               style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid var(--color-border)" }}
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <input className="settings-input" placeholder="名称" aria-label="服务商名称" value={newProviderName} onChange={(e) => setNewProviderName(e.target.value)} style={{ fontSize: 12 }} />
-                              <input className="settings-input" placeholder="Base URL" aria-label="服务商 Base URL" value={newProviderBaseUrl} onChange={(e) => setNewProviderBaseUrl(e.target.value)} style={{ fontSize: 12 }} />
-                              <input className="settings-input" placeholder="默认模型" aria-label="服务商默认模型" value={newProviderModel} onChange={(e) => setNewProviderModel(e.target.value)} style={{ fontSize: 12 }} />
+                              <input className="settings-input" placeholder={t("settings.providerName")} aria-label={t("settings.providerNameLabel")} value={newProviderName} onChange={(e) => setNewProviderName(e.target.value)} style={{ fontSize: 12 }} />
+                              <input className="settings-input" placeholder="Base URL" aria-label={t("settings.providerBaseUrlLabel")} value={newProviderBaseUrl} onChange={(e) => setNewProviderBaseUrl(e.target.value)} style={{ fontSize: 12 }} />
+                              <input className="settings-input" placeholder={t("settings.defaultModel")} aria-label={t("settings.defaultModelLabel")} value={newProviderModel} onChange={(e) => setNewProviderModel(e.target.value)} style={{ fontSize: 12 }} />
                               <select
                                 className="settings-input"
-                                aria-label="API 格式"
+                                aria-label={t("settings.apiFormatLabel")}
                                 value={newProviderFormat}
                                 onChange={(e) => setNewProviderFormat(e.target.value as ApiFormat)}
                                 style={{ fontSize: 12 }}
                               >
-                                <option value="openai_compat">OpenAI 兼容</option>
+                                <option value="openai_compat">{t("settings.openaiCompat")}</option>
                                 <option value="anthropic">Anthropic</option>
                               </select>
                               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                <button className="btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => { setAddingProvider(false); setNewProviderName(""); setNewProviderBaseUrl(""); setNewProviderModel(""); setNewProviderFormat("openai_compat"); }}>取消</button>
+                                <button className="btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => { setAddingProvider(false); setNewProviderName(""); setNewProviderBaseUrl(""); setNewProviderModel(""); setNewProviderFormat("openai_compat"); }}>{t("common.cancel")}</button>
                                 <button
                                   className="btn-ghost"
                                   style={{ fontSize: 11, padding: "4px 8px" }}
@@ -1983,7 +2018,7 @@ export default function SettingsPage({
                                       await refreshAiPolishKey();
                                     });
                                   }}
-                                >添加</button>
+                                >{t("common.add")}</button>
                               </div>
                             </div>
                           )}
@@ -1994,12 +2029,12 @@ export default function SettingsPage({
                 </div>
 
                 <div className="settings-column" style={{ gap: 6 }}>
-                  <span className="settings-option-desc">接口地址</span>
+                  <span className="settings-option-desc">{t("settings.baseUrl")}</span>
                   <input
                     type="text"
                     className="settings-input"
-                    placeholder="Base URL 或完整接口地址"
-                    aria-label="接口地址"
+                    placeholder={t("settings.baseUrlPlaceholder")}
+                    aria-label={t("settings.baseUrlLabel")}
                     value={customBaseUrl}
                     readOnly={!providerSupportsCustomEndpoint}
                     onChange={(e) => {
@@ -2020,18 +2055,18 @@ export default function SettingsPage({
                   />
                   <p className="settings-hint">
                     {providerSupportsCustomEndpoint
-                      ? "填写根地址即可，如 https://api.openai.com；填完整路径时末尾加 # 可阻止自动补全。"
-                      : "预置服务商使用官方接口地址。如需自定义，请选择「自定义兼容」或添加自定义服务商。"}
+                      ? t("settings.baseUrlCustomHint")
+                      : t("settings.baseUrlFixedHint")}
                   </p>
                 </div>
 
                 <div className="settings-column" style={{ gap: 6 }}>
-                  <span className="settings-option-desc">API Key</span>
+                  <span className="settings-option-desc">{t("settings.apiKey")}</span>
                   <SecretInput
                     value={aiPolishApiKey}
                     placeholder={`${currentLlmPreset.label} API Key`}
-                    ariaLabelShow="显示 API Key"
-                    ariaLabelHide="隐藏 API Key"
+                    ariaLabelShow={t("settings.showApiKey")}
+                    ariaLabelHide={t("settings.hideApiKey")}
                     onChange={(value) => {
                       setAiPolishApiKey(value);
                       aiPolishKeySave.schedule(value, aiPolishEnabled);
@@ -2041,7 +2076,7 @@ export default function SettingsPage({
 
                 <div className="settings-column" style={{ gap: 6 }}>
                   <div className="settings-row">
-                    <span className="settings-option-desc">模型</span>
+                    <span className="settings-option-desc">{t("settings.modelLabel")}</span>
                     <span className="settings-option-desc">{filteredAiModels.length}/{aiModels.length}</span>
                   </div>
                   <div className="picker-shell" ref={picker.setRef("model")}>
@@ -2049,8 +2084,8 @@ export default function SettingsPage({
                       <input
                         type="text"
                         className="settings-input"
-                        placeholder="输入模型名称"
-                        aria-label="模型名称"
+                        placeholder={t("settings.modelNamePlaceholder")}
+                        aria-label={t("settings.modelNameLabel")}
                         value={customModel}
                         onChange={(e) => {
                           const nextModel = e.target.value;
@@ -2079,14 +2114,14 @@ export default function SettingsPage({
                         onClick={() => {
                           picker.toggle("model");
                         }}
-                        aria-label="打开模型列表"
-                        title="打开模型列表"
+                        aria-label={t("settings.openModelList")}
+                        title={t("settings.openModelList")}
                       >
                         <ChevronsUpDown size={14} className="icon-tertiary" />
                       </button>
                     </div>
                     <p className="settings-hint" style={{ margin: 0 }}>
-                      {selectedAiModel?.ownedBy || (aiModels.length > 0 ? `${aiModels.length} 个可选模型` : "可直接输入模型名称")}
+                      {selectedAiModel?.ownedBy || (aiModels.length > 0 ? t("settings.availableModels", { count: aiModels.length }) : t("settings.canInputModelName"))}
                     </p>
                     {picker.isOpen("model") && (
                       <div className={picker.popoverClass("model")}>
@@ -2095,8 +2130,8 @@ export default function SettingsPage({
                             ref={modelSearchInputRef}
                             type="text"
                             className="settings-input picker-search-input"
-                            placeholder="搜索模型名称，回车确认"
-                            aria-label="搜索模型"
+                            placeholder={t("settings.searchModelPlaceholder")}
+                            aria-label={t("settings.searchModelLabel")}
                             value={aiModelSearch}
                             onChange={(e) => setAiModelSearch(e.target.value)}
                             onKeyDown={(e) => {
@@ -2113,11 +2148,11 @@ export default function SettingsPage({
                             disabled={aiModelsLoading}
                             style={{ fontSize: 12, padding: "8px 10px", opacity: aiModelsLoading ? 0.7 : 1 }}
                           >
-                            {aiModelsLoading ? "拉取中..." : "刷新"}
+                            {aiModelsLoading ? t("settings.fetching") : t("common.refresh")}
                           </button>
                         </div>
                         <p className="settings-hint" style={{ margin: 0 }}>
-                          {aiModelsSourceUrl ? `来源：${aiModelsSourceUrl}` : "填写 API Key 后会自动拉取，也可以手动刷新。"}
+                          {aiModelsSourceUrl ? t("settings.modelSourceUrl", { url: aiModelsSourceUrl }) : t("settings.autoFetchHint")}
                         </p>
                         {aiModelSearch.trim() ? (
                           <button
@@ -2126,8 +2161,8 @@ export default function SettingsPage({
                             onClick={() => handleModelSelect(aiModelSearch)}
                           >
                             <span className="picker-option-copy">
-                              <strong>使用 {aiModelSearch.trim()}</strong>
-                              <span>作为当前模型名</span>
+                              <strong>{t("settings.useAsModel", { name: aiModelSearch.trim() })}</strong>
+                              <span>{t("settings.asCurrentModelName")}</span>
                             </span>
                           </button>
                         ) : null}
@@ -2149,8 +2184,8 @@ export default function SettingsPage({
                           )) : (
                             <div className="picker-empty">
                               {aiModelsLoading
-                                ? "正在从官方接口拉取模型列表..."
-                                : aiModelsError || "填写 API Key 后会自动加载模型列表"}
+                                ? t("settings.fetchModelsFromApi")
+                                : aiModelsError || t("settings.fillApiKeyToLoadModels")}
                             </div>
                           )}
                         </div>
@@ -2160,7 +2195,7 @@ export default function SettingsPage({
                 </div>
 
                 <div className="settings-column" style={{ gap: 6 }}>
-                  <span className="settings-option-desc">润色思考模式</span>
+                  <span className="settings-option-desc">{t("settings.polishReasoningMode")}</span>
                   <div ref={picker.setRef("polishReasoning")} style={{ position: "relative" }}>
                     <button
                       type="button"
@@ -2168,7 +2203,7 @@ export default function SettingsPage({
                       data-open={picker.isOpen("polishReasoning")}
                       aria-haspopup="listbox"
                       aria-expanded={picker.isOpen("polishReasoning")}
-                      aria-label="润色思考模式"
+                      aria-label={t("settings.polishReasoningLabel")}
                       disabled={polishReasoningModeDisabled}
                       onClick={() => {
                         if (polishReasoningModeDisabled) return;
@@ -2181,8 +2216,8 @@ export default function SettingsPage({
                       }}
                     >
                       <span className="picker-trigger-copy">
-                        <strong>{selectedPolishReasoningOption.label}</strong>
-                        <span>{selectedPolishReasoningOption.desc}</span>
+                        <strong>{t(selectedPolishReasoningOption.labelKey)}</strong>
+                        <span>{t(selectedPolishReasoningOption.descKey)}</span>
                       </span>
                       <ChevronsUpDown size={14} className="icon-tertiary" />
                     </button>
@@ -2198,8 +2233,8 @@ export default function SettingsPage({
                               onClick={() => handlePolishReasoningModeChange(option.key)}
                             >
                               <span className="picker-option-copy">
-                                <strong>{option.label}</strong>
-                                <span>{option.desc}</span>
+                                <strong>{t(option.labelKey)}</strong>
+                                <span>{t(option.descKey)}</span>
                               </span>
                               {polishReasoningMode === option.key ? <Check size={14} className="icon-accent" /> : null}
                             </button>
@@ -2215,23 +2250,23 @@ export default function SettingsPage({
               </div>
 
               <div className="settings-column" style={{ gap: 6 }}>
-                <span className="settings-option-desc">自定义指令</span>
+                <span className="settings-option-desc">{t("settings.customPrompt")}</span>
                 <textarea
                   className="settings-input"
-                  placeholder="例如：我是程序员，保留所有英文技术术语不翻译；遇到「光语」一律改为「轻语」"
-                  aria-label="自定义润色指令"
+                  placeholder={t("settings.customPromptPlaceholder")}
+                  aria-label={t("settings.customPromptLabel")}
                   value={customPromptState}
                   onChange={(e) => handleCustomPromptChange(e.target.value)}
                   rows={3}
                   style={{ resize: "vertical", minHeight: 60, fontFamily: "inherit" }}
                 />
                 <p className="settings-hint" style={{ margin: 0 }}>
-                  自定义的校正规则，优先级高于内置规则。留空则不启用。
+                  {t("settings.customPromptHint")}
                 </p>
               </div>
 
               <p className="settings-hint">
-                AI 润色会自动学习你的用词习惯，将常用词汇加入热词列表以提升识别准确率。
+                {t("settings.aiPolishLearnHint")}
               </p>
             </div>
           </section>
@@ -2246,7 +2281,7 @@ export default function SettingsPage({
           >
             <div className="settings-section-header">
               <Sparkles size={15} className="icon-accent" />
-              <h2 className="settings-section-title">语音助手</h2>
+              <h2 className="settings-section-title">{t("settings.assistant")}</h2>
             </div>
             <div className="settings-column" style={{ gap: 10 }}>
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
@@ -2261,12 +2296,12 @@ export default function SettingsPage({
                   }}
                 >
                   {assistantHotkeyCapture.capturing
-                    ? "请按下助手热键..."
-                    : assistantHotkeyDisplay || "未设置助手热键"}
+                    ? t("settings.pressAssistantHotkey")
+                    : assistantHotkeyDisplay || t("settings.noAssistantHotkey")}
                 </button>
                 <button
                   className="btn-ghost"
-                  onClick={() => handleClearHotkey(setAssistantHotkey, setAssistantHotkeyDisplay, "助手热键", assistantHotkeyCapture.cancelCapture)}
+                  onClick={() => handleClearHotkey(setAssistantHotkey, setAssistantHotkeyDisplay, t("settings.assistantHotkeyLabel"), assistantHotkeyCapture.cancelCapture)}
                   disabled={assistantHotkeyCapture.saving}
                   style={{
                     fontSize: 12,
@@ -2275,26 +2310,26 @@ export default function SettingsPage({
                     opacity: assistantHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
-                  清除
+                  {t("common.clear")}
                 </button>
               </div>
               <p className="settings-hint" style={{ margin: 0 }}>
-                助手模式会把你的语音当成任务指令，生成邮件、消息、翻译或回答，并显示在结果浮层中供你复制使用。
+                {t("settings.assistantHint")}
               </p>
               <div className="settings-row">
                 <div className="permission-item" style={{ gap: 8 }}>
                   <Monitor size={14} className="icon-tertiary" />
                   <div className="settings-column" style={{ gap: 2 }}>
-                    <span className="permission-label">屏幕感知</span>
+                    <span className="permission-label">{t("settings.screenContext")}</span>
                     <span className="settings-hint" style={{ margin: 0 }}>
-                      截取当前屏幕内容辅助助手理解上下文。不支持图片的模型会自动回退到纯文本。
+                      {t("settings.screenContextAssistantHint")}
                     </span>
                   </div>
                 </div>
                 <button
                   role="switch"
                   aria-checked={assistantScreenContextEnabled}
-                  aria-label="助手屏幕感知"
+                  aria-label={t("settings.assistantScreenContext")}
                   onClick={() => handleAssistantScreenContextToggle(!assistantScreenContextEnabled)}
                   className="toggle-switch"
                   style={{
@@ -2318,16 +2353,16 @@ export default function SettingsPage({
                 <div className="permission-item" style={{ gap: 8 }}>
                   <Sparkles size={14} className="icon-tertiary" />
                   <div className="settings-column" style={{ gap: 2 }}>
-                    <span className="permission-label">使用独立配置</span>
+                    <span className="permission-label">{t("settings.useSeparateConfig")}</span>
                     <span className="settings-hint" style={{ margin: 0 }}>
-                      关闭时跟随 AI 润色；开启后，助手可以单独选择供应商和模型。
+                      {t("settings.separateConfigHint")}
                     </span>
                   </div>
                 </div>
                 <button
                   role="switch"
                   aria-checked={assistantUseSeparateModel}
-                  aria-label="助手使用独立配置"
+                  aria-label={t("settings.assistantSeparateConfig")}
                   onClick={() => handleAssistantModelToggle(!assistantUseSeparateModel)}
                   className="toggle-switch"
                   style={{
@@ -2351,7 +2386,7 @@ export default function SettingsPage({
               {assistantUseSeparateModel ? (
                 <div className="settings-column" style={{ gap: 6 }}>
                   {/* 助手供应商选择器 */}
-                  <span className="settings-option-desc">助手供应商</span>
+                  <span className="settings-option-desc">{t("settings.assistantProvider")}</span>
                   <div className="picker-shell" ref={picker.setRef("assistantProvider")}>
                     <button
                       type="button"
@@ -2374,8 +2409,8 @@ export default function SettingsPage({
                           <input
                             type="text"
                             className="settings-input picker-search-input"
-                            placeholder="搜索供应商"
-                            aria-label="搜索助手供应商"
+                            placeholder={t("settings.searchAssistantProvider")}
+                            aria-label={t("settings.searchAssistantProviderLabel")}
                             value={assistantProviderSearch}
                             onChange={(e) => setAssistantProviderSearch(e.target.value)}
                             autoFocus
@@ -2410,7 +2445,7 @@ export default function SettingsPage({
                         type="password"
                         className="settings-input"
                         placeholder={`${currentAssistantPreset.label} API Key`}
-                        aria-label="助手 API Key"
+                        aria-label={t("settings.assistantApiKey")}
                         value={assistantApiKeyState}
                         autoComplete="off"
                         onChange={(e) => {
@@ -2424,7 +2459,7 @@ export default function SettingsPage({
 
                   {/* 助手模型选择器 */}
                   <div className="settings-row">
-                    <span className="settings-option-desc">助手模型</span>
+                    <span className="settings-option-desc">{t("settings.assistantModel")}</span>
                     <span className="settings-option-desc">{filteredAssistantModels.length}/{effectiveAssistantModels.length}</span>
                   </div>
                   <div className="picker-shell" ref={picker.setRef("assistantModel")}>
@@ -2432,8 +2467,8 @@ export default function SettingsPage({
                       <input
                         type="text"
                         className="settings-input"
-                        placeholder="输入助手模型名称"
-                        aria-label="助手模型名称"
+                        placeholder={t("settings.assistantModelPlaceholder")}
+                        aria-label={t("settings.assistantModelLabel")}
                         value={assistantModel}
                         onChange={(e) => {
                           const nextModel = e.target.value;
@@ -2459,14 +2494,14 @@ export default function SettingsPage({
                         onClick={() => {
                           picker.toggle("assistantModel");
                         }}
-                        aria-label="打开助手模型列表"
-                        title="打开助手模型列表"
+                        aria-label={t("settings.openAssistantModelList")}
+                        title={t("settings.openAssistantModelList")}
                       >
                         <ChevronsUpDown size={14} className="icon-tertiary" />
                       </button>
                     </div>
                     <p className="settings-hint" style={{ margin: 0 }}>
-                      {selectedAssistantAiModel?.ownedBy || (effectiveAssistantModels.length > 0 ? `${effectiveAssistantModels.length} 个可选模型` : "可直接输入模型名称")}
+                      {selectedAssistantAiModel?.ownedBy || (effectiveAssistantModels.length > 0 ? t("settings.availableModels", { count: effectiveAssistantModels.length }) : t("settings.canInputModelName"))}
                     </p>
                     {picker.isOpen("assistantModel") && (
                       <div className={picker.popoverClass("assistantModel")}>
@@ -2475,8 +2510,8 @@ export default function SettingsPage({
                             ref={assistantModelSearchInputRef}
                             type="text"
                             className="settings-input picker-search-input"
-                            placeholder="搜索模型名称，回车确认"
-                            aria-label="搜索助手模型"
+                            placeholder={t("settings.searchModelPlaceholder")}
+                            aria-label={t("settings.searchAssistantModel")}
                             value={assistantModelSearch}
                             onChange={(e) => setAssistantModelSearch(e.target.value)}
                             onKeyDown={(e) => {
@@ -2493,7 +2528,7 @@ export default function SettingsPage({
                             disabled={assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading}
                             style={{ fontSize: 12, padding: "8px 10px", opacity: (assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading) ? 0.7 : 1 }}
                           >
-                            {(assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading) ? "拉取中..." : "刷新"}
+                            {(assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading) ? t("settings.fetching") : t("common.refresh")}
                           </button>
                         </div>
                         {assistantModelSearch.trim() ? (
@@ -2503,8 +2538,8 @@ export default function SettingsPage({
                             onClick={() => handleAssistantModelSelect(assistantModelSearch)}
                           >
                             <span className="picker-option-copy">
-                              <strong>使用 {assistantModelSearch.trim()}</strong>
-                              <span>作为助手模型名</span>
+                              <strong>{t("settings.useAsModel", { name: assistantModelSearch.trim() })}</strong>
+                              <span>{t("settings.asAssistantModelName")}</span>
                             </span>
                           </button>
                         ) : null}
@@ -2526,10 +2561,10 @@ export default function SettingsPage({
                           )) : (
                             <div className="picker-empty">
                               {(assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading)
-                                ? "正在从官方接口拉取模型列表..."
+                                ? t("settings.fetchModelsFromApi")
                                 : (assistantProviderDiffers && !assistantApiKeyState.trim())
-                                  ? "填写助手 API Key 后会自动加载模型列表"
-                                  : aiModelsError || "填写 API Key 后会自动加载模型列表"}
+                                  ? t("settings.fillAssistantApiKey")
+                                  : aiModelsError || t("settings.fillApiKeyToLoadModels")}
                             </div>
                           )}
                         </div>
@@ -2539,12 +2574,12 @@ export default function SettingsPage({
                 </div>
               ) : (
                 <p className="settings-hint" style={{ margin: 0 }}>
-                  当前与 AI 润色共用供应商和模型：{currentLlmPreset.label} / {customModel || currentLlmPreset.defaultModel}
+                  {t("settings.sharedProviderAndModel", { provider: currentLlmPreset.label, model: customModel || currentLlmPreset.defaultModel })}
                 </p>
               )}
 
               <div className="settings-column" style={{ gap: 6 }}>
-                <span className="settings-option-desc">助手思考模式</span>
+                <span className="settings-option-desc">{t("settings.assistantReasoningMode")}</span>
                 <div ref={picker.setRef("assistantReasoning")} style={{ position: "relative" }}>
                   <button
                     type="button"
@@ -2552,7 +2587,7 @@ export default function SettingsPage({
                     data-open={picker.isOpen("assistantReasoning")}
                     aria-haspopup="listbox"
                     aria-expanded={picker.isOpen("assistantReasoning")}
-                    aria-label="助手思考模式"
+                    aria-label={t("settings.assistantReasoningLabel")}
                     disabled={assistantReasoningModeDisabled}
                     onClick={() => {
                       if (assistantReasoningModeDisabled) return;
@@ -2565,8 +2600,8 @@ export default function SettingsPage({
                     }}
                   >
                     <span className="picker-trigger-copy">
-                      <strong>{selectedAssistantReasoningOption.label}</strong>
-                      <span>{selectedAssistantReasoningOption.desc}</span>
+                      <strong>{t(selectedAssistantReasoningOption.labelKey)}</strong>
+                      <span>{t(selectedAssistantReasoningOption.descKey)}</span>
                     </span>
                     <ChevronsUpDown size={14} className="icon-tertiary" />
                   </button>
@@ -2582,8 +2617,8 @@ export default function SettingsPage({
                             onClick={() => handleAssistantReasoningModeChange(option.key)}
                           >
                             <span className="picker-option-copy">
-                              <strong>{option.label}</strong>
-                              <span>{option.desc}</span>
+                              <strong>{t(option.labelKey)}</strong>
+                              <span>{t(option.descKey)}</span>
                             </span>
                             {assistantReasoningMode === option.key ? <Check size={14} className="icon-accent" /> : null}
                           </button>
@@ -2598,18 +2633,18 @@ export default function SettingsPage({
               </div>
 
               <div className="settings-column" style={{ gap: 6 }}>
-                <span className="settings-option-desc">自定义助手提示词</span>
+                <span className="settings-option-desc">{t("settings.customAssistantPrompt")}</span>
                 <textarea
                   className="settings-input"
-                  placeholder="例如：默认用简洁口吻；写邮件时偏正式；回复 IM 时保持自然口语"
-                  aria-label="助手系统提示词"
+                  placeholder={t("settings.assistantPromptPlaceholder")}
+                  aria-label={t("settings.assistantPromptLabel")}
                   value={assistantPromptState}
                   onChange={(e) => handleAssistantPromptChange(e.target.value)}
                   rows={4}
                   style={{ resize: "vertical", minHeight: 84, fontFamily: "inherit" }}
                 />
                 <p className="settings-hint" style={{ margin: 0 }}>
-                  这段提示词只作用于助手模式，不影响普通听写与润色。
+                  {t("settings.assistantPromptHint")}
                 </p>
               </div>
             </div>
@@ -2619,7 +2654,7 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "212ms" }}>
             <div className="settings-section-header">
               <Languages size={15} className="icon-accent" />
-              <h2 className="settings-section-title">翻译</h2>
+              <h2 className="settings-section-title">{t("settings.translation")}</h2>
             </div>
             <div className="settings-column" style={{ gap: 10 }}>
               <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
@@ -2634,12 +2669,12 @@ export default function SettingsPage({
                   }}
                 >
                   {translationHotkeyCapture.capturing
-                    ? "请按下翻译热键..."
-                    : translationHotkeyDisplay || "未设置翻译热键"}
+                    ? t("settings.pressTranslationHotkey")
+                    : translationHotkeyDisplay || t("settings.noTranslationHotkey")}
                 </button>
                 <button
                   className="btn-ghost"
-                  onClick={() => handleClearHotkey(setTranslationHotkey, setTranslationHotkeyDisplay, "翻译热键", translationHotkeyCapture.cancelCapture)}
+                  onClick={() => handleClearHotkey(setTranslationHotkey, setTranslationHotkeyDisplay, t("settings.translationHotkeyLabel"), translationHotkeyCapture.cancelCapture)}
                   disabled={translationHotkeyCapture.saving}
                   style={{
                     fontSize: 12,
@@ -2648,14 +2683,14 @@ export default function SettingsPage({
                     opacity: translationHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
-                  清除
+                  {t("common.clear")}
                 </button>
               </div>
               <p className="settings-hint" style={{ margin: 0 }}>
-                说话热键输出原文，翻译热键输出译文。未开启翻译时，翻译热键等同于普通润色。
+                {t("settings.translationHint")}
               </p>
               <div className="settings-row">
-                <span className="permission-label">{translationTarget ? `目标语言：${translationTarget}` : "未开启"}</span>
+                <span className="permission-label">{translationTarget ? t("settings.targetLanguage", { language: translationTarget }) : t("settings.notEnabled")}</span>
                 <button
                   className="btn-ghost"
                   onClick={() => {
@@ -2667,13 +2702,13 @@ export default function SettingsPage({
                   }}
                   style={{ fontSize: 12, padding: "6px 10px" }}
                 >
-                  {translationPickerOpen ? "收起" : translationTarget ? "更改" : "选择语言"}
+                  {translationPickerOpen ? t("settings.collapse") : translationTarget ? t("settings.changeTarget") : t("settings.selectLanguage")}
                 </button>
               </div>
               {translationPickerOpen && (
                 <div className="settings-column" style={{ gap: 8 }}>
                   <p className="settings-hint" style={{ margin: 0 }}>
-                    选择目标语言后，翻译热键会输出译文。技术术语和专有名词保留原文。
+                    {t("settings.translationSelectHint")}
                   </p>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     <button
@@ -2683,7 +2718,7 @@ export default function SettingsPage({
                       onClick={() => void handleTranslationSelect(null)}
                       style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
                     >
-                      关闭
+                      {t("settings.off")}
                     </button>
                     {["English", "日本語", "한국어", "Français", "Deutsch", "Español", "Русский", "Português"].map(lang => (
                       <button
@@ -2714,7 +2749,7 @@ export default function SettingsPage({
                       onClick={() => setShowCustomLangInput(v => !v)}
                       style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
                     >
-                      自定义…
+                      {t("settings.customLang")}
                     </button>
                   </div>
                   {showCustomLangInput && (
@@ -2722,8 +2757,8 @@ export default function SettingsPage({
                       <input
                         type="text"
                         className="settings-input"
-                        placeholder="输入语言名称，如 Italiano、العربية"
-                        aria-label="自定义翻译目标语言"
+                        placeholder={t("settings.customLangPlaceholder")}
+                        aria-label={t("settings.customLangLabel")}
                         value={customLangInput}
                         onChange={e => setCustomLangInput(e.target.value)}
                         onKeyDown={e => {
@@ -2757,10 +2792,10 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "225ms" }}>
             <div className="settings-section-header">
               <BookOpen size={15} className="icon-accent" />
-              <h2 className="settings-section-title">智能词库</h2>
+              <h2 className="settings-section-title">{t("settings.vocabulary")}</h2>
               {profile && (
                 <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-text-tertiary)" }}>
-                  {profile.hot_words.length} 个热词 · {profile.total_transcriptions} 次转录
+                  {t("settings.hotWordsCount", { count: profile.hot_words.length, transcriptions: profile.total_transcriptions })}
                 </span>
               )}
             </div>
@@ -2769,8 +2804,8 @@ export default function SettingsPage({
               <div style={{ display: "flex", gap: 6 }}>
                 <input
                   type="text"
-                  placeholder="添加热词 (如 Claude Code)"
-                  aria-label="添加热词"
+                  placeholder={t("settings.addHotWordPlaceholder")}
+                  aria-label={t("settings.addHotWordLabel")}
                   value={newHotWord}
                   onChange={(e) => setNewHotWord(e.target.value)}
                   onKeyDown={(e) => {
@@ -2844,7 +2879,7 @@ export default function SettingsPage({
                 {Object.entries(sourceLabels).map(([key, label]) => (
                   <span key={key} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "var(--color-text-tertiary)" }}>
                     <span style={{ width: 6, height: 6, borderRadius: "50%", background: sourceColors[key] }} />
-                    {label}
+                    {t(label)}
                   </span>
                 ))}
                 <span style={{ flex: 1 }} />
@@ -2856,7 +2891,7 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "255ms" }}>
             <div className="settings-section-header">
               <Download size={15} className="icon-accent" />
-              <h2 className="settings-section-title">数据</h2>
+              <h2 className="settings-section-title">{t("settings.data")}</h2>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button
@@ -2871,12 +2906,12 @@ export default function SettingsPage({
                     a.download = "light-whisper-profile.json";
                     a.click();
                     setTimeout(() => URL.revokeObjectURL(url), 200);
-                    toast.success("配置已导出");
-                  } catch { toast.error("导出失败"); }
+                    toast.success(t("toast.configExported"));
+                  } catch { toast.error(t("toast.configExportFailed")); }
                 }}
                 style={{ flex: 1, fontSize: 12, padding: "8px" }}
               >
-                <Download size={13} style={{ marginRight: 4 }} />导出配置
+                <Download size={13} style={{ marginRight: 4 }} />{t("settings.exportConfig")}
               </button>
               <button
                 className="btn-ghost"
@@ -2892,14 +2927,14 @@ export default function SettingsPage({
                       await importUserProfile(text);
                       refreshProfile();
                       await refreshAiPolishKey();
-                      toast.success("配置已导入");
-                    } catch { toast.error("导入失败，请确认文件为有效的 JSON 格式"); }
+                      toast.success(t("toast.configImported"));
+                    } catch { toast.error(t("toast.configImportFailed")); }
                   };
                   input.click();
                 }}
                 style={{ flex: 1, fontSize: 12, padding: "8px" }}
               >
-                <Upload size={13} style={{ marginRight: 4 }} />导入配置
+                <Upload size={13} style={{ marginRight: 4 }} />{t("settings.importConfig")}
               </button>
             </div>
           </section>
@@ -2908,20 +2943,20 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "250ms" }}>
             <div className="settings-section-header">
               <Accessibility size={15} className="icon-accent" />
-              <h2 className="settings-section-title">权限</h2>
+              <h2 className="settings-section-title">{t("settings.permissions")}</h2>
             </div>
             <div className="permission-list">
               <div className="settings-row">
                 <div className="permission-item">
                   <Accessibility size={14} className="icon-tertiary" />
-                  <span className="permission-label">辅助功能 / 粘贴</span>
+                  <span className="permission-label">{t("settings.accessibilityPaste")}</span>
                 </div>
                 <button className="test-btn" onClick={async () => {
                   try {
-                    await pasteText("测试粘贴", inputMethod);
-                    toast.success("粘贴功能正常");
-                  } catch { toast.error("粘贴功能异常"); }
-                }}>测试</button>
+                    await pasteText(t("settings.testPasteContent"), inputMethod);
+                    toast.success(t("toast.pasteOk"));
+                  } catch { toast.error(t("toast.pasteFailed")); }
+                }}>{t("common.test")}</button>
               </div>
             </div>
           </section>
@@ -2930,14 +2965,14 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "300ms" }}>
             <div className="settings-section-header">
               <Power size={15} className="icon-accent" />
-              <h2 className="settings-section-title">启动</h2>
+              <h2 className="settings-section-title">{t("settings.startup")}</h2>
             </div>
             <div className="settings-row">
-              <span className="permission-label">开机自启动</span>
+              <span className="permission-label">{t("settings.autostart")}</span>
               <button
                 role="switch"
                 aria-checked={autostart}
-                aria-label="开机自启动"
+                aria-label={t("settings.autostart")}
                 onClick={handleAutostartToggle}
                 className="toggle-switch"
                 style={{
@@ -2952,19 +2987,19 @@ export default function SettingsPage({
           <section className="settings-card" style={{ animationDelay: "325ms" }}>
             <div className="settings-section-header">
               <Download size={15} className="icon-accent" />
-              <h2 className="settings-section-title">更新</h2>
+              <h2 className="settings-section-title">{t("settings.update")}</h2>
             </div>
             <div className="settings-row" style={{ gap: 12 }}>
               <div className="permission-item" style={{ alignItems: "flex-start", flex: 1, minWidth: 0 }}>
                 <Download size={14} className="icon-tertiary" />
                 <div className="settings-column" style={{ gap: 4, minWidth: 0 }}>
-                  <span className="permission-label">检查应用更新</span>
+                  <span className="permission-label">{t("settings.checkAppUpdate")}</span>
                   <p className="settings-hint">
-                    {updateStatusText || `当前版本 v${appVersion || "..."}`}
+                    {updateStatusText || t("settings.currentVersion", { version: appVersion || "..." })}
                   </p>
                   {latestAvailableVersion ? (
                     <p className="settings-hint">
-                      新版本 v{latestAvailableVersion} 可用，点击「前往下载」获取安装包。
+                      {t("settings.newVersionAvailable", { version: latestAvailableVersion })}
                     </p>
                   ) : null}
                 </div>
@@ -2980,13 +3015,13 @@ export default function SettingsPage({
                   cursor: updateChecking ? "wait" : "pointer",
                 }}
               >
-                {updateChecking ? "检查中..." : latestAvailableVersion ? "前往下载" : "检查更新"}
+                {updateChecking ? t("settings.checking") : latestAvailableVersion ? t("settings.goToDownload") : t("settings.checkUpdate")}
               </button>
             </div>
             {latestAvailableVersion ? (
               <div className="settings-column" style={{ marginTop: 8, gap: 0 }}>
                 <p className="settings-hint" style={{ marginLeft: 24 }}>
-                  更新来源：GitHub Releases
+                  {t("settings.updateSource")}
                 </p>
               </div>
             ) : null}
@@ -2997,9 +3032,9 @@ export default function SettingsPage({
       {/* Footer */}
       <div className="settings-footer" style={{ padding: `10px ${PADDING}px` }}>
         <p className="settings-footer-text">
-          轻语 Whisper <span className="settings-footer-version">v{appVersion}</span>
+          {t("settings.footer")} <span className="settings-footer-version">v{appVersion}</span>
           <span style={{ margin: "0 6px" }}>·</span>
-          本地语音转文字
+          {t("settings.footerSubtitle")}
         </p>
       </div>
     </div>

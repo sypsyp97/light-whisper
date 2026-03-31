@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import { Eye, EyeOff } from "lucide-react";
 
 interface SecretInputProps {
@@ -21,9 +22,12 @@ export default function SecretInput({
   inputStyle,
   buttonStyle,
   ariaLabel,
-  ariaLabelShow = "显示",
-  ariaLabelHide = "隐藏",
+  ariaLabelShow,
+  ariaLabelHide,
 }: SecretInputProps) {
+  const { t } = useTranslation();
+  const effectiveShowLabel = ariaLabelShow ?? t("common.show");
+  const effectiveHideLabel = ariaLabelHide ?? t("common.hide");
   const [visible, setVisible] = useState(false);
 
   return (
@@ -48,7 +52,7 @@ export default function SecretInput({
           transform: "translateY(-50%)",
           ...buttonStyle,
         }}
-        aria-label={visible ? ariaLabelHide : ariaLabelShow}
+        aria-label={visible ? effectiveHideLabel : effectiveShowLabel}
       >
         {visible ? <EyeOff size={14} /> : <Eye size={14} />}
       </button>

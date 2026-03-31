@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { RecordingProvider } from "./contexts/RecordingContext";
 import MainPage from "./pages/MainPage";
 import { useTheme } from "./hooks/useTheme";
+import i18n from "./i18n";
 import "./styles/theme.css";
 import "./styles/pages.css";
 
@@ -29,14 +30,14 @@ class ErrorBoundary extends React.Component<
     if (this.state.hasError) {
       return (
         <div style={{ padding: 24, textAlign: "center", color: "var(--color-text-secondary)" }}>
-          <p>应用遇到错误，请重启。</p>
+          <p>{i18n.t("app.errorRestart")}</p>
           {this.state.errorMessage && (
             <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 8 }}>
               {this.state.errorMessage}
             </p>
           )}
           <button onClick={() => this.setState({ hasError: false, errorMessage: null })} style={{ marginTop: 8, padding: "6px 16px", cursor: "pointer" }}>
-            重试
+            {i18n.t("common.retry")}
           </button>
         </div>
       );
@@ -108,7 +109,7 @@ if (windowLabel === "subtitle") {
       );
     })
     .catch((error) => {
-      console.error("字幕窗口加载失败:", error);
+      console.error("Subtitle window load failed:", error);
     });
 } else {
   ReactDOM.createRoot(document.getElementById("root")!).render(

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Copy, Check } from "lucide-react";
 import type { HistoryItem } from "@/types";
 
@@ -11,6 +12,7 @@ interface TranscriptionHistoryProps {
 export default function TranscriptionHistory({
   history, currentResult, copiedId, onCopy,
 }: TranscriptionHistoryProps) {
+  const { t } = useTranslation();
   if (history.length === 0) return null;
 
   const filtered = history.filter(
@@ -27,7 +29,7 @@ export default function TranscriptionHistory({
             <p className="history-item-text">{item.text}</p>
             <span className="history-item-time">{item.timeDisplay}</span>
           </div>
-          <button aria-label="复制" className="icon-btn" style={{ padding: 4, flexShrink: 0 }} onClick={() => onCopy(item.text, item.id)}>
+          <button aria-label={t("common.copy")} className="icon-btn" style={{ padding: 4, flexShrink: 0 }} onClick={() => onCopy(item.text, item.id)}>
             {copiedId === item.id
               ? <span className="animate-check-draw"><Check size={11} /></span>
               : <Copy size={11} strokeWidth={1.5} />}

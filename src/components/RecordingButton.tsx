@@ -1,4 +1,5 @@
 import { useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 
 const EQ_BAR_COUNT = 5;
@@ -14,6 +15,7 @@ interface RecordingButtonProps {
 export default function RecordingButton({
   isRecording, isProcessing, isReady, onToggle,
 }: RecordingButtonProps) {
+  const { t } = useTranslation();
   const prevRecording = useRef(isRecording);
 
   useEffect(() => {
@@ -21,7 +23,7 @@ export default function RecordingButton({
   }, [isRecording]);
 
   const isIdle = !isRecording && !isProcessing;
-  const label = isRecording ? "停止录音" : isProcessing ? "识别中" : "开始录音";
+  const label = isRecording ? t("recording.stop") : isProcessing ? t("recording.processing") : t("recording.start");
 
   return (
     <div className="record-btn-wrapper">

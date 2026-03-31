@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback, type UIEvent, type MouseEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { copyToClipboard, hideSubtitleWindow } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
-import { THEME_STORAGE_KEY } from "@/lib/constants";
+import { THEME_STORAGE_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
+import "@/i18n";
 import "../styles/theme.css";
 import "../styles/subtitle.css";
 
@@ -39,6 +41,7 @@ export default function SubtitleOverlay() {
   const shouldAutoScrollRef = useRef(true);
   const assistantPanelActive = mode === "assistant" && (phase === "polishing" || phase === "result");
   const interactiveAssistantResult = mode === "assistant" && phase === "result" && text.trim().length > 0;
+  const { t, i18n } = useTranslation();
 
   const clearFadeTimer = useCallback(() => {
     if (fadeTimerRef.current) {
@@ -66,6 +69,9 @@ export default function SubtitleOverlay() {
     // 监听 localStorage 变更（跨窗口同步）
     const onStorage = (e: StorageEvent) => {
       if (e.key === THEME_STORAGE_KEY) applyTheme();
+      if (e.key === LANGUAGE_STORAGE_KEY && e.newValue) {
+        void i18n.changeLanguage(e.newValue);
+      }
     };
 
     // 监听系统主题变更（当设置为"跟随系统"时）
@@ -343,20 +349,20 @@ export default function SubtitleOverlay() {
   const hintText =
     phase === "recording"
       ? mode === "assistant"
-        ? "AI 助手聆听中..."
-        : "正在聆听..."
+        ? t("subtitle.aiListening")
+        : t("subtitle.listening")
       : phase === "processing"
         ? mode === "assistant"
-          ? "AI 生成中..."
-          : "识别中..."
+          ? t("subtitle.aiGenerating")
+          : t("subtitle.recognizing")
         : phase === "polishing"
           ? mode === "assistant"
             ? text
               ? null
-              : "AI 生成中..."
+              : t("subtitle.aiGenerating")
             : streamTokens > 0
-              ? `优化中... ${streamTokens} tokens`
-              : "优化中..."
+              ? t("subtitle.polishingWithTokens", { tokens: streamTokens })
+              : t("subtitle.polishing")
           : null;
 
   const closeAssistantOverlay = useCallback(() => {
@@ -397,7 +403,7 @@ export default function SubtitleOverlay() {
         {assistantPanelActive && (
           <div className="subtitle-assistant-actions">
             <span className={`subtitle-copy-status${assistantCopied ? " is-visible" : ""}`}>
-              已复制
+              {t("common.copied")}
             </span>
             <button
               type="button"
@@ -405,7 +411,7 @@ export default function SubtitleOverlay() {
               onClick={handleAssistantCopy}
               tabIndex={interactiveAssistantResult ? 0 : -1}
             >
-              复制
+              {t("common.copy")}
             </button>
           </div>
         )}

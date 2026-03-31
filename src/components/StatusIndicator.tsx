@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Cpu, Globe, Loader2, Download } from "lucide-react";
 import type { ModelStage } from "@/hooks/useModelStatus";
 
@@ -17,8 +18,8 @@ interface StatusIndicatorProps {
   children?: ReactNode;
 }
 
-function getDeviceLabel(device: string, gpuName: string | null): string {
-  if (device === "cloud") return "在线";
+function getDeviceLabel(device: string, gpuName: string | null, t: (key: string, options?: Record<string, unknown>) => string): string {
+  if (device === "cloud") return t("status.online");
   if (device === "cuda" || device === "gpu") return gpuName || "GPU";
   return "CPU";
 }
@@ -39,24 +40,25 @@ function getStatusText(
   stage: ModelStage,
   downloadProgress: number,
   downloadMessage: string | null,
+  t: (key: string, options?: Record<string, unknown>) => string,
 ): string {
-  if (isRecording) return "正在聆听...";
-  if (isProcessing) return "识别中...";
-  if (isReady) return "点击开始录音";
+  if (isRecording) return t("status.listening");
+  if (isProcessing) return t("status.recognizing");
+  if (isReady) return t("status.clickToStart");
   if (stage === "downloading") {
     return downloadProgress > 1
-      ? `模型下载中 ${Math.round(downloadProgress)}%`
-      : (downloadMessage ?? "模型下载准备中...");
+      ? t("status.downloadingModel", { progress: Math.round(downloadProgress) })
+      : (downloadMessage ?? t("status.downloadPreparing"));
   }
-  if (stage === "need_download") return "需要下载模型";
-  if (stage === "loading") return downloadMessage || "模型加载中...";
-  return "准备中...";
+  if (stage === "need_download") return t("status.needDownload");
+  if (stage === "loading") return downloadMessage || t("status.modelLoading");
+  return t("status.preparing");
 }
 
-function getChipLabel(stage: ModelStage, downloadMessage: string | null): string {
-  if (stage === "downloading") return "下载中";
-  if (stage === "loading") return downloadMessage || "加载中";
-  return "准备中";
+function getChipLabel(stage: ModelStage, downloadMessage: string | null, t: (key: string, options?: Record<string, unknown>) => string): string {
+  if (stage === "downloading") return t("status.chipDownloading");
+  if (stage === "loading") return downloadMessage || t("status.chipLoading");
+  return t("status.chipPreparing");
 }
 
 export default function StatusIndicator({
@@ -64,6 +66,7 @@ export default function StatusIndicator({
   device, gpuName, downloadProgress, downloadMessage,
   isDownloading, downloadModels, cancelDownload, children,
 }: StatusIndicatorProps) {
+  const { t } = useTranslation();
   const showProgressBar = stage === "downloading" || stage === "loading";
   const loadingProgress = stage === "loading" ? getLoadingProgress(downloadMessage) : null;
   const determinateProgress = stage === "downloading"
@@ -76,13 +79,13 @@ export default function StatusIndicator({
         {device && (
           <span className={`chip ${isReady ? "animate-success" : "animate-fade-in"}`}>
             {device === "cloud" ? <Globe size={10} strokeWidth={1.8} /> : <Cpu size={10} strokeWidth={1.8} />}
-            {getDeviceLabel(device, gpuName)}
+            {getDeviceLabel(device, gpuName, t)}
           </span>
         )}
         {!isReady && stage !== "need_download" && (
           <span className="chip animate-fade-in">
             <Loader2 size={10} className="animate-spin" />
-            {getChipLabel(stage, downloadMessage)}
+            {getChipLabel(stage, downloadMessage, t)}
           </span>
         )}
       </div>
@@ -94,18 +97,18 @@ export default function StatusIndicator({
         aria-live="polite"
         className="status-text animate-text-swap"
       >
-        {getStatusText(isRecording, isProcessing, isReady, stage, downloadProgress, downloadMessage)}
+        {getStatusText(isRecording, isProcessing, isReady, stage, downloadProgress, downloadMessage, t)}
       </p>
 
       {stage === "need_download" && !isDownloading && (
         <button onClick={() => downloadModels()} className="btn-primary" style={{ marginTop: 4, fontSize: 12, padding: "8px 16px" }}>
-          <Download size={12} /> 开始下载
+          <Download size={12} /> {t("status.startDownload")}
         </button>
       )}
       {stage === "need_download" && isDownloading && (
         <div className="download-info">
-          <span>另一个模型正在下载中</span>
-          <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
+          <span>{t("status.anotherDownloading")}</span>
+          <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>{t("status.cancelDownload")}</button>
         </div>
       )}
       {showProgressBar && (
@@ -122,7 +125,7 @@ export default function StatusIndicator({
               : <div className="download-pulse-bar" />}
           </div>
           {stage === "downloading" && (
-            <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>取消下载</button>
+            <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>{t("status.cancelDownload")}</button>
           )}
         </div>
       )}
