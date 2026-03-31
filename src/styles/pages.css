@@ -332,6 +332,52 @@
 
 /* ---------- SettingsPage ---------- */
 
+/* Settings navigation bar */
+.settings-nav {
+  flex-shrink: 0;
+  display: flex;
+  gap: 2px;
+  padding: 0 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-primary);
+}
+
+.settings-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.settings-nav-tab {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s var(--ease-out-expo),
+              border-color 0.25s var(--ease-out-expo);
+}
+
+.settings-nav-tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.settings-nav-tab[data-active="true"] {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* Sections get scroll-margin so they don't hide behind the nav */
+.settings-card[data-nav-id] {
+  scroll-margin-top: 4px;
+}
+
 /* Scrollable content area for settings */
 .settings-content {
   flex: 1;
@@ -836,6 +882,36 @@
 .settings-footer-version {
   margin-left: 4px;
   font-size: 11px;
+}
+
+/* Language switcher — pill toggle */
+.settings-lang-switcher {
+  display: flex;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-secondary);
+}
+
+.settings-lang-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background 0.2s var(--ease-out-expo),
+              color 0.2s var(--ease-out-expo);
+}
+
+.settings-lang-btn[data-active="true"] {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.settings-lang-btn:not([data-active="true"]):hover {
+  background: var(--color-bg-tertiary);
 }
 
 /* Accent icon color */

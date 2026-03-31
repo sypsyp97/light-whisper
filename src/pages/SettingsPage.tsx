@@ -249,6 +249,75 @@ export default function SettingsPage({
   const { isDark, theme, setTheme } = useTheme();
   const { isRecording, retryModel, hotkeyDisplay, setHotkey, hotkeyError, hotkeyDiagnostic } = useRecordingContext();
 
+  // --- Settings nav sections ---
+  const navSections = useMemo(() => [
+    { id: "appearance", labelKey: "settings.appearance" },
+    { id: "engine", labelKey: "settings.engine" },
+    { id: "hotkey", labelKey: "settings.hotkeySection" },
+    { id: "microphone", labelKey: "settings.microphone" },
+    { id: "input", labelKey: "settings.inputMethod" },
+    { id: "ai-polish", labelKey: "settings.aiPolish" },
+    { id: "assistant", labelKey: "settings.assistant" },
+    { id: "translation", labelKey: "settings.translation" },
+    { id: "vocabulary", labelKey: "settings.vocabulary" },
+    { id: "misc", labelKey: "settings.startup" },
+  ] as const, []);
+  const [activeNavSection, setActiveNavSection] = useState("appearance");
+  const settingsContentRef = useRef<HTMLDivElement | null>(null);
+  const navScrollRef = useRef<HTMLDivElement | null>(null);
+  const isNavClickScrolling = useRef(false);
+
+  // IntersectionObserver: track which section is in view
+  useEffect(() => {
+    const container = settingsContentRef.current;
+    if (!container) return;
+    const sectionEls = navSections
+      .map(({ id }) => container.querySelector(`[data-nav-id="${id}"]`))
+      .filter(Boolean) as Element[];
+    if (sectionEls.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (isNavClickScrolling.current) return;
+        // Pick the topmost visible section
+        let topId = "";
+        let topY = Infinity;
+        for (const entry of entries) {
+          if (entry.isIntersecting && entry.boundingClientRect.top < topY) {
+            topY = entry.boundingClientRect.top;
+            topId = (entry.target as HTMLElement).dataset.navId ?? "";
+          }
+        }
+        if (topId) setActiveNavSection(topId);
+      },
+      { root: container, rootMargin: "-10% 0px -70% 0px", threshold: 0 },
+    );
+    for (const el of sectionEls) observer.observe(el);
+    return () => observer.disconnect();
+  }, [navSections]);
+
+  const handleNavClick = useCallback((id: string) => {
+    const container = settingsContentRef.current;
+    if (!container) return;
+    const target = container.querySelector(`[data-nav-id="${id}"]`) as HTMLElement | null;
+    if (!target) return;
+    setActiveNavSection(id);
+    isNavClickScrolling.current = true;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Re-enable observer after scroll settles
+    setTimeout(() => { isNavClickScrolling.current = false; }, 600);
+  }, []);
+
+  // Auto-scroll the nav bar to keep active tab visible
+  useEffect(() => {
+    const navEl = navScrollRef.current;
+    if (!navEl) return;
+    const activeBtn = navEl.querySelector(`[data-nav-tab="${activeNavSection}"]`) as HTMLElement | null;
+    if (!activeBtn) return;
+    const left = activeBtn.offsetLeft - navEl.offsetWidth / 2 + activeBtn.offsetWidth / 2;
+    navEl.scrollTo({ left, behavior: "smooth" });
+  }, [activeNavSection]);
+
   // --- Picker group (mutually exclusive dropdowns) ---
   type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone";
   const picker = useExclusivePicker<PickerId>();
@@ -1323,12 +1392,28 @@ export default function SettingsPage({
         }
       />
 
+      {/* Settings nav */}
+      <nav className="settings-nav" ref={navScrollRef}>
+        {navSections.map(({ id, labelKey }) => (
+          <button
+            key={id}
+            type="button"
+            className="settings-nav-tab"
+            data-active={activeNavSection === id}
+            data-nav-tab={id}
+            onClick={() => handleNavClick(id)}
+          >
+            {t(labelKey)}
+          </button>
+        ))}
+      </nav>
+
       {/* Content */}
-      <div className="settings-content" style={{ padding: `16px ${PADDING}px 16px` }}>
+      <div className="settings-content" ref={settingsContentRef} style={{ padding: `16px ${PADDING}px 16px` }}>
         <div className="settings-sections">
 
           {/* Appearance */}
-          <section className="settings-card" style={{ animationDelay: "0ms" }}>
+          <section className="settings-card" data-nav-id="appearance" style={{ animationDelay: "0ms" }}>
             <div className="settings-section-header">
               {isDark ? <Moon size={15} className="icon-accent" /> : <Sun size={15} className="icon-accent" />}
               <h2 className="settings-section-title">{t("settings.appearance")}</h2>
@@ -1347,24 +1432,24 @@ export default function SettingsPage({
                 </button>
               ))}
             </div>
-            <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
-              <span className="settings-option-desc">{t("settings.language")}</span>
-              <div className="settings-grid-2">
+            <div className="settings-row" style={{ marginTop: 6, gap: 8, alignItems: "center" }}>
+              <Languages size={13} className="icon-tertiary" style={{ flexShrink: 0 }} />
+              <span className="settings-option-desc" style={{ marginRight: "auto" }}>{t("settings.language")}</span>
+              <div className="settings-lang-switcher">
                 {([
                   { lang: "zh", label: "中文" },
-                  { lang: "en", label: "English" },
+                  { lang: "en", label: "EN" },
                 ] as const).map(({ lang, label }) => (
                   <button
                     key={lang}
-                    className="theme-btn settings-option-btn theme-option"
-                    aria-pressed={i18n.language.startsWith(lang)}
+                    className="settings-lang-btn"
+                    data-active={i18n.language.startsWith(lang)}
                     onClick={() => {
                       i18n.changeLanguage(lang);
                       writeLocalStorage(LANGUAGE_STORAGE_KEY, lang);
                     }}
                   >
-                    <Languages size={16} strokeWidth={1.5} />
-                    <span className="settings-option-label">{label}</span>
+                    {label}
                   </button>
                 ))}
               </div>
@@ -1372,7 +1457,7 @@ export default function SettingsPage({
           </section>
 
           {/* Engine */}
-          <section className="settings-card" style={{ animationDelay: "50ms" }}>
+          <section className="settings-card" data-nav-id="engine" style={{ animationDelay: "50ms" }}>
             <div className="settings-section-header">
               <AudioLines size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.engine")}</h2>
@@ -1510,6 +1595,7 @@ export default function SettingsPage({
           {/* Hotkey */}
           <section
             className="settings-card"
+            data-nav-id="hotkey"
             style={{
               animationDelay: "100ms",
               position: "relative",
@@ -1600,28 +1686,6 @@ export default function SettingsPage({
                   )}
                 </div>
               </div>
-              <div className="diagnostic-grid">
-                <div className="diagnostic-item">
-                  <span className="settings-option-desc">{t("settings.hotkeyStatus")}</span>
-                  <strong>{hotkeyDiagnostic?.registered ? t("settings.registered") : t("settings.notRegistered")}</strong>
-                </div>
-                <div className="diagnostic-item">
-                  <span className="settings-option-desc">{t("settings.currentStatus")}</span>
-                  <strong>
-                    {isRecording
-                      ? t("settings.statusRecording")
-                      : hotkeyDiagnostic?.isPressed
-                        ? t("settings.statusPressed")
-                        : t("settings.statusReady")}
-                  </strong>
-                </div>
-                {hotkeyDiagnostic?.backend && hotkeyDiagnostic.backend !== "none" && (
-                  <div className="diagnostic-item">
-                    <span className="settings-option-desc">{t("settings.backendLabel")}</span>
-                    <strong>{hotkeyDiagnostic.backend === "registerHotKey" ? t("settings.registerHotKeyBackend") : t("settings.lowLevelHook")}</strong>
-                  </div>
-                )}
-              </div>
               {hotkeyDiagnostic?.systemConflict && (
                 <p className="settings-error" style={{ opacity: 0.85 }}>
                   ⚠ {hotkeyDiagnostic.systemConflict}
@@ -1635,6 +1699,7 @@ export default function SettingsPage({
           {/* Microphone */}
           <section
             className="settings-card"
+            data-nav-id="microphone"
             style={{
               animationDelay: "125ms",
               position: "relative",
@@ -1770,7 +1835,7 @@ export default function SettingsPage({
           </section>
 
           {/* Input Method */}
-          <section className="settings-card" style={{ animationDelay: "150ms" }}>
+          <section className="settings-card" data-nav-id="input" style={{ animationDelay: "150ms" }}>
             <div className="settings-section-header">
               <ClipboardPaste size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.inputMethod")}</h2>
@@ -1819,6 +1884,7 @@ export default function SettingsPage({
           {/* AI Polish + LLM Backend */}
           <section
             className="settings-card"
+            data-nav-id="ai-polish"
             style={{
               animationDelay: "200ms",
               position: "relative",
@@ -2273,6 +2339,7 @@ export default function SettingsPage({
 
           <section
             className="settings-card"
+            data-nav-id="assistant"
             style={{
               animationDelay: "206ms",
               position: "relative",
@@ -2651,7 +2718,7 @@ export default function SettingsPage({
           </section>
 
           {/* Translation */}
-          <section className="settings-card" style={{ animationDelay: "212ms" }}>
+          <section className="settings-card" data-nav-id="translation" style={{ animationDelay: "212ms" }}>
             <div className="settings-section-header">
               <Languages size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.translation")}</h2>
@@ -2789,7 +2856,7 @@ export default function SettingsPage({
           </section>
 
           {/* Smart Vocabulary */}
-          <section className="settings-card" style={{ animationDelay: "225ms" }}>
+          <section className="settings-card" data-nav-id="vocabulary" style={{ animationDelay: "225ms" }}>
             <div className="settings-section-header">
               <BookOpen size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.vocabulary")}</h2>
@@ -2888,7 +2955,7 @@ export default function SettingsPage({
           </section>
 
           {/* Profile Export/Import */}
-          <section className="settings-card" style={{ animationDelay: "255ms" }}>
+          <section className="settings-card" data-nav-id="misc" style={{ animationDelay: "255ms" }}>
             <div className="settings-section-header">
               <Download size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.data")}</h2>
