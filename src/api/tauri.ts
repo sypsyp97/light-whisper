@@ -17,6 +17,7 @@ import type {
   ModelCheckResult,
   TranscriptionResult,
   UserProfile,
+  WebSearchProvider,
 } from "@/types";
 
 type InvokeArgs = Record<string, unknown>;
@@ -245,6 +246,26 @@ export function setAssistantSystemPrompt(prompt: string | null): Promise<void> {
 
 export function setAssistantScreenContextEnabled(enabled: boolean): Promise<void> {
   return invokeCommand<void>("set_assistant_screen_context_enabled", { enabled });
+}
+
+export function setWebSearchConfig(
+  enabled: boolean,
+  provider: WebSearchProvider,
+  maxResults?: number,
+): Promise<void> {
+  return invokeCommand<void>("set_web_search_config", {
+    enabled,
+    provider,
+    max_results: maxResults ?? null,
+  });
+}
+
+export function setWebSearchApiKey(apiKey: string): Promise<void> {
+  return invokeCommand<void>("set_web_search_api_key", { apiKey });
+}
+
+export function getWebSearchApiKey(): Promise<string> {
+  return invokeCommand<string>("get_web_search_api_key");
 }
 
 export function addCustomProvider(

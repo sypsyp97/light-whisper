@@ -259,6 +259,7 @@ fn build_system_prompt(
     prompt
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_ai_polish_request(
     state: &AppState,
     endpoint: &llm_provider::LlmEndpoint,
@@ -291,6 +292,7 @@ async fn send_ai_polish_request(
 ///
 /// 阶段 2→3 的跳转条件：阶段 2 的错误明确指向 json 格式不被支持。
 /// 如果阶段 2 失败但不是 json 问题（网络/鉴权/限流等），直接报错不再继续。
+#[allow(clippy::too_many_arguments)]
 async fn send_llm_request_with_transport_fallback(
     state: &AppState,
     endpoint: &llm_provider::LlmEndpoint,
@@ -310,6 +312,7 @@ async fn send_llm_request_with_transport_fallback(
         reasoning_mode,
         stream_event: Some("ai-polish-status"),
         session_id: Some(session_id),
+        web_search: false,
     };
     match send_ai_polish_request(
         state, endpoint, api_key, system_prompt, user_input, user_content_len,
@@ -331,6 +334,7 @@ async fn send_llm_request_with_transport_fallback(
         reasoning_mode,
         stream_event: None,
         session_id: Some(session_id),
+        web_search: false,
     };
     match send_ai_polish_request(
         state, endpoint, api_key, system_prompt, user_input, user_content_len,
@@ -358,6 +362,7 @@ async fn send_llm_request_with_transport_fallback(
         reasoning_mode,
         stream_event: Some("ai-polish-status"),
         session_id: Some(session_id),
+        web_search: false,
     };
     match send_ai_polish_request(
         state, endpoint, api_key, system_prompt, user_input, user_content_len,
@@ -379,6 +384,7 @@ async fn send_llm_request_with_transport_fallback(
         reasoning_mode,
         stream_event: None,
         session_id: Some(session_id),
+        web_search: false,
     };
     send_ai_polish_request(
         state, endpoint, api_key, system_prompt, user_input, user_content_len,
@@ -388,6 +394,7 @@ async fn send_llm_request_with_transport_fallback(
     .map_err(|err| format!("所有传输策略均失败: {}", err))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_llm_request_with_fallback(
     state: &AppState,
     endpoint: &llm_provider::LlmEndpoint,
@@ -564,14 +571,15 @@ pub async fn polish_text(
         || key_terms.as_ref().is_some_and(|t| !t.is_empty());
 
     if has_learnable {
-        profile_service::update_profile_and_schedule(state, |profile| match corrections {
-            Some(corrs) => profile_service::learn_from_structured(
-                profile,
-                &corrs,
-                key_terms.as_deref().unwrap_or(&[]),
-                CorrectionSource::Ai,
-            ),
-            _ => {}
+        profile_service::update_profile_and_schedule(state, |profile| {
+            if let Some(corrs) = corrections {
+                profile_service::learn_from_structured(
+                    profile,
+                    &corrs,
+                    key_terms.as_deref().unwrap_or(&[]),
+                    CorrectionSource::Ai,
+                );
+            }
         });
     }
 

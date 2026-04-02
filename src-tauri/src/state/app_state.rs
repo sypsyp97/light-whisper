@@ -170,6 +170,7 @@ pub struct AppState {
     /// 热键按下时抓取的选中文本，听写模式可用于编辑，助手模式可用于上下文理解
     pub edit_context: Arc<parking_lot::Mutex<Option<String>>>,
     pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
+    pub web_search_api_key: Arc<parking_lot::Mutex<String>>,
     /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
     pub funasr_generation: AtomicU64,
     /// 内存音频传输支持状态：0=未知, 1=支持, 2=不支持
@@ -203,6 +204,7 @@ impl Default for AppState {
             hotkey_diagnostic: Default::default(),
             edit_context: Default::default(),
             online_asr_api_key: Default::default(),
+            web_search_api_key: Default::default(),
             funasr_generation: AtomicU64::new(0),
             inline_audio_transport: AtomicU8::new(0),
         }
@@ -289,6 +291,14 @@ impl AppState {
 
     pub fn set_online_asr_api_key(&self, api_key: impl Into<String>) {
         *self.online_asr_api_key.lock() = api_key.into();
+    }
+
+    pub fn read_web_search_api_key(&self) -> String {
+        self.web_search_api_key.lock().clone()
+    }
+
+    pub fn set_web_search_api_key(&self, api_key: impl Into<String>) {
+        *self.web_search_api_key.lock() = api_key.into();
     }
 
     pub fn inline_audio_transport(&self) -> Option<bool> {

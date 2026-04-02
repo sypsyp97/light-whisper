@@ -17,6 +17,8 @@ pub struct LlmRequestOptions<'a> {
     pub reasoning_mode: LlmReasoningMode,
     pub stream_event: Option<&'a str>,
     pub session_id: Option<u64>,
+    /// 注入模型厂商原生联网搜索工具（OpenAI web_search / Anthropic web_search）
+    pub web_search: bool,
 }
 
 impl Default for LlmRequestOptions<'_> {
@@ -27,6 +29,7 @@ impl Default for LlmRequestOptions<'_> {
             reasoning_mode: LlmReasoningMode::ProviderDefault,
             stream_event: None,
             session_id: None,
+            web_search: false,
         }
     }
 }
@@ -67,7 +70,7 @@ pub fn build_llm_body(
     user_input: &LlmUserInput,
     options: LlmRequestOptions<'_>,
 ) -> Value {
-    match endpoint.api_format {
+    let mut body = match endpoint.api_format {
         ApiFormat::Anthropic => serde_json::json!({
             "model": endpoint.model,
             "max_tokens": 4096,
@@ -127,8 +130,44 @@ pub fn build_llm_body(
                 body["stream"] = serde_json::json!(true);
             }
 
+            if options.web_search {
+                inject_openai_web_search(&mut body, is_responses_api);
+            }
+
             body
         }
+    };
+
+    if options.web_search && endpoint.api_format == ApiFormat::Anthropic {
+        inject_anthropic_web_search(&mut body);
+    }
+
+    body
+}
+
+/// OpenAI: chat completions 用 web_search_preview, responses API 用 web_search
+fn inject_openai_web_search(body: &mut Value, is_responses_api: bool) {
+    let tool = if is_responses_api {
+        serde_json::json!({"type": "web_search"})
+    } else {
+        serde_json::json!({"type": "web_search_preview", "web_search_preview": {}})
+    };
+    match body.get_mut("tools") {
+        Some(Value::Array(arr)) => arr.push(tool),
+        _ => body["tools"] = serde_json::json!([tool]),
+    }
+}
+
+/// Anthropic: web_search_20250305 工具
+fn inject_anthropic_web_search(body: &mut Value) {
+    let tool = serde_json::json!({
+        "type": "web_search_20250305",
+        "name": "web_search",
+        "max_uses": 3,
+    });
+    match body.get_mut("tools") {
+        Some(Value::Array(arr)) => arr.push(tool),
+        _ => body["tools"] = serde_json::json!([tool]),
     }
 }
 
@@ -778,6 +817,7 @@ mod tests {
                 reasoning_mode: LlmReasoningMode::ProviderDefault,
                 stream_event: None,
                 session_id: None,
+                web_search: false,
             },
         );
 
@@ -803,6 +843,7 @@ mod tests {
                 reasoning_mode: LlmReasoningMode::ProviderDefault,
                 stream_event: None,
                 session_id: None,
+                web_search: false,
             },
         );
 
@@ -830,6 +871,7 @@ mod tests {
                 reasoning_mode: LlmReasoningMode::Off,
                 stream_event: None,
                 session_id: None,
+                web_search: false,
             },
         );
 
@@ -851,6 +893,7 @@ mod tests {
                 reasoning_mode: LlmReasoningMode::Deep,
                 stream_event: None,
                 session_id: None,
+                web_search: false,
             },
         );
 
@@ -944,6 +987,7 @@ mod tests {
                 reasoning_mode: LlmReasoningMode::ProviderDefault,
                 stream_event: None,
                 session_id: None,
+                web_search: false,
             },
         );
 
@@ -979,6 +1023,7 @@ mod tests {
                 reasoning_mode: LlmReasoningMode::ProviderDefault,
                 stream_event: None,
                 session_id: None,
+                web_search: false,
             },
         );
 

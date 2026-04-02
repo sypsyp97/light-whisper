@@ -905,6 +905,7 @@ async fn do_final_asr(
 
 // ---------- 事件发送 ----------
 
+#[allow(clippy::too_many_arguments)]
 fn emit_done(
     app: &tauri::AppHandle,
     sid: u64,

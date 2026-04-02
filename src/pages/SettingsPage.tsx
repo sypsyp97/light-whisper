@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
@@ -52,8 +52,11 @@ import {
   getLlmReasoningSupport,
   setAssistantApiKey,
   getAssistantApiKey,
+  setWebSearchConfig,
+  setWebSearchApiKey,
+  getWebSearchApiKey,
 } from "@/api/tauri";
-import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport } from "@/types";
+import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, WebSearchProvider } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import TitleBar from "@/components/TitleBar";
@@ -152,6 +155,16 @@ const recordingModeOptions: Array<{
 }> = [
   { key: "hold", labelKey: "settings.holdToTalk", descKey: "settings.holdToTalkDesc" },
   { key: "toggle", labelKey: "settings.toggleMode", descKey: "settings.toggleModeDesc" },
+];
+
+const webSearchProviderOptions: Array<{
+  key: WebSearchProvider;
+  labelKey: string;
+  descKey: string;
+}> = [
+  { key: "model_native", labelKey: "settings.webSearchModelNative", descKey: "settings.webSearchModelNativeDesc" },
+  { key: "exa", labelKey: "settings.webSearchExa", descKey: "settings.webSearchExaDesc" },
+  { key: "tavily", labelKey: "settings.webSearchTavily", descKey: "settings.webSearchTavilyDesc" },
 ];
 
 const sourceLabels: Record<string, string> = {
@@ -258,6 +271,7 @@ export default function SettingsPage({
     { id: "input", labelKey: "settings.inputMethod" },
     { id: "ai-polish", labelKey: "settings.aiPolish" },
     { id: "assistant", labelKey: "settings.assistant" },
+    { id: "web-search", labelKey: "settings.webSearch" },
     { id: "translation", labelKey: "settings.translation" },
     { id: "vocabulary", labelKey: "settings.vocabulary" },
     { id: "misc", labelKey: "settings.startup" },
@@ -319,7 +333,7 @@ export default function SettingsPage({
   }, [activeNavSection]);
 
   // --- Picker group (mutually exclusive dropdowns) ---
-  type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone";
+  type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider";
   const picker = useExclusivePicker<PickerId>();
   const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
   const modelSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -420,6 +434,10 @@ export default function SettingsPage({
   const [assistantPromptState, setAssistantPromptState] = useState<string>("");
   const [assistantScreenContextEnabled, setAssistantScreenContextEnabledState] = useState(false);
   const [aiPolishScreenContextEnabled, setAiPolishScreenContextEnabledState] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabledState] = useState(false);
+  const [webSearchProvider, setWebSearchProviderState] = useState<WebSearchProvider>("model_native");
+  const [webSearchMaxResults, setWebSearchMaxResultsState] = useState(5);
+  const [webSearchApiKey, setWebSearchApiKeyState] = useState("");
   const [appVersion, setAppVersion] = useState("");
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateStatusText, setUpdateStatusText] = useState("");
@@ -433,6 +451,18 @@ export default function SettingsPage({
   const assistantKeySave = useDebouncedCallback((value: string) => {
     setAssistantApiKey(value).catch(() => {});
   }, 600, { onUnmount: "flush" });
+
+  const webSearchKeySave = useDebouncedCallback((value: string) => {
+    setWebSearchApiKey(value).catch(() => {});
+  }, 600, { onUnmount: "flush" });
+
+  const webSearchConfigSave = useDebouncedCallback((
+    enabled: boolean,
+    provider: WebSearchProvider,
+    maxResults: number,
+  ) => {
+    setWebSearchConfig(enabled, provider, maxResults).catch(() => {});
+  }, 400, { onUnmount: "flush" });
 
   const llmConfigSave = useDebouncedCallback((
     provider: string,
@@ -565,11 +595,17 @@ export default function SettingsPage({
       setAssistantPromptState(p.assistant_system_prompt ?? "");
       setAssistantScreenContextEnabledState(Boolean(p.assistant_screen_context_enabled));
       setAiPolishScreenContextEnabledState(Boolean(p.ai_polish_screen_context_enabled));
+      setWebSearchEnabledState(Boolean(p.web_search?.enabled));
+      setWebSearchProviderState(p.web_search?.provider ?? "model_native");
+      setWebSearchMaxResultsState(p.web_search?.max_results ?? 5);
     } catch { /* ignore */ }
   }, [updateProviderDraft]);
 
   useEffect(() => {
-    refreshProfile().then(() => refreshAssistantKey());
+    refreshProfile().then(() => {
+      refreshAssistantKey();
+      getWebSearchApiKey().then(setWebSearchApiKeyState).catch(() => {});
+    });
   }, [refreshProfile, refreshAssistantKey]);
 
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
@@ -1296,6 +1332,10 @@ export default function SettingsPage({
     () => findRecordingModeOption(recordingMode),
     [recordingMode],
   );
+  const selectedWebSearchProviderOption = useMemo(
+    () => webSearchProviderOptions.find((o) => o.key === webSearchProvider) ?? webSearchProviderOptions[0],
+    [webSearchProvider],
+  );
   const selectedInputDeviceOption = useMemo(() => {
     if (!selectedInputDeviceName) {
       const systemDefaultDevice = inputDevices.find((device) => device.isDefault);
@@ -1379,6 +1419,22 @@ export default function SettingsPage({
       toast.error(t("toast.polishScreenContextFailed"));
     });
   }, []);
+
+  const handleWebSearchToggle = useCallback((enabled: boolean) => {
+    setWebSearchEnabledState(enabled);
+    webSearchConfigSave.schedule(enabled, webSearchProvider, webSearchMaxResults);
+  }, [webSearchProvider, webSearchMaxResults, webSearchConfigSave]);
+
+  const handleWebSearchProviderChange = useCallback((provider: WebSearchProvider) => {
+    setWebSearchProviderState(provider);
+    picker.close();
+    webSearchConfigSave.schedule(webSearchEnabled, provider, webSearchMaxResults);
+  }, [webSearchEnabled, webSearchMaxResults, webSearchConfigSave, picker]);
+
+  const handleWebSearchMaxResultsChange = useCallback((value: number) => {
+    setWebSearchMaxResultsState(value);
+    webSearchConfigSave.schedule(webSearchEnabled, webSearchProvider, value);
+  }, [webSearchEnabled, webSearchProvider, webSearchConfigSave]);
 
   return (
     <div className="page-root">
@@ -2717,8 +2773,127 @@ export default function SettingsPage({
             </div>
           </section>
 
+          {/* Web Search */}
+          <section className="settings-card" data-nav-id="web-search" style={{ animationDelay: "216ms", position: "relative", zIndex: picker.isOpen("webSearchProvider") ? 8 : 1 }}>
+            <div className="settings-section-header">
+              <Search size={15} className="icon-accent" />
+              <h2 className="settings-section-title">{t("settings.webSearch")}</h2>
+            </div>
+            <div className="settings-column" style={{ gap: 10 }}>
+              <div className="settings-row">
+                <span className="permission-label">{t("settings.webSearchDesc")}</span>
+                <button
+                  role="switch"
+                  aria-checked={webSearchEnabled}
+                  aria-label={t("settings.webSearch")}
+                  onClick={() => handleWebSearchToggle(!webSearchEnabled)}
+                  className="toggle-switch"
+                  style={{
+                    background: webSearchEnabled
+                      ? "var(--color-accent)"
+                      : "var(--color-bg-tertiary)",
+                  }}
+                >
+                  <div
+                    className="toggle-knob"
+                    style={{
+                      transform: webSearchEnabled
+                        ? "translateX(20px)"
+                        : "translateX(0)",
+                    }}
+                  />
+                </button>
+              </div>
+              <p className="settings-hint" style={{ margin: 0 }}>
+                {t("settings.webSearchHint")}
+              </p>
+
+              {webSearchEnabled && (
+                <div className="settings-column" style={{ gap: 10 }}>
+                  {/* 搜索方式（下拉列表） */}
+                  <div className="settings-column" style={{ gap: 6 }}>
+                    <span className="settings-option-desc">{t("settings.webSearchProvider")}</span>
+                    <div ref={picker.setRef("webSearchProvider")} style={{ position: "relative" }}>
+                      <button
+                        type="button"
+                        className="picker-trigger"
+                        data-open={picker.isOpen("webSearchProvider")}
+                        aria-haspopup="listbox"
+                        aria-expanded={picker.isOpen("webSearchProvider")}
+                        aria-label={t("settings.webSearchProvider")}
+                        onClick={() => picker.toggle("webSearchProvider")}
+                      >
+                        <span className="picker-trigger-copy">
+                          <strong>{t(selectedWebSearchProviderOption.labelKey)}</strong>
+                          <span>{t(selectedWebSearchProviderOption.descKey)}</span>
+                        </span>
+                        <ChevronsUpDown size={14} className="icon-tertiary" />
+                      </button>
+                      {picker.isOpen("webSearchProvider") && (
+                        <div className={picker.popoverClass("webSearchProvider")}>
+                          <div className="picker-list" role="listbox">
+                            {webSearchProviderOptions.map((option) => (
+                              <button
+                                key={option.key}
+                                type="button"
+                                className="picker-option"
+                                data-active={webSearchProvider === option.key}
+                                onClick={() => handleWebSearchProviderChange(option.key)}
+                              >
+                                <span className="picker-option-copy">
+                                  <strong>{t(option.labelKey)}</strong>
+                                  <span>{t(option.descKey)}</span>
+                                </span>
+                                {webSearchProvider === option.key ? <Check size={14} className="icon-accent" /> : null}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 搜索结果条数（Exa / Tavily） */}
+                  {webSearchProvider !== "model_native" && (
+                    <div className="settings-column" style={{ gap: 6 }}>
+                      <div className="settings-row">
+                        <span className="settings-option-desc">{t("settings.webSearchMaxResults")}</span>
+                        <span style={{ fontSize: 12, opacity: 0.7, minWidth: 16, textAlign: "right" }}>{webSearchMaxResults}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1}
+                        max={10}
+                        step={1}
+                        value={webSearchMaxResults}
+                        onChange={(e) => handleWebSearchMaxResultsChange(Number(e.target.value))}
+                        style={{ width: "100%" }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Tavily API Key */}
+                  {webSearchProvider === "tavily" && (
+                    <div className="settings-column" style={{ gap: 6 }}>
+                      <span className="settings-option-desc">Tavily API Key</span>
+                      <SecretInput
+                        value={webSearchApiKey}
+                        onChange={(val) => {
+                          setWebSearchApiKeyState(val);
+                          webSearchKeySave.schedule(val);
+                        }}
+                        placeholder={t("settings.webSearchTavilyKeyPlaceholder")}
+                        aria-label="Tavily API Key"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
           {/* Translation */}
-          <section className="settings-card" data-nav-id="translation" style={{ animationDelay: "212ms" }}>
+          <section className="settings-card" data-nav-id="translation" style={{ animationDelay: "220ms" }}>
             <div className="settings-section-header">
               <Languages size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.translation")}</h2>

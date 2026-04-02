@@ -23,7 +23,7 @@ interface TranscriptionResult {
   mode?: "dictation" | "assistant";
 }
 
-type Phase = "idle" | "recording" | "processing" | "polishing" | "result";
+type Phase = "idle" | "recording" | "processing" | "searching" | "polishing" | "result";
 const RESULT_FADE_DELAY_MS = 2000;
 
 export default function SubtitleOverlay() {
@@ -39,7 +39,7 @@ export default function SubtitleOverlay() {
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const assistantTextRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
-  const assistantPanelActive = mode === "assistant" && (phase === "polishing" || phase === "result");
+  const assistantPanelActive = mode === "assistant" && (phase === "searching" || phase === "polishing" || phase === "result");
   const interactiveAssistantResult = mode === "assistant" && phase === "result" && text.trim().length > 0;
   const { t, i18n } = useTranslation();
 
@@ -204,6 +204,13 @@ export default function SubtitleOverlay() {
             return;
           }
 
+          if (status === "searching") {
+            clearFadeTimer();
+            setFadingOut(false);
+            setPhase("searching");
+            return;
+          }
+
           if (chunk) {
             clearFadeTimer();
             setFadingOut(false);
@@ -341,11 +348,13 @@ export default function SubtitleOverlay() {
         ? mode === "assistant"
           ? "subtitle-dot-assistant-processing"
           : "subtitle-dot-processing"
-        : phase === "polishing"
-          ? mode === "assistant"
-            ? "subtitle-dot-assistant"
-            : "subtitle-dot-polishing"
-          : null;
+        : phase === "searching"
+          ? "subtitle-dot-assistant"
+          : phase === "polishing"
+            ? mode === "assistant"
+              ? "subtitle-dot-assistant"
+              : "subtitle-dot-polishing"
+            : null;
   const hintText =
     phase === "recording"
       ? mode === "assistant"
@@ -355,15 +364,17 @@ export default function SubtitleOverlay() {
         ? mode === "assistant"
           ? t("subtitle.aiGenerating")
           : t("subtitle.recognizing")
-        : phase === "polishing"
-          ? mode === "assistant"
-            ? text
-              ? null
-              : t("subtitle.aiGenerating")
-            : streamTokens > 0
-              ? t("subtitle.polishingWithTokens", { tokens: streamTokens })
-              : t("subtitle.polishing")
-          : null;
+        : phase === "searching"
+          ? t("subtitle.webSearching")
+          : phase === "polishing"
+            ? mode === "assistant"
+              ? text
+                ? null
+                : t("subtitle.aiGenerating")
+              : streamTokens > 0
+                ? t("subtitle.polishingWithTokens", { tokens: streamTokens })
+                : t("subtitle.polishing")
+            : null;
 
   const closeAssistantOverlay = useCallback(() => {
     clearFadeTimer();

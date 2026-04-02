@@ -519,7 +519,7 @@ fn extract_tar_xz_archive(
         report_extract_progress(handle, extracted, None, false);
     }
 
-    if extracted > 0 && extracted % 200 != 0 {
+    if extracted > 0 && !extracted.is_multiple_of(200) {
         report_extract_progress(handle, extracted, None, true);
     }
 
@@ -533,7 +533,7 @@ fn report_extract_progress(
     force: bool,
 ) {
     let should_emit = force
-        || current % 200 == 0
+        || current.is_multiple_of(200)
         || total.is_some_and(|t| current == t);
 
     if !should_emit {
@@ -682,7 +682,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     }
 
     // 构建子进程命令
-    let data_dir = paths::strip_win_prefix(&paths::get_data_dir());
+    let data_dir = paths::strip_win_prefix(paths::get_data_dir());
     let mut cmd = match &runtime {
         EngineRuntime::Bundled { exe_path } => {
             log::info!("使用打包引擎: {} (engine={})", exe_path, engine);
@@ -1398,7 +1398,7 @@ fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool 
 ///
 /// 注：SenseVoiceSmall 内置 ITN 标点恢复，不再需要独立的 ct-punc 模型
 fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
-    if paths::is_online_engine(&engine) {
+    if paths::is_online_engine(engine) {
         return ModelCheckResult {
             all_present: true,
             asr_model: true,

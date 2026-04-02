@@ -6,6 +6,7 @@ set -euo pipefail
 
 VERSION="${1:?用法: bash scripts/release.sh <version> (例如 1.1.0)}"
 TAG="v${VERSION}"
+PKG_JSON="package.json"
 TAURI_CONF="src-tauri/tauri.conf.json"
 CARGO_TOML="src-tauri/Cargo.toml"
 INSTALLER="src-tauri/target/release/bundle/nsis/轻语 Whisper_${VERSION}_x64-setup.exe"
@@ -23,12 +24,20 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 1
 fi
 
-# 1. 更新版本号（tauri.conf.json + Cargo.toml）
+# 1. 更新版本号（package.json + tauri.conf.json + Cargo.toml）
 echo "[1/6] 更新版本号 → ${VERSION}"
 python -c "
 import json, re, sys
 
 version = sys.argv[1]
+
+# package.json
+with open('$PKG_JSON', 'r', encoding='utf-8') as f:
+    pkg = json.load(f)
+pkg['version'] = version
+with open('$PKG_JSON', 'w', encoding='utf-8') as f:
+    json.dump(pkg, f, indent=2, ensure_ascii=False)
+    f.write('\n')
 
 # tauri.conf.json
 with open('$TAURI_CONF', 'r', encoding='utf-8') as f:
@@ -65,7 +74,7 @@ echo "安装包: ${SIZE}"
 
 # 5. 提交 + tag + push
 echo "[5/6] 提交 + 推送"
-git add "$TAURI_CONF" "$CARGO_TOML" src-tauri/Cargo.lock
+git add "$PKG_JSON" "$TAURI_CONF" "$CARGO_TOML" src-tauri/Cargo.lock
 git commit -m "chore: bump version to ${VERSION}"
 git tag "$TAG"
 git push && git push --tags

@@ -3,8 +3,8 @@ use std::sync::atomic::Ordering;
 use tauri::Emitter;
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
-use crate::services::{llm_client, llm_provider, screen_capture_service};
-use crate::state::user_profile::UserProfile;
+use crate::services::{llm_client, llm_provider, screen_capture_service, web_search_service};
+use crate::state::user_profile::{UserProfile, WebSearchConfig, WebSearchProvider};
 use crate::state::AppState;
 use crate::utils::AppError;
 
@@ -184,6 +184,28 @@ mod tests {
 }
 
 
+/// 执行第三方搜索（Exa / Tavily）
+async fn run_third_party_search(
+    state: &AppState,
+    ws: &WebSearchConfig,
+    query: &str,
+) -> Result<Vec<web_search_service::SearchResult>, String> {
+    let max = ws.max_results;
+    match ws.provider {
+        WebSearchProvider::Exa => {
+            web_search_service::exa_search(&state.http_client, query, max).await
+        }
+        WebSearchProvider::Tavily => {
+            let api_key = state.read_web_search_api_key();
+            if api_key.trim().is_empty() {
+                return Err("Tavily 搜索需要配置 API Key".to_string());
+            }
+            web_search_service::tavily_search(&state.http_client, &api_key, query, max).await
+        }
+        WebSearchProvider::ModelNative => unreachable!(),
+    }
+}
+
 pub async fn generate_content(
     state: &AppState,
     asr_text: &str,
@@ -200,7 +222,48 @@ pub async fn generate_content(
 
     let config = state.llm_provider_config();
     let endpoint = llm_provider::assistant_endpoint_for_config(&config);
-    let system_prompt = state.with_profile(build_assistant_system_prompt);
+    let ws = state.with_profile(|p| p.web_search.clone());
+
+    // 构建 system prompt，可能追加搜索结果
+    let mut system_prompt = state.with_profile(build_assistant_system_prompt);
+
+    // ── 联网搜索 ──
+    // 原生模式：注入 tool，模型自主决定是否搜索（类似 ChatGPT）。
+    //   不硬编码模型白名单——直接注入，不支持的模型会返回错误，下方 retry 时去掉 web_search 重试。
+    // 第三方模式：先搜索，结果注入 prompt，模型自行判断是否引用。
+    let use_native_search =
+        ws.enabled && ws.provider == WebSearchProvider::ModelNative;
+
+    if ws.enabled && ws.provider != WebSearchProvider::ModelNative {
+        // 通知前端：正在搜索
+        let _ = app_handle.emit(
+            "assistant-stream",
+            serde_json::json!({
+                "sessionId": session_id,
+                "status": "searching",
+            }),
+        );
+
+        match run_third_party_search(state, &ws, asr_text).await {
+            Ok(results) if !results.is_empty() => {
+                log::info!(
+                    "联网搜索({:?})返回 {} 条结果",
+                    ws.provider,
+                    results.len()
+                );
+                system_prompt.push_str(&format!(
+                    "\n\n{}",
+                    web_search_service::render_search_context(&results)
+                ));
+            }
+            Ok(_) => log::info!("联网搜索({:?})无结果", ws.provider),
+            Err(err) => log::warn!(
+                "联网搜索({:?})失败，继续无搜索上下文: {err}",
+                ws.provider
+            ),
+        }
+    }
+
     let screen_context_enabled =
         state.with_profile(|profile| profile.assistant_screen_context_enabled);
     let image_support_cache_key = llm_provider::image_support_cache_key(&endpoint);
@@ -274,6 +337,7 @@ pub async fn generate_content(
         reasoning_mode: config.assistant_reasoning_mode(),
         stream_event: Some("assistant-stream"),
         session_id: Some(session_id),
+        web_search: use_native_search,
     };
     let body = llm_client::build_llm_body(&endpoint, &system_prompt, &user_input, request_options);
 
@@ -331,6 +395,38 @@ pub async fn generate_content(
                 user_content.len(),
                 Some(app_handle),
                 request_options,
+            )
+            .await
+            .map_err(AppError::Other)?
+        }
+        Err(err)
+            if use_native_search
+                && llm_provider::looks_like_web_search_unsupported_error(&err) =>
+        {
+            log::warn!(
+                "当前模型不支持联网搜索工具，去掉 web_search 重试: provider={}, model={}, err={}",
+                endpoint.provider,
+                endpoint.model,
+                err
+            );
+            let fallback_options = LlmRequestOptions {
+                web_search: false,
+                ..request_options
+            };
+            let fallback_body = llm_client::build_llm_body(
+                &endpoint,
+                &system_prompt,
+                &user_input,
+                fallback_options,
+            );
+            llm_client::send_llm_request(
+                &state.http_client,
+                &endpoint,
+                &api_key,
+                &fallback_body,
+                user_content.len(),
+                Some(app_handle),
+                fallback_options,
             )
             .await
             .map_err(AppError::Other)?

@@ -166,6 +166,7 @@ pub async fn remove_hot_word(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn set_llm_provider_config(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,

@@ -449,6 +449,19 @@ pub fn looks_like_image_input_unsupported_error(message: &str) -> bool {
             || normalized.contains("invalid_value"))
 }
 
+pub fn looks_like_web_search_unsupported_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    let mentions_search = normalized.contains("web_search")
+        || normalized.contains("web search")
+        || normalized.contains("websearch")
+        || normalized.contains("search_preview");
+
+    mentions_search
+        && (indicates_unsupported(&normalized)
+            || normalized.contains("unknown")
+            || normalized.contains("invalid"))
+}
+
 pub fn looks_like_json_output_unsupported_error(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     let mentions_json_output = normalized.contains("response_format")
@@ -856,7 +869,7 @@ pub fn build_auth_headers(
     let mut headers = reqwest::header::HeaderMap::new();
     let parse = |v: &str| {
         v.parse::<reqwest::header::HeaderValue>()
-            .map_err(|_| format!("API Key 包含非法字符，无法作为 HTTP header 使用"))
+            .map_err(|_| "API Key 包含非法字符，无法作为 HTTP header 使用".to_string())
     };
     match api_format {
         ApiFormat::Anthropic => {

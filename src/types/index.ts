@@ -111,6 +111,16 @@ export interface CorrectionPattern {
   source: CorrectionSource;
 }
 
+// 联网搜索方式
+export type WebSearchProvider = "model_native" | "exa" | "tavily";
+
+// 联网搜索配置
+export interface WebSearchConfig {
+  enabled: boolean;
+  provider: WebSearchProvider;
+  max_results: number;
+}
+
 // API 协议格式
 export type ApiFormat = "openai_compat" | "anthropic";
 export type LlmReasoningMode =
@@ -165,5 +175,6 @@ export interface UserProfile {
   assistant_screen_context_enabled?: boolean;
   ai_polish_screen_context_enabled?: boolean;
   blocked_hot_words?: string[];
+  web_search?: WebSearchConfig;
 }
 

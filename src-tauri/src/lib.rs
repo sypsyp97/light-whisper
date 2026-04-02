@@ -82,8 +82,9 @@ pub fn run() {
 
             // 注册翻译/助手热键
             {
+                type HotkeyRegisterFn = dyn Fn(tauri::AppHandle, Option<String>) -> Result<String, utils::AppError>;
                 let state = app_handle.state::<AppState>();
-                let hotkeys: [(&str, &dyn Fn(tauri::AppHandle, Option<String>) -> Result<String, utils::AppError>, Option<String>); 2] = [
+                let hotkeys: [(&str, &HotkeyRegisterFn, Option<String>); 2] = [
                     ("翻译", &commands::hotkey::register_translation_hotkey_inner, state.with_profile(|p| p.translation_hotkey.clone())),
                     ("助手", &commands::hotkey::register_assistant_hotkey_inner, state.with_profile(|p| p.assistant_hotkey.clone())),
                 ];
@@ -114,6 +115,22 @@ pub fn run() {
                 {
                     state.set_online_asr_api_key(&asr_key);
                     log::info!("已从密钥环加载在线 ASR API Key");
+                }
+                // 加载联网搜索 API Key（Tavily）
+                if let Some(ws_key) = app_handle
+                    .keyring()
+                    .get_password(
+                        "light-whisper",
+                        commands::assistant::web_search_keyring_user(
+                            &crate::state::user_profile::WebSearchProvider::Tavily,
+                        ),
+                    )
+                    .ok()
+                    .flatten()
+                    .filter(|k| !k.is_empty())
+                {
+                    state.set_web_search_api_key(&ws_key);
+                    log::info!("已从密钥环加载联网搜索 API Key (Tavily)");
                 }
             }
 
@@ -194,6 +211,9 @@ pub fn run() {
             commands::assistant::set_assistant_hotkey,
             commands::assistant::set_assistant_system_prompt,
             commands::assistant::set_assistant_screen_context_enabled,
+            commands::assistant::set_web_search_config,
+            commands::assistant::set_web_search_api_key,
+            commands::assistant::get_web_search_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");

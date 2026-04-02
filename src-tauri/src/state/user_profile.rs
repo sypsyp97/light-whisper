@@ -92,6 +92,47 @@ pub struct UserProfile {
     /// 用户手动删除后，不再自动学习回来的热词黑名单
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocked_hot_words: Vec<String>,
+    /// 联网搜索配置（仅助手模式）
+    #[serde(default)]
+    pub web_search: WebSearchConfig,
+}
+
+/// 联网搜索方式
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WebSearchProvider {
+    /// 使用模型厂商内置搜索能力（OpenAI web_search / Anthropic web_search）
+    #[default]
+    ModelNative,
+    /// Exa MCP（免费，无需 API Key）
+    Exa,
+    /// Tavily Search API（需要 API Key）
+    Tavily,
+}
+
+/// 联网搜索配置（仅在助手模式下生效）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchConfig {
+    pub enabled: bool,
+    #[serde(default)]
+    pub provider: WebSearchProvider,
+    /// 搜索结果条数（1-10，默认 5）
+    #[serde(default = "default_max_results")]
+    pub max_results: u8,
+}
+
+fn default_max_results() -> u8 {
+    5
+}
+
+impl Default for WebSearchConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: WebSearchProvider::default(),
+            max_results: default_max_results(),
+        }
+    }
 }
 
 /// API 协议格式

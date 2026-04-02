@@ -96,7 +96,7 @@ pub async fn run_download(
         )));
     }
 
-    let data_dir = paths::strip_win_prefix(&paths::get_data_dir());
+    let data_dir = paths::strip_win_prefix(paths::get_data_dir());
 
     let (cancel_tx, mut cancel_rx) = oneshot::channel();
     {
