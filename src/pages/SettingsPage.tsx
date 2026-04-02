@@ -334,7 +334,7 @@ export default function SettingsPage({
   }, [activeNavSection, active]);
 
   // --- Picker group (mutually exclusive dropdowns) ---
-  type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider";
+  type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider" | "language";
   const picker = useExclusivePicker<PickerId>();
   const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
   const modelSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -1476,7 +1476,7 @@ export default function SettingsPage({
         <div className="settings-sections">
 
           {/* Appearance */}
-          <section className="settings-card" data-nav-id="appearance" style={{ animationDelay: "0ms" }}>
+          <section className="settings-card" data-nav-id="appearance" style={{ animationDelay: "0ms", position: "relative", zIndex: picker.isOpen("language") ? 8 : 1 }}>
             <div className="settings-section-header">
               {isDark ? <Moon size={15} className="icon-accent" /> : <Sun size={15} className="icon-accent" />}
               <h2 className="settings-section-title">{t("settings.appearance")}</h2>
@@ -1498,23 +1498,43 @@ export default function SettingsPage({
             <div className="settings-row" style={{ marginTop: 6, gap: 8, alignItems: "center" }}>
               <Languages size={13} className="icon-tertiary" style={{ flexShrink: 0 }} />
               <span className="settings-option-desc" style={{ marginRight: "auto" }}>{t("settings.language")}</span>
-              <div className="settings-lang-switcher">
-                <span className="settings-lang-label" data-active={i18n.language.startsWith("zh")}>中</span>
+              <div ref={picker.setRef("language")} style={{ position: "relative" }}>
                 <button
-                  role="switch"
-                  aria-checked={i18n.language.startsWith("en")}
+                  type="button"
+                  className="picker-inline-button"
+                  data-open={picker.isOpen("language")}
+                  aria-haspopup="listbox"
+                  aria-expanded={picker.isOpen("language")}
                   aria-label={t("settings.language")}
-                  className="toggle-switch"
-                  style={{ background: i18n.language.startsWith("en") ? "var(--color-accent)" : "var(--color-bg-tertiary)" }}
-                  onClick={() => {
-                    const next = i18n.language.startsWith("zh") ? "en" : "zh";
-                    i18n.changeLanguage(next);
-                    writeLocalStorage(LANGUAGE_STORAGE_KEY, next);
-                  }}
+                  onClick={() => picker.toggle("language")}
+                  style={{ width: "auto", padding: "4px 10px", gap: 4, fontSize: 12 }}
                 >
-                  <div className="toggle-knob" style={{ transform: i18n.language.startsWith("en") ? "translateX(20px)" : "translateX(0)" }} />
+                  <Languages size={13} />
                 </button>
-                <span className="settings-lang-label" data-active={i18n.language.startsWith("en")}>EN</span>
+                {picker.isOpen("language") && (
+                  <div className={picker.popoverClass("language")} style={{ minWidth: 120, left: "auto", right: 0 }}>
+                    <div className="picker-list" role="listbox">
+                      {([
+                        { lang: "zh", label: "中文" },
+                        { lang: "en", label: "English" },
+                      ] as const).map(({ lang, label }) => (
+                        <button
+                          key={lang}
+                          type="button"
+                          className="picker-option"
+                          data-active={i18n.language.startsWith(lang)}
+                          onClick={() => {
+                            i18n.changeLanguage(lang);
+                            writeLocalStorage(LANGUAGE_STORAGE_KEY, lang);
+                            picker.close();
+                          }}
+                        >
+                          <strong style={{ fontSize: 12 }}>{label}</strong>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </section>

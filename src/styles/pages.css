@@ -749,10 +749,10 @@
   color: var(--color-text-secondary);
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.18s var(--ease-out-expo),
-              background 0.18s var(--ease-out-expo),
+  transition: border-color 0.2s var(--ease-out-expo),
+              background 0.2s var(--ease-out-expo),
               transform 0.25s var(--ease-spring-soft),
-              box-shadow 0.2s var(--ease-out-expo);
+              box-shadow 0.25s var(--ease-out-expo);
 }
 
 .picker-option:active {
@@ -832,9 +832,9 @@
   border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
-  transition: border-color 0.25s var(--ease-out-expo),
-              background 0.25s var(--ease-out-expo),
-              color 0.25s var(--ease-out-expo),
+  transition: border-color 0.2s var(--ease-out-expo),
+              background 0.2s var(--ease-out-expo),
+              color 0.2s var(--ease-out-expo),
               box-shadow 0.25s var(--ease-out-expo);
 }
 
@@ -900,23 +900,7 @@
   font-size: 11px;
 }
 
-/* Language switcher — toggle switch with labels */
-.settings-lang-switcher {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.settings-lang-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-text-tertiary);
-  transition: color 0.2s var(--ease-out-expo);
-}
-
-.settings-lang-label[data-active="true"] {
-  color: var(--color-accent);
-}
+/* (Language selector uses shared picker-inline-button + picker-popover styles) */
 
 /* Input method list — vertical selectable rows */
 .input-method-list {

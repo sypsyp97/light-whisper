@@ -668,8 +668,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s var(--ease-out-expo),
-              background 0.15s var(--ease-out-expo),
+  transition: color 0.2s var(--ease-out-expo),
+              background 0.2s var(--ease-out-expo),
               transform 0.25s var(--ease-spring-soft);
 }
 
@@ -706,9 +706,9 @@ body {
   color: var(--color-text-secondary);
   border: 1px solid var(--color-border-subtle);
   cursor: pointer;
-  transition: background 0.15s var(--ease-out-expo),
-              color 0.15s var(--ease-out-expo),
-              border-color 0.15s var(--ease-out-expo),
+  transition: background 0.2s var(--ease-out-expo),
+              color 0.2s var(--ease-out-expo),
+              border-color 0.2s var(--ease-out-expo),
               transform 0.25s var(--ease-spring-soft);
 }
 
