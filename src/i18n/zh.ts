@@ -259,7 +259,7 @@ const zh = {
     reasoningBalancedDesc: "速度和思考相对均衡",
     reasoningDeep: "深度",
     reasoningDeepDesc: "优先更完整的思考",
-    openaiDesc: "通用 Chat Completions",
+    openaiDesc: "通用 Responses API",
     deepseekDesc: "官方兼容接口",
     cerebrasDesc: "极速推理",
     siliconflowDesc: "OpenAI 兼容",

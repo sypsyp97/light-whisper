@@ -42,7 +42,14 @@ fn default_endpoint_parts(provider: &str) -> (&'static str, &'static str, u64) {
     }
 }
 
-fn normalize_api_url(input: Option<&str>, default_base_url: &str) -> String {
+fn default_api_suffix(provider: &str) -> &'static str {
+    match provider {
+        OPENAI => "responses",
+        _ => "chat/completions",
+    }
+}
+
+fn normalize_api_url(input: Option<&str>, default_base_url: &str, api_suffix: &str) -> String {
     let raw = input
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -59,10 +66,10 @@ fn normalize_api_url(input: Option<&str>, default_base_url: &str) -> String {
     }
 
     if lower.ends_with("/v1") || lower.ends_with("/api/v3") {
-        return format!("{trimmed}/chat/completions");
+        return format!("{trimmed}/{api_suffix}");
     }
 
-    format!("{trimmed}/v1/chat/completions")
+    format!("{trimmed}/v1/{api_suffix}")
 }
 
 fn normalize_anthropic_url(input: &str) -> String {
@@ -129,12 +136,13 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
         let (default_base_url, default_model, timeout_secs) =
             default_endpoint_parts(&active_provider);
         let use_custom_endpoint = active_provider == CUSTOM;
+        let api_suffix = default_api_suffix(&active_provider);
         LlmEndpoint {
             provider: active_provider.clone(),
             api_url: if use_custom_endpoint {
-                normalize_api_url(config.custom_base_url.as_deref(), default_base_url)
+                normalize_api_url(config.custom_base_url.as_deref(), default_base_url, api_suffix)
             } else {
-                normalize_api_url(None, default_base_url)
+                normalize_api_url(None, default_base_url, api_suffix)
             },
             model: config
                 .custom_model
@@ -154,7 +162,7 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
         let api_url = match cp.api_format {
             ApiFormat::Anthropic => normalize_anthropic_url(&cp.base_url),
             ApiFormat::OpenaiCompat => {
-                normalize_api_url(Some(&cp.base_url), "http://127.0.0.1:8000")
+                normalize_api_url(Some(&cp.base_url), "http://127.0.0.1:8000", "chat/completions")
             }
         };
         LlmEndpoint {
@@ -177,7 +185,7 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
         let (base, model, timeout) = default_endpoint_parts(CEREBRAS);
         LlmEndpoint {
             provider: CEREBRAS.to_string(),
-            api_url: normalize_api_url(None, base),
+            api_url: normalize_api_url(None, base, "chat/completions"),
             model: model.to_string(),
             timeout_secs: timeout,
             api_format: ApiFormat::OpenaiCompat,

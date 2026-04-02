@@ -261,7 +261,7 @@ const en: TranslationSchema = {
     reasoningBalancedDesc: "Balance speed and reasoning",
     reasoningDeep: "Deep",
     reasoningDeepDesc: "Prefer thorough reasoning",
-    openaiDesc: "General Chat Completions",
+    openaiDesc: "General Responses API",
     deepseekDesc: "Official compatible API",
     cerebrasDesc: "Ultra-fast inference",
     siliconflowDesc: "OpenAI compatible",
