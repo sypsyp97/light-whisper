@@ -276,6 +276,7 @@ export default function SettingsPage({
     { id: "misc", labelKey: "settings.startup" },
   ] as const, []);
   const [activeNavSection, setActiveNavSection] = useState("appearance");
+  const [navIndicatorStyle, setNavIndicatorStyle] = useState<{ left: number; width: number } | null>(null);
   const settingsContentRef = useRef<HTMLDivElement | null>(null);
   const navScrollRef = useRef<HTMLDivElement | null>(null);
   const isNavClickScrolling = useRef(false);
@@ -321,15 +322,16 @@ export default function SettingsPage({
     setTimeout(() => { isNavClickScrolling.current = false; }, 600);
   }, []);
 
-  // Auto-scroll the nav bar to keep active tab visible
+  // Auto-scroll the nav bar to keep active tab visible + measure indicator position
   useEffect(() => {
     const navEl = navScrollRef.current;
-    if (!navEl) return;
+    if (!navEl || !active) return;
     const activeBtn = navEl.querySelector(`[data-nav-tab="${activeNavSection}"]`) as HTMLElement | null;
     if (!activeBtn) return;
     const left = activeBtn.offsetLeft - navEl.offsetWidth / 2 + activeBtn.offsetWidth / 2;
     navEl.scrollTo({ left, behavior: "smooth" });
-  }, [activeNavSection]);
+    setNavIndicatorStyle({ left: activeBtn.offsetLeft, width: activeBtn.offsetWidth });
+  }, [activeNavSection, active]);
 
   // --- Picker group (mutually exclusive dropdowns) ---
   type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider";
@@ -1449,6 +1451,12 @@ export default function SettingsPage({
 
       {/* Settings nav */}
       <nav className="settings-nav" ref={navScrollRef}>
+        {navIndicatorStyle && (
+          <div
+            className="settings-nav-indicator"
+            style={{ transform: `translateX(${navIndicatorStyle.left}px)`, width: navIndicatorStyle.width }}
+          />
+        )}
         {navSections.map(({ id, labelKey }) => (
           <button
             key={id}
@@ -1491,22 +1499,22 @@ export default function SettingsPage({
               <Languages size={13} className="icon-tertiary" style={{ flexShrink: 0 }} />
               <span className="settings-option-desc" style={{ marginRight: "auto" }}>{t("settings.language")}</span>
               <div className="settings-lang-switcher">
-                {([
-                  { lang: "zh", label: "中文" },
-                  { lang: "en", label: "EN" },
-                ] as const).map(({ lang, label }) => (
-                  <button
-                    key={lang}
-                    className="settings-lang-btn"
-                    data-active={i18n.language.startsWith(lang)}
-                    onClick={() => {
-                      i18n.changeLanguage(lang);
-                      writeLocalStorage(LANGUAGE_STORAGE_KEY, lang);
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
+                <span className="settings-lang-label" data-active={i18n.language.startsWith("zh")}>中</span>
+                <button
+                  role="switch"
+                  aria-checked={i18n.language.startsWith("en")}
+                  aria-label={t("settings.language")}
+                  className="toggle-switch"
+                  style={{ background: i18n.language.startsWith("en") ? "var(--color-accent)" : "var(--color-bg-tertiary)" }}
+                  onClick={() => {
+                    const next = i18n.language.startsWith("zh") ? "en" : "zh";
+                    i18n.changeLanguage(next);
+                    writeLocalStorage(LANGUAGE_STORAGE_KEY, next);
+                  }}
+                >
+                  <div className="toggle-knob" style={{ transform: i18n.language.startsWith("en") ? "translateX(20px)" : "translateX(0)" }} />
+                </button>
+                <span className="settings-lang-label" data-active={i18n.language.startsWith("en")}>EN</span>
               </div>
             </div>
           </section>
@@ -1895,12 +1903,11 @@ export default function SettingsPage({
               <ClipboardPaste size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.inputMethod")}</h2>
             </div>
-            <div className="settings-grid-2">
+            <div className="input-method-list">
               {inputOptions.map(({ key, icon: Icon, labelKey, descKey }) => (
                 <button
                   key={key}
-                  className="theme-btn settings-option-btn"
-                  aria-label={t(labelKey)}
+                  className="input-method-item"
                   aria-pressed={inputMethod === key}
                   onClick={() => {
                     setInputMethod(key);
@@ -1908,9 +1915,14 @@ export default function SettingsPage({
                     setInputMethodCommand(key).catch(() => {});
                   }}
                 >
-                  <Icon size={20} strokeWidth={1.5} />
-                  <span className="settings-option-label">{t(labelKey)}</span>
-                  <span className="settings-option-desc">{t(descKey)}</span>
+                  <Icon size={18} strokeWidth={1.5} style={{ color: inputMethod === key ? "var(--color-accent)" : "var(--color-text-tertiary)", flexShrink: 0 }} />
+                  <div className="input-method-item-body">
+                    <span className="settings-option-label">{t(labelKey)}</span>
+                    <span className="settings-option-desc">{t(descKey)}</span>
+                  </div>
+                  <div className="input-method-check">
+                    {inputMethod === key && <Check size={10} strokeWidth={3} style={{ color: "#fff" }} />}
+                  </div>
                 </button>
               ))}
             </div>

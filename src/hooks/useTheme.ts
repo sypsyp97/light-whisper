@@ -19,11 +19,17 @@ function resolveIsDark(mode: ThemeMode): boolean {
   return mode === "dark";
 }
 
+let isFirstApply = true;
+
 function applyThemeToDOM(isDark: boolean): void {
   const root = document.documentElement;
 
-  // Suppress all transitions during theme switch to prevent color flash
-  root.classList.add("no-transition");
+  // First call: suppress transitions to prevent light→dark flash on load
+  // Subsequent calls: let existing CSS transitions handle the smooth crossfade
+  if (isFirstApply) {
+    isFirstApply = false;
+    root.classList.add("no-transition");
+  }
 
   if (isDark) {
     root.classList.add("dark");
@@ -33,9 +39,10 @@ function applyThemeToDOM(isDark: boolean): void {
     root.setAttribute("data-theme", "light");
   }
 
-  // Force reflow, then re-enable transitions
-  root.offsetHeight;
-  root.classList.remove("no-transition");
+  if (root.classList.contains("no-transition")) {
+    root.offsetHeight; // force reflow
+    root.classList.remove("no-transition");
+  }
 }
 
 /**
