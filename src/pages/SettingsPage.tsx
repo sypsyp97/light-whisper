@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive, Search } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
@@ -271,7 +271,6 @@ export default function SettingsPage({
     { id: "input", labelKey: "settings.inputMethod" },
     { id: "ai-polish", labelKey: "settings.aiPolish" },
     { id: "assistant", labelKey: "settings.assistant" },
-    { id: "web-search", labelKey: "settings.webSearch" },
     { id: "translation", labelKey: "settings.translation" },
     { id: "vocabulary", labelKey: "settings.vocabulary" },
     { id: "misc", labelKey: "settings.startup" },
@@ -2399,7 +2398,7 @@ export default function SettingsPage({
             style={{
               animationDelay: "206ms",
               position: "relative",
-              zIndex: picker.isOpen("assistantModel") || picker.isOpen("assistantReasoning") ? 8 : 1,
+              zIndex: picker.isOpen("assistantModel") || picker.isOpen("assistantReasoning") || picker.isOpen("webSearchProvider") ? 8 : 1,
             }}
           >
             <div className="settings-section-header">
@@ -2770,17 +2769,9 @@ export default function SettingsPage({
                   {t("settings.assistantPromptHint")}
                 </p>
               </div>
-            </div>
-          </section>
 
-          {/* Web Search */}
-          <section className="settings-card" data-nav-id="web-search" style={{ animationDelay: "216ms", position: "relative", zIndex: picker.isOpen("webSearchProvider") ? 8 : 1 }}>
-            <div className="settings-section-header">
-              <Search size={15} className="icon-accent" />
-              <h2 className="settings-section-title">{t("settings.webSearch")}</h2>
-            </div>
-            <div className="settings-column" style={{ gap: 10 }}>
-              <div className="settings-row">
+              {/* 联网搜索 */}
+              <div className="settings-row" style={{ marginTop: 4 }}>
                 <span className="permission-label">{t("settings.webSearchDesc")}</span>
                 <button
                   role="switch"
