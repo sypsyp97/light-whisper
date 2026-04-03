@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
@@ -1476,7 +1476,7 @@ export default function SettingsPage({
         <div className="settings-sections">
 
           {/* Appearance */}
-          <section className="settings-card" data-nav-id="appearance" style={{ animationDelay: "0ms", position: "relative", zIndex: picker.isOpen("language") ? 8 : 1 }}>
+          <section className="settings-card" data-nav-id="appearance" style={{ animationDelay: "0ms", position: "relative", zIndex: picker.isOpen("language") ? 8 : "auto" }}>
             <div className="settings-section-header">
               {isDark ? <Moon size={15} className="icon-accent" /> : <Sun size={15} className="icon-accent" />}
               <h2 className="settings-section-title">{t("settings.appearance")}</h2>
@@ -1540,7 +1540,7 @@ export default function SettingsPage({
           </section>
 
           {/* Engine */}
-          <section className="settings-card" data-nav-id="engine" style={{ animationDelay: "50ms" }}>
+          <section className="settings-card" data-nav-id="engine" style={{ animationDelay: "40ms" }}>
             <div className="settings-section-header">
               <AudioLines size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.engine")}</h2>
@@ -1680,9 +1680,9 @@ export default function SettingsPage({
             className="settings-card"
             data-nav-id="hotkey"
             style={{
-              animationDelay: "100ms",
+              animationDelay: "80ms",
               position: "relative",
-              zIndex: picker.isOpen("recordingMode") ? 9 : 1,
+              zIndex: picker.isOpen("recordingMode") ? 9 : "auto",
             }}
           >
             <div className="settings-section-header">
@@ -1769,8 +1769,8 @@ export default function SettingsPage({
                 </div>
               </div>
               {hotkeyDiagnostic?.systemConflict && (
-                <p className="settings-error" style={{ opacity: 0.85 }}>
-                  ⚠ {hotkeyDiagnostic.systemConflict}
+                <p className="settings-error" style={{ opacity: 0.85, display: "flex", alignItems: "center", gap: 4 }}>
+                  <AlertTriangle size={12} style={{ flexShrink: 0 }} /> {hotkeyDiagnostic.systemConflict}
                 </p>
               )}
               {hotkeyDiagnostic?.warning && <p className="settings-hint">{hotkeyDiagnostic.warning}</p>}
@@ -1783,9 +1783,9 @@ export default function SettingsPage({
             className="settings-card"
             data-nav-id="microphone"
             style={{
-              animationDelay: "125ms",
+              animationDelay: "120ms",
               position: "relative",
-              zIndex: picker.isOpen("microphone") ? 8 : 1,
+              zIndex: picker.isOpen("microphone") ? 8 : "auto",
             }}
           >
             <div className="settings-section-header">
@@ -1915,7 +1915,7 @@ export default function SettingsPage({
           </section>
 
           {/* Input Method */}
-          <section className="settings-card" data-nav-id="input" style={{ animationDelay: "150ms" }}>
+          <section className="settings-card" data-nav-id="input" style={{ animationDelay: "160ms" }}>
             <div className="settings-section-header">
               <ClipboardPaste size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.inputMethod")}</h2>
@@ -1969,7 +1969,7 @@ export default function SettingsPage({
             style={{
               animationDelay: "200ms",
               position: "relative",
-              zIndex: picker.isOpen("provider") || picker.isOpen("model") || picker.isOpen("polishReasoning") ? 8 : 1,
+              zIndex: picker.isOpen("provider") || picker.isOpen("model") || picker.isOpen("polishReasoning") ? 8 : "auto",
             }}
           >
             <div className="settings-section-header">
@@ -2086,10 +2086,17 @@ export default function SettingsPage({
                                     role="button"
                                     tabIndex={0}
                                     style={{ padding: 2, cursor: "pointer", opacity: 0.5 }}
-                                    title={t("settings.deleteProvider")}
+                                    aria-label={t("settings.deleteProvider")}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       void removeCustomProvider(key).then(async () => { await refreshProfile(); await refreshAiPolishKey(); });
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        void removeCustomProvider(key).then(async () => { await refreshProfile(); await refreshAiPolishKey(); });
+                                      }
                                     }}
                                   >
                                     <Trash2 size={12} />
@@ -2421,9 +2428,9 @@ export default function SettingsPage({
             className="settings-card"
             data-nav-id="assistant"
             style={{
-              animationDelay: "206ms",
+              animationDelay: "240ms",
               position: "relative",
-              zIndex: picker.isOpen("assistantModel") || picker.isOpen("assistantReasoning") || picker.isOpen("webSearchProvider") ? 8 : 1,
+              zIndex: picker.isOpen("assistantModel") || picker.isOpen("assistantReasoning") || picker.isOpen("webSearchProvider") ? 8 : "auto",
             }}
           >
             <div className="settings-section-header">
@@ -2589,15 +2596,13 @@ export default function SettingsPage({
                   {assistantProviderDiffers ? (
                     <div className="settings-column" style={{ gap: 4 }}>
                       <span className="settings-option-desc">{currentAssistantPreset.label} API Key</span>
-                      <input
-                        type="password"
-                        className="settings-input"
-                        placeholder={`${currentAssistantPreset.label} API Key`}
-                        aria-label={t("settings.assistantApiKey")}
+                      <SecretInput
                         value={assistantApiKeyState}
-                        autoComplete="off"
-                        onChange={(e) => {
-                          const value = e.target.value;
+                        placeholder={`${currentAssistantPreset.label} API Key`}
+                        ariaLabel={t("settings.assistantApiKey")}
+                        ariaLabelShow={t("settings.showApiKey")}
+                        ariaLabelHide={t("settings.hideApiKey")}
+                        onChange={(value) => {
                           setAssistantApiKeyState(value);
                           assistantKeySave.schedule(value);
                         }}
@@ -2909,7 +2914,7 @@ export default function SettingsPage({
           </section>
 
           {/* Translation */}
-          <section className="settings-card" data-nav-id="translation" style={{ animationDelay: "220ms" }}>
+          <section className="settings-card" data-nav-id="translation" style={{ animationDelay: "280ms" }}>
             <div className="settings-section-header">
               <Languages size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.translation")}</h2>
@@ -3047,7 +3052,7 @@ export default function SettingsPage({
           </section>
 
           {/* Smart Vocabulary */}
-          <section className="settings-card" data-nav-id="vocabulary" style={{ animationDelay: "225ms" }}>
+          <section className="settings-card" data-nav-id="vocabulary" style={{ animationDelay: "320ms" }}>
             <div className="settings-section-header">
               <BookOpen size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.vocabulary")}</h2>
@@ -3146,7 +3151,7 @@ export default function SettingsPage({
           </section>
 
           {/* Profile Export/Import */}
-          <section className="settings-card" data-nav-id="misc" style={{ animationDelay: "255ms" }}>
+          <section className="settings-card" data-nav-id="misc" style={{ animationDelay: "360ms" }}>
             <div className="settings-section-header">
               <Download size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.data")}</h2>
@@ -3198,7 +3203,7 @@ export default function SettingsPage({
           </section>
 
           {/* Permissions */}
-          <section className="settings-card" style={{ animationDelay: "250ms" }}>
+          <section className="settings-card" style={{ animationDelay: "400ms" }}>
             <div className="settings-section-header">
               <Accessibility size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.permissions")}</h2>
@@ -3220,7 +3225,7 @@ export default function SettingsPage({
           </section>
 
           {/* Startup */}
-          <section className="settings-card" style={{ animationDelay: "300ms" }}>
+          <section className="settings-card" style={{ animationDelay: "440ms" }}>
             <div className="settings-section-header">
               <Power size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.startup")}</h2>
@@ -3242,7 +3247,7 @@ export default function SettingsPage({
             </div>
           </section>
 
-          <section className="settings-card" style={{ animationDelay: "325ms" }}>
+          <section className="settings-card" style={{ animationDelay: "480ms" }}>
             <div className="settings-section-header">
               <Download size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.update")}</h2>

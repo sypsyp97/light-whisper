@@ -443,6 +443,8 @@ export default function SubtitleOverlay() {
           <div
             ref={assistantTextRef}
             className={`subtitle-text${polishFlash ? " subtitle-polish-flash" : ""}`}
+            role="status"
+            aria-live="polite"
             onScroll={assistantPanelActive ? handleAssistantScroll : undefined}
             onAnimationEnd={() => setPolishFlash(false)}
           >

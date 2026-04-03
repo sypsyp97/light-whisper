@@ -57,6 +57,7 @@ const zh = {
     title: "识别结果",
     recognizingSpeech: "正在识别语音...",
     stats: "{{chars}}字 · {{duration}}秒 · {{cpm}}字/分钟",
+    editableTranscription: "识别结果，可编辑",
   },
   subtitle: {
     aiListening: "AI 助手聆听中...",

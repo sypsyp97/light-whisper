@@ -59,6 +59,7 @@ const en: TranslationSchema = {
     title: "Result",
     recognizingSpeech: "Recognizing speech...",
     stats: "{{chars}} chars · {{duration}}s · {{cpm}} chars/min",
+    editableTranscription: "Transcription result, editable",
   },
   subtitle: {
     aiListening: "AI assistant listening...",

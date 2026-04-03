@@ -74,6 +74,7 @@ export default function TranscriptionResult({
             <textarea
               ref={bodyRef}
               className="result-card-body"
+              aria-label={t("result.editableTranscription")}
               value={draftText}
               rows={Math.max(3, draftText.split(/\r?\n/).length)}
               onChange={(event) => handleChange(event.target.value)}

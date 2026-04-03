@@ -473,7 +473,7 @@ body {
   width: 2.5px;
   height: 12px;
   border-radius: 1.5px;
-  background: white;
+  background: white; /* always on --color-accent button, matches RecordingButton color: "white" */
   transform-origin: center bottom;
   animation: eq 0.7s cubic-bezier(0.4, 0, 0.6, 1) infinite alternate;
   will-change: transform;
@@ -813,6 +813,47 @@ body {
 .theme-btn:active {
   transform: translateY(0) scale(0.96);
   transition: transform 60ms ease-out;
+}
+
+/* Range input — warm-toned slider matching design system */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-subtle);
+  outline: none;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  transition: transform 0.2s var(--ease-spring-soft),
+              box-shadow 0.2s var(--ease-out-expo);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22), var(--shadow-glow);
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(0.95);
+}
+
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 3px rgba(var(--color-accent-rgb), 0.2);
 }
 
 /* Font utility */
