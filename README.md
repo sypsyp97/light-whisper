@@ -63,7 +63,7 @@ Transparent floating window shows live dictation status and assistant output.
 <td width="50%">
 
 **Voice assistant**<br>
-Separate hotkey triggers a floating answer card. Optionally reads selected text, foreground app, and full-screen screenshots as context. Auto-detects model image support.
+Separate hotkey triggers a floating answer card. Optionally reads selected text, foreground app, and full-screen screenshots as context. Auto-detects model image support. Built-in web search (Exa / Tavily) for real-time information retrieval.
 
 **Edit selected text**<br>
 Select text anywhere, press the hotkey, speak an instruction ("translate to English", "make it formal") to rewrite in-place.
@@ -89,7 +89,7 @@ Hold-to-talk or toggle mode · input queue · multilingual UI (en/zh) · auto-up
 | **ASR engines** | 3 switchable (local + online) | Cloud proprietary |
 | **Languages** | 5–99+ (engine dependent) | 100+ |
 | **AI polish** | Multi-backend LLM, bring your own key | Built-in |
-| **Screen-aware assistant** | ✅ | ❌ |
+| **Screen-aware assistant + web search** | ✅ | ❌ |
 | **Subtitle overlay** | ✅ | ❌ |
 
 ## Engine Comparison
@@ -197,6 +197,7 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
                                        │                        └─────────────────┘
                                        ├─── HTTP ──► GLM-ASR API (online ASR)
                                        ├─── HTTP ──► LLM API (AI polish / assistant / translation)
+                                       ├─── HTTP ──► Web Search (Exa / Tavily) → assistant context
                                        ├─── Screen Capture ──► full-screen screenshots → assistant context
                                        └─── User Profile ──► hot words + blacklist → ASR + LLM prompt
 ```
@@ -206,9 +207,9 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 
 | Layer | Paths |
 |:------|:------|
-| **Frontend** | `src/pages/`, `src/components/`, `src/hooks/`, `src/i18n/`, `src/styles/` |
+| **Frontend** | `src/pages/`, `src/components/`, `src/hooks/`, `src/contexts/`, `src/lib/`, `src/i18n/`, `src/styles/` |
 | **Rust commands** | `src-tauri/src/commands/` — audio, assistant, clipboard, funasr, hotkey, ai_polish, profile, updater, window |
-| **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service, screen_capture_service, download_service |
+| **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service, screen_capture_service, web_search_service, download_service |
 | **State** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
 
