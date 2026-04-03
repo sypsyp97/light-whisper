@@ -67,8 +67,7 @@ fn release_stuck_modifiers() -> Result<(), AppError> {
     Ok(())
 }
 
-/// 通过 Windows UI Automation 读取前台焦点控件中的选中文本。
-/// 不碰剪贴板，不发送按键，零副作用。
+/// 通过 UIA TextPattern 读取前台焦点控件的选中文本。零副作用。
 pub fn grab_selected_text() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
@@ -88,16 +87,11 @@ fn grab_selected_text_uia() -> Option<String> {
     let automation = UIAutomation::new().ok()?;
     let focused = automation.get_focused_element().ok()?;
 
-    // 尝试从焦点元素及其祖先中找到 TextPattern 并读取选中文本
     if let Some(text) = try_get_selection(&focused) {
         return Some(text);
     }
 
-    // 向上遍历父元素
-    let walker = match automation.create_tree_walker() {
-        Ok(w) => w,
-        Err(_) => return None,
-    };
+    let walker = automation.create_tree_walker().ok()?;
     let mut current = focused;
     for _ in 0..5 {
         current = match walker.get_parent(&current) {
@@ -130,7 +124,7 @@ fn try_get_selection(element: &uiautomation::UIElement) -> Option<String> {
     if trimmed.is_empty() {
         None
     } else {
-        log::info!("UI Automation 检测到选中文本（{} 字符）", trimmed.len());
+        log::info!("UIA 检测到选中文本（{} 字符）", trimmed.len());
         Some(trimmed.to_string())
     }
 }
