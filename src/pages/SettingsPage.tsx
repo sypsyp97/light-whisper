@@ -1761,7 +1761,6 @@ export default function SettingsPage({
                               <strong>{t(option.labelKey)}</strong>
                               <span>{t(option.descKey)}</span>
                             </span>
-                            {recordingMode === option.key ? <Check size={14} className="icon-accent" /> : null}
                           </button>
                         ))}
                       </div>
@@ -1849,7 +1848,6 @@ export default function SettingsPage({
                               {inputDevices.find((device) => device.isDefault)?.name ?? t("settings.autoUseDefault")}
                             </span>
                           </span>
-                          {!selectedInputDeviceName ? <Check size={14} className="icon-accent" /> : null}
                         </button>
                         {inputDevices.map((device) => (
                           <button
@@ -1863,7 +1861,6 @@ export default function SettingsPage({
                               <strong>{device.name}</strong>
                               <span>{device.isDefault ? t("settings.systemDefaultDevice") : t("settings.canSelect")}</span>
                             </span>
-                            {selectedInputDeviceName === device.name ? <Check size={14} className="icon-accent" /> : null}
                           </button>
                         ))}
                       </div>
@@ -1939,9 +1936,6 @@ export default function SettingsPage({
                   <div className="input-method-item-body">
                     <span className="settings-option-label">{t(labelKey)}</span>
                     <span className="settings-option-desc">{t(descKey)}</span>
-                  </div>
-                  <div className="input-method-check">
-                    {inputMethod === key && <Check size={10} strokeWidth={3} style={{ color: "#fff" }} />}
                   </div>
                 </button>
               ))}
@@ -2039,6 +2033,7 @@ export default function SettingsPage({
                 </button>
               </div>
 
+
               <div className="settings-column" style={{ gap: 10 }}>
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">{t("settings.provider")}</span>
@@ -2086,7 +2081,6 @@ export default function SettingsPage({
                                 <code>{baseUrl}</code>
                               </span>
                               <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                                {llmProvider === key ? <Check size={14} className="icon-accent" /> : null}
                                 {isCustom && (
                                   <span
                                     role="button"
@@ -2332,7 +2326,6 @@ export default function SettingsPage({
                                 <strong>{model.id}</strong>
                                 <span>{model.ownedBy || currentLlmPreset.label}</span>
                               </span>
-                              {customModel === model.id ? <Check size={14} className="icon-accent" /> : null}
                             </button>
                           )) : (
                             <div className="picker-empty">
@@ -2389,7 +2382,6 @@ export default function SettingsPage({
                                 <strong>{t(option.labelKey)}</strong>
                                 <span>{t(option.descKey)}</span>
                               </span>
-                              {polishReasoningMode === option.key ? <Check size={14} className="icon-accent" /> : null}
                             </button>
                           ))}
                         </div>
@@ -2401,6 +2393,7 @@ export default function SettingsPage({
                   </p>
                 </div>
               </div>
+
 
               <div className="settings-column" style={{ gap: 6 }}>
                 <span className="settings-option-desc">{t("settings.customPrompt")}</span>
@@ -2470,6 +2463,7 @@ export default function SettingsPage({
               <p className="settings-hint" style={{ margin: 0 }}>
                 {t("settings.assistantHint")}
               </p>
+
               <div className="settings-row">
                 <div className="permission-item" style={{ gap: 8 }}>
                   <Monitor size={14} className="icon-tertiary" />
@@ -2537,6 +2531,7 @@ export default function SettingsPage({
                 </button>
               </div>
 
+
               {assistantUseSeparateModel ? (
                 <div className="settings-column" style={{ gap: 6 }}>
                   {/* 助手供应商选择器 */}
@@ -2583,7 +2578,6 @@ export default function SettingsPage({
                                 <strong>{opt.label}</strong>
                                 <span>{opt.desc}</span>
                               </span>
-                              {assistantProvider === opt.key ? <Check size={14} className="icon-accent" /> : null}
                             </button>
                           ))}
                         </div>
@@ -2710,7 +2704,6 @@ export default function SettingsPage({
                                 <strong>{model.id}</strong>
                                 <span>{model.ownedBy || currentAssistantPreset.label}</span>
                               </span>
-                              {assistantModel === model.id ? <Check size={14} className="icon-accent" /> : null}
                             </button>
                           )) : (
                             <div className="picker-empty">
@@ -2774,7 +2767,6 @@ export default function SettingsPage({
                               <strong>{t(option.labelKey)}</strong>
                               <span>{t(option.descKey)}</span>
                             </span>
-                            {assistantReasoningMode === option.key ? <Check size={14} className="icon-accent" /> : null}
                           </button>
                         ))}
                       </div>
@@ -2785,6 +2777,7 @@ export default function SettingsPage({
                   {assistantReasoningModeHint}
                 </p>
               </div>
+
 
               <div className="settings-column" style={{ gap: 6 }}>
                 <span className="settings-option-desc">{t("settings.customAssistantPrompt")}</span>
@@ -2803,7 +2796,8 @@ export default function SettingsPage({
               </div>
 
               {/* 联网搜索 */}
-              <div className="settings-row" style={{ marginTop: 4 }}>
+
+              <div className="settings-row">
                 <span className="permission-label">{t("settings.webSearchDesc")}</span>
                 <button
                   role="switch"
@@ -2867,7 +2861,6 @@ export default function SettingsPage({
                                   <strong>{t(option.labelKey)}</strong>
                                   <span>{t(option.descKey)}</span>
                                 </span>
-                                {webSearchProvider === option.key ? <Check size={14} className="icon-accent" /> : null}
                               </button>
                             ))}
                           </div>

@@ -27,7 +27,7 @@
 
 /* Status hint text below the record button */
 .status-text {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
   color: var(--color-text-tertiary);
   text-align: center;
@@ -43,12 +43,12 @@
 /* Result card — elevated container for transcription output */
 @keyframes result-arrive {
   0%   { border-color: var(--color-border-subtle); box-shadow: var(--shadow-sm); }
-  35%  { border-color: var(--color-border-accent); box-shadow: var(--shadow-sm), 0 0 12px rgba(216, 90, 48, 0.12); }
+  35%  { border-color: var(--color-border-accent); box-shadow: var(--shadow-sm), 0 0 12px rgba(217, 119, 87, 0.12); }
   100% { border-color: var(--color-border-subtle); box-shadow: var(--shadow-sm); }
 }
 
 .result-card {
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-subtle);
   box-shadow: var(--shadow-sm);
@@ -77,7 +77,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -135,10 +135,10 @@
 
 /* Error banner container */
 .error-banner {
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px;
   background: var(--color-error-bg);
-  border: 1px solid rgba(192, 57, 43, 0.18);
+  border: 1px solid rgba(191, 77, 67, 0.18);
   backdrop-filter: blur(4px);
 }
 
@@ -284,7 +284,7 @@
 
 /* History item timestamp */
 .history-item-time {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--color-text-tertiary);
   margin-top: 2px;
   display: block;
@@ -434,7 +434,7 @@
 .settings-sections {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 /* Settings grid — 2 or 3 column option layouts */
@@ -470,12 +470,12 @@
   border: 1px solid var(--color-border-accent);
   background: var(--color-accent-subtle);
   color: var(--color-accent);
-  box-shadow: 0 0 0 1px rgba(216, 90, 48, 0.06);
+  box-shadow: 0 0 0 1px rgba(217, 119, 87, 0.06);
 }
 
 .settings-option-btn[aria-pressed="false"] {
   border: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-elevated);
+  background: var(--color-bg-secondary);
   color: var(--color-text-tertiary);
 }
 
@@ -495,10 +495,11 @@
   font-weight: 500;
 }
 
-/* Option button description */
+/* Option button description / sub-section label */
 .settings-option-desc {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 /* Settings column layout */
@@ -525,12 +526,12 @@
 
 .settings-input:focus {
   border-color: var(--color-border-accent);
-  box-shadow: 0 0 0 2.5px rgba(216, 90, 48, 0.08);
+  box-shadow: 0 0 0 2.5px rgba(217, 119, 87, 0.08);
 }
 
 [data-theme="dark"] .settings-input:focus,
 .dark .settings-input:focus {
-  box-shadow: 0 0 0 2.5px rgba(212, 121, 78, 0.12);
+  box-shadow: 0 0 0 2.5px rgba(217, 119, 87, 0.12);
 }
 
 .microphone-select {
@@ -624,7 +625,7 @@
 .picker-inline-button[data-open="true"] {
   border-color: var(--color-border-accent);
   background: var(--color-accent-subtle);
-  box-shadow: 0 0 0 1px rgba(216, 90, 48, 0.14);
+  box-shadow: 0 0 0 1px rgba(217, 119, 87, 0.14);
 }
 
 .picker-trigger {
@@ -652,7 +653,7 @@
 .picker-trigger[data-open="true"] {
   border-color: var(--color-border-accent);
   background: var(--color-accent-subtle);
-  box-shadow: 0 0 0 1px rgba(216, 90, 48, 0.14);
+  box-shadow: 0 0 0 1px rgba(217, 119, 87, 0.14);
 }
 
 .picker-trigger-copy {
@@ -842,7 +843,7 @@
   border: 1px solid var(--color-border-accent);
   background: var(--color-accent-subtle);
   color: var(--color-accent);
-  box-shadow: 0 0 0 2.5px rgba(216, 90, 48, 0.08);
+  box-shadow: 0 0 0 2.5px rgba(217, 119, 87, 0.08);
 }
 
 .hotkey-capture-btn[data-capturing="false"] {
@@ -917,7 +918,7 @@
   padding: 10px 14px;
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
-  background: var(--color-bg-elevated);
+  background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
   cursor: pointer;
   text-align: left;
@@ -949,24 +950,6 @@
   gap: 2px;
 }
 
-.input-method-check {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1.5px solid var(--color-border);
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: border-color 0.2s var(--ease-out-expo),
-              background 0.2s var(--ease-out-expo),
-              transform 0.3s var(--ease-spring);
-}
-
-.input-method-item[aria-pressed="true"] .input-method-check {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-}
 
 /* Accent icon color */
 .icon-accent {
