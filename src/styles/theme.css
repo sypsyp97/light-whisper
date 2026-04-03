@@ -6,32 +6,33 @@
 
 /* ---------- Light theme (default) ---------- */
 :root {
-  /* Surfaces — Claude production Slate/Ivory ramp */
-  --color-bg-primary: #faf9f5;
-  --color-bg-secondary: #f0eee6;
-  --color-bg-tertiary: #e8e6dc;
-  --color-bg-elevated: #ffffff;
-  --color-bg-overlay: rgba(250, 249, 245, 0.92);
-  --color-bg-sunken: #f5f4ed;
+  /* Surfaces — Claude.ai product palette */
+  --color-bg-primary: #F5F5F0;
+  --color-bg-secondary: #ECEAE2;
+  --color-bg-tertiary: #E0DDD4;
+  --color-bg-elevated: #FFFFFF;
+  --color-bg-overlay: rgba(245, 245, 240, 0.92);
+  --color-bg-sunken: #F0EEE6;
 
-  /* Text — Claude Slate ramp (950/750/600) */
-  --color-text-primary: #141413;
-  --color-text-secondary: #30302e;
-  --color-text-tertiary: #5e5d59;
-  --color-text-inverse: #faf9f5;
+  /* Text — Claude.ai product ramp (clear hierarchy) */
+  --color-text-primary: #1a1a18;
+  --color-text-secondary: #6b6a68;
+  --color-text-tertiary: #8a8985;
+  --color-text-inverse: #F5F5F0;
   --color-text-brand: #d97757;
 
-  /* Brand accent — Claude Clay ramp */
-  --color-accent: #d97757;
+  /* Brand accent — Claude.ai send-button terracotta */
+  --color-accent: #ae5630;
   --color-accent-hover: #c4633a;
-  --color-accent-active: #ae5630;
-  --color-accent-subtle: rgba(217, 119, 87, 0.10);
-  --color-accent-muted: rgba(217, 119, 87, 0.05);
+  --color-accent-active: #943f22;
+  --color-accent-subtle: rgba(174, 86, 48, 0.10);
+  --color-accent-muted: rgba(174, 86, 48, 0.05);
+  --color-accent-rgb: 174, 86, 48;
 
   /* Borders — Claude Cloud ramp */
   --color-border: #d1cfc5;
   --color-border-subtle: rgba(0, 0, 0, 0.06);
-  --color-border-accent: rgba(217, 119, 87, 0.25);
+  --color-border-accent: rgba(174, 86, 48, 0.25);
 
   /* Status */
   --color-success: #2E8B57;
@@ -54,7 +55,7 @@
   --shadow-md: 0 4px 8px -1px rgba(45, 40, 32, 0.06), 0 2px 4px -1px rgba(45, 40, 32, 0.03);
   --shadow-lg: 0 10px 25px -3px rgba(45, 40, 32, 0.08), 0 4px 10px -2px rgba(45, 40, 32, 0.04);
   --shadow-xl: 0 20px 50px -5px rgba(45, 40, 32, 0.12), 0 8px 20px -4px rgba(45, 40, 32, 0.06);
-  --shadow-glow: 0 0 0 3px rgba(217, 119, 87, 0.15);
+  --shadow-glow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.15);
   --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.03), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
 
   /* Radii */
@@ -117,25 +118,25 @@
 
   /* Ambient background — semi-transparent for Windows Acrylic */
   --bg-gradient:
-    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(217, 119, 87, 0.06), transparent 60%),
+    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(var(--color-accent-rgb), 0.06), transparent 60%),
     radial-gradient(ellipse 800px 450px at 0% 100%, rgba(212, 137, 10, 0.04), transparent 60%),
-    linear-gradient(175deg, rgba(250, 249, 245, 0.82) 0%, rgba(245, 244, 237, 0.82) 100%);
+    linear-gradient(175deg, rgba(245, 245, 240, 0.82) 0%, rgba(240, 238, 230, 0.82) 100%);
 }
 
 /* ---------- Dark theme — evening warmth, not cold terminal ---------- */
 [data-theme="dark"],
 .dark {
-  --color-bg-primary: #141413;
-  --color-bg-secondary: #1f1e1d;
-  --color-bg-tertiary: #30302e;
-  --color-bg-elevated: #1f1e1d;
-  --color-bg-overlay: rgba(20, 20, 19, 0.94);
-  --color-bg-sunken: #0f0f0e;
+  --color-bg-primary: #1A1917;
+  --color-bg-secondary: #232220;
+  --color-bg-tertiary: #2E2D2A;
+  --color-bg-elevated: #232220;
+  --color-bg-overlay: rgba(26, 25, 23, 0.94);
+  --color-bg-sunken: #141312;
 
-  --color-text-primary: #faf9f5;
+  --color-text-primary: #eeeeee;
   --color-text-secondary: #b0aea5;
-  --color-text-tertiary: #9c9a92;
-  --color-text-inverse: #141413;
+  --color-text-tertiary: #9a9893;
+  --color-text-inverse: #1A1917;
   --color-text-brand: #d97757;
 
   --color-accent: #d97757;
@@ -143,8 +144,9 @@
   --color-accent-active: #eca06e;
   --color-accent-subtle: rgba(217, 119, 87, 0.14);
   --color-accent-muted: rgba(217, 119, 87, 0.07);
+  --color-accent-rgb: 217, 119, 87;
 
-  --color-border: #5e5d59;
+  --color-border: #3D3B37;
   --color-border-subtle: rgba(255, 255, 255, 0.06);
   --color-border-accent: rgba(217, 119, 87, 0.30);
 
@@ -166,13 +168,13 @@
   --shadow-md: 0 6px 14px rgba(0, 0, 0, 0.25), 0 2px 6px rgba(0, 0, 0, 0.15);
   --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.32), 0 4px 12px rgba(0, 0, 0, 0.18);
   --shadow-xl: 0 24px 50px rgba(0, 0, 0, 0.40), 0 8px 22px rgba(0, 0, 0, 0.22);
-  --shadow-glow: 0 0 0 3px rgba(217, 119, 87, 0.20);
+  --shadow-glow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.20);
   --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
 
   --bg-gradient:
-    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(217, 119, 87, 0.08), transparent 60%),
+    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(var(--color-accent-rgb), 0.08), transparent 60%),
     radial-gradient(ellipse 800px 450px at 0% 100%, rgba(212, 137, 10, 0.05), transparent 60%),
-    linear-gradient(175deg, rgba(20, 20, 19, 0.82) 0%, rgba(15, 15, 14, 0.82) 100%);
+    linear-gradient(175deg, rgba(26, 25, 23, 0.82) 0%, rgba(20, 19, 18, 0.82) 100%);
 }
 
 /* ============================================================
@@ -536,8 +538,8 @@ body {
 @media (prefers-contrast: high) {
   :root {
     --color-border: #78716C;
-    --color-text-secondary: #1f1e1d;
-    --color-text-tertiary: #30302e;
+    --color-text-secondary: #3D3B37;
+    --color-text-tertiary: #5e5d59;
   }
 
   [data-theme="dark"],
@@ -772,12 +774,12 @@ body {
 }
 
 .toggle-switch[aria-checked="true"] {
-  box-shadow: 0 0 8px rgba(217, 119, 87, 0.25);
+  box-shadow: 0 0 8px rgba(var(--color-accent-rgb), 0.25);
 }
 
 [data-theme="dark"] .toggle-switch[aria-checked="true"],
 .dark .toggle-switch[aria-checked="true"] {
-  box-shadow: 0 0 10px rgba(217, 119, 87, 0.30);
+  box-shadow: 0 0 10px rgba(var(--color-accent-rgb), 0.30);
 }
 
 .toggle-switch:active .toggle-knob {

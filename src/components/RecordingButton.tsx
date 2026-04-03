@@ -43,7 +43,7 @@ export default function RecordingButton({
           border: isRecording ? "none" : "1px solid var(--color-border)",
           background: isRecording ? "var(--color-accent)" : isProcessing ? "var(--color-bg-tertiary)" : "var(--color-bg-elevated)",
           color: isRecording ? "white" : isProcessing ? "var(--color-text-tertiary)" : "var(--color-accent)",
-          boxShadow: isRecording ? "0 0 0 4px rgba(217, 119, 87, 0.12), var(--shadow-lg)" : "var(--shadow-md)",
+          boxShadow: isRecording ? "0 0 0 4px rgba(var(--color-accent-rgb), 0.12), var(--shadow-lg)" : "var(--shadow-md)",
           cursor: !isReady ? "not-allowed" : isProcessing ? "wait" : "pointer",
           opacity: !isReady ? 0.4 : 1,
         }}
