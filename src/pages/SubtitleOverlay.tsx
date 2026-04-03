@@ -339,42 +339,26 @@ export default function SubtitleOverlay() {
   }, [clearFadeTimer]);
 
   const hasText = text.length > 0;
-  const indicatorClass =
-    phase === "recording"
-      ? mode === "assistant"
-        ? "subtitle-dot-assistant"
-        : "subtitle-dot-recording"
-      : phase === "processing"
-        ? mode === "assistant"
-          ? "subtitle-dot-assistant-processing"
-          : "subtitle-dot-processing"
-        : phase === "searching"
-          ? "subtitle-dot-assistant"
-          : phase === "polishing"
-            ? mode === "assistant"
-              ? "subtitle-dot-assistant"
-              : "subtitle-dot-polishing"
-            : null;
-  const hintText =
-    phase === "recording"
-      ? mode === "assistant"
-        ? t("subtitle.aiListening")
-        : t("subtitle.listening")
-      : phase === "processing"
-        ? mode === "assistant"
-          ? t("subtitle.aiGenerating")
-          : t("subtitle.recognizing")
-        : phase === "searching"
-          ? t("subtitle.webSearching")
-          : phase === "polishing"
-            ? mode === "assistant"
-              ? text
-                ? null
-                : t("subtitle.aiGenerating")
-              : streamTokens > 0
-                ? t("subtitle.polishingWithTokens", { tokens: streamTokens })
-                : t("subtitle.polishing")
-            : null;
+  const isAssistant = mode === "assistant";
+
+  let indicatorClass: string | null = null;
+  switch (phase) {
+    case "recording":  indicatorClass = isAssistant ? "subtitle-dot-assistant" : "subtitle-dot-recording"; break;
+    case "processing": indicatorClass = isAssistant ? "subtitle-dot-assistant-processing" : "subtitle-dot-processing"; break;
+    case "searching":  indicatorClass = "subtitle-dot-assistant"; break;
+    case "polishing":  indicatorClass = isAssistant ? "subtitle-dot-assistant" : "subtitle-dot-polishing"; break;
+  }
+
+  let hintText: string | null = null;
+  switch (phase) {
+    case "recording":  hintText = isAssistant ? t("subtitle.aiListening") : t("subtitle.listening"); break;
+    case "processing": hintText = isAssistant ? t("subtitle.aiGenerating") : t("subtitle.recognizing"); break;
+    case "searching":  hintText = t("subtitle.webSearching"); break;
+    case "polishing":
+      if (isAssistant) { hintText = text ? null : t("subtitle.aiGenerating"); }
+      else { hintText = streamTokens > 0 ? t("subtitle.polishingWithTokens", { tokens: streamTokens }) : t("subtitle.polishing"); }
+      break;
+  }
 
   const closeAssistantOverlay = useCallback(() => {
     clearFadeTimer();

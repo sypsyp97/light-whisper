@@ -90,19 +90,7 @@ pub async fn set_web_search_api_key(
 ) -> Result<(), String> {
     state.set_web_search_api_key(api_key.clone());
     let keyring_user = web_search_keyring_user(&WebSearchProvider::Tavily);
-    if !api_key.is_empty() {
-        if let Err(e) = app_handle.keyring().set_password(
-            llm_provider::KEYRING_SERVICE,
-            keyring_user,
-            &api_key,
-        ) {
-            log::warn!("保存联网搜索 API Key 到密钥环失败: {e}");
-        }
-    } else {
-        let _ = app_handle
-            .keyring()
-            .delete_password(llm_provider::KEYRING_SERVICE, keyring_user);
-    }
+    llm_provider::save_or_delete_api_key(&app_handle, keyring_user, &api_key);
     Ok(())
 }
 

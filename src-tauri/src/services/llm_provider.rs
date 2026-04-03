@@ -885,6 +885,22 @@ pub fn build_auth_headers(
     Ok(headers)
 }
 
+/// 保存或删除 API Key：非空则写入密钥环，空则删除
+pub fn save_or_delete_api_key(app_handle: &tauri::AppHandle, keyring_user: &str, api_key: &str) {
+    if !api_key.is_empty() {
+        if let Err(e) = app_handle
+            .keyring()
+            .set_password(KEYRING_SERVICE, keyring_user, api_key)
+        {
+            log::warn!("保存 API Key 到密钥环失败: {e}");
+        }
+    } else {
+        let _ = app_handle
+            .keyring()
+            .delete_password(KEYRING_SERVICE, keyring_user);
+    }
+}
+
 pub fn load_api_key_for_provider(app_handle: &tauri::AppHandle, provider: &str) -> String {
     let keyring_user = keyring_user_for_provider(provider);
     app_handle

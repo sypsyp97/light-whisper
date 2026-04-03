@@ -1,6 +1,5 @@
 use std::sync::atomic::Ordering;
 use tauri::Emitter;
-use tauri_plugin_keyring::KeyringExt;
 
 use crate::services::funasr_service;
 use crate::services::llm_provider;
@@ -135,18 +134,7 @@ pub async fn set_online_asr_api_key(
     state: tauri::State<'_, AppState>,
     api_key: String,
 ) -> Result<(), AppError> {
-    let keyring = app_handle.keyring();
-    if api_key.is_empty() {
-        let _ = keyring.delete_password(llm_provider::KEYRING_SERVICE, ONLINE_ASR_KEYRING_USER);
-    } else {
-        keyring
-            .set_password(
-                llm_provider::KEYRING_SERVICE,
-                ONLINE_ASR_KEYRING_USER,
-                &api_key,
-            )
-            .map_err(|e| AppError::Other(format!("保存在线 ASR API Key 失败: {}", e)))?;
-    }
+    llm_provider::save_or_delete_api_key(&app_handle, ONLINE_ASR_KEYRING_USER, &api_key);
     state.set_online_asr_api_key(&api_key);
 
     // 如果当前是在线引擎，更新就绪状态并通知前端

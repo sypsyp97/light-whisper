@@ -1,7 +1,6 @@
 use std::sync::atomic::Ordering;
 
 use serde::Serialize;
-use tauri_plugin_keyring::KeyringExt;
 
 use crate::services::{llm_provider, profile_service};
 use crate::state::user_profile::ApiFormat;
@@ -41,19 +40,7 @@ pub async fn set_ai_polish_config(
         state.set_assistant_api_key(api_key.clone());
     }
 
-    if !api_key.is_empty() {
-        if let Err(e) = app_handle.keyring().set_password(
-            llm_provider::KEYRING_SERVICE,
-            &keyring_user,
-            &api_key,
-        ) {
-            log::warn!("保存 API Key 到系统密钥环失败: {}", e);
-        }
-    } else {
-        let _ = app_handle
-            .keyring()
-            .delete_password(llm_provider::KEYRING_SERVICE, &keyring_user);
-    }
+    llm_provider::save_or_delete_api_key(&app_handle, &keyring_user, &api_key);
 
     log::info!(
         "AI 润色配置已更新: enabled={}, provider={}",
@@ -205,19 +192,7 @@ pub async fn set_assistant_api_key(
 
     state.set_assistant_api_key(api_key.clone());
 
-    if !api_key.is_empty() {
-        if let Err(e) = app_handle.keyring().set_password(
-            llm_provider::KEYRING_SERVICE,
-            &keyring_user,
-            &api_key,
-        ) {
-            log::warn!("保存助手 API Key 到密钥环失败: {}", e);
-        }
-    } else {
-        let _ = app_handle
-            .keyring()
-            .delete_password(llm_provider::KEYRING_SERVICE, &keyring_user);
-    }
+    llm_provider::save_or_delete_api_key(&app_handle, &keyring_user, &api_key);
 
     // 若与润色共享 provider，同步润色缓存
     let polish_provider = state.active_llm_provider();

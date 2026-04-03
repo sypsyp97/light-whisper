@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import i18n from "@/i18n";
+import { startRecording as invokeStartRecording, stopRecording as invokeStopRecording } from "@/api/tauri";
 import type { HistoryItem, RecordingMode, TranscriptionResult } from "@/types";
 
 interface UseRecordingReturn {
@@ -134,7 +134,7 @@ export function useRecording(): UseRecordingReturn {
   const startRecording = useCallback(async () => {
     setError(null);
     try {
-      const sessionId = await invoke<number>("start_recording");
+      const sessionId = await invokeStartRecording();
       if (Number.isFinite(sessionId) && sessionId > latestSessionIdRef.current) {
         latestSessionIdRef.current = sessionId;
       }
@@ -149,7 +149,7 @@ export function useRecording(): UseRecordingReturn {
       setIsProcessing(true);
     }
     try {
-      await invoke("stop_recording");
+      await invokeStopRecording();
     } catch (err) {
       if (isRecording) setIsProcessing(false);
       setError(err instanceof Error ? err.message : String(err));
