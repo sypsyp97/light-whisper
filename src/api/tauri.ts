@@ -297,6 +297,24 @@ export function removeCustomProvider(id: string): Promise<void> {
   return invokeCommand<void>("remove_custom_provider", { id });
 }
 
+export function validateCorrections(): Promise<number> {
+  return invokeCommand<number>("validate_corrections");
+}
+
+export function setCorrectionValidationConfig(params: {
+  enabled: boolean;
+  useSeparateModel?: boolean;
+  provider?: string | null;
+  model?: string | null;
+}): Promise<void> {
+  return invokeCommand<void>("set_correction_validation_config", {
+    enabled: params.enabled,
+    useSeparateModel: params.useSeparateModel,
+    provider: params.provider,
+    model: params.model,
+  });
+}
+
 export function setOnlineAsrApiKey(apiKey: string): Promise<void> {
   return invokeCommand<void>("set_online_asr_api_key", { apiKey });
 }

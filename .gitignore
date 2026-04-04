@@ -182,3 +182,5 @@ promo/
 *.tar.xz
 
 .impeccable.md
+
+.omc/

@@ -192,12 +192,61 @@ pub fn cleanup_profile(profile: &mut UserProfile) -> ProfileCleanupStats {
 
 fn sanitize_corrections(profile: &mut UserProfile) -> usize {
     let before = profile.correction_patterns.len();
+
+    // 标记矛盾对中 count 较低的（A→B 与 B→A 同时存在）
+    let mut contradiction_victims: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    for p in profile.correction_patterns.iter() {
+        let key = (p.original.clone(), p.corrected.clone());
+        if contradiction_victims.contains(&key) {
+            continue;
+        }
+        if let Some(rev) = profile
+            .correction_patterns
+            .iter()
+            .find(|q| q.original == p.corrected && q.corrected == p.original)
+        {
+            // count 相等则两个都删，否则删低的
+            if rev.count >= p.count {
+                contradiction_victims.insert(key);
+            }
+            if p.count >= rev.count {
+                contradiction_victims.insert((rev.original.clone(), rev.corrected.clone()));
+            }
+        }
+    }
+
     profile.correction_patterns.retain(|p| {
-        let too_long = p.original.chars().count() > 15 || p.corrected.chars().count() > 15;
-        let trivial_ai = p.original.chars().count() <= 1
-            && p.corrected.chars().count() <= 1
-            && p.source == CorrectionSource::Ai;
-        !too_long && !trivial_ai
+        // 用户手动纠错永远保留
+        if p.source == CorrectionSource::User {
+            return true;
+        }
+
+        let orig_chars = p.original.chars().count();
+        let corrected_chars = p.corrected.chars().count();
+
+        // 过长
+        if orig_chars > 15 || corrected_chars > 15 {
+            return false;
+        }
+        // 单字符原始 + 非单字符纠正（如 "不"→"一定"）
+        if orig_chars == 1 && corrected_chars != 1 {
+            return false;
+        }
+        // 长度比例异常（如 "话"→"的源代码，"）
+        let (longer, shorter) = (orig_chars.max(corrected_chars), orig_chars.min(corrected_chars));
+        if shorter >= 2 && longer > shorter * 3 {
+            return false;
+        }
+        // 矛盾对（仅清理 AI 来源的一方）
+        if contradiction_victims.contains(&(p.original.clone(), p.corrected.clone())) {
+            return false;
+        }
+        // AI 来源仅出现 1 次且超过 24h 的噪声（给新规则宽限期）
+        if p.count <= 1 && now_secs().saturating_sub(p.last_seen) > 24 * 60 * 60 {
+            return false;
+        }
+        true
     });
     before - profile.correction_patterns.len()
 }
@@ -449,11 +498,33 @@ fn upsert_correction(
     source: &CorrectionSource,
     now: u64,
 ) {
+    let orig_len = orig.chars().count();
+    let corrected_len = corrected.chars().count();
+
     if orig.is_empty()
         || corrected.is_empty()
         || orig == corrected
-        || orig.chars().count() > MAX_SEGMENT_CHARS
-        || corrected.chars().count() > MAX_SEGMENT_CHARS
+        || orig_len > MAX_SEGMENT_CHARS
+        || corrected_len > MAX_SEGMENT_CHARS
+    {
+        return;
+    }
+
+    // 单字符原始片段：仅允许 1:1 字符替换（如 "他"→"它"、"嘛"→"吗"）
+    if orig_len == 1 && corrected_len != 1 {
+        return;
+    }
+
+    // 长度比例过大：可能是对话碎片或句级重写的错误 diff
+    let (longer, shorter) = (orig_len.max(corrected_len), orig_len.min(corrected_len));
+    if shorter >= 2 && longer > shorter * 3 {
+        return;
+    }
+
+    // 矛盾检测：已有反向映射则跳过
+    if patterns
+        .iter()
+        .any(|p| p.original == corrected && p.corrected == orig)
     {
         return;
     }

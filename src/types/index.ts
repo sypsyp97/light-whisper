@@ -157,6 +157,9 @@ export interface LlmProviderConfig {
   assistant_model?: string;
   assistant_provider?: string;
   custom_providers?: CustomProvider[];
+  validation_use_separate_model?: boolean;
+  validation_provider?: string | null;
+  validation_model?: string | null;
 }
 
 // 用户画像
@@ -176,5 +179,7 @@ export interface UserProfile {
   ai_polish_screen_context_enabled?: boolean;
   blocked_hot_words?: string[];
   web_search?: WebSearchConfig;
+  correction_validation_enabled?: boolean;
+  last_correction_validation?: number;
 }
 

@@ -552,15 +552,18 @@ pub fn spawn_interim_loop(
                 count
             };
 
-            let start = std::time::Instant::now();
-            let resampled = resample_to_16k(&snapshot, sample_rate);
-            let interim_max_samples =
-                (TARGET_SAMPLE_RATE as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
-            let interim_samples = if resampled.len() > interim_max_samples {
-                &resampled[resampled.len() - interim_max_samples..]
+            // 只取最后 12s 窗口传给 resampler，避免对全量历史重采样
+            let max_snapshot_len =
+                (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
+            let window = if snapshot.len() > max_snapshot_len {
+                &snapshot[snapshot.len() - max_snapshot_len..]
             } else {
-                resampled.as_ref()
+                &snapshot[..]
             };
+
+            let start = std::time::Instant::now();
+            let resampled = resample_to_16k(window, sample_rate);
+            let interim_samples = resampled.as_ref();
             let covered_sample_count =
                 current_count.min((sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize);
 

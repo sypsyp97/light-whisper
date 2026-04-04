@@ -55,6 +55,8 @@ import {
   setWebSearchConfig,
   setWebSearchApiKey,
   getWebSearchApiKey,
+  validateCorrections,
+  setCorrectionValidationConfig,
 } from "@/api/tauri";
 import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, WebSearchProvider } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
@@ -445,6 +447,14 @@ export default function SettingsPage({
   const [latestAvailableVersion, setLatestAvailableVersion] = useState<string | null>(null);
   const [latestReleaseUrl, setLatestReleaseUrl] = useState<string | null>(null);
 
+  // --- Correction validation ---
+  const [validationEnabled, setValidationEnabled] = useState(false);
+  const [validationUseSeparateModel, setValidationUseSeparateModel] = useState(false);
+  const [validationProvider, setValidationProvider] = useState<string | null>(null);
+  const [validationModel, setValidationModel] = useState("");
+  const [validationRunning, setValidationRunning] = useState(false);
+  const [validationResult, setValidationResult] = useState<string | null>(null);
+
   const aiPolishKeySave = useDebouncedCallback((value: string, enabled: boolean) => {
     setAiPolishConfig(enabled, value).catch(() => {});
   }, 600, { onUnmount: "flush" });
@@ -599,6 +609,10 @@ export default function SettingsPage({
       setWebSearchEnabledState(Boolean(p.web_search?.enabled));
       setWebSearchProviderState(p.web_search?.provider ?? "model_native");
       setWebSearchMaxResultsState(p.web_search?.max_results ?? 5);
+      setValidationEnabled(Boolean(p.correction_validation_enabled));
+      setValidationUseSeparateModel(Boolean(p.llm_provider.validation_use_separate_model));
+      setValidationProvider(p.llm_provider.validation_provider ?? null);
+      setValidationModel(p.llm_provider.validation_model ?? "");
     } catch { /* ignore */ }
   }, [updateProviderDraft]);
 
@@ -3136,6 +3150,129 @@ export default function SettingsPage({
                   ))}
                 </div>
               )}
+
+              {/* Correction validation */}
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-border)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <label style={{ fontSize: 13, color: "var(--color-text-primary)", flex: 1 }}>
+                    定期 LLM 审核纠错规则
+                  </label>
+                  <button
+                    className="toggle-switch"
+                    aria-checked={validationEnabled}
+                    onClick={async () => {
+                      const next = !validationEnabled;
+                      setValidationEnabled(next);
+                      await setCorrectionValidationConfig({ enabled: next });
+                    }}
+                    aria-label="Toggle correction validation"
+                    style={{ background: validationEnabled ? "var(--color-accent)" : "var(--color-bg-tertiary)" }}
+                  >
+                    <div className="toggle-knob" style={{ transform: validationEnabled ? "translateX(20px)" : "translateX(0)" }} />
+                  </button>
+                </div>
+                <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", margin: "0 0 8px" }}>
+                  启用后每 24 小时自动调用 LLM 检查 AI 学到的纠错规则，删除语义垃圾
+                </p>
+
+                {validationEnabled && (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <label style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+                        使用独立模型
+                      </label>
+                      <button
+                        className="toggle-switch"
+                        aria-checked={validationUseSeparateModel}
+                        onClick={async () => {
+                          const next = !validationUseSeparateModel;
+                          setValidationUseSeparateModel(next);
+                          await setCorrectionValidationConfig({
+                            enabled: validationEnabled,
+                            useSeparateModel: next,
+                          });
+                        }}
+                        aria-label="Toggle separate validation model"
+                        style={{ background: validationUseSeparateModel ? "var(--color-accent)" : "var(--color-bg-tertiary)" }}
+                      >
+                        <div className="toggle-knob" style={{ transform: validationUseSeparateModel ? "translateX(20px)" : "translateX(0)" }} />
+                      </button>
+                    </div>
+
+                    {validationUseSeparateModel && (
+                      <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                        <select
+                          value={validationProvider ?? ""}
+                          onChange={async (e) => {
+                            const val = e.target.value || null;
+                            setValidationProvider(val);
+                            await setCorrectionValidationConfig({
+                              enabled: validationEnabled,
+                              provider: val,
+                            });
+                          }}
+                          style={{
+                            flex: 1, padding: "6px 8px", borderRadius: 8,
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-bg-secondary)",
+                            color: "var(--color-text-primary)", fontSize: 12,
+                          }}
+                        >
+                          <option value="">跟随润色</option>
+                          {allProviderOptions.map((opt) => (
+                            <option key={opt.key} value={opt.key}>{opt.label}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          placeholder="模型名（留空跟随供应商默认）"
+                          value={validationModel}
+                          onChange={(e) => setValidationModel(e.target.value)}
+                          onBlur={async () => {
+                            await setCorrectionValidationConfig({
+                              enabled: validationEnabled,
+                              model: validationModel || null,
+                            });
+                          }}
+                          style={{
+                            flex: 1, padding: "6px 8px", borderRadius: 8,
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-bg-secondary)",
+                            color: "var(--color-text-primary)", fontSize: 12,
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button
+                        className="test-btn"
+                        disabled={validationRunning}
+                        onClick={async () => {
+                          setValidationRunning(true);
+                          setValidationResult(null);
+                          try {
+                            const removed = await validateCorrections();
+                            setValidationResult(removed > 0 ? `已删除 ${removed} 条无效规则` : "所有规则均有效");
+                          } catch (err) {
+                            setValidationResult(`审核失败: ${err instanceof Error ? err.message : String(err)}`);
+                          } finally {
+                            setValidationRunning(false);
+                          }
+                        }}
+                        style={{ padding: "5px 12px", fontSize: 12 }}
+                      >
+                        {validationRunning ? "审核中..." : "立即审核"}
+                      </button>
+                      {validationResult && (
+                        <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                          {validationResult}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
 
               {/* Legend + actions */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>

@@ -421,3 +421,174 @@ pub async fn import_user_profile(
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
 }
+
+/// LLM 审核核心逻辑，供命令和定期任务共用
+pub async fn run_correction_validation(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<u32, String> {
+    let config = state.llm_provider_config();
+    let endpoint = if config.validation_use_separate_model {
+        llm_provider::validation_endpoint_for_config(&config)
+    } else {
+        llm_provider::endpoint_for_config(&config)
+    };
+
+    let api_key = llm_provider::load_api_key_for_provider(app_handle, &endpoint.provider);
+    if api_key.is_empty() {
+        return Err("未配置 API Key，无法审核纠错规则".into());
+    }
+
+    let ai_corrections: Vec<(String, String)> = state.with_profile(|p| {
+        p.correction_patterns
+            .iter()
+            .filter(|c| c.source == CorrectionSource::Ai)
+            .map(|c| (c.original.clone(), c.corrected.clone()))
+            .collect()
+    });
+
+    if ai_corrections.is_empty() {
+        update_validation_timestamp(state);
+        return Ok(0);
+    }
+
+    let mut all_invalid: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+
+    for chunk in ai_corrections.chunks(40) {
+        let mut rules_text = String::new();
+        for (i, (orig, corrected)) in chunk.iter().enumerate() {
+            rules_text.push_str(&format!("{}. \"{}\" → \"{}\"\n", i + 1, orig, corrected));
+        }
+
+        let prompt = format!(
+            "以下是语音识别自动纠错系统学到的 {} 条纠错规则。请逐条审核。\n\n\
+             合理的规则：同音字/近音字纠正、专有名词大小写、常见 ASR 误识别修复\n\
+             不合理的规则：语义无关的替换、对话碎片误学、过度泛化（如常见词映射到不相关的词）\n\n\
+             规则列表：\n{}\n\
+             以 JSON 数组输出不合理的编号，例如 [2,5,7]。如果全部合理输出 []。只输出 JSON。",
+            chunk.len(),
+            rules_text
+        );
+
+        let opts = LlmRequestOptions {
+            json_output: true,
+            reasoning_mode: config.polish_reasoning_mode(),
+            ..Default::default()
+        };
+
+        let body = llm_client::build_llm_body(
+            &endpoint,
+            "你是纠错规则质量审核工具，只输出 JSON。",
+            &LlmUserInput::from(prompt.as_str()),
+            opts,
+        );
+
+        let raw = match llm_client::send_llm_request(
+            &state.http_client,
+            &endpoint,
+            &api_key,
+            &body,
+            prompt.len(),
+            None,
+            opts,
+        )
+        .await
+        {
+            Ok(content) => content,
+            Err(err) => {
+                log::warn!("纠错审核 LLM 请求失败: {}", err);
+                continue;
+            }
+        };
+
+        let invalid_indices = parse_invalid_indices(raw.trim());
+        for idx in invalid_indices {
+            if idx >= 1 && idx <= chunk.len() {
+                let (ref orig, ref corrected) = chunk[idx - 1];
+                all_invalid.insert((orig.clone(), corrected.clone()));
+            }
+        }
+    }
+
+    if all_invalid.is_empty() {
+        update_validation_timestamp(state);
+        return Ok(0);
+    }
+
+    let removed = all_invalid.len() as u32;
+    log::info!("LLM 审核删除 {} 条 AI 纠错规则", removed);
+
+    profile_service::update_profile_and_schedule(state, |profile| {
+        profile.correction_patterns.retain(|p| {
+            p.source == CorrectionSource::User
+                || !all_invalid.contains(&(p.original.clone(), p.corrected.clone()))
+        });
+    });
+    update_validation_timestamp(state);
+
+    Ok(removed)
+}
+
+/// LLM 审核 AI 来源的纠错规则（Tauri command 入口）
+#[tauri::command]
+pub async fn validate_corrections(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<u32, String> {
+    run_correction_validation(&app_handle, state.inner()).await
+}
+
+#[tauri::command]
+pub async fn set_correction_validation_config(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+    use_separate_model: Option<bool>,
+    provider: Option<Option<String>>,
+    model: Option<Option<String>>,
+) -> Result<(), String> {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile.correction_validation_enabled = enabled;
+        if let Some(sep) = use_separate_model {
+            profile.llm_provider.validation_use_separate_model = sep;
+        }
+        if let Some(p) = provider {
+            profile.llm_provider.validation_provider = p;
+        }
+        if let Some(m) = model {
+            profile.llm_provider.validation_model = m;
+        }
+    });
+    Ok(())
+}
+
+fn update_validation_timestamp(state: &AppState) {
+    profile_service::update_profile_and_schedule(state, |profile| {
+        profile.last_correction_validation = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+    });
+}
+
+fn parse_invalid_indices(raw: &str) -> Vec<usize> {
+    if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
+        return arr
+            .iter()
+            .filter_map(|v| v.as_u64().map(|n| n as usize).or_else(|| v.as_f64().map(|n| n as usize)))
+            .collect();
+    }
+    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(raw) {
+        if let Some(map) = obj.as_object() {
+            for val in map.values() {
+                if let Some(arr) = val.as_array() {
+                    return arr
+                        .iter()
+                        .filter_map(|v| v.as_u64().map(|n| n as usize).or_else(|| v.as_f64().map(|n| n as usize)))
+                        .collect();
+                }
+            }
+        }
+    }
+    Vec::new()
+}

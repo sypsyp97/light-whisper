@@ -95,6 +95,12 @@ pub struct UserProfile {
     /// 联网搜索配置（仅助手模式）
     #[serde(default)]
     pub web_search: WebSearchConfig,
+    /// 是否启用定期 LLM 审核纠错规则
+    #[serde(default)]
+    pub correction_validation_enabled: bool,
+    /// 上次 LLM 审核时间戳（Unix 秒）
+    #[serde(default)]
+    pub last_correction_validation: u64,
 }
 
 /// 联网搜索方式
@@ -203,6 +209,15 @@ pub struct LlmProviderConfig {
     /// 用户自定义服务商列表
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_providers: Vec<CustomProvider>,
+    /// 纠错审核是否使用独立供应商/模型
+    #[serde(default)]
+    pub validation_use_separate_model: bool,
+    /// 纠错审核独立供应商
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_provider: Option<String>,
+    /// 纠错审核独立模型
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_model: Option<String>,
 }
 
 impl Default for LlmProviderConfig {
@@ -218,6 +233,9 @@ impl Default for LlmProviderConfig {
             assistant_model: None,
             assistant_provider: None,
             custom_providers: Vec::new(),
+            validation_use_separate_model: false,
+            validation_provider: None,
+            validation_model: None,
         }
     }
 }
@@ -290,6 +308,29 @@ impl LlmProviderConfig {
             .filter(|value| !value.is_empty())
     }
 
+    pub fn validation_model(&self) -> Option<&str> {
+        if !self.validation_use_separate_model {
+            return None;
+        }
+        self.validation_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn resolve_validation_provider(&self) -> String {
+        if self.validation_use_separate_model {
+            if let Some(ref p) = self.validation_provider {
+                if Self::is_builtin_provider(p)
+                    || self.custom_providers.iter().any(|cp| cp.id == *p)
+                {
+                    return p.clone();
+                }
+            }
+        }
+        self.resolve_active_provider()
+    }
+
     /// 解析助手实际使用的 provider（独立配置 > 润色 active）
     pub fn resolve_assistant_provider(&self) -> String {
         if self.assistant_use_separate_model {
@@ -327,7 +368,7 @@ impl UserProfile {
             CorrectionSource::Ai => 1,
         };
 
-        // 第一轮：精确子串命中
+        // 仅注入与当前输入子串匹配的纠错，不注入无关高频规则
         let mut matched: Vec<&CorrectionPattern> = self
             .correction_patterns
             .iter()
@@ -339,30 +380,6 @@ impl UserProfile {
                 .then(b.count.cmp(&a.count))
         });
         matched.truncate(limit);
-
-        if matched.len() >= limit {
-            return matched;
-        }
-
-        // 第二轮：高频兜底，补足剩余名额
-        let remaining = limit - matched.len();
-        let matched_set: std::collections::HashSet<(&str, &str)> = matched
-            .iter()
-            .map(|p| (p.original.as_str(), p.corrected.as_str()))
-            .collect();
-
-        let mut fallback: Vec<&CorrectionPattern> = self
-            .correction_patterns
-            .iter()
-            .filter(|p| !matched_set.contains(&(p.original.as_str(), p.corrected.as_str())))
-            .collect();
-        fallback.sort_by(|a, b| {
-            source_ord(&a.source)
-                .cmp(&source_ord(&b.source))
-                .then(b.count.cmp(&a.count))
-        });
-
-        matched.extend(fallback.into_iter().take(remaining));
         matched
     }
 }
@@ -385,15 +402,8 @@ mod tests {
     fn resolves_invalid_active_provider_to_latest_custom_provider() {
         let config = LlmProviderConfig {
             active: "missing".to_string(),
-            custom_base_url: None,
-            custom_model: None,
-            reasoning_mode: Default::default(),
-            polish_reasoning_mode: None,
-            assistant_reasoning_mode: None,
-            assistant_use_separate_model: false,
-            assistant_model: None,
-            assistant_provider: None,
             custom_providers: vec![custom_provider("a"), custom_provider("b")],
+            ..Default::default()
         };
 
         assert_eq!(config.resolve_active_provider(), "b");
@@ -403,19 +413,12 @@ mod tests {
     fn falls_back_to_previous_provider_after_removal() {
         let config = LlmProviderConfig {
             active: "b".to_string(),
-            custom_base_url: None,
-            custom_model: None,
-            reasoning_mode: Default::default(),
-            polish_reasoning_mode: None,
-            assistant_reasoning_mode: None,
-            assistant_use_separate_model: false,
-            assistant_model: None,
-            assistant_provider: None,
             custom_providers: vec![
                 custom_provider("a"),
                 custom_provider("b"),
                 custom_provider("c"),
             ],
+            ..Default::default()
         };
 
         assert_eq!(config.fallback_provider_after_removal("b"), "a");
@@ -425,19 +428,12 @@ mod tests {
     fn falls_back_to_last_remaining_provider_when_removing_first() {
         let config = LlmProviderConfig {
             active: "a".to_string(),
-            custom_base_url: None,
-            custom_model: None,
-            reasoning_mode: Default::default(),
-            polish_reasoning_mode: None,
-            assistant_reasoning_mode: None,
-            assistant_use_separate_model: false,
-            assistant_model: None,
-            assistant_provider: None,
             custom_providers: vec![
                 custom_provider("a"),
                 custom_provider("b"),
                 custom_provider("c"),
             ],
+            ..Default::default()
         };
 
         assert_eq!(config.fallback_provider_after_removal("a"), "c");
@@ -447,15 +443,8 @@ mod tests {
     fn split_reasoning_modes_fall_back_to_legacy_mode() {
         let config = LlmProviderConfig {
             active: "openai".to_string(),
-            custom_base_url: None,
-            custom_model: None,
             reasoning_mode: LlmReasoningMode::Light,
-            polish_reasoning_mode: None,
-            assistant_reasoning_mode: None,
-            assistant_use_separate_model: false,
-            assistant_model: None,
-            assistant_provider: None,
-            custom_providers: Vec::new(),
+            ..Default::default()
         };
 
         assert_eq!(config.polish_reasoning_mode(), LlmReasoningMode::Light);

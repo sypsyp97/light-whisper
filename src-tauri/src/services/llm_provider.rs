@@ -227,6 +227,37 @@ pub fn assistant_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint 
     endpoint_for_config(&resolved)
 }
 
+pub fn validation_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
+    let validation_provider = config.resolve_validation_provider();
+    let active_provider = config.resolve_active_provider();
+
+    let mut resolved = config.clone();
+    if validation_provider != active_provider {
+        resolved.active = validation_provider;
+        if is_preset(&resolved.active) {
+            resolved.custom_model = None;
+            resolved.custom_base_url = None;
+        }
+    }
+
+    if let Some(validation_model) = config.validation_model() {
+        let target_provider = resolved.resolve_active_provider();
+        if is_preset(&target_provider) {
+            resolved.custom_model = Some(validation_model.to_string());
+        } else if let Some(cp) = resolved
+            .custom_providers
+            .iter_mut()
+            .find(|p| p.id == target_provider)
+        {
+            cp.model = validation_model.to_string();
+        } else {
+            resolved.custom_model = Some(validation_model.to_string());
+        }
+    }
+
+    endpoint_for_config(&resolved)
+}
+
 pub fn image_support_probe_url(endpoint: &LlmEndpoint) -> Option<String> {
     if endpoint.api_format != ApiFormat::OpenaiCompat {
         return None;
@@ -386,6 +417,9 @@ pub fn endpoint_for_preview(
             assistant_model: None,
             assistant_provider: None,
             custom_providers: Vec::new(),
+            validation_use_separate_model: false,
+            validation_provider: None,
+            validation_model: None,
         }
     } else {
         LlmProviderConfig {
@@ -405,6 +439,9 @@ pub fn endpoint_for_preview(
                 model: model.unwrap_or_default().to_string(),
                 api_format,
             }],
+            validation_use_separate_model: false,
+            validation_provider: None,
+            validation_model: None,
         }
     };
 

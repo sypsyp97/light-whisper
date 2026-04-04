@@ -206,6 +206,8 @@ pub fn run() {
             commands::profile::add_custom_provider,
             commands::profile::update_custom_provider,
             commands::profile::remove_custom_provider,
+            commands::profile::validate_corrections,
+            commands::profile::set_correction_validation_config,
             commands::updater::check_app_update,
             commands::updater::open_app_release_page,
             commands::assistant::set_assistant_hotkey,
@@ -316,6 +318,37 @@ fn spawn_profile_maintenance(app_handle: tauri::AppHandle) {
             if let Some(profile) = profile_to_save {
                 if let Err(err) = services::profile_service::save_profile_async(&profile).await {
                     log::warn!("定期热词清理后保存用户画像失败: {}", err);
+                }
+            }
+
+            // LLM 纠错审核：启用且距上次超过 24h 时自动执行
+            let should_validate = {
+                let state = app_handle.state::<AppState>();
+                state.with_profile(|p| {
+                    if !p.correction_validation_enabled {
+                        return false;
+                    }
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    now.saturating_sub(p.last_correction_validation)
+                        >= HOT_WORD_CLEANUP_INTERVAL_SECS
+                })
+            };
+
+            if should_validate {
+                let state = app_handle.state::<AppState>();
+                match commands::profile::run_correction_validation(&app_handle, state.inner())
+                    .await
+                {
+                    Ok(removed) if removed > 0 => {
+                        log::info!("定期 LLM 纠错审核完成：删除 {} 条", removed);
+                    }
+                    Err(err) => {
+                        log::warn!("定期 LLM 纠错审核失败: {}", err);
+                    }
+                    _ => {}
                 }
             }
         }
