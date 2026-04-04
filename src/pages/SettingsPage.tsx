@@ -3157,17 +3157,17 @@ export default function SettingsPage({
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-border-subtle)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <label style={{ fontSize: 13, color: "var(--color-text-primary)", flex: 1 }}>
-                    纠错规则
+                    {t("settings.correctionRules")}
                   </label>
                   <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
-                    {profile ? `${profile.correction_patterns.length} 条` : ""}
+                    {profile ? t("settings.correctionRulesCount", { count: profile.correction_patterns.length }) : ""}
                   </span>
                   <button
                     className="btn-ghost"
                     onClick={() => setCorrectionModalOpen(true)}
                     style={{ padding: "4px 10px", fontSize: 12 }}
                   >
-                    管理
+                    {t("settings.correctionManage")}
                   </button>
                 </div>
               </div>
@@ -3401,6 +3401,7 @@ function CorrectionRulesModal({
   onClose: () => void;
   onRefreshProfile: () => void;
 }) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"all" | "user" | "ai">("all");
 
@@ -3450,10 +3451,10 @@ function CorrectionRulesModal({
           borderBottom: "1px solid var(--color-border-subtle)",
         }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text-primary)", flex: 1 }}>
-            纠错规则
+            {t("settings.correctionRules")}
           </span>
           <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
-            {patterns.length} 条
+            {t("settings.correctionRulesCount", { count: patterns.length })}
           </span>
           <button
             className="icon-btn"
@@ -3468,7 +3469,7 @@ function CorrectionRulesModal({
         <div style={{ padding: "10px 16px 0", display: "flex", gap: 8, alignItems: "center" }}>
           <input
             type="text"
-            placeholder="搜索原文或替换词…"
+            placeholder={t("settings.correctionSearchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="settings-input"
@@ -3485,7 +3486,7 @@ function CorrectionRulesModal({
                 borderColor: "var(--color-border-accent)",
               } : undefined}
             >
-              {f === "all" ? "全部" : f === "user" ? "用户" : "AI"}
+              {f === "all" ? t("settings.correctionFilterAll") : f === "user" ? t("settings.correctionFilterUser") : t("settings.correctionFilterAi")}
             </button>
           ))}
         </div>
@@ -3494,7 +3495,7 @@ function CorrectionRulesModal({
         <div style={{ flex: 1, overflowY: "auto", padding: "8px 16px" }}>
           {filtered.length === 0 ? (
             <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", textAlign: "center", padding: "24px 0" }}>
-              暂无纠错规则
+              {t("settings.correctionEmpty")}
             </p>
           ) : (
             filtered.map((p) => (
@@ -3542,7 +3543,7 @@ function CorrectionRulesModal({
         <div style={{ padding: "12px 16px 14px", borderTop: "1px solid var(--color-border-subtle)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <label style={{ fontSize: 13, color: "var(--color-text-primary)", flex: 1 }}>
-              定期 LLM 审核纠错规则
+              {t("settings.correctionValidationToggle")}
             </label>
             <button
               className="toggle-switch"
@@ -3559,14 +3560,14 @@ function CorrectionRulesModal({
             </button>
           </div>
           <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", margin: "0 0 8px" }}>
-            启用后每 24 小时自动调用 LLM 检查 AI 学到的纠错规则，删除语义垃圾
+            {t("settings.correctionValidationHint")}
           </p>
 
           {validationEnabled && (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <label style={{ fontSize: 12, color: "var(--color-text-secondary)", flex: 1 }}>
-                  使用独立模型
+                  {t("settings.correctionValidationSeparateModel")}
                 </label>
                 <button
                   className="toggle-switch"
@@ -3601,14 +3602,14 @@ function CorrectionRulesModal({
                     className="settings-input"
                     style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
                   >
-                    <option value="">跟随润色</option>
+                    <option value="">{t("settings.correctionValidationFollowPolish")}</option>
                     {allProviderOptions.map((opt) => (
                       <option key={opt.key} value={opt.key}>{opt.label}</option>
                     ))}
                   </select>
                   <input
                     type="text"
-                    placeholder="模型名（留空跟随供应商默认）"
+                    placeholder={t("settings.correctionValidationModelPlaceholder")}
                     value={validationModel}
                     onChange={(e) => setValidationModel(e.target.value)}
                     onBlur={async () => {
@@ -3632,9 +3633,9 @@ function CorrectionRulesModal({
                     setValidationResult(null);
                     try {
                       const removed = await validateCorrections();
-                      setValidationResult(removed > 0 ? `已删除 ${removed} 条无效规则` : "所有规则均有效");
+                      setValidationResult(removed > 0 ? t("settings.correctionValidationRemoved", { count: removed }) : t("settings.correctionValidationAllValid"));
                     } catch (err) {
-                      setValidationResult(`审核失败: ${err instanceof Error ? err.message : String(err)}`);
+                      setValidationResult(t("settings.correctionValidationFailed", { error: err instanceof Error ? err.message : String(err) }));
                     } finally {
                       setValidationRunning(false);
                       onRefreshProfile();
@@ -3642,7 +3643,7 @@ function CorrectionRulesModal({
                   }}
                   style={{ padding: "5px 12px", fontSize: 12 }}
                 >
-                  {validationRunning ? "审核中..." : "立即审核"}
+                  {validationRunning ? t("settings.correctionValidationRunning") : t("settings.correctionValidationRun")}
                 </button>
                 {validationResult && (
                   <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
