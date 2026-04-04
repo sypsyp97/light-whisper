@@ -297,6 +297,10 @@ export function removeCustomProvider(id: string): Promise<void> {
   return invokeCommand<void>("remove_custom_provider", { id });
 }
 
+export function removeCorrection(original: string, corrected: string): Promise<void> {
+  return invokeCommand<void>("remove_correction", { original, corrected });
+}
+
 export function validateCorrections(): Promise<number> {
   return invokeCommand<number>("validate_corrections");
 }

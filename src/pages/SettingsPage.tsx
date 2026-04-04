@@ -57,8 +57,9 @@ import {
   getWebSearchApiKey,
   validateCorrections,
   setCorrectionValidationConfig,
+  removeCorrection,
 } from "@/api/tauri";
-import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, WebSearchProvider } from "@/types";
+import type { AiModelInfo, CorrectionPattern, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, WebSearchProvider } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import TitleBar from "@/components/TitleBar";
@@ -454,6 +455,7 @@ export default function SettingsPage({
   const [validationModel, setValidationModel] = useState("");
   const [validationRunning, setValidationRunning] = useState(false);
   const [validationResult, setValidationResult] = useState<string | null>(null);
+  const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
 
   const aiPolishKeySave = useDebouncedCallback((value: string, enabled: boolean) => {
     setAiPolishConfig(enabled, value).catch(() => {});
@@ -3151,127 +3153,23 @@ export default function SettingsPage({
                 </div>
               )}
 
-              {/* Correction validation */}
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-border)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              {/* Correction rules management */}
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-border-subtle)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <label style={{ fontSize: 13, color: "var(--color-text-primary)", flex: 1 }}>
-                    定期 LLM 审核纠错规则
+                    纠错规则
                   </label>
+                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                    {profile ? `${profile.correction_patterns.length} 条` : ""}
+                  </span>
                   <button
-                    className="toggle-switch"
-                    aria-checked={validationEnabled}
-                    onClick={async () => {
-                      const next = !validationEnabled;
-                      setValidationEnabled(next);
-                      await setCorrectionValidationConfig({ enabled: next });
-                    }}
-                    aria-label="Toggle correction validation"
-                    style={{ background: validationEnabled ? "var(--color-accent)" : "var(--color-bg-tertiary)" }}
+                    className="btn-ghost"
+                    onClick={() => setCorrectionModalOpen(true)}
+                    style={{ padding: "4px 10px", fontSize: 12 }}
                   >
-                    <div className="toggle-knob" style={{ transform: validationEnabled ? "translateX(20px)" : "translateX(0)" }} />
+                    管理
                   </button>
                 </div>
-                <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", margin: "0 0 8px" }}>
-                  启用后每 24 小时自动调用 LLM 检查 AI 学到的纠错规则，删除语义垃圾
-                </p>
-
-                {validationEnabled && (
-                  <>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      <label style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-                        使用独立模型
-                      </label>
-                      <button
-                        className="toggle-switch"
-                        aria-checked={validationUseSeparateModel}
-                        onClick={async () => {
-                          const next = !validationUseSeparateModel;
-                          setValidationUseSeparateModel(next);
-                          await setCorrectionValidationConfig({
-                            enabled: validationEnabled,
-                            useSeparateModel: next,
-                          });
-                        }}
-                        aria-label="Toggle separate validation model"
-                        style={{ background: validationUseSeparateModel ? "var(--color-accent)" : "var(--color-bg-tertiary)" }}
-                      >
-                        <div className="toggle-knob" style={{ transform: validationUseSeparateModel ? "translateX(20px)" : "translateX(0)" }} />
-                      </button>
-                    </div>
-
-                    {validationUseSeparateModel && (
-                      <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                        <select
-                          value={validationProvider ?? ""}
-                          onChange={async (e) => {
-                            const val = e.target.value || null;
-                            setValidationProvider(val);
-                            await setCorrectionValidationConfig({
-                              enabled: validationEnabled,
-                              provider: val,
-                            });
-                          }}
-                          style={{
-                            flex: 1, padding: "6px 8px", borderRadius: 8,
-                            border: "1px solid var(--color-border)",
-                            background: "var(--color-bg-secondary)",
-                            color: "var(--color-text-primary)", fontSize: 12,
-                          }}
-                        >
-                          <option value="">跟随润色</option>
-                          {allProviderOptions.map((opt) => (
-                            <option key={opt.key} value={opt.key}>{opt.label}</option>
-                          ))}
-                        </select>
-                        <input
-                          type="text"
-                          placeholder="模型名（留空跟随供应商默认）"
-                          value={validationModel}
-                          onChange={(e) => setValidationModel(e.target.value)}
-                          onBlur={async () => {
-                            await setCorrectionValidationConfig({
-                              enabled: validationEnabled,
-                              model: validationModel || null,
-                            });
-                          }}
-                          style={{
-                            flex: 1, padding: "6px 8px", borderRadius: 8,
-                            border: "1px solid var(--color-border)",
-                            background: "var(--color-bg-secondary)",
-                            color: "var(--color-text-primary)", fontSize: 12,
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button
-                        className="test-btn"
-                        disabled={validationRunning}
-                        onClick={async () => {
-                          setValidationRunning(true);
-                          setValidationResult(null);
-                          try {
-                            const removed = await validateCorrections();
-                            setValidationResult(removed > 0 ? `已删除 ${removed} 条无效规则` : "所有规则均有效");
-                          } catch (err) {
-                            setValidationResult(`审核失败: ${err instanceof Error ? err.message : String(err)}`);
-                          } finally {
-                            setValidationRunning(false);
-                          }
-                        }}
-                        style={{ padding: "5px 12px", fontSize: 12 }}
-                      >
-                        {validationRunning ? "审核中..." : "立即审核"}
-                      </button>
-                      {validationResult && (
-                        <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
-                          {validationResult}
-                        </span>
-                      )}
-                    </div>
-                  </>
-                )}
               </div>
 
               {/* Legend + actions */}
@@ -3429,6 +3327,27 @@ export default function SettingsPage({
         </div>
       </div>
 
+      {correctionModalOpen && (
+        <CorrectionRulesModal
+          profile={profile}
+          allProviderOptions={allProviderOptions}
+          validationEnabled={validationEnabled}
+          setValidationEnabled={setValidationEnabled}
+          validationUseSeparateModel={validationUseSeparateModel}
+          setValidationUseSeparateModel={setValidationUseSeparateModel}
+          validationProvider={validationProvider}
+          setValidationProvider={setValidationProvider}
+          validationModel={validationModel}
+          setValidationModel={setValidationModel}
+          validationRunning={validationRunning}
+          setValidationRunning={setValidationRunning}
+          validationResult={validationResult}
+          setValidationResult={setValidationResult}
+          onClose={() => setCorrectionModalOpen(false)}
+          onRefreshProfile={refreshProfile}
+        />
+      )}
+
       {/* Footer */}
       <div className="settings-footer" style={{ padding: `10px ${PADDING}px` }}>
         <p className="settings-footer-text">
@@ -3436,6 +3355,304 @@ export default function SettingsPage({
           <span style={{ margin: "0 6px" }}>·</span>
           {t("settings.footerSubtitle")}
         </p>
+      </div>
+    </div>
+  );
+}
+
+const correctionSourceColors: Record<string, string> = {
+  user: "var(--color-accent)",
+  ai: "var(--color-learned)",
+  learned: "var(--color-warning)",
+};
+
+function CorrectionRulesModal({
+  profile,
+  allProviderOptions,
+  validationEnabled,
+  setValidationEnabled,
+  validationUseSeparateModel,
+  setValidationUseSeparateModel,
+  validationProvider,
+  setValidationProvider,
+  validationModel,
+  setValidationModel,
+  validationRunning,
+  setValidationRunning,
+  validationResult,
+  setValidationResult,
+  onClose,
+  onRefreshProfile,
+}: {
+  profile: UserProfile | null;
+  allProviderOptions: { key: string; label: string }[];
+  validationEnabled: boolean;
+  setValidationEnabled: (v: boolean) => void;
+  validationUseSeparateModel: boolean;
+  setValidationUseSeparateModel: (v: boolean) => void;
+  validationProvider: string | null;
+  setValidationProvider: (v: string | null) => void;
+  validationModel: string;
+  setValidationModel: (v: string) => void;
+  validationRunning: boolean;
+  setValidationRunning: (v: boolean) => void;
+  validationResult: string | null;
+  setValidationResult: (v: string | null) => void;
+  onClose: () => void;
+  onRefreshProfile: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "user" | "ai">("all");
+
+  const patterns: CorrectionPattern[] = profile?.correction_patterns ?? [];
+
+  const filtered = patterns.filter((p) => {
+    if (sourceFilter !== "all" && p.source !== sourceFilter) return false;
+    if (search.trim()) {
+      const kw = search.trim().toLowerCase();
+      if (!p.original.toLowerCase().includes(kw) && !p.corrected.toLowerCase().includes(kw)) return false;
+    }
+    return true;
+  });
+
+  const handleDelete = async (original: string, corrected: string) => {
+    await removeCorrection(original, corrected);
+    onRefreshProfile();
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: "var(--z-modal)" as React.CSSProperties["zIndex"],
+        background: "rgba(0, 0, 0, 0.35)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="animate-fade-in"
+        style={{
+          background: "var(--color-bg-primary)",
+          borderRadius: "var(--radius-lg)",
+          boxShadow: "var(--shadow-xl)",
+          width: "min(560px, 92vw)",
+          maxHeight: "80vh",
+          display: "flex", flexDirection: "column",
+          overflow: "hidden",
+          border: "1px solid var(--color-border-subtle)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "14px 16px 12px",
+          borderBottom: "1px solid var(--color-border-subtle)",
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text-primary)", flex: 1 }}>
+            纠错规则
+          </span>
+          <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+            {patterns.length} 条
+          </span>
+          <button
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="关闭"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        {/* Search + filter */}
+        <div style={{ padding: "10px 16px 0", display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="搜索原文或替换词…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="settings-input"
+            style={{ flex: 1, padding: "6px 10px", fontSize: 12 }}
+          />
+          {(["all", "user", "ai"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setSourceFilter(f)}
+              className="test-btn"
+              style={sourceFilter === f ? {
+                background: "var(--color-accent-subtle)",
+                color: "var(--color-accent)",
+                borderColor: "var(--color-border-accent)",
+              } : undefined}
+            >
+              {f === "all" ? "全部" : f === "user" ? "用户" : "AI"}
+            </button>
+          ))}
+        </div>
+
+        {/* List */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 16px" }}>
+          {filtered.length === 0 ? (
+            <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", textAlign: "center", padding: "24px 0" }}>
+              暂无纠错规则
+            </p>
+          ) : (
+            filtered.map((p) => (
+              <div
+                key={`${p.original}→${p.corrected}`}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "7px 0",
+                  borderBottom: "1px solid var(--color-border-subtle)",
+                }}
+              >
+                <span
+                  style={{
+                    width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                    background: correctionSourceColors[p.source] ?? "var(--color-border)",
+                  }}
+                />
+                <span style={{ flex: 1, fontSize: 12, color: "var(--color-text-primary)", minWidth: 0 }}>
+                  <span style={{ color: "var(--color-text-secondary)" }}>{p.original}</span>
+                  <span style={{ margin: "0 6px", color: "var(--color-text-tertiary)" }}>→</span>
+                  <span>{p.corrected}</span>
+                </span>
+                <span style={{
+                  fontSize: 11, color: "var(--color-text-tertiary)",
+                  background: "var(--color-bg-secondary)",
+                  border: "1px solid var(--color-border-subtle)",
+                  borderRadius: "var(--radius-full)", padding: "1px 7px", flexShrink: 0,
+                }}>
+                  {p.count}
+                </span>
+                <button
+                  className="icon-btn"
+                  onClick={() => void handleDelete(p.original, p.corrected)}
+                  aria-label="删除规则"
+                  style={{ flexShrink: 0 }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer: LLM validation */}
+        <div style={{ padding: "12px 16px 14px", borderTop: "1px solid var(--color-border-subtle)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <label style={{ fontSize: 13, color: "var(--color-text-primary)", flex: 1 }}>
+              定期 LLM 审核纠错规则
+            </label>
+            <button
+              className="toggle-switch"
+              aria-checked={validationEnabled}
+              onClick={async () => {
+                const next = !validationEnabled;
+                setValidationEnabled(next);
+                await setCorrectionValidationConfig({ enabled: next });
+              }}
+              aria-label="Toggle correction validation"
+              style={{ background: validationEnabled ? "var(--color-accent)" : "var(--color-bg-tertiary)" }}
+            >
+              <div className="toggle-knob" style={{ transform: validationEnabled ? "translateX(20px)" : "translateX(0)" }} />
+            </button>
+          </div>
+          <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", margin: "0 0 8px" }}>
+            启用后每 24 小时自动调用 LLM 检查 AI 学到的纠错规则，删除语义垃圾
+          </p>
+
+          {validationEnabled && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <label style={{ fontSize: 12, color: "var(--color-text-secondary)", flex: 1 }}>
+                  使用独立模型
+                </label>
+                <button
+                  className="toggle-switch"
+                  aria-checked={validationUseSeparateModel}
+                  onClick={async () => {
+                    const next = !validationUseSeparateModel;
+                    setValidationUseSeparateModel(next);
+                    await setCorrectionValidationConfig({
+                      enabled: validationEnabled,
+                      useSeparateModel: next,
+                    });
+                  }}
+                  aria-label="Toggle separate validation model"
+                  style={{ background: validationUseSeparateModel ? "var(--color-accent)" : "var(--color-bg-tertiary)" }}
+                >
+                  <div className="toggle-knob" style={{ transform: validationUseSeparateModel ? "translateX(20px)" : "translateX(0)" }} />
+                </button>
+              </div>
+
+              {validationUseSeparateModel && (
+                <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                  <select
+                    value={validationProvider ?? ""}
+                    onChange={async (e) => {
+                      const val = e.target.value || null;
+                      setValidationProvider(val);
+                      await setCorrectionValidationConfig({
+                        enabled: validationEnabled,
+                        provider: val,
+                      });
+                    }}
+                    className="settings-input"
+                    style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
+                  >
+                    <option value="">跟随润色</option>
+                    {allProviderOptions.map((opt) => (
+                      <option key={opt.key} value={opt.key}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="模型名（留空跟随供应商默认）"
+                    value={validationModel}
+                    onChange={(e) => setValidationModel(e.target.value)}
+                    onBlur={async () => {
+                      await setCorrectionValidationConfig({
+                        enabled: validationEnabled,
+                        model: validationModel || null,
+                      });
+                    }}
+                    className="settings-input"
+                    style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
+                  />
+                </div>
+              )}
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  className="test-btn"
+                  disabled={validationRunning}
+                  onClick={async () => {
+                    setValidationRunning(true);
+                    setValidationResult(null);
+                    try {
+                      const removed = await validateCorrections();
+                      setValidationResult(removed > 0 ? `已删除 ${removed} 条无效规则` : "所有规则均有效");
+                    } catch (err) {
+                      setValidationResult(`审核失败: ${err instanceof Error ? err.message : String(err)}`);
+                    } finally {
+                      setValidationRunning(false);
+                      onRefreshProfile();
+                    }
+                  }}
+                  style={{ padding: "5px 12px", fontSize: 12 }}
+                >
+                  {validationRunning ? "审核中..." : "立即审核"}
+                </button>
+                {validationResult && (
+                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                    {validationResult}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

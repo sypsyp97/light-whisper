@@ -208,6 +208,7 @@ pub fn run() {
             commands::profile::remove_custom_provider,
             commands::profile::validate_corrections,
             commands::profile::set_correction_validation_config,
+            commands::profile::remove_correction,
             commands::updater::check_app_update,
             commands::updater::open_app_release_page,
             commands::assistant::set_assistant_hotkey,

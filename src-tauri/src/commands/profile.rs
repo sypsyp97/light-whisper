@@ -562,6 +562,20 @@ pub async fn set_correction_validation_config(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn remove_correction(
+    state: tauri::State<'_, AppState>,
+    original: String,
+    corrected: String,
+) -> Result<(), String> {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile
+            .correction_patterns
+            .retain(|p| !(p.original == original && p.corrected == corrected));
+    });
+    Ok(())
+}
+
 fn update_validation_timestamp(state: &AppState) {
     profile_service::update_profile_and_schedule(state, |profile| {
         profile.last_correction_validation = std::time::SystemTime::now()
