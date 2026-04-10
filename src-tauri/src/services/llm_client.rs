@@ -3,6 +3,7 @@ use std::time::Duration;
 use serde_json::Value;
 use tauri::Emitter;
 
+use crate::services::codex_oauth_service;
 use crate::services::llm_provider;
 use crate::services::llm_provider::LlmEndpoint;
 use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
@@ -60,8 +61,27 @@ fn dynamic_timeout(base_secs: u64, text_len: usize) -> Duration {
     Duration::from_secs(base_secs.saturating_add(extra).min(120))
 }
 
+fn uses_codex_chatgpt_backend(endpoint: &LlmEndpoint, api_key: &str) -> bool {
+    endpoint.provider == "openai"
+        && codex_oauth_service::decode_chatgpt_bearer_token(api_key).is_some()
+}
+
 fn uses_responses_api(endpoint: &LlmEndpoint) -> bool {
     endpoint.api_format == ApiFormat::OpenaiCompat && endpoint.api_url.contains("/v1/responses")
+}
+
+fn adapt_body_for_backend(endpoint: &LlmEndpoint, api_key: &str, body: &Value) -> Value {
+    let mut adapted = body.clone();
+    if !uses_codex_chatgpt_backend(endpoint, api_key) {
+        return adapted;
+    }
+
+    if let Some(map) = adapted.as_object_mut() {
+        map.insert("store".to_string(), serde_json::json!(false));
+        map.remove("max_output_tokens");
+    }
+
+    adapted
 }
 
 pub fn build_llm_body(
@@ -639,19 +659,34 @@ pub async fn send_llm_request(
     app_handle: Option<&tauri::AppHandle>,
     options: LlmRequestOptions<'_>,
 ) -> Result<String, String> {
-    let headers = llm_provider::build_auth_headers(&endpoint.api_format, api_key)
+    let mut headers = llm_provider::build_auth_headers(&endpoint.api_format, api_key)
         .map_err(|e| format!("构建请求头失败: {e}"))?;
+    if uses_codex_chatgpt_backend(endpoint, api_key) {
+        if let Some(session_id) = options.session_id {
+            let header = session_id.to_string();
+            if let Ok(value) = header.parse::<reqwest::header::HeaderValue>() {
+                headers.insert("session_id", value);
+            }
+        }
+    }
     let timeout = dynamic_timeout(endpoint.timeout_secs, text_len);
 
     async fn dispatch_request(
         http_client: &reqwest::Client,
         endpoint: &LlmEndpoint,
+        api_key: &str,
         headers: reqwest::header::HeaderMap,
         body: &Value,
         timeout: Duration,
     ) -> Result<reqwest::Response, String> {
-        let request = http_client.post(&endpoint.api_url).headers(headers);
-        tokio::time::timeout(timeout, request.json(body).send())
+        let request_url = if uses_codex_chatgpt_backend(endpoint, api_key) {
+            codex_oauth_service::CHATGPT_CODEX_RESPONSES_URL
+        } else {
+            endpoint.api_url.as_str()
+        };
+        let request_body = adapt_body_for_backend(endpoint, api_key, body);
+        let request = http_client.post(request_url).headers(headers);
+        tokio::time::timeout(timeout, request.json(&request_body).send())
             .await
             .map_err(|_| format!("请求超时（{} 秒）", timeout.as_secs()))?
             .map_err(|e| format!("请求失败: {}", e))
@@ -660,6 +695,7 @@ pub async fn send_llm_request(
     let mut response = dispatch_request(
         http_client,
         endpoint,
+        api_key,
         headers.clone(),
         body,
         timeout,
@@ -685,6 +721,7 @@ pub async fn send_llm_request(
                 response = dispatch_request(
                     http_client,
                     endpoint,
+                    api_key,
                     headers.clone(),
                     body,
                     timeout,
@@ -719,6 +756,7 @@ pub async fn send_llm_request(
             response = dispatch_request(
                 http_client,
                 endpoint,
+                api_key,
                 headers,
                 &fallback_body,
                 timeout,

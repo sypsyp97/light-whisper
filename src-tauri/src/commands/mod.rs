@@ -2,6 +2,7 @@ pub mod ai_polish;
 pub mod assistant;
 pub mod audio;
 pub mod clipboard;
+pub mod codex_oauth;
 pub mod funasr;
 pub mod hotkey;
 pub mod profile;

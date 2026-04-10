@@ -1,18 +1,19 @@
 use std::sync::atomic::Ordering;
 
 use crate::services::llm_client::{LlmRequestOptions, LlmUserInput};
-use crate::services::{llm_client, llm_provider, profile_service};
+use crate::services::{codex_oauth_service, llm_client, llm_provider, profile_service};
 use crate::state::user_profile::*;
 use crate::state::AppState;
 
 #[tauri::command]
 pub async fn submit_user_correction(
+    app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     original: String,
     corrected: String,
 ) -> Result<(), String> {
     // 用 LLM 对比两句话，提取词级纠错
-    let corrections = extract_corrections_via_llm(&state, &original, &corrected).await;
+    let corrections = extract_corrections_via_llm(&app_handle, &state, &original, &corrected).await;
 
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         if corrections.is_empty() {
@@ -36,11 +37,25 @@ pub async fn submit_user_correction(
 
 /// 调用 LLM 对比润色前后文本，提取词级别纠错
 async fn extract_corrections_via_llm(
+    app_handle: &tauri::AppHandle,
     state: &AppState,
     before: &str,
     after: &str,
 ) -> Vec<(String, String)> {
-    let api_key = state.read_ai_polish_api_key();
+    let api_key = match codex_oauth_service::resolve_api_key_for_provider(
+        app_handle,
+        state,
+        &state.active_llm_provider(),
+        &state.read_ai_polish_api_key(),
+    )
+    .await
+    {
+        Ok(api_key) => api_key,
+        Err(err) => {
+            log::warn!("用户纠错 LLM 鉴权解析失败: {}", err);
+            return Vec::new();
+        }
+    };
     if api_key.is_empty() {
         return Vec::new();
     }

@@ -21,6 +21,7 @@ import {
   setAiPolishConfig,
   setAiPolishScreenContextEnabled,
   getAiPolishApiKey,
+  getOpenaiCodexOauthStatus,
   getUserProfile,
   addHotWord,
   listAiModels,
@@ -52,6 +53,8 @@ import {
   getLlmReasoningSupport,
   setAssistantApiKey,
   getAssistantApiKey,
+  loginOpenaiCodexOauth,
+  logoutOpenaiCodexOauth,
   setWebSearchConfig,
   setWebSearchApiKey,
   getWebSearchApiKey,
@@ -59,7 +62,7 @@ import {
   setCorrectionValidationConfig,
   removeCorrection,
 } from "@/api/tauri";
-import type { AiModelInfo, CorrectionPattern, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, WebSearchProvider } from "@/types";
+import type { AiModelInfo, CorrectionPattern, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiCodexOauthStatus, WebSearchProvider } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import TitleBar from "@/components/TitleBar";
@@ -385,6 +388,8 @@ export default function SettingsPage({
   const [soundEnabled, setSoundEnabledState] = useState(() => readLocalStorage(SOUND_ENABLED_KEY) !== "false");
   const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
   const [aiPolishApiKey, setAiPolishApiKey] = useState("");
+  const [openaiCodexOauthStatus, setOpenaiCodexOauthStatus] = useState<OpenaiCodexOauthStatus>({ loggedIn: false });
+  const [openaiCodexOauthLoading, setOpenaiCodexOauthLoading] = useState(false);
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
@@ -426,6 +431,11 @@ export default function SettingsPage({
   const [newProviderModel, setNewProviderModel] = useState("");
   const [newProviderFormat, setNewProviderFormat] = useState<ApiFormat>("openai_compat");
   const providerSupportsCustomEndpoint = llmProvider === "custom" || customProviders.some((p) => p.id === llmProvider);
+  const effectiveAssistantProvider = assistantProvider || llmProvider;
+  const polishUsesOpenaiOauth = llmProvider === "openai" && openaiCodexOauthStatus.loggedIn;
+  const assistantUsesOpenaiOauth = effectiveAssistantProvider === "openai" && openaiCodexOauthStatus.loggedIn;
+  const polishHasAuth = !!aiPolishApiKey.trim() || polishUsesOpenaiOauth;
+  const assistantHasAuth = !!assistantApiKeyState.trim() || assistantUsesOpenaiOauth;
 
   // --- Profile & misc ---
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -570,6 +580,18 @@ export default function SettingsPage({
     }
   }, []);
 
+  const refreshOpenaiCodexOauthStatus = useCallback(async () => {
+    try {
+      const status = await getOpenaiCodexOauthStatus();
+      setOpenaiCodexOauthStatus(status);
+      return status;
+    } catch {
+      const fallback = { loggedIn: false } as OpenaiCodexOauthStatus;
+      setOpenaiCodexOauthStatus(fallback);
+      return fallback;
+    }
+  }, []);
+
   // 从系统密钥环加载 API Key，并同步 enabled 状态到后端
   useEffect(() => {
     void refreshAiPolishKey(readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
@@ -621,9 +643,10 @@ export default function SettingsPage({
   useEffect(() => {
     refreshProfile().then(() => {
       refreshAssistantKey();
+      refreshOpenaiCodexOauthStatus();
       getWebSearchApiKey().then(setWebSearchApiKeyState).catch(() => {});
     });
-  }, [refreshProfile, refreshAssistantKey]);
+  }, [refreshProfile, refreshAssistantKey, refreshOpenaiCodexOauthStatus]);
 
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
@@ -890,10 +913,10 @@ export default function SettingsPage({
   const refreshAiModels = useCallback(async (silent = false) => {
     const apiKey = aiPolishApiKey.trim();
     const baseUrl = customBaseUrl.trim();
-    if (!apiKey) {
+    if (!apiKey && !polishUsesOpenaiOauth) {
       setAiModels([]);
       setAiModelsSourceUrl("");
-      setAiModelsError(t("settings.apiKeyMissing"));
+      setAiModelsError(t("settings.apiKeyOrLoginMissing"));
       return;
     }
 
@@ -915,7 +938,7 @@ export default function SettingsPage({
     } finally {
       setAiModelsLoading(false);
     }
-  }, [aiPolishApiKey, customBaseUrl, llmProvider]);
+  }, [aiPolishApiKey, customBaseUrl, llmProvider, polishUsesOpenaiOauth, t]);
 
   const aiModelsFetch = useDebouncedCallback((silent: boolean) => {
     void refreshAiModels(silent);
@@ -930,7 +953,8 @@ export default function SettingsPage({
       return;
     }
     const apiKey = assistantApiKeyState.trim();
-    if (!apiKey) {
+    const assistantOauthReady = effectiveProvider === "openai" && openaiCodexOauthStatus.loggedIn;
+    if (!apiKey && !assistantOauthReady) {
       setAssistantModels([]);
       return;
     }
@@ -947,14 +971,14 @@ export default function SettingsPage({
     } finally {
       setAssistantModelsLoading(false);
     }
-  }, [aiModels, assistantApiKeyState, assistantProvider, customProviders, llmProvider]);
+  }, [aiModels, assistantApiKeyState, assistantProvider, customProviders, llmProvider, openaiCodexOauthStatus.loggedIn]);
 
   const assistantModelsFetch = useDebouncedCallback((silent: boolean) => {
     void refreshAssistantModels(silent);
   }, 700);
 
   useEffect(() => {
-    if (!aiPolishApiKey.trim()) {
+    if (!polishHasAuth) {
       aiModelsFetch.cancel();
       setAiModels([]);
       setAiModelsSourceUrl("");
@@ -968,7 +992,7 @@ export default function SettingsPage({
     return () => {
       aiModelsFetch.cancel();
     };
-  }, [aiModelsFetch, aiPolishApiKey, customBaseUrl, llmProvider]);
+  }, [aiModelsFetch, customBaseUrl, llmProvider, polishHasAuth]);
 
   // 助手独立模型列表自动刷新
   useEffect(() => {
@@ -981,14 +1005,14 @@ export default function SettingsPage({
       setAssistantModels(aiModels);
       return;
     }
-    if (!assistantApiKeyState.trim()) {
+    if (!assistantHasAuth) {
       assistantModelsFetch.cancel();
       setAssistantModels([]);
       return;
     }
     assistantModelsFetch.schedule(true);
     return () => { assistantModelsFetch.cancel(); };
-  }, [aiModels, assistantApiKeyState, assistantModelsFetch, assistantProvider, assistantUseSeparateModel, llmProvider]);
+  }, [aiModels, assistantHasAuth, assistantModelsFetch, assistantProvider, assistantUseSeparateModel, llmProvider]);
 
   const handleAddHotWord = useCallback(() => {
     const word = newHotWord.trim();
@@ -1019,6 +1043,99 @@ export default function SettingsPage({
     return { ...preset, label: preset.labelKey ? t(preset.labelKey) : preset.label, desc: t(preset.descKey) };
   }, [assistantProvider, llmProvider, customProviders, t]);
   const assistantProviderDiffers = assistantUseSeparateModel && assistantProvider && assistantProvider !== llmProvider;
+  const handleOpenaiCodexOauthLogin = useCallback(async () => {
+    setOpenaiCodexOauthLoading(true);
+    try {
+      const loginStatus = await loginOpenaiCodexOauth();
+      setOpenaiCodexOauthStatus(loginStatus);
+      const refreshedStatus = await refreshOpenaiCodexOauthStatus();
+      if (refreshedStatus.loggedIn) {
+        setOpenaiCodexOauthStatus(refreshedStatus);
+      }
+      if (llmProvider === "openai") {
+        void refreshAiModels(true);
+      }
+      if (effectiveAssistantProvider === "openai") {
+        void refreshAssistantModels(true);
+      }
+      toast.success(t("toast.codexOauthLoginSuccess"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("toast.codexOauthLoginFailed"));
+    } finally {
+      setOpenaiCodexOauthLoading(false);
+    }
+  }, [effectiveAssistantProvider, llmProvider, refreshAiModels, refreshAssistantModels, refreshOpenaiCodexOauthStatus, t]);
+  const handleOpenaiCodexOauthLogout = useCallback(async () => {
+    setOpenaiCodexOauthLoading(true);
+    try {
+      await logoutOpenaiCodexOauth();
+      const status = { loggedIn: false } as OpenaiCodexOauthStatus;
+      setOpenaiCodexOauthStatus(status);
+      if (!aiPolishApiKey.trim()) {
+        setAiModels([]);
+        setAiModelsSourceUrl("");
+      }
+      if (!assistantApiKeyState.trim()) {
+        setAssistantModels([]);
+      }
+      toast.success(t("toast.codexOauthLogoutSuccess"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("toast.codexOauthLogoutFailed"));
+    } finally {
+      setOpenaiCodexOauthLoading(false);
+    }
+  }, [aiPolishApiKey, assistantApiKeyState, t]);
+  const renderOpenaiCodexOauthBlock = useCallback((scope: "polish" | "assistant") => {
+    const visible = scope === "polish" ? llmProvider === "openai" : effectiveAssistantProvider === "openai";
+    if (!visible) return null;
+
+    const loggedIn = openaiCodexOauthStatus.loggedIn;
+    const summaryParts = [
+      openaiCodexOauthStatus.email,
+      openaiCodexOauthStatus.planType,
+      openaiCodexOauthStatus.accountId ? `acct ${openaiCodexOauthStatus.accountId}` : null,
+    ].filter(Boolean);
+
+    return (
+      <div className="settings-column" style={{ gap: 6 }}>
+        <span className="settings-option-desc">{t("settings.codexOauthLabel")}</span>
+        <p className="settings-hint" style={{ margin: 0 }}>
+          {loggedIn
+            ? t("settings.codexOauthConnectedHint", { summary: summaryParts.join(" · ") || "OpenAI" })
+            : t("settings.codexOauthHint")}
+        </p>
+        <div className="settings-row" style={{ gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            className="test-btn"
+            onClick={() => { void handleOpenaiCodexOauthLogin(); }}
+            disabled={openaiCodexOauthLoading}
+            style={{ opacity: openaiCodexOauthLoading ? 0.7 : 1 }}
+          >
+            {openaiCodexOauthLoading
+              ? t("settings.codexOauthWorking")
+              : loggedIn
+                ? t("settings.codexOauthReauth")
+                : t("settings.codexOauthLogin")}
+          </button>
+          {loggedIn ? (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => { void handleOpenaiCodexOauthLogout(); }}
+              disabled={openaiCodexOauthLoading}
+              style={{ fontSize: 12, padding: "8px 10px", opacity: openaiCodexOauthLoading ? 0.7 : 1 }}
+            >
+              {t("settings.codexOauthLogout")}
+            </button>
+          ) : null}
+        </div>
+        <p className="settings-hint" style={{ margin: 0 }}>
+          {t("settings.codexOauthApiKeyFallbackHint")}
+        </p>
+      </div>
+    );
+  }, [effectiveAssistantProvider, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, llmProvider, openaiCodexOauthLoading, openaiCodexOauthStatus, t]);
   const allProviderOptions = useMemo(() => {
     const presets = llmProviderOptions.map((opt) => ({ key: opt.key, label: opt.labelKey ? t(opt.labelKey) : opt.label, desc: t(opt.descKey), baseUrl: opt.baseUrl, isCustom: false as const }));
     const customs = customProviders.map((cp) => ({
@@ -2244,6 +2361,8 @@ export default function SettingsPage({
                   />
                 </div>
 
+                {renderOpenaiCodexOauthBlock("polish")}
+
                 <div className="settings-column" style={{ gap: 6 }}>
                   <div className="settings-row">
                     <span className="settings-option-desc">{t("settings.modelLabel")}</span>
@@ -2354,7 +2473,7 @@ export default function SettingsPage({
                             <div className="picker-empty">
                               {aiModelsLoading
                                 ? t("settings.fetchModelsFromApi")
-                                : aiModelsError || t("settings.fillApiKeyToLoadModels")}
+                                : aiModelsError || t("settings.fillApiKeyOrLogin")}
                             </div>
                           )}
                         </div>
@@ -2554,6 +2673,8 @@ export default function SettingsPage({
                 </button>
               </div>
 
+              {renderOpenaiCodexOauthBlock("assistant")}
+
 
               {assistantUseSeparateModel ? (
                 <div className="settings-column" style={{ gap: 6 }}>
@@ -2730,9 +2851,9 @@ export default function SettingsPage({
                             <div className="picker-empty">
                               {(assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading)
                                 ? t("settings.fetchModelsFromApi")
-                                : (assistantProviderDiffers && !assistantApiKeyState.trim())
-                                  ? t("settings.fillAssistantApiKey")
-                                  : aiModelsError || t("settings.fillApiKeyToLoadModels")}
+                                : (assistantProviderDiffers && !assistantHasAuth)
+                                  ? t("settings.fillAssistantApiKeyOrLogin")
+                                  : aiModelsError || t("settings.fillApiKeyOrLogin")}
                             </div>
                           )}
                         </div>

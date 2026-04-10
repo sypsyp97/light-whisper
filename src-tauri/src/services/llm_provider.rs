@@ -2,6 +2,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri_plugin_keyring::KeyringExt;
 
+use crate::services::codex_oauth_service;
 use crate::state::user_profile::{ApiFormat, CustomProvider, LlmProviderConfig, LlmReasoningMode};
 use crate::state::AppState;
 
@@ -343,6 +344,10 @@ pub async fn probe_image_support_from_provider_metadata(
     endpoint: &LlmEndpoint,
     api_key: &str,
 ) -> Option<bool> {
+    if codex_oauth_service::decode_chatgpt_bearer_token(api_key).is_some() {
+        return None;
+    }
+
     let mut probe_targets = Vec::new();
     if let Some(url) = image_support_probe_url(endpoint) {
         probe_targets.push((url, true));
@@ -915,7 +920,16 @@ pub fn build_auth_headers(
             headers.insert("content-type", parse("application/json")?);
         }
         ApiFormat::OpenaiCompat => {
-            headers.insert("Authorization", parse(&format!("Bearer {api_key}"))?);
+            if let Some(token) = codex_oauth_service::decode_chatgpt_bearer_token(api_key) {
+                headers.insert("Authorization", parse(&format!("Bearer {}", token.access_token))?);
+                if let Some(account_id) = token.account_id.as_deref().filter(|value| !value.trim().is_empty()) {
+                    headers.insert("ChatGPT-Account-ID", parse(account_id)?);
+                }
+                headers.insert("originator", parse(codex_oauth_service::ORIGINATOR)?);
+                headers.insert("User-Agent", parse(codex_oauth_service::CHATGPT_BEARER_USER_AGENT)?);
+            } else {
+                headers.insert("Authorization", parse(&format!("Bearer {api_key}"))?);
+            }
             headers.insert("Content-Type", parse("application/json")?);
         }
     }

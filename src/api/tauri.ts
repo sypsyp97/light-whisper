@@ -15,6 +15,7 @@ import type {
   LlmReasoningMode,
   LlmReasoningSupport,
   ModelCheckResult,
+  OpenaiCodexOauthStatus,
   TranscriptionResult,
   UserProfile,
   WebSearchProvider,
@@ -99,6 +100,9 @@ export function pasteText(
 export const hideMainWindow = createNoArgCommand<string>("hide_main_window");
 export const showSubtitleWindow = createNoArgCommand<string>("show_subtitle_window");
 export const hideSubtitleWindow = createNoArgCommand<string>("hide_subtitle_window");
+export const getOpenaiCodexOauthStatus = createNoArgCommand<OpenaiCodexOauthStatus>("get_openai_codex_oauth_status");
+export const loginOpenaiCodexOauth = createNoArgCommand<OpenaiCodexOauthStatus>("login_openai_codex_oauth");
+export const logoutOpenaiCodexOauth = createNoArgCommand<void>("logout_openai_codex_oauth");
 
 export const unregisterAllHotkeys = createNoArgCommand<string>("unregister_all_hotkeys");
 

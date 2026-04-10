@@ -87,6 +87,14 @@ export interface AiModelListPayload {
   sourceUrl: string;
 }
 
+export interface OpenaiCodexOauthStatus {
+  loggedIn: boolean;
+  email?: string | null;
+  planType?: string | null;
+  accountId?: string | null;
+  expiresAtMs?: number | null;
+}
+
 // 热词来源
 export type HotWordSource = "user" | "learned";
 

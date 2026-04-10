@@ -5,7 +5,9 @@ use tauri::Emitter;
 use serde::Deserialize;
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions};
-use crate::services::{llm_client, llm_provider, profile_service, screen_capture_service};
+use crate::services::{
+    codex_oauth_service, llm_client, llm_provider, profile_service, screen_capture_service,
+};
 use crate::state::user_profile::CorrectionSource;
 use crate::state::AppState;
 
@@ -476,10 +478,16 @@ pub async fn polish_text(
         return Ok(text.to_string());
     }
 
-    let api_key = state.read_ai_polish_api_key();
+    let api_key = codex_oauth_service::resolve_api_key_for_provider(
+        app_handle,
+        state,
+        &state.active_llm_provider(),
+        &state.read_ai_polish_api_key(),
+    )
+    .await?;
 
     if api_key.is_empty() {
-        log::warn!("AI 润色已启用但未配置 API Key，跳过润色");
+        log::warn!("AI 润色已启用但未配置 API Key，也未完成 OpenAI Codex 登录，跳过润色");
         return Ok(text.to_string());
     }
 
@@ -595,9 +603,15 @@ pub async fn edit_text(
     app_handle: &tauri::AppHandle,
     session_id: u64,
 ) -> Result<String, String> {
-    let api_key = state.read_ai_polish_api_key();
+    let api_key = codex_oauth_service::resolve_api_key_for_provider(
+        app_handle,
+        state,
+        &state.active_llm_provider(),
+        &state.read_ai_polish_api_key(),
+    )
+    .await?;
     if api_key.is_empty() {
-        return Err("AI 未配置 API Key，无法执行编辑".into());
+        return Err("AI 未配置 API Key，且未完成 OpenAI Codex 登录，无法执行编辑".into());
     }
 
     let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());

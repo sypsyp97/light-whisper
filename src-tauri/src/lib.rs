@@ -132,6 +132,12 @@ pub fn run() {
                     state.set_web_search_api_key(&ws_key);
                     log::info!("已从密钥环加载联网搜索 API Key (Tavily)");
                 }
+
+                if services::codex_oauth_service::sync_runtime_session(&app_handle, state.inner())
+                    .is_some()
+                {
+                    log::info!("已从密钥环加载 OpenAI Codex OAuth 会话");
+                }
             }
 
             spawn_funasr_startup(app_handle.clone());
@@ -168,6 +174,9 @@ pub fn run() {
             commands::funasr::pick_folder,
             commands::clipboard::copy_to_clipboard,
             commands::clipboard::paste_text,
+            commands::codex_oauth::login_openai_codex_oauth,
+            commands::codex_oauth::logout_openai_codex_oauth,
+            commands::codex_oauth::get_openai_codex_oauth_status,
             commands::window::hide_main_window,
             commands::window::show_subtitle_window,
             commands::window::hide_subtitle_window,

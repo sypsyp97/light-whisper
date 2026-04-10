@@ -11,6 +11,7 @@ use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 
 use super::user_profile::{LlmProviderConfig, UserProfile};
+use crate::services::codex_oauth_service::OpenaiCodexOauthSession;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -163,6 +164,7 @@ pub struct AppState {
     pub ai_polish_enabled: Arc<AtomicBool>,
     pub ai_polish_api_key: Arc<parking_lot::Mutex<String>>,
     pub assistant_api_key: Arc<parking_lot::Mutex<String>>,
+    pub openai_codex_oauth_session: Arc<parking_lot::Mutex<Option<OpenaiCodexOauthSession>>>,
     pub http_client: reqwest::Client,
     pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
     pub assistant_image_support_cache: Arc<parking_lot::Mutex<HashMap<String, bool>>>,
@@ -195,6 +197,7 @@ impl Default for AppState {
             ai_polish_enabled: Default::default(),
             ai_polish_api_key: Default::default(),
             assistant_api_key: Default::default(),
+            openai_codex_oauth_session: Default::default(),
             http_client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(3))
                 .build()
@@ -283,6 +286,17 @@ impl AppState {
 
     pub fn set_assistant_api_key(&self, api_key: impl Into<String>) {
         *self.assistant_api_key.lock() = api_key.into();
+    }
+
+    pub fn read_openai_codex_oauth_session(&self) -> Option<OpenaiCodexOauthSession> {
+        self.openai_codex_oauth_session.lock().clone()
+    }
+
+    pub fn set_openai_codex_oauth_session(
+        &self,
+        session: Option<OpenaiCodexOauthSession>,
+    ) {
+        *self.openai_codex_oauth_session.lock() = session;
     }
 
     pub fn read_online_asr_api_key(&self) -> String {

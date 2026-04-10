@@ -3,7 +3,9 @@ use std::sync::atomic::Ordering;
 use tauri::Emitter;
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
-use crate::services::{llm_client, llm_provider, screen_capture_service, web_search_service};
+use crate::services::{
+    codex_oauth_service, llm_client, llm_provider, screen_capture_service, web_search_service,
+};
 use crate::state::user_profile::{UserProfile, WebSearchConfig, WebSearchProvider};
 use crate::state::AppState;
 use crate::utils::AppError;
@@ -213,10 +215,18 @@ pub async fn generate_content(
     app_handle: &tauri::AppHandle,
     session_id: u64,
 ) -> Result<String, AppError> {
-    let api_key = state.read_assistant_api_key();
+    let api_key = codex_oauth_service::resolve_api_key_for_provider(
+        app_handle,
+        state,
+        &state
+            .with_profile(|profile| profile.llm_provider.resolve_assistant_provider()),
+        &state.read_assistant_api_key(),
+    )
+    .await
+    .map_err(AppError::Other)?;
     if api_key.trim().is_empty() {
         return Err(AppError::Other(
-            "AI 助手未配置 API Key，无法生成内容".to_string(),
+            "AI 助手未配置 API Key，且未完成 OpenAI Codex 登录，无法生成内容".to_string(),
         ));
     }
 

@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use serde::Serialize;
 
-use crate::services::{llm_provider, profile_service};
+use crate::services::{codex_oauth_service, llm_provider, profile_service};
 use crate::state::user_profile::ApiFormat;
 use crate::state::AppState;
 
@@ -89,16 +89,49 @@ fn anthropic_models() -> Vec<AiModelInfo> {
     .collect()
 }
 
+fn codex_oauth_models() -> Vec<AiModelInfo> {
+    [
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.3-codex",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+    ]
+    .into_iter()
+    .map(|id| AiModelInfo {
+        id: id.to_string(),
+        owned_by: Some("openai".to_string()),
+    })
+    .collect()
+}
+
 #[tauri::command]
 pub async fn list_ai_models(
+    app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     provider: String,
     base_url: Option<String>,
     api_key: String,
 ) -> Result<AiModelListPayload, String> {
-    let api_key = api_key.trim().to_string();
+    let api_key = codex_oauth_service::resolve_api_key_for_provider(
+        &app_handle,
+        state.inner(),
+        &provider,
+        &api_key,
+    )
+    .await?;
     if api_key.is_empty() {
-        return Err("请先填写 API Key".to_string());
+        return Err("请先填写 API Key 或完成 OpenAI Codex 登录".to_string());
+    }
+
+    if provider == "openai" && codex_oauth_service::decode_chatgpt_bearer_token(&api_key).is_some() {
+        return Ok(AiModelListPayload {
+            models: codex_oauth_models(),
+            source_url: codex_oauth_service::CHATGPT_CODEX_RESPONSES_URL.to_string(),
+        });
     }
 
     let config = state.llm_provider_config();
