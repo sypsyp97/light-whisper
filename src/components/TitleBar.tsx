@@ -35,7 +35,7 @@ export default function TitleBar({ title, leftAction, rightActions }: TitleBarPr
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }} onMouseDown={e => e.stopPropagation()}>
         {leftAction}
-        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.01em", fontFamily: "var(--font-display)", marginLeft: leftAction ? 0 : 8 }}>
+        <span className={`title-text${!leftAction ? " title-text-indented" : ""}`}>
           {title}
         </span>
       </div>

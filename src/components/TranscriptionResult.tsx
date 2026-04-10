@@ -65,7 +65,7 @@ export default function TranscriptionResult({
                 <span className="result-dot" />
                 {t("result.title")}
               </span>
-              <button aria-label={t("common.copy")} className="icon-btn" style={{ padding: 6 }} onClick={handleCopy}>
+              <button aria-label={t("common.copy")} className="icon-btn icon-btn-sm" onClick={handleCopy}>
                 {copiedId === "original"
                   ? <span className="animate-check-draw"><Check size={12} /></span>
                   : <Copy size={12} strokeWidth={1.5} />}

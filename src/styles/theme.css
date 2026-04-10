@@ -6,18 +6,18 @@
 
 /* ---------- Light theme (default) ---------- */
 :root {
-  /* Surfaces — Claude.ai product palette */
+  /* Surfaces — harmonious subtle layers like dark mode */
   --color-bg-primary: #F5F5F0;
-  --color-bg-secondary: #ECEAE2;
-  --color-bg-tertiary: #E0DDD4;
-  --color-bg-elevated: #FFFFFF;
+  --color-bg-secondary: #F0EEE8;
+  --color-bg-tertiary: #EAE8E2;
+  --color-bg-elevated: #FDFCFA;
   --color-bg-overlay: rgba(245, 245, 240, 0.92);
-  --color-bg-sunken: #F0EEE6;
+  --color-bg-sunken: #EDEAE4;
 
-  /* Text — Claude.ai product ramp (clear hierarchy) */
+  /* Text — Claude.ai product ramp (clear hierarchy), enhanced contrast */
   --color-text-primary: #1a1a18;
-  --color-text-secondary: #6b6a68;
-  --color-text-tertiary: #8a8985;
+  --color-text-secondary: #5a5854;
+  --color-text-tertiary: #6e6c67;
   --color-text-inverse: #F5F5F0;
   --color-text-brand: #d97757;
 
@@ -29,10 +29,10 @@
   --color-accent-muted: rgba(174, 86, 48, 0.05);
   --color-accent-rgb: 174, 86, 48;
 
-  /* Borders — Claude Cloud ramp */
-  --color-border: #d1cfc5;
-  --color-border-subtle: rgba(0, 0, 0, 0.06);
-  --color-border-accent: rgba(174, 86, 48, 0.25);
+  /* Borders — Claude Cloud ramp, enhanced for light mode visibility */
+  --color-border: #a8a59a;
+  --color-border-subtle: rgba(0, 0, 0, 0.08);
+  --color-border-accent: rgba(174, 86, 48, 0.30);
 
   /* Status */
   --color-success: #2E8B57;
@@ -49,14 +49,15 @@
   --color-assistant-glow: rgba(139, 92, 246, 0.6);
   --color-learned: #10b981;
 
-  /* Shadows — multi-layer, realistic depth */
-  --shadow-xs: 0 1px 1px rgba(45, 40, 32, 0.03);
-  --shadow-sm: 0 1px 2px rgba(45, 40, 32, 0.04), 0 1px 1px rgba(45, 40, 32, 0.02);
-  --shadow-md: 0 4px 8px -1px rgba(45, 40, 32, 0.06), 0 2px 4px -1px rgba(45, 40, 32, 0.03);
-  --shadow-lg: 0 10px 25px -3px rgba(45, 40, 32, 0.08), 0 4px 10px -2px rgba(45, 40, 32, 0.04);
-  --shadow-xl: 0 20px 50px -5px rgba(45, 40, 32, 0.12), 0 8px 20px -4px rgba(45, 40, 32, 0.06);
+  /* Shadows — enhanced for subtle background distinction */
+  --shadow-xs: 0 1px 2px rgba(45, 40, 32, 0.06);
+  --shadow-sm: 0 2px 4px rgba(45, 40, 32, 0.08), 0 1px 2px rgba(45, 40, 32, 0.04);
+  --shadow-md: 0 4px 12px rgba(45, 40, 32, 0.12), 0 2px 4px rgba(45, 40, 32, 0.06);
+  --shadow-lg: 0 8px 24px rgba(45, 40, 32, 0.14), 0 4px 8px rgba(45, 40, 32, 0.08);
+  --shadow-xl: 0 16px 40px rgba(45, 40, 32, 0.18), 0 6px 12px rgba(45, 40, 32, 0.10);
   --shadow-glow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.15);
-  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.03), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-record-ring: 0 0 0 4px rgba(var(--color-accent-rgb), 0.20);
 
   /* Radii */
   --radius-xs: 4px;
@@ -116,11 +117,11 @@
   --z-toast: 400;
   --z-tooltip: 500;
 
-  /* Ambient background — semi-transparent for Windows Acrylic */
+  /* Ambient background — subtle like dark mode */
   --bg-gradient:
-    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(var(--color-accent-rgb), 0.06), transparent 60%),
-    radial-gradient(ellipse 800px 450px at 0% 100%, rgba(212, 137, 10, 0.04), transparent 60%),
-    linear-gradient(175deg, rgba(245, 245, 240, 0.82) 0%, rgba(240, 238, 230, 0.82) 100%);
+    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(var(--color-accent-rgb), 0.05), transparent 60%),
+    radial-gradient(ellipse 800px 450px at 0% 100%, rgba(212, 137, 10, 0.03), transparent 60%),
+    linear-gradient(175deg, rgba(245, 245, 240, 0.85) 0%, rgba(240, 238, 232, 0.85) 100%);
 }
 
 /* ---------- Dark theme — evening warmth, not cold terminal ---------- */
@@ -170,6 +171,7 @@
   --shadow-xl: 0 24px 50px rgba(0, 0, 0, 0.40), 0 8px 22px rgba(0, 0, 0, 0.22);
   --shadow-glow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.20);
   --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
+  --shadow-record-ring: 0 0 0 4px rgba(var(--color-accent-rgb), 0.12);
 
   --bg-gradient:
     radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(var(--color-accent-rgb), 0.08), transparent 60%),
@@ -643,6 +645,26 @@ body {
   transition: transform 60ms ease-out, background 60ms ease-out;
 }
 
+/* Compact primary button — settings download, etc. */
+.btn-primary-sm {
+  padding: 6px 14px;
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+}
+
+/* Ghost button size variants */
+.btn-ghost-sm {
+  padding: 6px 10px;
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+}
+
+.btn-ghost-xs {
+  padding: 4px 8px;
+  font-size: var(--text-xs);
+  border-radius: var(--radius-xs);
+}
+
 /* Divider */
 .divider {
   height: 1px;
@@ -683,6 +705,10 @@ body {
 .icon-btn:active {
   transform: scale(0.82);
   transition: transform 60ms ease-out;
+}
+
+.icon-btn-sm {
+  padding: 4px;
 }
 
 /* Gear spin — settings icon rotates on hover */
@@ -798,6 +824,19 @@ body {
 
 /* Theme option button — settings page theme selector */
 .theme-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
   transition: border-color 0.2s var(--ease-out-expo),
               background-color 0.2s var(--ease-out-expo),
               color 0.2s var(--ease-out-expo),
@@ -813,6 +852,19 @@ body {
 .theme-btn:active {
   transform: translateY(0) scale(0.96);
   transition: transform 60ms ease-out;
+}
+
+.theme-btn.active {
+  border: 1px solid var(--color-border-accent);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+/* Compact theme button — inline actions */
+.theme-btn-xs {
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  gap: 4px;
 }
 
 /* Range input — warm-toned slider matching design system */
@@ -859,4 +911,39 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 /* Font utility */
 .font-sans {
   font-family: var(--font-sans);
+}
+
+/* Title bar text */
+.title-text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-family: var(--font-display);
+}
+
+.title-text-indented {
+  margin-left: 8px;
+}
+
+/* Onboarding card body */
+.onboarding-body {
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--color-text-secondary);
+}
+
+.onboarding-body p {
+  margin: 0 0 6px;
+}
+
+.onboarding-body p:last-child {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.onboarding-accent {
+  color: var(--color-accent);
+  font-weight: 600;
 }

@@ -152,7 +152,7 @@ export default function MainPage({ onNavigate }: {
         <div className="error-section animate-shake" style={{ margin: `0 ${PADDING}px 8px` }}>
           <div className="error-banner">
             <div className="error-banner-inner">
-              <p style={{ fontSize: 12, color: "var(--color-error)", lineHeight: 1.6, flex: 1 }}>{recordingError || modelError}</p>
+              <p className="settings-error" style={{ lineHeight: 1.6, flex: 1 }}>{recordingError || modelError}</p>
               <button onClick={() => setErrorDismissed(true)} aria-label={t("common.close")} className="error-dismiss-btn">
                 <X size={12} />
               </button>
@@ -184,7 +184,7 @@ export default function MainPage({ onNavigate }: {
         />
         {/* First-use onboarding hint */}
         {!onboardingDismissed && !transcriptionResult && !isProcessing && isReady && history.length === 0 && (
-          <div className="result-card animate-fade-in" style={{ marginTop: 8 }}>
+          <div className="result-card result-card-first animate-fade-in">
               <div className="result-card-header">
                 <span className="result-card-title">
                   <span className="result-dot" />
@@ -192,8 +192,7 @@ export default function MainPage({ onNavigate }: {
                 </span>
                 <button
                   aria-label={t("common.close")}
-                  className="icon-btn"
-                  style={{ padding: 6 }}
+                  className="icon-btn icon-btn-sm"
                   onClick={() => {
                     setOnboardingDismissed(true);
                     writeLocalStorage(ONBOARDING_DISMISSED_KEY, "true");
@@ -202,14 +201,12 @@ export default function MainPage({ onNavigate }: {
                   <X size={12} strokeWidth={1.5} />
                 </button>
               </div>
-              <div style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.8, color: "var(--color-text-secondary)" }}>
-                <p style={{ margin: "0 0 6px" }}>
-                  {t("main.pressHotkey")} <strong style={{ color: "var(--color-accent)" }}>{hotkeyDisplay}</strong> {isToggleMode ? t("main.hotkeyHintToggle") : t("main.hotkeyHintHold")}
+              <div className="onboarding-body">
+                <p>
+                  {t("main.pressHotkey")} <strong className="onboarding-accent">{hotkeyDisplay}</strong> {isToggleMode ? t("main.hotkeyHintToggle") : t("main.hotkeyHintHold")}
                 </p>
-                <p style={{ margin: "0 0 6px" }}>{t("main.autoInputHint")}</p>
-                <p style={{ margin: 0, fontSize: 12, color: "var(--color-text-tertiary)" }}>
-                  {t("main.settingsHint")}
-                </p>
+                <p>{t("main.autoInputHint")}</p>
+                <p>{t("main.settingsHint")}</p>
               </div>
           </div>
         )}

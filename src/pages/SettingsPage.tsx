@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
@@ -61,6 +62,7 @@ import {
   validateCorrections,
   setCorrectionValidationConfig,
   removeCorrection,
+  hideMainWindow,
 } from "@/api/tauri";
 import type { AiModelInfo, CorrectionPattern, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiCodexOauthStatus, WebSearchProvider } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
@@ -1140,10 +1142,10 @@ export default function SettingsPage({
           {loggedIn ? (
             <button
               type="button"
-              className="btn-ghost"
+              className="btn-ghost btn-ghost-sm"
               onClick={() => { void handleOpenaiCodexOauthLogout(); }}
               disabled={openaiCodexOauthLoading}
-              style={{ fontSize: 12, padding: "8px 10px", opacity: openaiCodexOauthLoading ? 0.7 : 1 }}
+              style={{ opacity: openaiCodexOauthLoading ? 0.7 : 1 }}
             >
               {t("settings.codexOauthLogout")}
             </button>
@@ -1627,6 +1629,16 @@ export default function SettingsPage({
             <ArrowLeft size={14} strokeWidth={1.5} />
           </button>
         }
+        rightActions={
+          <>
+            <button aria-label={t("common.minimize")} className="icon-btn" onClick={() => getCurrentWindow().minimize()}>
+              <Minus size={12} strokeWidth={1.5} />
+            </button>
+            <button aria-label={t("common.close")} className="icon-btn" onClick={() => hideMainWindow()}>
+              <X size={12} strokeWidth={1.5} />
+            </button>
+          </>
+        }
       />
 
       {/* Settings nav */}
@@ -1795,8 +1807,7 @@ export default function SettingsPage({
                   <span className="settings-option-desc" style={{ flex: 1 }}>{t("settings.modelStorageDir")}</span>
                   {modelsDirCustom && (
                     <button
-                      className="theme-btn"
-                      style={{ fontSize: 11, padding: "2px 8px", gap: 4 }}
+                      className="theme-btn theme-btn-xs"
                       disabled={modelsDirMigrating}
                       onClick={async () => {
                         try {
@@ -1818,8 +1829,7 @@ export default function SettingsPage({
                     </button>
                   )}
                   <button
-                    className="theme-btn"
-                    style={{ fontSize: 11, padding: "2px 8px", gap: 4 }}
+                    className="theme-btn theme-btn-xs"
                     disabled={modelsDirMigrating}
                     onClick={async () => {
                       try {
@@ -2048,10 +2058,10 @@ export default function SettingsPage({
                   )}
                 </div>
                 <button
-                  className="btn-ghost"
+                  className="btn-ghost btn-ghost-sm"
                   disabled={deviceListLoading}
                   onClick={() => { void refreshInputDevices(); }}
-                  style={{ fontSize: 12, padding: "8px 10px", opacity: deviceListLoading ? 0.7 : 1 }}
+                  style={{ opacity: deviceListLoading ? 0.7 : 1 }}
                 >
                   {t("common.refresh")}
                 </button>
@@ -2318,10 +2328,9 @@ export default function SettingsPage({
                                 <option value="anthropic">Anthropic</option>
                               </select>
                               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                <button className="btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => { setAddingProvider(false); setNewProviderName(""); setNewProviderBaseUrl(""); setNewProviderModel(""); setNewProviderFormat("openai_compat"); }}>{t("common.cancel")}</button>
+                                <button className="btn-ghost btn-ghost-xs" onClick={() => { setAddingProvider(false); setNewProviderName(""); setNewProviderBaseUrl(""); setNewProviderModel(""); setNewProviderFormat("openai_compat"); }}>{t("common.cancel")}</button>
                                 <button
-                                  className="btn-ghost"
-                                  style={{ fontSize: 11, padding: "4px 8px" }}
+                                  className="btn-ghost btn-ghost-xs"
                                   disabled={!newProviderName.trim() || !newProviderBaseUrl.trim()}
                                   onClick={() => {
                                     void addCustomProvider(newProviderName.trim(), newProviderBaseUrl.trim(), newProviderModel.trim(), newProviderFormat).then(async (id) => {
@@ -2479,10 +2488,10 @@ export default function SettingsPage({
                           />
                           <button
                             type="button"
-                            className="btn-ghost"
+                            className="btn-ghost btn-ghost-sm"
                             onClick={() => { void refreshAiModels(); }}
                             disabled={aiModelsLoading}
-                            style={{ fontSize: 12, padding: "8px 10px", opacity: aiModelsLoading ? 0.7 : 1 }}
+                            style={{ opacity: aiModelsLoading ? 0.7 : 1 }}
                           >
                             {aiModelsLoading ? t("settings.fetching") : t("common.refresh")}
                           </button>
@@ -2860,10 +2869,10 @@ export default function SettingsPage({
                           />
                           <button
                             type="button"
-                            className="btn-ghost"
+                            className="btn-ghost btn-ghost-sm"
                             onClick={() => { void (assistantProviderDiffers ? refreshAssistantModels() : refreshAiModels()); }}
                             disabled={assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading}
-                            style={{ fontSize: 12, padding: "8px 10px", opacity: (assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading) ? 0.7 : 1 }}
+                            style={{ opacity: (assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading) ? 0.7 : 1 }}
                           >
                             {(assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading) ? t("settings.fetching") : t("common.refresh")}
                           </button>

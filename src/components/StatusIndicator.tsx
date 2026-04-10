@@ -101,14 +101,14 @@ export default function StatusIndicator({
       </p>
 
       {stage === "need_download" && !isDownloading && (
-        <button onClick={() => downloadModels()} className="btn-primary" style={{ marginTop: 4, fontSize: 12, padding: "8px 16px" }}>
+        <button onClick={() => downloadModels()} className="btn-primary btn-primary-sm" style={{ marginTop: 4 }}>
           <Download size={12} /> {t("status.startDownload")}
         </button>
       )}
       {stage === "need_download" && isDownloading && (
         <div className="download-info">
           <span>{t("status.anotherDownloading")}</span>
-          <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>{t("status.cancelDownload")}</button>
+          <button onClick={() => cancelDownload()} className="btn-ghost-sm">{t("status.cancelDownload")}</button>
         </div>
       )}
       {showProgressBar && (
@@ -125,7 +125,7 @@ export default function StatusIndicator({
               : <div className="download-pulse-bar" />}
           </div>
           {stage === "downloading" && (
-            <button onClick={() => cancelDownload()} className="btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}>{t("status.cancelDownload")}</button>
+<button onClick={() => cancelDownload()} className="btn-ghost-sm">{t("status.cancelDownload")}</button>
           )}
         </div>
       )}

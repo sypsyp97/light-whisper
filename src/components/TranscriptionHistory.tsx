@@ -29,7 +29,7 @@ export default function TranscriptionHistory({
             <p className="history-item-text">{item.text}</p>
             <span className="history-item-time">{item.timeDisplay}</span>
           </div>
-          <button aria-label={t("common.copy")} className="icon-btn" style={{ padding: 4, flexShrink: 0 }} onClick={() => onCopy(item.text, item.id)}>
+          <button aria-label={t("common.copy")} className="icon-btn icon-btn-sm" onClick={() => onCopy(item.text, item.id)}>
             {copiedId === item.id
               ? <span className="animate-check-draw"><Check size={11} /></span>
               : <Copy size={11} strokeWidth={1.5} />}
