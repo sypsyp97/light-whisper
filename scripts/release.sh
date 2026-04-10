@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # 本地构建 + 发布 Release
-# 用法: bash scripts/release.sh 1.1.0
+# 用法: bash scripts/release.sh 1.2.1 "支持 OpenAI Codex OAuth 来润色。"
 
 set -euo pipefail
 
 VERSION="${1:?用法: bash scripts/release.sh <version> (例如 1.1.0)}"
+RELEASE_NOTES="${2:---generate-notes}"
 TAG="v${VERSION}"
 PKG_JSON="package.json"
 TAURI_CONF="src-tauri/tauri.conf.json"
@@ -81,8 +82,14 @@ git push && git push --tags
 
 # 6. 上传 Release
 echo "[6/6] 创建 Release 并上传安装包"
-gh release create "$TAG" "$INSTALLER" \
-    --title "$TAG" \
-    --generate-notes
+if [ "$RELEASE_NOTES" = "--generate-notes" ]; then
+    gh release create "$TAG" "$INSTALLER" \
+        --title "$TAG" \
+        --generate-notes
+else
+    gh release create "$TAG" "$INSTALLER" \
+        --title "$TAG" \
+        --notes "$RELEASE_NOTES"
+fi
 
 echo "=== 发布完成: https://github.com/sypsyp97/light-whisper/releases/tag/${TAG} ==="
