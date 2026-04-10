@@ -432,10 +432,18 @@ export default function SettingsPage({
   const [newProviderFormat, setNewProviderFormat] = useState<ApiFormat>("openai_compat");
   const providerSupportsCustomEndpoint = llmProvider === "custom" || customProviders.some((p) => p.id === llmProvider);
   const effectiveAssistantProvider = assistantProvider || llmProvider;
-  const polishUsesOpenaiOauth = llmProvider === "openai" && openaiCodexOauthStatus.loggedIn;
-  const assistantUsesOpenaiOauth = effectiveAssistantProvider === "openai" && openaiCodexOauthStatus.loggedIn;
+  const polishManualApiKey = aiPolishApiKey.trim();
+  const assistantManualApiKey =
+    assistantApiKeyState.trim()
+    || (effectiveAssistantProvider === llmProvider ? polishManualApiKey : "");
+  const polishUsesOpenaiOauth =
+    llmProvider === "openai" && openaiCodexOauthStatus.loggedIn && !polishManualApiKey;
+  const assistantUsesOpenaiOauth =
+    effectiveAssistantProvider === "openai"
+    && openaiCodexOauthStatus.loggedIn
+    && !assistantManualApiKey;
   const polishHasAuth = !!aiPolishApiKey.trim() || polishUsesOpenaiOauth;
-  const assistantHasAuth = !!assistantApiKeyState.trim() || assistantUsesOpenaiOauth;
+  const assistantHasAuth = !!assistantManualApiKey || assistantUsesOpenaiOauth;
 
   // --- Profile & misc ---
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -649,6 +657,15 @@ export default function SettingsPage({
   }, [refreshProfile, refreshAssistantKey, refreshOpenaiCodexOauthStatus]);
 
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
+
+  useEffect(() => {
+    if (!assistantUsesOpenaiOauth || webSearchProvider !== "model_native") return;
+    setWebSearchProviderState("exa");
+    webSearchConfigSave.schedule(webSearchEnabled, "exa", webSearchMaxResults);
+    if (picker.isOpen("webSearchProvider")) {
+      picker.close();
+    }
+  }, [assistantUsesOpenaiOauth, picker, webSearchConfigSave, webSearchEnabled, webSearchMaxResults, webSearchProvider]);
 
   useEffect(() => {
     getEngine().then(e => {
@@ -1093,7 +1110,9 @@ export default function SettingsPage({
     const summaryParts = [
       openaiCodexOauthStatus.email,
       openaiCodexOauthStatus.planType,
-      openaiCodexOauthStatus.accountId ? `acct ${openaiCodexOauthStatus.accountId}` : null,
+      openaiCodexOauthStatus.accountId
+        ? t("settings.codexOauthAccountSummary", { accountId: openaiCodexOauthStatus.accountId })
+        : null,
     ].filter(Boolean);
 
     return (
@@ -1466,10 +1485,38 @@ export default function SettingsPage({
     () => findRecordingModeOption(recordingMode),
     [recordingMode],
   );
-  const selectedWebSearchProviderOption = useMemo(
-    () => webSearchProviderOptions.find((o) => o.key === webSearchProvider) ?? webSearchProviderOptions[0],
-    [webSearchProvider],
+  const availableWebSearchProviderOptions = useMemo(
+    () => assistantUsesOpenaiOauth
+      ? webSearchProviderOptions.filter((option) => option.key !== "model_native")
+      : webSearchProviderOptions,
+    [assistantUsesOpenaiOauth],
   );
+  const selectedWebSearchProviderOption = useMemo(
+    () => availableWebSearchProviderOptions.find((o) => o.key === webSearchProvider) ?? availableWebSearchProviderOptions[0],
+    [availableWebSearchProviderOptions, webSearchProvider],
+  );
+  const assistantAuthSourceHint = useMemo(() => {
+    if (effectiveAssistantProvider !== "openai") {
+      return null;
+    }
+    if (assistantApiKeyState.trim()) {
+      return t("settings.assistantAuthSourceAssistantKey");
+    }
+    if (effectiveAssistantProvider === llmProvider && aiPolishApiKey.trim()) {
+      return t("settings.assistantAuthSourceSharedKey");
+    }
+    if (assistantUsesOpenaiOauth) {
+      return t("settings.assistantAuthSourceOauth");
+    }
+    return t("settings.assistantAuthSourceNone");
+  }, [
+    aiPolishApiKey,
+    assistantApiKeyState,
+    assistantUsesOpenaiOauth,
+    effectiveAssistantProvider,
+    llmProvider,
+    t,
+  ]);
   const selectedInputDeviceOption = useMemo(() => {
     if (!selectedInputDeviceName) {
       const systemDefaultDevice = inputDevices.find((device) => device.isDefault);
@@ -2964,8 +3011,15 @@ export default function SettingsPage({
                 </button>
               </div>
               <p className="settings-hint" style={{ margin: 0 }}>
-                {t("settings.webSearchHint")}
+                {assistantUsesOpenaiOauth
+                  ? t("settings.webSearchOauthHint")
+                  : t("settings.webSearchHint")}
               </p>
+              {assistantAuthSourceHint ? (
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  {t("settings.assistantAuthSourceLabel", { source: assistantAuthSourceHint })}
+                </p>
+              ) : null}
 
               {webSearchEnabled && (
                 <div className="settings-column" style={{ gap: 10 }}>
@@ -2991,7 +3045,7 @@ export default function SettingsPage({
                       {picker.isOpen("webSearchProvider") && (
                         <div className={picker.popoverClass("webSearchProvider")}>
                           <div className="picker-list" role="listbox">
-                            {webSearchProviderOptions.map((option) => (
+                            {availableWebSearchProviderOptions.map((option) => (
                               <button
                                 key={option.key}
                                 type="button"
@@ -3012,7 +3066,7 @@ export default function SettingsPage({
                   </div>
 
                   {/* 搜索结果条数（Exa / Tavily） */}
-                  {webSearchProvider !== "model_native" && (
+                  {selectedWebSearchProviderOption.key !== "model_native" && (
                     <div className="settings-column" style={{ gap: 6 }}>
                       <div className="settings-row">
                         <span className="settings-option-desc">{t("settings.webSearchMaxResults")}</span>
@@ -3031,9 +3085,9 @@ export default function SettingsPage({
                   )}
 
                   {/* Tavily API Key */}
-                  {webSearchProvider === "tavily" && (
+                  {selectedWebSearchProviderOption.key === "tavily" && (
                     <div className="settings-column" style={{ gap: 6 }}>
-                      <span className="settings-option-desc">Tavily API Key</span>
+                      <span className="settings-option-desc">{t("settings.webSearchTavilyApiKeyLabel")}</span>
                       <SecretInput
                         value={webSearchApiKey}
                         onChange={(val) => {
@@ -3041,7 +3095,7 @@ export default function SettingsPage({
                           webSearchKeySave.schedule(val);
                         }}
                         placeholder={t("settings.webSearchTavilyKeyPlaceholder")}
-                        aria-label="Tavily API Key"
+                        aria-label={t("settings.webSearchTavilyApiKeyLabel")}
                       />
                     </div>
                   )}

@@ -185,7 +185,6 @@ mod tests {
     }
 }
 
-
 /// 执行第三方搜索（Exa / Tavily）
 async fn run_third_party_search(
     state: &AppState,
@@ -215,12 +214,27 @@ pub async fn generate_content(
     app_handle: &tauri::AppHandle,
     session_id: u64,
 ) -> Result<String, AppError> {
+    let assistant_provider =
+        state.with_profile(|profile| profile.llm_provider.resolve_assistant_provider());
+    let assistant_manual_api_key = {
+        let assistant_api_key = state.read_assistant_api_key();
+        if !assistant_api_key.trim().is_empty() {
+            assistant_api_key
+        } else {
+            let active_provider =
+                state.with_profile(|profile| profile.llm_provider.resolve_active_provider());
+            if assistant_provider == active_provider {
+                state.read_ai_polish_api_key()
+            } else {
+                String::new()
+            }
+        }
+    };
     let api_key = codex_oauth_service::resolve_api_key_for_provider(
         app_handle,
         state,
-        &state
-            .with_profile(|profile| profile.llm_provider.resolve_assistant_provider()),
-        &state.read_assistant_api_key(),
+        &assistant_provider,
+        &assistant_manual_api_key,
     )
     .await
     .map_err(AppError::Other)?;
@@ -233,6 +247,21 @@ pub async fn generate_content(
     let config = state.llm_provider_config();
     let endpoint = llm_provider::assistant_endpoint_for_config(&config);
     let ws = state.with_profile(|p| p.web_search.clone());
+    let is_codex_chatgpt_bearer =
+        codex_oauth_service::decode_chatgpt_bearer_token(&api_key).is_some();
+    let effective_ws =
+        if ws.enabled && ws.provider == WebSearchProvider::ModelNative && is_codex_chatgpt_bearer {
+            log::info!(
+            "OpenAI Codex OAuth bearer 模式下，助手联网搜索从模型内置搜索自动切换到 Exa: model={}",
+            endpoint.model
+        );
+            WebSearchConfig {
+                provider: WebSearchProvider::Exa,
+                ..ws.clone()
+            }
+        } else {
+            ws.clone()
+        };
 
     // 构建 system prompt，可能追加搜索结果
     let mut system_prompt = state.with_profile(build_assistant_system_prompt);
@@ -242,9 +271,9 @@ pub async fn generate_content(
     //   不硬编码模型白名单——直接注入，不支持的模型会返回错误，下方 retry 时去掉 web_search 重试。
     // 第三方模式：先搜索，结果注入 prompt，模型自行判断是否引用。
     let use_native_search =
-        ws.enabled && ws.provider == WebSearchProvider::ModelNative;
+        effective_ws.enabled && effective_ws.provider == WebSearchProvider::ModelNative;
 
-    if ws.enabled && ws.provider != WebSearchProvider::ModelNative {
+    if effective_ws.enabled && effective_ws.provider != WebSearchProvider::ModelNative {
         // 通知前端：正在搜索
         let _ = app_handle.emit(
             "assistant-stream",
@@ -254,11 +283,11 @@ pub async fn generate_content(
             }),
         );
 
-        match run_third_party_search(state, &ws, asr_text).await {
+        match run_third_party_search(state, &effective_ws, asr_text).await {
             Ok(results) if !results.is_empty() => {
                 log::info!(
                     "联网搜索({:?})返回 {} 条结果",
-                    ws.provider,
+                    effective_ws.provider,
                     results.len()
                 );
                 system_prompt.push_str(&format!(
@@ -266,10 +295,10 @@ pub async fn generate_content(
                     web_search_service::render_search_context(&results)
                 ));
             }
-            Ok(_) => log::info!("联网搜索({:?})无结果", ws.provider),
+            Ok(_) => log::info!("联网搜索({:?})无结果", effective_ws.provider),
             Err(err) => log::warn!(
                 "联网搜索({:?})失败，继续无搜索上下文: {err}",
-                ws.provider
+                effective_ws.provider
             ),
         }
     }
@@ -279,7 +308,12 @@ pub async fn generate_content(
     let image_support_cache_key = llm_provider::image_support_cache_key(&endpoint);
     let cached_image_support = state.assistant_image_support(&image_support_cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
-        let support = llm_provider::probe_image_support_from_provider_metadata(&state.http_client, &endpoint, &api_key).await;
+        let support = llm_provider::probe_image_support_from_provider_metadata(
+            &state.http_client,
+            &endpoint,
+            &api_key,
+        )
+        .await;
         if let Some(supported) = support {
             state.set_assistant_image_support(image_support_cache_key.clone(), supported);
             log::info!(
@@ -410,8 +444,7 @@ pub async fn generate_content(
             .map_err(AppError::Other)?
         }
         Err(err)
-            if use_native_search
-                && llm_provider::looks_like_web_search_unsupported_error(&err) =>
+            if use_native_search && llm_provider::looks_like_web_search_unsupported_error(&err) =>
         {
             log::warn!(
                 "当前模型不支持联网搜索工具，去掉 web_search 重试: provider={}, model={}, err={}",
