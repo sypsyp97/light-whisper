@@ -262,10 +262,14 @@ function writeLlmProviderDrafts(drafts: LlmProviderDraftMap): void {
 export default function SettingsPage({
   onNavigate,
   active,
+  animClass = "",
 }: {
   onNavigate: (v: "main" | "settings") => void;
   active: boolean;
+  animClass?: string;
 }) {
+  const pageContentClass = `page-content ${animClass || ""}`.trim();
+
   const { t, i18n } = useTranslation();
   const { isDark, theme, setTheme } = useTheme();
   const { isRecording, retryModel, hotkeyDisplay, setHotkey, hotkeyError, hotkeyDiagnostic } = useRecordingContext();
@@ -1641,31 +1645,32 @@ export default function SettingsPage({
         }
       />
 
-      {/* Settings nav */}
-      <nav className="settings-nav" ref={navScrollRef}>
-        {navIndicatorStyle && (
-          <div
-            className="settings-nav-indicator"
-            style={{ transform: `translateX(${navIndicatorStyle.left}px)`, width: navIndicatorStyle.width }}
-          />
-        )}
-        {navSections.map(({ id, labelKey }) => (
-          <button
-            key={id}
-            type="button"
-            className="settings-nav-tab"
-            data-active={activeNavSection === id}
-            data-nav-tab={id}
-            onClick={() => handleNavClick(id)}
-          >
-            {t(labelKey)}
-          </button>
-        ))}
-      </nav>
+      <div className={pageContentClass} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+        {/* Settings nav */}
+        <nav className="settings-nav" ref={navScrollRef}>
+          {navIndicatorStyle && (
+            <div
+              className="settings-nav-indicator"
+              style={{ transform: `translateX(${navIndicatorStyle.left}px)`, width: navIndicatorStyle.width }}
+            />
+          )}
+          {navSections.map(({ id, labelKey }) => (
+            <button
+              key={id}
+              type="button"
+              className="settings-nav-tab"
+              data-active={activeNavSection === id}
+              data-nav-tab={id}
+              onClick={() => handleNavClick(id)}
+            >
+              {t(labelKey)}
+            </button>
+          ))}
+        </nav>
 
-      {/* Content */}
-      <div className="settings-content" ref={settingsContentRef} style={{ padding: `16px ${PADDING}px 16px` }}>
-        <div className="settings-sections">
+        {/* Content */}
+        <div className="settings-content" ref={settingsContentRef} style={{ padding: `16px ${PADDING}px 16px` }}>
+          <div className="settings-sections">
 
           {/* Appearance */}
           <section className="settings-card" data-nav-id="appearance" style={{ animationDelay: "0ms", position: "relative", zIndex: picker.isOpen("language") ? 8 : "auto" }}>
@@ -3511,6 +3516,16 @@ export default function SettingsPage({
         </div>
       </div>
 
+        {/* Footer */}
+        <div className="settings-footer" style={{ padding: `10px ${PADDING}px` }}>
+          <p className="settings-footer-text">
+            {t("settings.footer")} <span className="settings-footer-version">v{appVersion}</span>
+            <span style={{ margin: "0 6px" }}>·</span>
+            {t("settings.footerSubtitle")}
+          </p>
+        </div>
+      </div>
+
       {correctionModalOpen && (
         <CorrectionRulesModal
           profile={profile}
@@ -3531,15 +3546,6 @@ export default function SettingsPage({
           onRefreshProfile={refreshProfile}
         />
       )}
-
-      {/* Footer */}
-      <div className="settings-footer" style={{ padding: `10px ${PADDING}px` }}>
-        <p className="settings-footer-text">
-          {t("settings.footer")} <span className="settings-footer-version">v{appVersion}</span>
-          <span style={{ margin: "0 6px" }}>·</span>
-          {t("settings.footerSubtitle")}
-        </p>
-      </div>
     </div>
   );
 }

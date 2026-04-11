@@ -365,25 +365,25 @@ body {
   animation: check-draw 0.3s var(--ease-out-expo) 0.1s forwards;
 }
 
-/* Page transitions — smooth cross-fade with subtle scale */
+/* Page transitions — desktop shared-axis: short slide + opacity, no scaling */
 @keyframes page-enter-from-right {
-  from { opacity: 0; transform: translateX(16px) scale(0.98); }
-  to   { opacity: 1; transform: translateX(0) scale(1); }
+  from { opacity: 0; transform: translate3d(28px, 0, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 @keyframes page-enter-from-left {
-  from { opacity: 0; transform: translateX(-16px) scale(0.98); }
-  to   { opacity: 1; transform: translateX(0) scale(1); }
+  from { opacity: 0; transform: translate3d(-28px, 0, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 @keyframes page-exit-to-left {
-  from { opacity: 1; transform: translateX(0) scale(1); }
-  to   { opacity: 0; transform: translateX(-12px) scale(0.98); }
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to   { opacity: 0.12; transform: translate3d(-18px, 0, 0); }
 }
 
 @keyframes page-exit-to-right {
-  from { opacity: 1; transform: translateX(0) scale(1); }
-  to   { opacity: 0; transform: translateX(12px) scale(0.98); }
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to   { opacity: 0.12; transform: translate3d(18px, 0, 0); }
 }
 
 .page-enter-right,
@@ -393,10 +393,10 @@ body {
   will-change: opacity, transform;
 }
 
-.page-enter-right { animation: page-enter-from-right 0.28s var(--ease-out-expo) forwards; }
-.page-enter-left  { animation: page-enter-from-left 0.28s var(--ease-out-expo) forwards; }
-.page-exit-left   { animation: page-exit-to-left 0.2s var(--ease-out-quart) forwards; }
-.page-exit-right  { animation: page-exit-to-right 0.2s var(--ease-out-quart) forwards; }
+.page-enter-right { animation: page-enter-from-right 0.18s cubic-bezier(0, 0, 0.2, 1) forwards; }
+.page-enter-left  { animation: page-enter-from-left 0.18s cubic-bezier(0, 0, 0.2, 1) forwards; }
+.page-exit-left   { animation: page-exit-to-left 0.14s cubic-bezier(0.4, 0, 1, 1) forwards; }
+.page-exit-right  { animation: page-exit-to-right 0.14s cubic-bezier(0.4, 0, 1, 1) forwards; }
 
 /* Settings section cascade entrance */
 @keyframes settings-section-in {

@@ -14,8 +14,9 @@ import { useTranslation } from "react-i18next";
 import { PADDING, ONBOARDING_DISMISSED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 
-export default function MainPage({ onNavigate }: {
+export default function MainPage({ onNavigate, animClass = "" }: {
   onNavigate: (v: "main" | "settings") => void;
+  animClass?: string;
 }) {
   const { t } = useTranslation();
   const {
@@ -42,6 +43,8 @@ export default function MainPage({ onNavigate }: {
     }
   }, [transcriptionResult, onboardingDismissed]);
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
+
+  const pageContentClass = `page-content ${animClass || ""}`.trim();
 
   const correctionSubmit = useDebouncedCallback((previousText: string, nextText: string) => {
     submitUserCorrection(previousText, nextText)
@@ -103,7 +106,6 @@ export default function MainPage({ onNavigate }: {
 
   return (
     <div className="page-root">
-
       <TitleBar
         title={t("app.title")}
         leftAction={
@@ -123,95 +125,96 @@ export default function MainPage({ onNavigate }: {
         }
       />
 
-      {/* Recording zone */}
-      <div className="recording-zone" style={{ padding: `16px ${PADDING}px 12px` }}>
-        <StatusIndicator
-          stage={stage}
-          isReady={isReady}
-          isRecording={isRecording}
-          isProcessing={isProcessing}
-          device={device}
-          gpuName={gpuName}
-          downloadProgress={downloadProgress}
-          downloadMessage={downloadMessage}
-          isDownloading={isDownloading}
-          downloadModels={triggerDownload}
-          cancelDownload={cancelDownload}
-        >
-          <RecordingButton
+      <div className={pageContentClass} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+        {/* Recording zone */}
+        <div className="recording-zone" style={{ padding: `16px ${PADDING}px 12px` }}>
+          <StatusIndicator
+            stage={stage}
+            isReady={isReady}
             isRecording={isRecording}
             isProcessing={isProcessing}
-            isReady={isReady}
-            onToggle={handleToggleRecording}
-          />
-        </StatusIndicator>
-      </div>
-
-      {/* Error */}
-      {(recordingError || modelError) && !errorDismissed && (
-        <div className="error-section animate-shake" style={{ margin: `0 ${PADDING}px 8px` }}>
-          <div className="error-banner">
-            <div className="error-banner-inner">
-              <p className="settings-error" style={{ lineHeight: 1.6, flex: 1 }}>{recordingError || modelError}</p>
-              <button onClick={() => setErrorDismissed(true)} aria-label={t("common.close")} className="error-dismiss-btn">
-                <X size={12} />
-              </button>
-            </div>
-            {stage === "error" && <button onClick={retryModel} className="error-retry-link">{t("common.retry")}</button>}
-          </div>
+            device={device}
+            gpuName={gpuName}
+            downloadProgress={downloadProgress}
+            downloadMessage={downloadMessage}
+            isDownloading={isDownloading}
+            downloadModels={triggerDownload}
+            cancelDownload={cancelDownload}
+          >
+            <RecordingButton
+              isRecording={isRecording}
+              isProcessing={isProcessing}
+              isReady={isReady}
+              onToggle={handleToggleRecording}
+            />
+          </StatusIndicator>
         </div>
-      )}
 
-      {/* Results */}
-      <div className="results-area" style={{ padding: `0 ${PADDING}px 12px` }}>
-        <TranscriptionResult
-          text={transcriptionResult}
-          originalText={originalAsrText}
-          isProcessing={isProcessing}
-          copiedId={copiedId}
-          onCopy={handleCopy}
-          onDraftChange={handleDraftChange}
-          onTextChange={handleTextChange}
-          durationSec={durationSec}
-          charCount={charCount}
-          detectedLanguage={detectedLanguage}
-        />
-        <TranscriptionHistory
-          history={history}
-          currentResult={transcriptionResult}
-          copiedId={copiedId}
-          onCopy={handleCopy}
-        />
-        {/* First-use onboarding hint */}
-        {!onboardingDismissed && !transcriptionResult && !isProcessing && isReady && history.length === 0 && (
-          <div className="result-card result-card-first animate-fade-in">
-              <div className="result-card-header">
-                <span className="result-card-title">
-                  <span className="result-dot" />
-                  {t("main.quickStart")}
-                </span>
-                <button
-                  aria-label={t("common.close")}
-                  className="icon-btn icon-btn-sm"
-                  onClick={() => {
-                    setOnboardingDismissed(true);
-                    writeLocalStorage(ONBOARDING_DISMISSED_KEY, "true");
-                  }}
-                >
-                  <X size={12} strokeWidth={1.5} />
+        {/* Error */}
+        {(recordingError || modelError) && !errorDismissed && (
+          <div className="error-section animate-shake" style={{ margin: `0 ${PADDING}px 8px` }}>
+            <div className="error-banner">
+              <div className="error-banner-inner">
+                <p className="settings-error" style={{ lineHeight: 1.6, flex: 1 }}>{recordingError || modelError}</p>
+                <button onClick={() => setErrorDismissed(true)} aria-label={t("common.close")} className="error-dismiss-btn">
+                  <X size={12} />
                 </button>
               </div>
-              <div className="onboarding-body">
-                <p>
-                  {t("main.pressHotkey")} <strong className="onboarding-accent">{hotkeyDisplay}</strong> {isToggleMode ? t("main.hotkeyHintToggle") : t("main.hotkeyHintHold")}
-                </p>
-                <p>{t("main.autoInputHint")}</p>
-                <p>{t("main.settingsHint")}</p>
-              </div>
+              {stage === "error" && <button onClick={retryModel} className="error-retry-link">{t("common.retry")}</button>}
+            </div>
           </div>
         )}
-      </div>
 
+        {/* Results */}
+        <div className="results-area" style={{ padding: `0 ${PADDING}px 12px` }}>
+          <TranscriptionResult
+            text={transcriptionResult}
+            originalText={originalAsrText}
+            isProcessing={isProcessing}
+            copiedId={copiedId}
+            onCopy={handleCopy}
+            onDraftChange={handleDraftChange}
+            onTextChange={handleTextChange}
+            durationSec={durationSec}
+            charCount={charCount}
+            detectedLanguage={detectedLanguage}
+          />
+          <TranscriptionHistory
+            history={history}
+            currentResult={transcriptionResult}
+            copiedId={copiedId}
+            onCopy={handleCopy}
+          />
+          {/* First-use onboarding hint */}
+          {!onboardingDismissed && !transcriptionResult && !isProcessing && isReady && history.length === 0 && (
+            <div className="result-card result-card-first animate-fade-in">
+                <div className="result-card-header">
+                  <span className="result-card-title">
+                    <span className="result-dot" />
+                    {t("main.quickStart")}
+                  </span>
+                  <button
+                    aria-label={t("common.close")}
+                    className="icon-btn icon-btn-sm"
+                    onClick={() => {
+                      setOnboardingDismissed(true);
+                      writeLocalStorage(ONBOARDING_DISMISSED_KEY, "true");
+                    }}
+                  >
+                    <X size={12} strokeWidth={1.5} />
+                  </button>
+                </div>
+                <div className="onboarding-body">
+                  <p>
+                    {t("main.pressHotkey")} <strong className="onboarding-accent">{hotkeyDisplay}</strong> {isToggleMode ? t("main.hotkeyHintToggle") : t("main.hotkeyHintHold")}
+                  </p>
+                  <p>{t("main.autoInputHint")}</p>
+                  <p>{t("main.settingsHint")}</p>
+                </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

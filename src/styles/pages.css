@@ -14,6 +14,13 @@
   color: var(--color-text-primary);
 }
 
+.page-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
 /* ---------- MainPage ---------- */
 
 /* Recording zone — top section with mic button and status */

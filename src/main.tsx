@@ -67,19 +67,19 @@ function App() {
       setTimeout(() => {
         setAnimClass("");
         isTransitioning.current = false;
-      }, 280);
-    }, 200);
+      }, 180);
+    }, 140);
   }, [view]);
 
   return (
     <RecordingProvider>
       <div style={{ height: "100%", width: "100%" }}>
-        <div className={animClass} style={{ height: "100%", width: "100%" }}>
+        <div style={{ height: "100%", width: "100%" }}>
           <Suspense fallback={<div style={{ height: "100%", width: "100%" }} />}>
             {view === "main" ? (
-              <MainPage onNavigate={navigateTo} />
+              <MainPage onNavigate={navigateTo} animClass={animClass} />
             ) : (
-              <SettingsPage onNavigate={navigateTo} active />
+              <SettingsPage onNavigate={navigateTo} active animClass={animClass} />
             )}
           </Suspense>
         </div>
