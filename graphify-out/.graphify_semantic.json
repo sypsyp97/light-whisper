@@ -1,0 +1,938 @@
+{
+  "nodes": [
+    {
+      "id": "doc_light_whisper_overview",
+      "label": "Light-Whisper overview",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L1-L170",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "doc_light_whisper_overview_zh",
+      "label": "Light-Whisper 中文说明",
+      "file_type": "document",
+      "source_file": "README.zh-CN.md",
+      "source_location": "L1-L170",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "doc_release_workflow",
+      "label": "Release workflow",
+      "file_type": "document",
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": "L1-L80",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_one_key_dictation",
+      "label": "One-key dictation",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L30-L70",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_voice_assistant",
+      "label": "Voice assistant",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L40-L70",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_selected_text_editing",
+      "label": "Selected text editing",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L52-L60",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_real_time_translation",
+      "label": "Real-time translation",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L55-L60",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_ai_polish",
+      "label": "AI polish",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L36-L50",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_adaptive_learning",
+      "label": "Adaptive learning",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L38-L52",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_subtitle_overlay",
+      "label": "Subtitle overlay",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L42-L60",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_web_search_context",
+      "label": "Web search context",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L44-L48",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_screen_context",
+      "label": "Screen context capture",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L44-L48",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_local_online_asr",
+      "label": "Hybrid ASR engine layer",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L32-L44",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "architecture_react_ui",
+      "label": "React UI",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L150-L168",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "architecture_rust_core",
+      "label": "Rust core",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L150-L168",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "architecture_python_asr_runtime",
+      "label": "Python ASR runtime",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L150-L168",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "architecture_llm_integration",
+      "label": "LLM integration layer",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L150-L168",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "engine_sensevoice",
+      "label": "SenseVoice engine",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L74-L92",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "engine_faster_whisper",
+      "label": "Faster Whisper engine",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L74-L92",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "engine_glm_asr",
+      "label": "GLM-ASR engine",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L74-L92",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "release_engine_packaging",
+      "label": "Python engine packaging",
+      "file_type": "document",
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": "L7-L40",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "release_installer_build",
+      "label": "Installer build",
+      "file_type": "document",
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": "L7-L40",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "release_github_release",
+      "label": "GitHub release publishing",
+      "file_type": "document",
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": "L7-L65",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "feature_codex_oauth_polish",
+      "label": "Codex OAuth polish support",
+      "file_type": "document",
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": "L15-L24",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_one_key_dictation",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L30-L70",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_voice_assistant",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L30-L70",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_selected_text_editing",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L52-L60",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_real_time_translation",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L55-L60",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_ai_polish",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L36-L50",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_adaptive_learning",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L38-L52",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_subtitle_overlay",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L42-L60",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_web_search_context",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L44-L48",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_screen_context",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L44-L48",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "feature_local_online_asr",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L32-L44",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "architecture_react_ui",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L150-L168",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "architecture_rust_core",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L150-L168",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "architecture_python_asr_runtime",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L150-L168",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "architecture_llm_integration",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L150-L168",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "engine_sensevoice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L74-L92",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "engine_faster_whisper",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L74-L92",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview",
+      "target": "engine_glm_asr",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L74-L92",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_light_whisper_overview_zh",
+      "target": "doc_light_whisper_overview",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.zh-CN.md",
+      "source_location": "L1-L20",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_release_workflow",
+      "target": "release_engine_packaging",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": "L7-L40",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_release_workflow",
+      "target": "release_installer_build",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": "L7-L40",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_release_workflow",
+      "target": "release_github_release",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": "L7-L65",
+      "weight": 1.0
+    },
+    {
+      "source": "doc_release_workflow",
+      "target": "feature_codex_oauth_polish",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": "L15-L24",
+      "weight": 1.0
+    },
+    {
+      "source": "feature_voice_assistant",
+      "target": "feature_web_search_context",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.93,
+      "source_file": "README.md",
+      "source_location": "L44-L48",
+      "weight": 1.0
+    },
+    {
+      "source": "feature_voice_assistant",
+      "target": "feature_screen_context",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.93,
+      "source_file": "README.md",
+      "source_location": "L44-L48",
+      "weight": 1.0
+    },
+    {
+      "source": "feature_selected_text_editing",
+      "target": "feature_ai_polish",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.91,
+      "source_file": "README.md",
+      "source_location": "L36-L60",
+      "weight": 1.0
+    },
+    {
+      "source": "feature_one_key_dictation",
+      "target": "feature_local_online_asr",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.92,
+      "source_file": "README.md",
+      "source_location": "L30-L44",
+      "weight": 1.0
+    },
+    {
+      "source": "feature_ai_polish",
+      "target": "architecture_llm_integration",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "README.md",
+      "source_location": "L36-L50",
+      "weight": 1.0
+    },
+    {
+      "source": "feature_voice_assistant",
+      "target": "architecture_llm_integration",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "README.md",
+      "source_location": "L40-L50",
+      "weight": 1.0
+    },
+    {
+      "source": "feature_local_online_asr",
+      "target": "engine_sensevoice",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L74-L92",
+      "weight": 1.0
+    },
+    {
+      "source": "feature_local_online_asr",
+      "target": "engine_faster_whisper",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L74-L92",
+      "weight": 1.0
+    },
+    {
+      "source": "feature_local_online_asr",
+      "target": "engine_glm_asr",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L74-L92",
+      "weight": 1.0
+    },
+    {
+      "source": "audio_service_do_final_asr",
+      "target": "feature_one_key_dictation",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.96,
+      "source_file": "src-tauri\\src\\services\\audio_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "hotkey_register_custom_hotkey",
+      "target": "feature_one_key_dictation",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.91,
+      "source_file": "src-tauri\\src\\commands\\hotkey.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_service_generate_content",
+      "target": "feature_voice_assistant",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.97,
+      "source_file": "src-tauri\\src\\services\\assistant_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "hotkey_register_assistant_hotkey",
+      "target": "feature_voice_assistant",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "src-tauri\\src\\commands\\hotkey.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "ai_polish_service_edit_text",
+      "target": "feature_selected_text_editing",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.96,
+      "source_file": "src-tauri\\src\\services\\ai_polish_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "hotkey_register_translation_hotkey",
+      "target": "feature_real_time_translation",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "src-tauri\\src\\commands\\hotkey.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "profile_set_translation_target",
+      "target": "feature_real_time_translation",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.88,
+      "source_file": "src-tauri\\src\\commands\\profile.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "ai_polish_service_polish_text",
+      "target": "feature_ai_polish",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.97,
+      "source_file": "src-tauri\\src\\services\\ai_polish_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "profile_service_promote_vocab_to_hot_words",
+      "target": "feature_adaptive_learning",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.94,
+      "source_file": "src-tauri\\src\\services\\profile_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "profile_service_learn_from_correction",
+      "target": "feature_adaptive_learning",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.94,
+      "source_file": "src-tauri\\src\\services\\profile_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "window_create_subtitle_window",
+      "target": "feature_subtitle_overlay",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri\\src\\commands\\window.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "subtitleoverlay_subtitleoverlay",
+      "target": "feature_subtitle_overlay",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.94,
+      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_service_run_third_party_search",
+      "target": "feature_web_search_context",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.96,
+      "source_file": "src-tauri\\src\\services\\assistant_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "web_search_service_render_search_context",
+      "target": "feature_web_search_context",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri\\src\\services\\web_search_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "screen_capture_service_capture_full_screen_context",
+      "target": "feature_screen_context",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.96,
+      "source_file": "src-tauri\\src\\services\\screen_capture_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "foreground_format_prompt_context",
+      "target": "feature_screen_context",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src-tauri\\src\\utils\\foreground.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "funasr_server_funasrserver",
+      "target": "engine_sensevoice",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.98,
+      "source_file": "src-tauri\\resources\\funasr_server.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "whisper_server_whisperserver",
+      "target": "engine_faster_whisper",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.98,
+      "source_file": "src-tauri\\resources\\whisper_server.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_src_services_glm_asr_service_rs",
+      "target": "engine_glm_asr",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.97,
+      "source_file": "src-tauri\\src\\services\\glm_asr_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_pages_mainpage_tsx",
+      "target": "architecture_react_ui",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.92,
+      "source_file": "src\\pages\\MainPage.tsx",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_pages_settingspage_tsx",
+      "target": "architecture_react_ui",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.92,
+      "source_file": "src\\pages\\SettingsPage.tsx",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "main_main",
+      "target": "architecture_rust_core",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "src-tauri\\src\\main.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "server_common_baseasrserver",
+      "target": "architecture_python_asr_runtime",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.97,
+      "source_file": "src-tauri\\resources\\server_common.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "llm_client_send_llm_request",
+      "target": "architecture_llm_integration",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.96,
+      "source_file": "src-tauri\\src\\services\\llm_client.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "llm_provider_endpoint_for_config",
+      "target": "architecture_llm_integration",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "src-tauri\\src\\services\\llm_provider.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "build_engine_create_tar_xz_with_python",
+      "target": "release_engine_packaging",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.97,
+      "source_file": "scripts\\build_engine.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "build_engine_main",
+      "target": "release_engine_packaging",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "scripts\\build_engine.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "build_main",
+      "target": "release_installer_build",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.78,
+      "source_file": "src-tauri\\build.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "codex_oauth_service_login",
+      "target": "feature_codex_oauth_polish",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.97,
+      "source_file": "src-tauri\\src\\services\\codex_oauth_service.rs",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "ai_polish_service_polish_text",
+      "target": "feature_codex_oauth_polish",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.82,
+      "source_file": "RELEASE_GUIDE.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "application_stack",
+      "label": "Application stack",
+      "nodes": [
+        "architecture_react_ui",
+        "architecture_rust_core",
+        "architecture_python_asr_runtime",
+        "architecture_llm_integration"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md"
+    },
+    {
+      "id": "speech_engines",
+      "label": "Speech engines",
+      "nodes": [
+        "engine_sensevoice",
+        "engine_faster_whisper",
+        "engine_glm_asr"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md"
+    },
+    {
+      "id": "assistant_context_stack",
+      "label": "Assistant context stack",
+      "nodes": [
+        "feature_voice_assistant",
+        "feature_web_search_context",
+        "feature_screen_context",
+        "architecture_llm_integration"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "README.md"
+    },
+    {
+      "id": "release_pipeline",
+      "label": "Release pipeline",
+      "nodes": [
+        "release_engine_packaging",
+        "release_installer_build",
+        "release_github_release"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "RELEASE_GUIDE.md"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
