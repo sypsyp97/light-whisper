@@ -1,10 +1,10 @@
-# Transcription Result UI
+# Kbd
 
 > 1 nodes · cohesion 1.00
 
 ## Key Concepts
 
-- **TranscriptionResult.tsx** (0 connections) — `C:\Users\sun\Downloads\light-whisper\src\components\TranscriptionResult.tsx`
+- **Kbd.tsx** (0 connections) — `C:\Users\sun\Downloads\light-whisper\src\components\Kbd.tsx`
 
 ## Relationships
 
@@ -12,7 +12,7 @@
 
 ## Source Files
 
-- `C:\Users\sun\Downloads\light-whisper\src\components\TranscriptionResult.tsx`
+- `C:\Users\sun\Downloads\light-whisper\src\components\Kbd.tsx`
 
 ## Audit Trail
 

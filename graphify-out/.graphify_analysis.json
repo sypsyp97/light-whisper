@@ -1,6 +1,7 @@
 {
   "communities": {
     "0": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_commands_hotkey_rs",
       "hotkey_all_modifiers_down",
       "hotkey_build_hook_state",
       "hotkey_build_hook_state_with_backend",
@@ -77,10 +78,10 @@
       "hotkey_update_hotkey_diagnostic",
       "hotkey_update_hotkey_diagnostic_for_trigger",
       "hotkey_vk_matches_required",
-      "hotkey_vk_to_required_index",
-      "src_tauri_src_commands_hotkey_rs"
+      "hotkey_vk_to_required_index"
     ],
     "1": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_provider_rs",
       "llm_provider_apply_reasoning_controls",
       "llm_provider_assistant_endpoint_for_config",
       "llm_provider_assistant_endpoint_uses_separate_model_for_builtin_provider",
@@ -148,8 +149,7 @@
       "llm_provider_sync_assistant_api_key",
       "llm_provider_sync_runtime_api_key",
       "llm_provider_validation_endpoint_for_config",
-      "llm_provider_volcan_seed_2_models_report_reasoning_support",
-      "src_tauri_src_services_llm_provider_rs"
+      "llm_provider_volcan_seed_2_models_report_reasoning_support"
     ],
     "2": [
       "src_api_tauri_ts",
@@ -300,7 +300,7 @@
       "app_state_recordingtrigger",
       "app_state_recordingtrigger_dictation_output",
       "app_state_recordingtrigger_mode",
-      "src_tauri_src_state_app_state_rs"
+      "c_users_sun_downloads_light_whisper_src_tauri_src_state_app_state_rs"
     ],
     "5": [
       "codex_oauth_service_accept_callback_connection",
@@ -352,6 +352,52 @@
       "src_tauri_src_services_codex_oauth_service_rs"
     ],
     "6": [
+      "architecture_llm_integration",
+      "architecture_react_ui",
+      "architecture_rust_core",
+      "assistant_service_assistant_input_preserves_symbols_and_splits_cdata",
+      "assistant_service_build_assistant_system_prompt",
+      "assistant_service_build_assistant_user_content_with_selection",
+      "assistant_service_generate_content",
+      "assistant_service_render_assistant_user_content",
+      "assistant_service_run_third_party_search",
+      "doc_light_whisper_overview",
+      "doc_light_whisper_overview_zh",
+      "engine_faster_whisper",
+      "engine_glm_asr",
+      "engine_sensevoice",
+      "feature_ai_polish",
+      "feature_local_online_asr",
+      "feature_screen_context",
+      "feature_selected_text_editing",
+      "feature_voice_assistant",
+      "feature_web_search_context",
+      "glm_asr_service_build_form",
+      "glm_asr_service_glmresponse",
+      "glm_asr_service_transcribe",
+      "main_main",
+      "screen_capture_service_capture_full_screen_context",
+      "screen_capture_service_capturedscreen",
+      "src_pages_mainpage_tsx",
+      "src_tauri_src_main_rs",
+      "src_tauri_src_services_assistant_service_rs",
+      "src_tauri_src_services_glm_asr_service_rs",
+      "src_tauri_src_services_screen_capture_service_rs",
+      "src_tauri_src_services_web_search_service_rs",
+      "web_search_service_exa_search",
+      "web_search_service_jsonrpcresponse",
+      "web_search_service_mcpcontent",
+      "web_search_service_mcpresult",
+      "web_search_service_parse_exa_block_extracts_fields",
+      "web_search_service_parse_exa_text_block",
+      "web_search_service_render_search_context",
+      "web_search_service_searchresult",
+      "web_search_service_tavily_search",
+      "web_search_service_tavilyhit",
+      "web_search_service_tavilyresponse",
+      "web_search_service_truncate_str"
+    ],
+    "7": [
       "llm_client_adapt_body_for_backend",
       "llm_client_anthropic_output_tokens",
       "llm_client_anthropic_user_content",
@@ -396,50 +442,6 @@
       "llm_client_uses_responses_api",
       "llm_client_volcengine_chat_body_maps_reasoning_mode_to_thinking",
       "src_tauri_src_services_llm_client_rs"
-    ],
-    "7": [
-      "architecture_llm_integration",
-      "architecture_rust_core",
-      "assistant_service_assistant_input_preserves_symbols_and_splits_cdata",
-      "assistant_service_build_assistant_system_prompt",
-      "assistant_service_build_assistant_user_content_with_selection",
-      "assistant_service_generate_content",
-      "assistant_service_render_assistant_user_content",
-      "assistant_service_run_third_party_search",
-      "doc_light_whisper_overview",
-      "doc_light_whisper_overview_zh",
-      "engine_faster_whisper",
-      "engine_glm_asr",
-      "engine_sensevoice",
-      "feature_ai_polish",
-      "feature_local_online_asr",
-      "feature_screen_context",
-      "feature_selected_text_editing",
-      "feature_voice_assistant",
-      "feature_web_search_context",
-      "glm_asr_service_build_form",
-      "glm_asr_service_glmresponse",
-      "glm_asr_service_transcribe",
-      "main_main",
-      "screen_capture_service_capture_full_screen_context",
-      "screen_capture_service_capturedscreen",
-      "src_tauri_src_main_rs",
-      "src_tauri_src_services_assistant_service_rs",
-      "src_tauri_src_services_glm_asr_service_rs",
-      "src_tauri_src_services_screen_capture_service_rs",
-      "src_tauri_src_services_web_search_service_rs",
-      "web_search_service_exa_search",
-      "web_search_service_jsonrpcresponse",
-      "web_search_service_mcpcontent",
-      "web_search_service_mcpresult",
-      "web_search_service_parse_exa_block_extracts_fields",
-      "web_search_service_parse_exa_text_block",
-      "web_search_service_render_search_context",
-      "web_search_service_searchresult",
-      "web_search_service_tavily_search",
-      "web_search_service_tavilyhit",
-      "web_search_service_tavilyresponse",
-      "web_search_service_truncate_str"
     ],
     "8": [
       "architecture_python_asr_runtime",
@@ -561,8 +563,8 @@
       "audio_service_stop_microphone_level_monitor",
       "audio_service_test_microphone_sync",
       "audio_service_u16_to_i16",
-      "feature_one_key_dictation",
-      "src_tauri_src_services_audio_service_rs"
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_rs",
+      "feature_one_key_dictation"
     ],
     "11": [
       "src_tauri_src_state_user_profile_rs",
@@ -742,7 +744,7 @@
       "src_tauri_src_commands_profile_rs"
     ],
     "17": [
-      "architecture_react_ui",
+      "c_users_sun_downloads_light_whisper_src_pages_settingspage_tsx",
       "settingspage_async",
       "settingspage_findllmpreset",
       "settingspage_findreasoningmodeoption",
@@ -760,9 +762,7 @@
       "settingspage_resolvellmbaseurl",
       "settingspage_resolvellmmodel",
       "settingspage_startmonitor",
-      "settingspage_writellmproviderdrafts",
-      "src_pages_mainpage_tsx",
-      "src_pages_settingspage_tsx"
+      "settingspage_writellmproviderdrafts"
     ],
     "18": [
       "funasr_cancel_model_download",
@@ -835,7 +835,7 @@
       "audio_stop_recording",
       "audio_stop_recording_inner",
       "audio_test_microphone",
-      "src_tauri_src_commands_audio_rs"
+      "c_users_sun_downloads_light_whisper_src_tauri_src_commands_audio_rs"
     ],
     "22": [
       "c_users_sun_downloads_light_whisper_scripts_rebuild_graphify_py",
@@ -1110,39 +1110,42 @@
       "src_vite_env_d_ts"
     ],
     "67": [
-      "src_components_recordingbutton_tsx"
+      "c_users_sun_downloads_light_whisper_src_components_kbd_tsx"
     ],
     "68": [
-      "src_components_transcriptionhistory_tsx"
+      "src_components_recordingbutton_tsx"
     ],
     "69": [
-      "src_components_transcriptionresult_tsx"
+      "src_components_transcriptionhistory_tsx"
     ],
     "70": [
-      "src_i18n_en_ts"
+      "c_users_sun_downloads_light_whisper_src_components_transcriptionresult_tsx"
     ],
     "71": [
-      "src_i18n_index_ts"
+      "src_i18n_en_ts"
     ],
     "72": [
-      "src_i18n_zh_ts"
+      "src_i18n_index_ts"
     ],
     "73": [
-      "src_lib_constants_ts"
+      "src_i18n_zh_ts"
     ],
     "74": [
-      "src_types_index_ts"
+      "src_lib_constants_ts"
     ],
     "75": [
-      "src_tauri_src_commands_mod_rs"
+      "src_types_index_ts"
     ],
     "76": [
-      "src_tauri_src_services_mod_rs"
+      "src_tauri_src_commands_mod_rs"
     ],
     "77": [
-      "src_tauri_src_state_mod_rs"
+      "src_tauri_src_services_mod_rs"
     ],
     "78": [
+      "src_tauri_src_state_mod_rs"
+    ],
+    "79": [
       "src_tauri_src_utils_mod_rs"
     ]
   },
@@ -1153,8 +1156,8 @@
     "3": 0.08,
     "4": 0.05,
     "5": 0.08,
-    "6": 0.1,
-    "7": 0.07,
+    "6": 0.06,
+    "7": 0.1,
     "8": 0.06,
     "9": 0.12,
     "10": 0.11,
@@ -1164,7 +1167,7 @@
     "14": 0.09,
     "15": 0.15,
     "16": 0.1,
-    "17": 0.11,
+    "17": 0.13,
     "18": 0.12,
     "19": 0.2,
     "20": 0.27,
@@ -1225,7 +1228,8 @@
     "75": 1.0,
     "76": 1.0,
     "77": 1.0,
-    "78": 1.0
+    "78": 1.0,
+    "79": 1.0
   },
   "gods": [
     {
@@ -1317,7 +1321,7 @@
       "source": "register_custom_hotkey()",
       "target": "One-key dictation",
       "source_files": [
-        "src-tauri\\src\\commands\\hotkey.rs",
+        "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\commands\\hotkey.rs",
         "README.md"
       ],
       "confidence": "INFERRED",
@@ -1328,7 +1332,7 @@
       "source": "register_translation_hotkey()",
       "target": "Real-time translation",
       "source_files": [
-        "src-tauri\\src\\commands\\hotkey.rs",
+        "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\commands\\hotkey.rs",
         "README.md"
       ],
       "confidence": "INFERRED",
@@ -1339,18 +1343,18 @@
   "questions": [
     {
       "type": "bridge_node",
-      "question": "Why does `Light-Whisper overview` connect `Assistant Search Layer` to `Python ASR Runtime`, `Adaptive Learning Profile`, `Recording Pipeline`, `Profile Commands`, `React Settings UI`, `Subtitle Window System`?",
-      "why": "High betweenness centrality (0.211) - this node is a cross-community bridge."
+      "question": "Why does `Light-Whisper overview` connect `R E A D M E` to `Python ASR Runtime`, `Adaptive Learning Profile`, `Audio Service`, `Profile Commands`, `Subtitle Window System`?",
+      "why": "High betweenness centrality (0.189) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `LLM integration layer` connect `Assistant Search Layer` to `LLM Provider Routing`, `LLM Client`?",
-      "why": "High betweenness centrality (0.113) - this node is a cross-community bridge."
+      "question": "Why does `LLM integration layer` connect `R E A D M E` to `LLM Provider`, `LLM Client`?",
+      "why": "High betweenness centrality (0.109) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `polish_text()` connect `AI Polish Service` to `Release Packaging`, `Assistant Search Layer`?",
-      "why": "High betweenness centrality (0.093) - this node is a cross-community bridge."
+      "question": "Why does `polish_text()` connect `AI Polish Service` to `Release Packaging`, `R E A D M E`?",
+      "why": "High betweenness centrality (0.089) - this node is a cross-community bridge."
     },
     {
       "type": "isolated_nodes",
@@ -1359,12 +1363,12 @@
     },
     {
       "type": "low_cohesion",
-      "question": "Should `Hotkey Control` be split into smaller, more focused modules?",
+      "question": "Should `Hotkey` be split into smaller, more focused modules?",
       "why": "Cohesion score 0.07 - nodes in this community are weakly interconnected."
     },
     {
       "type": "low_cohesion",
-      "question": "Should `LLM Provider Routing` be split into smaller, more focused modules?",
+      "question": "Should `LLM Provider` be split into smaller, more focused modules?",
       "why": "Cohesion score 0.06 - nodes in this community are weakly interconnected."
     },
     {

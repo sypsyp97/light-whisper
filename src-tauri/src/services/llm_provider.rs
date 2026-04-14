@@ -996,6 +996,9 @@ mod tests {
             assistant_model: None,
             assistant_provider: None,
             custom_providers: Vec::new(),
+            validation_use_separate_model: false,
+            validation_provider: None,
+            validation_model: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1021,6 +1024,9 @@ mod tests {
             assistant_model: None,
             assistant_provider: None,
             custom_providers: Vec::new(),
+            validation_use_separate_model: false,
+            validation_provider: None,
+            validation_model: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1042,6 +1048,9 @@ mod tests {
             assistant_model: None,
             assistant_provider: None,
             custom_providers: Vec::new(),
+            validation_use_separate_model: false,
+            validation_provider: None,
+            validation_model: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1079,6 +1088,9 @@ mod tests {
                     api_format: ApiFormat::OpenaiCompat,
                 },
             ],
+            validation_use_separate_model: false,
+            validation_provider: None,
+            validation_model: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1104,6 +1116,9 @@ mod tests {
             assistant_model: Some("gpt-oss-20b".to_string()),
             assistant_provider: None,
             custom_providers: Vec::new(),
+            validation_use_separate_model: false,
+            validation_provider: None,
+            validation_model: None,
         };
 
         let endpoint = assistant_endpoint_for_config(&config);
@@ -1135,6 +1150,9 @@ mod tests {
                 model: "polish-model".to_string(),
                 api_format: ApiFormat::OpenaiCompat,
             }],
+            validation_use_separate_model: false,
+            validation_provider: None,
+            validation_model: None,
         };
 
         let endpoint = assistant_endpoint_for_config(&config);

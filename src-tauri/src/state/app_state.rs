@@ -75,6 +75,9 @@ pub struct RecordingSession {
     pub audio_thread: Option<JoinHandle<()>>,
     pub interim_task: Option<tokio::task::JoinHandle<()>>,
     pub interim_cache: Arc<parking_lot::Mutex<Option<InterimCache>>>,
+    /// 热键按下时并行抓取的选中文本任务。与会话同生同死，避免全局共享导致的
+    /// 跨会话污染（finalize_N 读到 hotkey_{N+1} 的 grab）。
+    pub edit_grab: Option<tokio::task::JoinHandle<Option<String>>>,
 }
 
 #[derive(Clone)]

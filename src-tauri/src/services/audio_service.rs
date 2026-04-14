@@ -35,6 +35,8 @@ const EMPTY_RESULT_HIDE_DELAY_MS: u64 = 360;
 const PASTE_DELAY_MS: u64 = 260;
 const AUDIO_CAPTURE_INIT_TIMEOUT_SECS: u64 = 8;
 const MICROPHONE_LEVEL_EMIT_INTERVAL_MS: u64 = 70;
+/// finalize 阶段等待并行抓取选中文本的最大时长。超时就按普通听写处理。
+const EDIT_GRAB_WAIT_MS: u64 = 150;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -513,8 +515,14 @@ pub fn spawn_interim_loop(
         let state = app_handle.state::<AppState>();
         let mut interval_ms = INTERIM_INTERVAL_BASE_MS;
         let mut last_sample_count: usize = 0;
-        // 增量快照缓冲区：只从共享 samples 中拷贝新增部分，追加到此处
-        let mut snapshot: Vec<i16> = Vec::new();
+        // 会话级重采样缓存：只对新增的原始增量执行一次重采样，结果追加到这里
+        // 原生 16k 设备时与原始数据相同（resample_to_16k 走零拷贝路径）
+        let mut resampled_cache: Vec<i16> = Vec::new();
+        // 已写入 resampled_cache 的原始样本数（raw sample index）
+        let mut raw_processed: usize = 0;
+        let needs_resample = sample_rate != 0 && sample_rate != TARGET_SAMPLE_RATE;
+        let max_output_tail =
+            (TARGET_SAMPLE_RATE as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
 
         if sample_rate == 0 {
             log::error!("中间转写启动失败：采样率为 0 (session {})", session_id);
@@ -537,7 +545,8 @@ pub fn spawn_interim_loop(
                 break;
             }
 
-            let current_count = {
+            // 只把新增的原始样本拷贝出来，锁持有时间最短
+            let (delta, current_count) = {
                 let guard = samples.lock();
                 let count = guard.len();
                 if count.saturating_sub(last_sample_count) < MIN_SAMPLES_GROWTH {
@@ -547,23 +556,32 @@ pub fn spawn_interim_loop(
                 if (count as f64 / sample_rate as f64) < MIN_AUDIO_DURATION_SEC {
                     continue;
                 }
-                // 只拷贝新增的样本，锁持有时间最短
-                snapshot.extend_from_slice(&guard[snapshot.len()..]);
-                count
-            };
-
-            // 只取最后 12s 窗口传给 resampler，避免对全量历史重采样
-            let max_snapshot_len =
-                (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
-            let window = if snapshot.len() > max_snapshot_len {
-                &snapshot[snapshot.len() - max_snapshot_len..]
-            } else {
-                &snapshot[..]
+                let delta: Vec<i16> = guard[raw_processed..count].to_vec();
+                (delta, count)
             };
 
             let start = std::time::Instant::now();
-            let resampled = resample_to_16k(window, sample_rate);
-            let interim_samples = resampled.as_ref();
+
+            // 只对增量重采样（原生 16k 时是零拷贝），追加到会话缓存
+            if !delta.is_empty() {
+                if needs_resample {
+                    let delta_resampled = resample_to_16k(&delta, sample_rate);
+                    resampled_cache.extend_from_slice(delta_resampled.as_ref());
+                } else {
+                    resampled_cache.extend_from_slice(&delta);
+                }
+                raw_processed = current_count;
+
+                // 限制缓存增长：超过 2 倍窗口时丢弃最老的部分，只保留尾部一倍多一点
+                if resampled_cache.len() > 2 * max_output_tail {
+                    let drop_n = resampled_cache.len() - max_output_tail;
+                    resampled_cache.drain(..drop_n);
+                }
+            }
+
+            // 把最后 12s 的已重采样数据送给 Python；缓存可能已被裁剪，直接取尾部
+            let tail_start = resampled_cache.len().saturating_sub(max_output_tail);
+            let interim_samples = &resampled_cache[tail_start..];
             let covered_sample_count =
                 current_count.min((sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize);
 
@@ -636,6 +654,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         interim_task,
         samples,
         interim_cache,
+        edit_grab,
         ..
     } = session;
 
@@ -657,6 +676,34 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         }
     }
 
+    let state = app_handle.state::<AppState>();
+
+    // 等待本会话自己的并行 grab 任务（由 hotkey.rs handle_hotkey_start 发起并通过
+    // RecordingSession.edit_grab 传入）。因为 handle 跟会话一对一，不会读到其它
+    // 会话的 grab 结果。正常情况下用户说话几百毫秒内 grab 早已完成，这里是非阻塞的
+    // join；超时则 abort，最多多等 EDIT_GRAB_WAIT_MS。覆盖所有后续 early-return 路径。
+    if let Some(handle) = edit_grab {
+        let abort_handle = handle.abort_handle();
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(EDIT_GRAB_WAIT_MS),
+            handle,
+        )
+        .await
+        {
+            Ok(Ok(Some(selected))) => {
+                *state.edit_context.lock() = Some(selected);
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(join_err)) => {
+                log::debug!("选中文本抓取任务 join 失败: {}", join_err);
+            }
+            Err(_) => {
+                log::debug!("选中文本抓取超过 {}ms，按普通听写处理", EDIT_GRAB_WAIT_MS);
+                abort_handle.abort();
+            }
+        }
+    }
+
     let final_count = samples.lock().len();
     let cached = interim_cache.lock().clone();
     let duration_sec = final_count as f64 / sample_rate as f64;
@@ -664,7 +711,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
-        app_handle.state::<AppState>().edit_context.lock().take();
+        state.edit_context.lock().take();
         emit_done(
             &app_handle,
             session_id,
@@ -679,12 +726,20 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         return;
     }
 
-    let state = app_handle.state::<AppState>();
-
-    // 优先复用 interim 缓存（覆盖率 >=90%），否则重新 ASR
+    // 优先复用 interim 缓存，否则重新 ASR。
+    //
+    // 复用条件：
+    //   1. 录音必须完整落在 interim 窗口内 (final_count <= 12s * sample_rate)。
+    //      否则 interim 缓存的是"最后 12 秒"的转写，用它去顶替更长的 final，会
+    //      丢掉录音开头那段的文本（ratio 哪怕 ≥0.9 也一样丢），且用户感知不到
+    //      错误，只会觉得"前几个字没了"。
+    //   2. 覆盖率 ≥90%，容忍最后 interim 与 stop 之间最多约 10% 的尾部漂移。
+    let max_interim_window_samples =
+        (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
     let (asr_text, detected_lang): (Result<String, String>, Option<String>) = match cached {
         Some(ref c)
             if final_count > 0
+                && final_count <= max_interim_window_samples
                 && (c.sample_count as f64 / final_count as f64) >= 0.90
                 && !c.text.trim().is_empty() =>
         {
@@ -728,7 +783,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         return;
     }
 
-    // 检查是否处于编辑模式（热键按下时抓取了选中文本）
+    // 检查是否处于编辑模式（热键按下时抓取了选中文本，在 finalize 起始处已 join）
     let edit_context = state.edit_context.lock().take();
 
     if mode == RecordingMode::Dictation && edit_context.is_some() {
@@ -864,6 +919,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 }
 
 pub async fn discard_recording(session: RecordingSession) {
+    // 中止本会话持有的 grab handle（spawn_blocking 不可抢占，但 abort 会让
+    // JoinHandle 提前 detach，结果被丢弃，不会影响后续会话）。
+    if let Some(grab) = session.edit_grab {
+        grab.abort();
+    }
     if let Some(h) = session.audio_thread {
         let _ = tokio::task::spawn_blocking(move || {
             let _ = h.join();

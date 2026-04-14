@@ -67,6 +67,7 @@ import {
 import type { AiModelInfo, CorrectionPattern, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiCodexOauthStatus, WebSearchProvider } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
+import Kbd from "@/components/Kbd";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
@@ -1896,7 +1897,11 @@ export default function SettingsPage({
                     opacity: mainHotkeyCapture.saving ? 0.7 : 1,
                   }}
                 >
-                  {mainHotkeyCapture.capturing ? t("settings.pressCombo") : hotkeyDisplay}
+                  {mainHotkeyCapture.capturing
+                    ? t("settings.pressCombo")
+                    : hotkeyDisplay
+                      ? <Kbd combo={hotkeyDisplay} />
+                      : null}
                 </button>
                 <button
                   className="btn-ghost"
@@ -2647,7 +2652,9 @@ export default function SettingsPage({
                 >
                   {assistantHotkeyCapture.capturing
                     ? t("settings.pressAssistantHotkey")
-                    : assistantHotkeyDisplay || t("settings.noAssistantHotkey")}
+                    : assistantHotkeyDisplay
+                      ? <Kbd combo={assistantHotkeyDisplay} />
+                      : t("settings.noAssistantHotkey")}
                 </button>
                 <button
                   className="btn-ghost"
@@ -3138,7 +3145,9 @@ export default function SettingsPage({
                 >
                   {translationHotkeyCapture.capturing
                     ? t("settings.pressTranslationHotkey")
-                    : translationHotkeyDisplay || t("settings.noTranslationHotkey")}
+                    : translationHotkeyDisplay
+                      ? <Kbd combo={translationHotkeyDisplay} />
+                      : t("settings.noTranslationHotkey")}
                 </button>
                 <button
                   className="btn-ghost"

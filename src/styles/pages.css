@@ -312,22 +312,90 @@
   gap: 6px;
 }
 
-/* Skeleton processing indicator */
-.skeleton-indicator {
-  border-radius: 8px;
-  padding: 10px 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border-subtle);
-  box-shadow: var(--shadow-xs);
+/* Skeleton card — full-width paragraph placeholder while transcribing */
+.result-card-skeleton {
+  padding: 12px 14px 14px;
+  animation: none;
 }
 
-/* Skeleton processing text */
-.skeleton-indicator-text {
-  font-size: 12px;
+.skeleton-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  font-weight: 500;
   color: var(--color-text-tertiary);
+  margin-bottom: 12px;
+}
+
+.skeleton-paragraph {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.skeleton-line {
+  height: 11px;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-sunken);
+}
+
+/* Keyboard key caps — used inside hotkey-capture buttons and inline hints */
+.kbd-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-sans);
+  line-height: 1;
+}
+
+.kbd-group-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-bottom-width: 2px;
+  box-shadow: var(--shadow-xs);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  transition: background 0.2s var(--ease-out-expo),
+              color 0.2s var(--ease-out-expo),
+              border-color 0.2s var(--ease-out-expo),
+              box-shadow 0.2s var(--ease-out-expo);
+}
+
+.kbd-plus {
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.65;
+  user-select: none;
+}
+
+.hotkey-capture-btn[data-capturing="true"] .kbd {
+  background: var(--color-bg-elevated);
+  border-color: var(--color-border-accent);
+  color: var(--color-accent);
+}
+
+.hotkey-capture-btn:hover:not([data-capturing="true"]) .kbd {
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
 }
 
 /* Download info container */

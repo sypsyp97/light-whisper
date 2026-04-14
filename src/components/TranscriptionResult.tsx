@@ -93,10 +93,17 @@ export default function TranscriptionResult({
         </div>
       )}
       {isProcessing && !text && (
-        <div className="animate-fade-in">
-          <div className="skeleton-shimmer skeleton-indicator">
-            <Loader2 size={14} className="animate-spin icon-tertiary" />
-            <span className="skeleton-indicator-text">{t("result.recognizingSpeech")}</span>
+        <div className="animate-fade-in" style={{ marginBottom: 12 }}>
+          <div className="result-card result-card-skeleton">
+            <div className="skeleton-card-header">
+              <Loader2 size={12} className="animate-spin icon-tertiary" strokeWidth={1.75} />
+              <span>{t("result.recognizingSpeech")}</span>
+            </div>
+            <div className="skeleton-paragraph">
+              <div className="skeleton-shimmer skeleton-line" style={{ width: "94%" }} />
+              <div className="skeleton-shimmer skeleton-line" style={{ width: "78%" }} />
+              <div className="skeleton-shimmer skeleton-line" style={{ width: "62%" }} />
+            </div>
           </div>
         </div>
       )}

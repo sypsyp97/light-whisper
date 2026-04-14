@@ -1,6 +1,6 @@
 # register_custom_hotkey()
 
-> God node · 15 connections · `src-tauri\src\commands\hotkey.rs`
+> God node · 15 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs`
 
 ## Connections by Relation
 

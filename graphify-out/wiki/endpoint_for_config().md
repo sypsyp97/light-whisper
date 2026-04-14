@@ -1,6 +1,6 @@
 # endpoint_for_config()
 
-> God node · 14 connections · `src-tauri\src\services\llm_provider.rs`
+> God node · 14 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 
 ## Connections by Relation
 

@@ -1,6 +1,6 @@
 # AppState
 
-> God node · 29 connections · `src-tauri\src\state\app_state.rs`
+> God node · 29 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\app_state.rs`
 
 ## Connections by Relation
 

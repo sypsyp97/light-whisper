@@ -355,12 +355,22 @@ fn handle_hotkey_start(
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();
 
-        let selected = tokio::task::spawn_blocking(crate::commands::clipboard::grab_selected_text)
-            .await
-            .unwrap_or(None);
-        *state.edit_context.lock() = selected;
+        // 选中文本抓取并行化：立即 spawn 到后台，作为参数交给 start_recording_inner。
+        // handle 由该会话的 RecordingSession.edit_grab 持有，finalize_recording 会以
+        // 短超时 join；和会话同生同死，避免全局共享导致的跨会话污染。
+        // 清除上一轮可能遗留的 edit_context（防止错误路径遗留）。
+        state.edit_context.lock().take();
+        let grab_handle =
+            tokio::task::spawn_blocking(crate::commands::clipboard::grab_selected_text);
 
-        match start_recording_inner(app_handle.clone(), state.inner(), trigger).await {
+        match start_recording_inner(
+            app_handle.clone(),
+            state.inner(),
+            trigger,
+            Some(grab_handle),
+        )
+        .await
+        {
             Ok(session_id) => {
                 log::info!(
                     "热键 {} 触发录音开始 (session {}, mode={})",

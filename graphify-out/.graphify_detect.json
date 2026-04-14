@@ -24,6 +24,7 @@
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\main.tsx",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\vite-env.d.ts",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\api\\tauri.ts",
+      "C:\\Users\\sun\\Downloads\\light-whisper\\src\\components\\Kbd.tsx",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\components\\RecordingButton.tsx",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\components\\StatusIndicator.tsx",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\components\\TitleBar.tsx",
@@ -90,6 +91,7 @@
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\utils\\sound.rs"
     ],
     "document": [
+      "C:\\Users\\sun\\Downloads\\light-whisper\\CLAUDE.md",
       "C:\\Users\\sun\\Downloads\\light-whisper\\README.md",
       "C:\\Users\\sun\\Downloads\\light-whisper\\README.zh-CN.md",
       "C:\\Users\\sun\\Downloads\\light-whisper\\RELEASE_GUIDE.md"
@@ -98,12 +100,12 @@
     "image": [],
     "video": []
   },
-  "total_files": 90,
-  "total_words": 77744,
+  "total_files": 92,
+  "total_words": 78161,
   "needs_graph": true,
   "warning": null,
   "skipped_sensitive": [
     "C:\\Users\\sun\\Downloads\\light-whisper\\src\\components\\SecretInput.tsx"
   ],
-  "graphifyignore_patterns": 21
+  "graphifyignore_patterns": 20
 }

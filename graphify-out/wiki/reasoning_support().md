@@ -1,6 +1,6 @@
 # reasoning_support()
 
-> God node · 13 connections · `src-tauri\src\services\llm_provider.rs`
+> God node · 13 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 
 ## Connections by Relation
 

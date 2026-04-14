@@ -1,6 +1,6 @@
 # register_translation_hotkey_inner()
 
-> God node · 12 connections · `src-tauri\src\commands\hotkey.rs`
+> God node · 12 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs`
 
 ## Connections by Relation
 

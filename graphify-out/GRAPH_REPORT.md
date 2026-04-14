@@ -1,37 +1,37 @@
 # Graph Report - .  (2026-04-14)
 
 ## Corpus Check
-- 90 files · ~77,744 words
+- 92 files · ~78,161 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 987 nodes · 1631 edges · 79 communities detected
-- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 36 edges (avg confidence: 0.93)
+- 988 nodes · 1630 edges · 80 communities detected
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 35 edges (avg confidence: 0.93)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Hotkey Control|Hotkey Control]]
-- [[_COMMUNITY_LLM Provider Routing|LLM Provider Routing]]
+- [[_COMMUNITY_Hotkey|Hotkey]]
+- [[_COMMUNITY_LLM Provider|LLM Provider]]
 - [[_COMMUNITY_Frontend IPC Bridge|Frontend IPC Bridge]]
 - [[_COMMUNITY_Speech Engine Service|Speech Engine Service]]
-- [[_COMMUNITY_Shared App State|Shared App State]]
+- [[_COMMUNITY_App State|App State]]
 - [[_COMMUNITY_Codex OAuth Flow|Codex OAuth Flow]]
+- [[_COMMUNITY_R E A D M E|R E A D M E]]
 - [[_COMMUNITY_LLM Client|LLM Client]]
-- [[_COMMUNITY_Assistant Search Layer|Assistant Search Layer]]
 - [[_COMMUNITY_Python ASR Runtime|Python ASR Runtime]]
 - [[_COMMUNITY_Adaptive Learning Profile|Adaptive Learning Profile]]
-- [[_COMMUNITY_Recording Pipeline|Recording Pipeline]]
+- [[_COMMUNITY_Audio Service|Audio Service]]
 - [[_COMMUNITY_User Profile Schema|User Profile Schema]]
 - [[_COMMUNITY_Release Packaging|Release Packaging]]
 - [[_COMMUNITY_AI Polish Service|AI Polish Service]]
 - [[_COMMUNITY_Funasr Server|Funasr Server]]
 - [[_COMMUNITY_Runtime Paths|Runtime Paths]]
 - [[_COMMUNITY_Profile Commands|Profile Commands]]
-- [[_COMMUNITY_React Settings UI|React Settings UI]]
+- [[_COMMUNITY_Settings Page|Settings Page]]
 - [[_COMMUNITY_Model Management Commands|Model Management Commands]]
 - [[_COMMUNITY_Foreground Context|Foreground Context]]
 - [[_COMMUNITY_Subtitle Window System|Subtitle Window System]]
-- [[_COMMUNITY_Audio Commands|Audio Commands]]
+- [[_COMMUNITY_Audio|Audio]]
 - [[_COMMUNITY_Rebuild Graphify|Rebuild Graphify]]
 - [[_COMMUNITY_App Bootstrap|App Bootstrap]]
 - [[_COMMUNITY_AI Polish Commands|AI Polish Commands]]
@@ -77,6 +77,7 @@
 - [[_COMMUNITY_Promo Outro Scene|Promo Outro Scene]]
 - [[_COMMUNITY_Promo Translation Scene|Promo Translation Scene]]
 - [[_COMMUNITY_Vite Env Types|Vite Env Types]]
+- [[_COMMUNITY_Kbd|Kbd]]
 - [[_COMMUNITY_Recording Button UI|Recording Button UI]]
 - [[_COMMUNITY_Transcription History UI|Transcription History UI]]
 - [[_COMMUNITY_Transcription Result UI|Transcription Result UI]]
@@ -110,9 +111,9 @@
 - `WhisperServer` --implements--> `Faster Whisper engine`  [INFERRED]
   src-tauri\resources\whisper_server.py → README.md
 - `register_custom_hotkey()` --implements--> `One-key dictation`  [INFERRED]
-  src-tauri\src\commands\hotkey.rs → README.md
+  C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs → README.md
 - `register_translation_hotkey()` --implements--> `Real-time translation`  [INFERRED]
-  src-tauri\src\commands\hotkey.rs → README.md
+  C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs → README.md
 
 ## Hyperedges (group relationships)
 - **Application stack** — architecture_react_ui, architecture_rust_core, architecture_python_asr_runtime, architecture_llm_integration [EXTRACTED 1.00]
@@ -122,11 +123,11 @@
 
 ## Communities
 
-### Community 0 - "Hotkey Control"
+### Community 0 - "Hotkey"
 Cohesion: 0.07
 Nodes (73): all_modifiers_down(), build_hook_state(), build_hook_state_with_backend(), classify_backend(), dispatch_channel(), dispatch_hotkey_press(), dispatch_hotkey_release(), DispatchEvent (+65 more)
 
-### Community 1 - "LLM Provider Routing"
+### Community 1 - "LLM Provider"
 Cohesion: 0.06
 Nodes (57): apply_reasoning_controls(), assistant_endpoint_for_config(), assistant_endpoint_uses_separate_model_for_builtin_provider(), assistant_endpoint_uses_separate_model_for_custom_provider(), build_auth_headers(), builds_cerebras_image_support_probe_url(), cerebras_glm_reports_reasoning_support(), cerebras_public_model_probe_url() (+49 more)
 
@@ -138,7 +139,7 @@ Nodes (46): addCustomProvider(), addHotWord(), copyToClipboard(), getAiPolishApi
 Cohesion: 0.08
 Nodes (45): check_model_files(), check_status(), create_temp_audio_path(), encode_pcm16_base64(), encode_wav_bytes(), EngineRuntime, expected_engine_install_fingerprint(), extract_engine_archive() (+37 more)
 
-### Community 4 - "Shared App State"
+### Community 4 - "App State"
 Cohesion: 0.05
 Nodes (12): AppState, DictationOutputMode, DownloadTask, FunasrProcess, HotkeyDiagnosticState, InterimCache, MicrophoneLevelMonitor, PendingRecordingSession (+4 more)
 
@@ -146,13 +147,13 @@ Nodes (12): AppState, DictationOutputMode, DownloadTask, FunasrProcess, HotkeyDi
 Cohesion: 0.08
 Nodes (45): accept_callback_connection(), AuthClaims, base64_url_encode(), bind_callback_listeners(), build_authorize_url(), callback_html(), CallbackListeners, ChatgptBearerToken (+37 more)
 
-### Community 6 - "LLM Client"
+### Community 6 - "R E A D M E"
+Cohesion: 0.06
+Nodes (35): LLM integration layer, React UI, Rust core, assistant_input_preserves_symbols_and_splits_cdata(), build_assistant_user_content_with_selection(), generate_content(), render_assistant_user_content(), run_third_party_search() (+27 more)
+
+### Community 7 - "LLM Client"
 Cohesion: 0.1
 Nodes (32): adapt_body_for_backend(), anthropic_output_tokens(), api_error_message_falls_back_to_openai_compat_parser(), build_llm_body(), cerebras_json_output_disables_stream_to_preserve_response_format(), cerebras_without_json_output_keeps_stream(), chat_body_keeps_provider_default_reasoning(), chat_body_sets_max_tokens_for_openai_compat() (+24 more)
-
-### Community 7 - "Assistant Search Layer"
-Cohesion: 0.07
-Nodes (34): LLM integration layer, Rust core, assistant_input_preserves_symbols_and_splits_cdata(), build_assistant_user_content_with_selection(), generate_content(), render_assistant_user_content(), run_third_party_search(), Light-Whisper overview (+26 more)
 
 ### Community 8 - "Python ASR Runtime"
 Cohesion: 0.06
@@ -162,7 +163,7 @@ Nodes (24): Python ASR runtime, apply_hf_env_defaults(), BaseASRServer, decode_i
 Cohesion: 0.12
 Nodes (40): Adaptive learning, add_hot_word(), cleanup_profile(), contains_sentence_punctuation(), extract_diff_segments(), finalize_learning(), hot_word_priority(), is_blocked_hot_word() (+32 more)
 
-### Community 10 - "Recording Pipeline"
+### Community 10 - "Audio Service"
 Cohesion: 0.11
 Nodes (32): adjust_interval(), compute_waveform_bars(), do_final_asr(), do_paste(), emit_done(), emit_error(), emit_recording_state_if_current(), encode_wav() (+24 more)
 
@@ -190,9 +191,9 @@ Nodes (20): default_hf_cache_root(), get_data_dir(), get_download_script_path(),
 Cohesion: 0.1
 Nodes (9): Real-time translation, extract_corrections_via_llm(), parse_correction_pairs(), parse_invalid_indices(), run_correction_validation(), set_translation_target(), submit_user_correction(), update_validation_timestamp() (+1 more)
 
-### Community 17 - "React Settings UI"
-Cohesion: 0.11
-Nodes (6): React UI, findLlmPreset(), isBuiltinCustomPreset(), isFixedPresetProvider(), resolveLlmBaseUrl(), resolveLlmModel()
+### Community 17 - "Settings Page"
+Cohesion: 0.13
+Nodes (5): findLlmPreset(), isBuiltinCustomPreset(), isFixedPresetProvider(), resolveLlmBaseUrl(), resolveLlmModel()
 
 ### Community 18 - "Model Management Commands"
 Cohesion: 0.12
@@ -206,7 +207,7 @@ Nodes (11): ForegroundApp, format_prompt_context(), get_foreground_app(), get_pr
 Cohesion: 0.27
 Nodes (14): Subtitle overlay, SubtitleOverlay(), apply_subtitle_layout(), create_subtitle_window(), find_cursor_monitor(), force_window_topmost(), hide_main_window(), hide_subtitle_window() (+6 more)
 
-### Community 21 - "Audio Commands"
+### Community 21 - "Audio"
 Cohesion: 0.21
 Nodes (6): clear_pending_recording_if_current(), start_recording(), start_recording_inner(), stop_microphone_level_monitor(), stop_recording(), stop_recording_inner()
 
@@ -390,51 +391,55 @@ Nodes (0):
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 67 - "Recording Button UI"
+### Community 67 - "Kbd"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 68 - "Transcription History UI"
+### Community 68 - "Recording Button UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 69 - "Transcription Result UI"
+### Community 69 - "Transcription History UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 70 - "English I18n"
+### Community 70 - "Transcription Result UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 71 - "I18n Index"
+### Community 71 - "English I18n"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 72 - "Chinese I18n"
+### Community 72 - "I18n Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 73 - "App Constants"
+### Community 73 - "Chinese I18n"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 74 - "Types Index"
+### Community 74 - "App Constants"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 75 - "Commands Module"
+### Community 75 - "Types Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 76 - "Services Module"
+### Community 76 - "Commands Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 77 - "State Module"
+### Community 77 - "Services Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 78 - "Utils Module"
+### Community 78 - "State Module"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 79 - "Utils Module"
 Cohesion: 1.0
 Nodes (0): 
 
@@ -485,6 +490,8 @@ Nodes (0):
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Vite Env Types`** (1 nodes): `vite-env.d.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Kbd`** (1 nodes): `Kbd.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Recording Button UI`** (1 nodes): `RecordingButton.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Transcription History UI`** (1 nodes): `TranscriptionHistory.tsx`
@@ -513,17 +520,17 @@ Nodes (0):
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Light-Whisper overview` connect `Assistant Search Layer` to `Python ASR Runtime`, `Adaptive Learning Profile`, `Recording Pipeline`, `Profile Commands`, `React Settings UI`, `Subtitle Window System`?**
-  _High betweenness centrality (0.211) - this node is a cross-community bridge._
-- **Why does `LLM integration layer` connect `Assistant Search Layer` to `LLM Provider Routing`, `LLM Client`?**
-  _High betweenness centrality (0.113) - this node is a cross-community bridge._
-- **Why does `polish_text()` connect `AI Polish Service` to `Release Packaging`, `Assistant Search Layer`?**
-  _High betweenness centrality (0.093) - this node is a cross-community bridge._
+- **Why does `Light-Whisper overview` connect `R E A D M E` to `Python ASR Runtime`, `Adaptive Learning Profile`, `Audio Service`, `Profile Commands`, `Subtitle Window System`?**
+  _High betweenness centrality (0.189) - this node is a cross-community bridge._
+- **Why does `LLM integration layer` connect `R E A D M E` to `LLM Provider`, `LLM Client`?**
+  _High betweenness centrality (0.109) - this node is a cross-community bridge._
+- **Why does `polish_text()` connect `AI Polish Service` to `Release Packaging`, `R E A D M E`?**
+  _High betweenness centrality (0.089) - this node is a cross-community bridge._
 - **What connects `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。` to the rest of the system?**
   _95 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Hotkey Control` be split into smaller, more focused modules?**
+- **Should `Hotkey` be split into smaller, more focused modules?**
   _Cohesion score 0.07 - nodes in this community are weakly interconnected._
-- **Should `LLM Provider Routing` be split into smaller, more focused modules?**
+- **Should `LLM Provider` be split into smaller, more focused modules?**
   _Cohesion score 0.06 - nodes in this community are weakly interconnected._
 - **Should `Frontend IPC Bridge` be split into smaller, more focused modules?**
   _Cohesion score 0.08 - nodes in this community are weakly interconnected._

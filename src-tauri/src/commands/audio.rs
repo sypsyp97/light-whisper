@@ -27,6 +27,10 @@ pub(crate) async fn start_recording_inner(
     app_handle: tauri::AppHandle,
     state: &AppState,
     trigger: RecordingTrigger,
+    // 调用方（如 hotkey 路径）在 start 之前已 spawn 的选中文本抓取任务，
+    // 会被存进最终创建的 RecordingSession，由 finalize/discard 路径负责回收。
+    // 本函数如果在任何路径上提前失败，这个本地 Option 会自然 drop，JoinHandle 被 detach。
+    mut edit_grab: Option<tokio::task::JoinHandle<Option<String>>>,
 ) -> Result<u64, AppError> {
     if !state.is_funasr_ready() {
         return Err(AppError::Audio(RECORDING_NOT_READY_ERROR.into()));
@@ -80,6 +84,7 @@ pub(crate) async fn start_recording_inner(
             audio_thread: Some(audio_thread),
             interim_task: None,
             interim_cache,
+            edit_grab: edit_grab.take(),
         })
         .await;
         return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
@@ -113,6 +118,7 @@ pub(crate) async fn start_recording_inner(
         audio_thread: Some(audio_thread),
         interim_task: Some(interim_task),
         interim_cache,
+        edit_grab: edit_grab.take(),
     });
 
     let cancelled = {
@@ -230,7 +236,13 @@ pub async fn start_recording(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<u64, AppError> {
-    start_recording_inner(app_handle, state.inner(), RecordingTrigger::DictationOriginal).await
+    start_recording_inner(
+        app_handle,
+        state.inner(),
+        RecordingTrigger::DictationOriginal,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]

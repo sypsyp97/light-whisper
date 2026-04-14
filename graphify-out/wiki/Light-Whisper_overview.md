@@ -19,10 +19,10 @@
 - [[Real-time translation]] `EXTRACTED`
 - [[Adaptive learning]] `EXTRACTED`
 - [[Subtitle overlay]] `EXTRACTED`
-- [[React UI]] `EXTRACTED`
 - [[SenseVoice engine]] `EXTRACTED`
 - [[Faster Whisper engine]] `EXTRACTED`
 - [[GLM-ASR engine]] `EXTRACTED`
+- [[React UI]] `EXTRACTED`
 - [[Rust core]] `EXTRACTED`
 - [[Python ASR runtime]] `EXTRACTED`
 
