@@ -1244,14 +1244,14 @@
       "label": "async()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SettingsPage.tsx",
-      "source_location": "L2156"
+      "source_location": "L2157"
     },
     {
       "id": "settingspage_handledelete",
       "label": "handleDelete()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SettingsPage.tsx",
-      "source_location": "L3696"
+      "source_location": "L3702"
     },
     {
       "id": "src_pages_subtitleoverlay_tsx",
@@ -10470,7 +10470,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SettingsPage.tsx",
-      "source_location": "L2156",
+      "source_location": "L2157",
       "weight": 1.0
     },
     {
@@ -10479,7 +10479,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SettingsPage.tsx",
-      "source_location": "L3696",
+      "source_location": "L3702",
       "weight": 1.0
     },
     {
@@ -10488,7 +10488,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SettingsPage.tsx",
-      "source_location": "L3892",
+      "source_location": "L3898",
       "weight": 1.0
     },
     {
