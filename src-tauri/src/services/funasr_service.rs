@@ -894,6 +894,23 @@ pub async fn transcribe_pcm16(
         ));
     }
 
+    // Python funasr_server.py 在 duration < 0.5s 时直接返回空文本（VAD 对短音频
+    // 会空张量索引）。interim 路径的首个 tick 可能只有 200-400ms，这里尾部 zero-pad
+    // 到 0.5s，VAD 能正常切出前面的 speech 段，尾部静音被自然跳过。只对短音频生效，
+    // 长于 0.5s 的输入走零拷贝原路。
+    const MIN_IPC_DURATION_SEC: f64 = 0.5;
+    let min_samples_for_ipc = (sample_rate as f64 * MIN_IPC_DURATION_SEC) as usize;
+    let padded_storage: Vec<i16>;
+    let samples: &[i16] = if samples.len() < min_samples_for_ipc && !samples.is_empty() {
+        let mut v = Vec::with_capacity(min_samples_for_ipc);
+        v.extend_from_slice(samples);
+        v.resize(min_samples_for_ipc, 0);
+        padded_storage = v;
+        &padded_storage
+    } else {
+        samples
+    };
+
     let hot_words = profile_hot_words(state);
 
     if state.inline_audio_transport() == Some(false) {

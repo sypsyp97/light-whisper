@@ -18,7 +18,11 @@ use crate::utils::AppError;
 // ---------- 常量 ----------
 
 const TARGET_SAMPLE_RATE: u32 = 16000;
+/// finalize_recording 的下限：低于这个时长整段录音直接跳过（视为误按）
 const MIN_AUDIO_DURATION_SEC: f64 = 0.5;
+/// interim 的下限：首个 tick 积到这个时长就开始送 Python 推理，不再等到 0.5s。
+/// 短于 0.5s 的部分会在 funasr_service::transcribe_pcm16 里尾部补零对齐 Python VAD。
+const MIN_INTERIM_DURATION_SEC: f64 = 0.2;
 const MIN_SAMPLES_GROWTH: usize = 1024;
 
 const INTERIM_INTERVAL_MIN_MS: u64 = 140;
@@ -553,7 +557,7 @@ pub fn spawn_interim_loop(
                     interval_ms = adjust_interval(interval_ms, false, 0);
                     continue;
                 }
-                if (count as f64 / sample_rate as f64) < MIN_AUDIO_DURATION_SEC {
+                if (count as f64 / sample_rate as f64) < MIN_INTERIM_DURATION_SEC {
                     continue;
                 }
                 let delta: Vec<i16> = guard[raw_processed..count].to_vec();
