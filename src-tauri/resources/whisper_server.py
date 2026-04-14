@@ -97,6 +97,8 @@ class WhisperServer(BaseASRServer):
                 logger.error(error_msg)
                 return {"success": False, "error": error_msg, "type": "init_error"}
 
+            self._warmup_inference()
+
             total_time = time.time() - start_time
             self.initialized = True
             logger.info(f"Faster Whisper模型初始化完成，总耗时: {total_time:.2f}秒")
@@ -119,6 +121,34 @@ class WhisperServer(BaseASRServer):
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             return {"success": False, "error": error_msg, "type": "init_error", "engine": self.engine}
+
+    def _warmup_inference(self) -> None:
+        """CTranslate2 / Silero VAD 首次推理会懒加载 CUDA 内核和 VAD 模型，
+        冷启动 2-3s。加载后立刻用一段 1s 低幅噪声跑一次 dummy transcribe，
+        把这笔成本摊到初始化阶段而不是用户首次按键。"""
+        try:
+            import time
+            import numpy as np
+
+            warmup_start = time.time()
+            rng = np.random.default_rng(0)
+            dummy_audio = (rng.standard_normal(16000).astype(np.float32) * 0.05)
+            with self.stdout_suppressor.suppress():
+                segments, _info = self.model.transcribe(
+                    dummy_audio,
+                    language=None,
+                    initial_prompt="Hello",
+                    condition_on_previous_text=False,
+                    vad_filter=True,
+                    vad_parameters={"min_silence_duration_ms": 500},
+                )
+                # 强制驱动生成器执行
+                _ = list(segments)
+            logger.info(
+                f"Whisper 预热推理完成，耗时: {time.time() - warmup_start:.2f}秒"
+            )
+        except Exception as e:
+            logger.warning(f"Whisper 预热推理失败（首次识别可能偏慢）: {e}")
 
     def transcribe_audio(
         self,

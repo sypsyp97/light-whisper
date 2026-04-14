@@ -357,9 +357,7 @@ fn handle_hotkey_start(
 
         // 选中文本抓取并行化：立即 spawn 到后台，作为参数交给 start_recording_inner。
         // handle 由该会话的 RecordingSession.edit_grab 持有，finalize_recording 会以
-        // 短超时 join；和会话同生同死，避免全局共享导致的跨会话污染。
-        // 清除上一轮可能遗留的 edit_context（防止错误路径遗留）。
-        state.edit_context.lock().take();
+        // 短超时 join；结果只在 finalize 的本地变量里流转，不写全局，避免跨会话串位。
         let grab_handle =
             tokio::task::spawn_blocking(crate::commands::clipboard::grab_selected_text);
 
@@ -386,14 +384,12 @@ fn handle_hotkey_start(
                 if is_toggle_mode() {
                     reset_hotkey_gate_for_trigger(trigger);
                 }
-                state.edit_context.lock().take();
                 log::debug!("忽略热键 {} 的开始请求: {}", shortcut_label, message);
             }
             Err(err) => {
                 if is_toggle_mode() {
                     reset_hotkey_gate_for_trigger(trigger);
                 }
-                state.edit_context.lock().take();
                 let message = err.to_string();
                 log::warn!("热键 {} 开始录音失败: {}", shortcut_label, message);
                 update_hotkey_diagnostic_for_trigger(&app_handle, trigger, |diagnostic| {

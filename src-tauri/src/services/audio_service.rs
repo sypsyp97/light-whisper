@@ -676,33 +676,38 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         }
     }
 
-    let state = app_handle.state::<AppState>();
-
-    // 等待本会话自己的并行 grab 任务（由 hotkey.rs handle_hotkey_start 发起并通过
-    // RecordingSession.edit_grab 传入）。因为 handle 跟会话一对一，不会读到其它
-    // 会话的 grab 结果。正常情况下用户说话几百毫秒内 grab 早已完成，这里是非阻塞的
-    // join；超时则 abort，最多多等 EDIT_GRAB_WAIT_MS。覆盖所有后续 early-return 路径。
-    if let Some(handle) = edit_grab {
-        let abort_handle = handle.abort_handle();
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(EDIT_GRAB_WAIT_MS),
-            handle,
-        )
-        .await
-        {
-            Ok(Ok(Some(selected))) => {
-                *state.edit_context.lock() = Some(selected);
-            }
-            Ok(Ok(None)) => {}
-            Ok(Err(join_err)) => {
-                log::debug!("选中文本抓取任务 join 失败: {}", join_err);
-            }
-            Err(_) => {
-                log::debug!("选中文本抓取超过 {}ms，按普通听写处理", EDIT_GRAB_WAIT_MS);
-                abort_handle.abort();
+    // 选中文本保留在本地变量里，不写全局。两个 finalize 并发时也彼此隔离：
+    // edit_grab 来自各自 session 的 RecordingSession，edit_context 只在本函数
+    // 作用域存活，不存在跨会话串位的机会。
+    let edit_context: Option<String> = match edit_grab {
+        Some(handle) => {
+            let abort_handle = handle.abort_handle();
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(EDIT_GRAB_WAIT_MS),
+                handle,
+            )
+            .await
+            {
+                Ok(Ok(Some(selected))) => Some(selected),
+                Ok(Ok(None)) => None,
+                Ok(Err(join_err)) => {
+                    log::debug!("选中文本抓取任务 join 失败: {}", join_err);
+                    None
+                }
+                Err(_) => {
+                    log::debug!(
+                        "选中文本抓取超过 {}ms，按普通听写处理",
+                        EDIT_GRAB_WAIT_MS
+                    );
+                    abort_handle.abort();
+                    None
+                }
             }
         }
-    }
+        None => None,
+    };
+
+    let state = app_handle.state::<AppState>();
 
     let final_count = samples.lock().len();
     let cached = interim_cache.lock().clone();
@@ -711,7 +716,6 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 
     if duration_sec < MIN_AUDIO_DURATION_SEC {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
-        state.edit_context.lock().take();
         emit_done(
             &app_handle,
             session_id,
@@ -728,24 +732,28 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 
     // 优先复用 interim 缓存，否则重新 ASR。
     //
-    // 复用条件：
+    // 复用条件（全部成立才复用，否则重跑 do_final_asr）：
     //   1. 录音必须完整落在 interim 窗口内 (final_count <= 12s * sample_rate)。
-    //      否则 interim 缓存的是"最后 12 秒"的转写，用它去顶替更长的 final，会
-    //      丢掉录音开头那段的文本（ratio 哪怕 ≥0.9 也一样丢），且用户感知不到
-    //      错误，只会觉得"前几个字没了"。
-    //   2. 覆盖率 ≥90%，容忍最后 interim 与 stop 之间最多约 10% 的尾部漂移。
+    //      interim 缓存的是"最后 12 秒"的转写，用它顶替更长的 final 会直接丢
+    //      录音开头那段的文本（比率 >0.9 也一样丢，只是用户感知为"前几个字没了"）。
+    //   2. 尾部间隙 <= 250ms。以前是 "覆盖率 >=90%"，在短录音 / 快语速下可能把
+    //      250ms~500ms 的尾部音节丢掉。250ms 绝对阈值比百分比更保守，在长录音上
+    //      也不会放宽门槛；最差只会丢掉一次 interim 间隔内的静音/换气。
+    //   3. interim 确实返回了非空文本。
     let max_interim_window_samples =
         (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
+    let tail_gap_threshold_samples = (sample_rate as f64 * 0.25) as usize;
     let (asr_text, detected_lang): (Result<String, String>, Option<String>) = match cached {
         Some(ref c)
             if final_count > 0
                 && final_count <= max_interim_window_samples
-                && (c.sample_count as f64 / final_count as f64) >= 0.90
+                && c.sample_count <= final_count
+                && (final_count - c.sample_count) <= tail_gap_threshold_samples
                 && !c.text.trim().is_empty() =>
         {
             log::info!(
-                "复用 interim 缓存 (覆盖率 {:.0}%)",
-                c.sample_count as f64 / final_count as f64 * 100.0
+                "复用 interim 缓存 (尾部间隙 {:.0}ms)",
+                (final_count - c.sample_count) as f64 * 1000.0 / sample_rate as f64
             );
             (Ok(c.text.clone()), c.language.clone())
         }
@@ -758,7 +766,6 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let text = match asr_text {
         Ok(t) => t.trim().to_string(),
         Err(e) => {
-            state.edit_context.lock().take();
             emit_error(&app_handle, session_id, mode, &e);
             flush_pending_paste(&app_handle);
             return;
@@ -768,7 +775,6 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let lang_ref = detected_lang.as_deref();
 
     if text.is_empty() {
-        state.edit_context.lock().take();
         emit_done(
             &app_handle,
             session_id,
@@ -782,9 +788,6 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         flush_pending_paste(&app_handle);
         return;
     }
-
-    // 检查是否处于编辑模式（热键按下时抓取了选中文本，在 finalize 起始处已 join）
-    let edit_context = state.edit_context.lock().take();
 
     if mode == RecordingMode::Dictation && edit_context.is_some() {
         let selected_text = edit_context.unwrap_or_default();

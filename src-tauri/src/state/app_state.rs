@@ -172,8 +172,6 @@ pub struct AppState {
     pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
     pub assistant_image_support_cache: Arc<parking_lot::Mutex<HashMap<String, bool>>>,
     pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
-    /// 热键按下时抓取的选中文本，听写模式可用于编辑，助手模式可用于上下文理解
-    pub edit_context: Arc<parking_lot::Mutex<Option<String>>>,
     pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
     pub web_search_api_key: Arc<parking_lot::Mutex<String>>,
     /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
@@ -208,7 +206,6 @@ impl Default for AppState {
             user_profile: Default::default(),
             assistant_image_support_cache: Default::default(),
             hotkey_diagnostic: Default::default(),
-            edit_context: Default::default(),
             online_asr_api_key: Default::default(),
             web_search_api_key: Default::default(),
             funasr_generation: AtomicU64::new(0),

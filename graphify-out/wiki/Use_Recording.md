@@ -4,9 +4,9 @@
 
 ## Key Concepts
 
-- **useRecording.ts** (2 connections) — `src\hooks\useRecording.ts`
-- **useRecording()** (2 connections) — `src\hooks\useRecording.ts`
-- **useTauriEvent()** (2 connections) — `src\hooks\useRecording.ts`
+- **useRecording.ts** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\hooks\useRecording.ts`
+- **useRecording()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\hooks\useRecording.ts`
+- **useTauriEvent()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\hooks\useRecording.ts`
 
 ## Relationships
 
@@ -14,7 +14,7 @@
 
 ## Source Files
 
-- `src\hooks\useRecording.ts`
+- `C:\Users\sun\Downloads\light-whisper\src\hooks\useRecording.ts`
 
 ## Audit Trail
 

@@ -1,6 +1,6 @@
 # WhisperServer
 
-> God node · 13 connections · `src-tauri\resources\whisper_server.py`
+> God node · 13 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\resources\whisper_server.py`
 
 ## Connections by Relation
 
@@ -15,6 +15,7 @@
 
 ### method
 - [[.initialize()]] `EXTRACTED`
+- [[._warmup_inference()]] `EXTRACTED`
 - [[._detect_device()]] `EXTRACTED`
 - [[._load_model()]] `EXTRACTED`
 - [[.transcribe_audio()]] `EXTRACTED`
@@ -25,7 +26,6 @@
 
 ### uses
 - [[BaseASRServer]] `INFERRED`
-- [[PyInstaller frozen 环境下，将 _internal/ 加入 sys.path]] `INFERRED`
 
 ---
 

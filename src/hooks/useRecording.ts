@@ -100,8 +100,11 @@ export function useRecording(): UseRecordingReturn {
     const { text } = payload;
     const now = Date.now();
     const historyId = sessionId > 0 ? `session-${sessionId}` : `session-local-${now}`;
+    // 旧 session 的 final 结果可以进 history，但不能覆盖当前显示。避免的是
+    // 用户已经开始下一段录音后，上一段 ASR 延迟回来闪一下当前画面。
+    const staleForDisplay = sessionId > 0 && sessionId < latestSessionIdRef.current;
 
-    if (sessionId >= latestDisplayedFinalSessionIdRef.current) {
+    if (!staleForDisplay && sessionId >= latestDisplayedFinalSessionIdRef.current) {
       latestDisplayedFinalSessionIdRef.current = sessionId;
       setTranscriptionResult(text);
       setOriginalAsrText(payload.originalText ?? text);

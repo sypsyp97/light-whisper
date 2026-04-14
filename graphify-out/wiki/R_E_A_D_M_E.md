@@ -1,6 +1,6 @@
 # R E A D M E
 
-> 44 nodes · cohesion 0.06
+> 45 nodes · cohesion 0.06
 
 ## Key Concepts
 
@@ -23,13 +23,13 @@
 - **SenseVoice engine** (3 connections) — `README.md`
 - **Selected text editing** (3 connections) — `README.md`
 - **parse_exa_text_block()** (3 connections) — `src-tauri\src\services\web_search_service.rs`
+- **Python ASR runtime** (2 connections) — `README.md`
 - **React UI** (2 connections) — `README.md`
 - **Rust core** (2 connections) — `README.md`
 - **assistant_input_preserves_symbols_and_splits_cdata()** (2 connections) — `src-tauri\src\services\assistant_service.rs`
 - **build_form()** (2 connections) — `src-tauri\src\services\glm_asr_service.rs`
 - **transcribe()** (2 connections) — `src-tauri\src\services\glm_asr_service.rs`
-- **main()** (2 connections) — `src-tauri\src\main.rs`
-- *... and 19 more nodes in this community*
+- *... and 20 more nodes in this community*
 
 ## Relationships
 
@@ -48,8 +48,8 @@
 
 ## Audit Trail
 
-- EXTRACTED: 99 (75%)
-- INFERRED: 33 (25%)
+- EXTRACTED: 100 (75%)
+- INFERRED: 34 (25%)
 - AMBIGUOUS: 0 (0%)
 
 ---

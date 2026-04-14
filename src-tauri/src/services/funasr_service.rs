@@ -936,11 +936,13 @@ fn profile_hot_words(state: &AppState) -> Option<Vec<String>> {
 fn encode_pcm16_base64(samples: &[i16]) -> String {
     use base64::Engine;
 
-    let mut audio_bytes = Vec::with_capacity(samples.len() * 2);
-    for sample in samples {
-        audio_bytes.extend_from_slice(&sample.to_le_bytes());
-    }
-    base64::engine::general_purpose::STANDARD.encode(audio_bytes)
+    // 零拷贝 cast：i16 对齐 2、无填充，pcm_s16le 在 LE 目标上（Windows/macOS/Linux
+    // 的 x86/ARM）就是 i16 的内存布局。避免原先逐样本 extend_from_slice 造成的
+    // 192000 次小拷贝 + 一次 384KB Vec 分配，interim loop 每 ~220ms 一次的热点。
+    let byte_slice: &[u8] = unsafe {
+        std::slice::from_raw_parts(samples.as_ptr() as *const u8, samples.len() * 2)
+    };
+    base64::engine::general_purpose::STANDARD.encode(byte_slice)
 }
 
 fn encode_wav_bytes(samples: &[i16], sample_rate: u32) -> Result<Vec<u8>, AppError> {

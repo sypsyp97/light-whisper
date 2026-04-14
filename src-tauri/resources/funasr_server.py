@@ -110,6 +110,8 @@ class FunASRServer(BaseASRServer):
                 logger.error(error_msg)
                 return {"success": False, "error": error_msg, "type": "init_error"}
 
+            self._warmup_inference()
+
             total_time = time.time() - start_time
             self.initialized = True
             logger.info(f"FunASR模型初始化完成，总耗时: {total_time:.2f}秒")
@@ -132,6 +134,35 @@ class FunASRServer(BaseASRServer):
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             return {"success": False, "error": error_msg, "type": "init_error", "engine": self.engine}
+
+    def _warmup_inference(self) -> None:
+        """首次推理会懒加载 CUDA kernel / 计算图，冷启动 2-4s。
+        加载后立刻用一段 1s 低幅噪声跑一次 dummy generate，把这笔成本摊到
+        初始化阶段而不是用户首次按键。静音会被 VAD 跳过，这里用 0.05 幅值
+        的白噪声确保 VAD → ASR 整条路径都被触发。
+        """
+        try:
+            import time
+            import numpy as np
+
+            warmup_start = time.time()
+            rng = np.random.default_rng(0)
+            dummy_audio = (rng.standard_normal(16000).astype(np.float32) * 0.05)
+            with self.stdout_suppressor.suppress(), self._torch.inference_mode():
+                self.asr_model.generate(
+                    input=dummy_audio,
+                    cache={},
+                    language="auto",
+                    use_itn=True,
+                    batch_size_s=60,
+                    merge_vad=True,
+                    merge_length_s=15,
+                )
+            logger.info(
+                f"FunASR 预热推理完成，耗时: {time.time() - warmup_start:.2f}秒"
+            )
+        except Exception as e:
+            logger.warning(f"FunASR 预热推理失败（首次识别可能偏慢）: {e}")
 
     def transcribe_audio(
         self,

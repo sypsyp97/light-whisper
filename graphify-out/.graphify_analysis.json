@@ -2,6 +2,7 @@
   "communities": {
     "0": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_hotkey_rs",
+      "feature_real_time_translation",
       "hotkey_all_modifiers_down",
       "hotkey_build_hook_state",
       "hotkey_build_hook_state_with_backend",
@@ -78,9 +79,81 @@
       "hotkey_update_hotkey_diagnostic",
       "hotkey_update_hotkey_diagnostic_for_trigger",
       "hotkey_vk_matches_required",
-      "hotkey_vk_to_required_index"
+      "hotkey_vk_to_required_index",
+      "profile_set_translation_target"
     ],
     "1": [
+      "baseasrserver",
+      "c_users_sun_downloads_light_whisper_src_tauri_resources_funasr_server_py",
+      "c_users_sun_downloads_light_whisper_src_tauri_resources_whisper_server_py",
+      "funasr_server_disable_funasr_auto_requirement_install",
+      "funasr_server_funasrserver",
+      "funasr_server_funasrserver_check_status",
+      "funasr_server_funasrserver_get_model_repos",
+      "funasr_server_funasrserver_get_performance_stats",
+      "funasr_server_funasrserver_init",
+      "funasr_server_funasrserver_initialize",
+      "funasr_server_funasrserver_load_asr_model",
+      "funasr_server_funasrserver_transcribe_audio",
+      "funasr_server_funasrserver_warmup_inference",
+      "funasr_server_rationale_139",
+      "funasr_server_rationale_26",
+      "funasr_server_rationale_66",
+      "server_common_apply_hf_env_defaults",
+      "server_common_baseasrserver",
+      "server_common_baseasrserver_check_status",
+      "server_common_baseasrserver_cleanup_memory",
+      "server_common_baseasrserver_detect_device",
+      "server_common_baseasrserver_get_audio_duration",
+      "server_common_baseasrserver_get_gpu_device_info",
+      "server_common_baseasrserver_get_model_repos",
+      "server_common_baseasrserver_get_performance_stats",
+      "server_common_baseasrserver_init",
+      "server_common_baseasrserver_initialize",
+      "server_common_baseasrserver_maybe_cleanup",
+      "server_common_baseasrserver_run",
+      "server_common_baseasrserver_setup_runtime_environment",
+      "server_common_baseasrserver_signal_handler",
+      "server_common_baseasrserver_transcribe_audio",
+      "server_common_decode_inline_audio",
+      "server_common_ensure_safe_cuda_env",
+      "server_common_get_log_path",
+      "server_common_get_wav_duration_seconds",
+      "server_common_has_nvidia_gpu",
+      "server_common_rationale_127",
+      "server_common_rationale_150",
+      "server_common_rationale_20",
+      "server_common_rationale_201",
+      "server_common_rationale_231",
+      "server_common_rationale_282",
+      "server_common_rationale_289",
+      "server_common_rationale_307",
+      "server_common_rationale_39",
+      "server_common_rationale_59",
+      "server_common_rationale_65",
+      "server_common_rationale_76",
+      "server_common_rationale_97",
+      "server_common_setup_rotating_logger",
+      "server_common_stdoutsuppressor",
+      "server_common_stdoutsuppressor_init",
+      "server_common_suppress",
+      "server_common_wave_open",
+      "src_tauri_resources_server_common_py",
+      "whisper_server_rationale_126",
+      "whisper_server_rationale_37",
+      "whisper_server_rationale_85",
+      "whisper_server_whisperserver",
+      "whisper_server_whisperserver_check_status",
+      "whisper_server_whisperserver_detect_device",
+      "whisper_server_whisperserver_get_model_repos",
+      "whisper_server_whisperserver_get_performance_stats",
+      "whisper_server_whisperserver_init",
+      "whisper_server_whisperserver_initialize",
+      "whisper_server_whisperserver_load_model",
+      "whisper_server_whisperserver_transcribe_audio",
+      "whisper_server_whisperserver_warmup_inference"
+    ],
+    "2": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_provider_rs",
       "llm_provider_apply_reasoning_controls",
       "llm_provider_assistant_endpoint_for_config",
@@ -151,7 +224,7 @@
       "llm_provider_validation_endpoint_for_config",
       "llm_provider_volcan_seed_2_models_report_reasoning_support"
     ],
-    "2": [
+    "3": [
       "src_api_tauri_ts",
       "tauri_addcustomprovider",
       "tauri_addhotword",
@@ -202,7 +275,8 @@
       "tauri_updatecustomprovider",
       "tauri_validatecorrections"
     ],
-    "3": [
+    "4": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_funasr_service_rs",
       "funasr_service_check_model_files",
       "funasr_service_check_status",
       "funasr_service_create_temp_audio_path",
@@ -249,10 +323,9 @@
       "funasr_service_transcribe_pcm16_via_path",
       "funasr_service_transcribe_wav_bytes_via_path",
       "funasr_service_transcriptionresult",
-      "funasr_service_try_send_exit_command",
-      "src_tauri_src_services_funasr_service_rs"
+      "funasr_service_try_send_exit_command"
     ],
-    "4": [
+    "5": [
       "app_state_appstate",
       "app_state_appstate_active_llm_provider",
       "app_state_appstate_assistant_image_support",
@@ -302,7 +375,7 @@
       "app_state_recordingtrigger_mode",
       "c_users_sun_downloads_light_whisper_src_tauri_src_state_app_state_rs"
     ],
-    "5": [
+    "6": [
       "codex_oauth_service_accept_callback_connection",
       "codex_oauth_service_authclaims",
       "codex_oauth_service_base64_url_encode",
@@ -351,8 +424,9 @@
       "codex_oauth_service_write_session_meta",
       "src_tauri_src_services_codex_oauth_service_rs"
     ],
-    "6": [
+    "7": [
       "architecture_llm_integration",
+      "architecture_python_asr_runtime",
       "architecture_react_ui",
       "architecture_rust_core",
       "assistant_service_assistant_input_preserves_symbols_and_splits_cdata",
@@ -397,7 +471,7 @@
       "web_search_service_tavilyresponse",
       "web_search_service_truncate_str"
     ],
-    "7": [
+    "8": [
       "llm_client_adapt_body_for_backend",
       "llm_client_anthropic_output_tokens",
       "llm_client_anthropic_user_content",
@@ -442,49 +516,6 @@
       "llm_client_uses_responses_api",
       "llm_client_volcengine_chat_body_maps_reasoning_mode_to_thinking",
       "src_tauri_src_services_llm_client_rs"
-    ],
-    "8": [
-      "architecture_python_asr_runtime",
-      "server_common_apply_hf_env_defaults",
-      "server_common_baseasrserver",
-      "server_common_baseasrserver_check_status",
-      "server_common_baseasrserver_cleanup_memory",
-      "server_common_baseasrserver_detect_device",
-      "server_common_baseasrserver_get_audio_duration",
-      "server_common_baseasrserver_get_gpu_device_info",
-      "server_common_baseasrserver_get_model_repos",
-      "server_common_baseasrserver_get_performance_stats",
-      "server_common_baseasrserver_init",
-      "server_common_baseasrserver_initialize",
-      "server_common_baseasrserver_maybe_cleanup",
-      "server_common_baseasrserver_run",
-      "server_common_baseasrserver_setup_runtime_environment",
-      "server_common_baseasrserver_signal_handler",
-      "server_common_baseasrserver_transcribe_audio",
-      "server_common_decode_inline_audio",
-      "server_common_ensure_safe_cuda_env",
-      "server_common_get_log_path",
-      "server_common_get_wav_duration_seconds",
-      "server_common_has_nvidia_gpu",
-      "server_common_rationale_127",
-      "server_common_rationale_150",
-      "server_common_rationale_20",
-      "server_common_rationale_201",
-      "server_common_rationale_231",
-      "server_common_rationale_282",
-      "server_common_rationale_289",
-      "server_common_rationale_307",
-      "server_common_rationale_39",
-      "server_common_rationale_59",
-      "server_common_rationale_65",
-      "server_common_rationale_76",
-      "server_common_rationale_97",
-      "server_common_setup_rotating_logger",
-      "server_common_stdoutsuppressor",
-      "server_common_stdoutsuppressor_init",
-      "server_common_suppress",
-      "server_common_wave_open",
-      "src_tauri_resources_server_common_py"
     ],
     "9": [
       "feature_adaptive_learning",
@@ -664,33 +695,6 @@
       "src_tauri_src_services_ai_polish_service_rs"
     ],
     "14": [
-      "baseasrserver",
-      "funasr_server_disable_funasr_auto_requirement_install",
-      "funasr_server_funasrserver",
-      "funasr_server_funasrserver_check_status",
-      "funasr_server_funasrserver_get_model_repos",
-      "funasr_server_funasrserver_get_performance_stats",
-      "funasr_server_funasrserver_init",
-      "funasr_server_funasrserver_initialize",
-      "funasr_server_funasrserver_load_asr_model",
-      "funasr_server_funasrserver_transcribe_audio",
-      "funasr_server_rationale_26",
-      "funasr_server_rationale_66",
-      "src_tauri_resources_funasr_server_py",
-      "src_tauri_resources_whisper_server_py",
-      "whisper_server_rationale_37",
-      "whisper_server_rationale_85",
-      "whisper_server_whisperserver",
-      "whisper_server_whisperserver_check_status",
-      "whisper_server_whisperserver_detect_device",
-      "whisper_server_whisperserver_get_model_repos",
-      "whisper_server_whisperserver_get_performance_stats",
-      "whisper_server_whisperserver_init",
-      "whisper_server_whisperserver_initialize",
-      "whisper_server_whisperserver_load_model",
-      "whisper_server_whisperserver_transcribe_audio"
-    ],
-    "15": [
       "paths_default_hf_cache_root",
       "paths_get_data_dir",
       "paths_get_download_script_path",
@@ -717,8 +721,7 @@
       "paths_write_online_asr_endpoint",
       "src_tauri_src_utils_paths_rs"
     ],
-    "16": [
-      "feature_real_time_translation",
+    "15": [
       "profile_add_custom_provider",
       "profile_add_hot_word",
       "profile_export_user_profile",
@@ -736,14 +739,13 @@
       "profile_set_custom_prompt",
       "profile_set_llm_provider_config",
       "profile_set_translation_hotkey",
-      "profile_set_translation_target",
       "profile_submit_user_correction",
       "profile_update_custom_provider",
       "profile_update_validation_timestamp",
       "profile_validate_corrections",
       "src_tauri_src_commands_profile_rs"
     ],
-    "17": [
+    "16": [
       "c_users_sun_downloads_light_whisper_src_pages_settingspage_tsx",
       "settingspage_async",
       "settingspage_findllmpreset",
@@ -764,7 +766,7 @@
       "settingspage_startmonitor",
       "settingspage_writellmproviderdrafts"
     ],
-    "18": [
+    "17": [
       "funasr_cancel_model_download",
       "funasr_check_funasr_status",
       "funasr_check_model_files",
@@ -785,7 +787,7 @@
       "funasr_transcribe_audio",
       "src_tauri_src_commands_funasr_rs"
     ],
-    "19": [
+    "18": [
       "foreground_escape_cdata_text",
       "foreground_foregroundapp",
       "foreground_format_prompt_context",
@@ -804,7 +806,7 @@
       "foreground_wraps_xml_cdata_helper",
       "src_tauri_src_utils_foreground_rs"
     ],
-    "20": [
+    "19": [
       "feature_subtitle_overlay",
       "src_pages_subtitleoverlay_tsx",
       "src_tauri_src_commands_window_rs",
@@ -822,7 +824,7 @@
       "window_show_subtitle_window",
       "window_tauri_error"
     ],
-    "21": [
+    "20": [
       "audio_clear_pending_recording_if_current",
       "audio_list_input_devices",
       "audio_set_input_device",
@@ -837,7 +839,7 @@
       "audio_test_microphone",
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_audio_rs"
     ],
-    "22": [
+    "21": [
       "c_users_sun_downloads_light_whisper_scripts_rebuild_graphify_py",
       "rebuild_graphify_build_ast_extraction",
       "rebuild_graphify_build_labels",
@@ -851,7 +853,7 @@
       "rebuild_graphify_merge_extractions",
       "rebuild_graphify_titleize"
     ],
-    "23": [
+    "22": [
       "lib_focus_main_window",
       "lib_hide_main_window",
       "lib_mark_setup_once",
@@ -864,7 +866,7 @@
       "lib_toggle_main_window",
       "src_tauri_src_lib_rs"
     ],
-    "24": [
+    "23": [
       "ai_polish_aimodelinfo",
       "ai_polish_aimodellistpayload",
       "ai_polish_anthropic_models",
@@ -877,7 +879,7 @@
       "ai_polish_set_assistant_api_key",
       "src_tauri_src_commands_ai_polish_rs"
     ],
-    "25": [
+    "24": [
       "clipboard_copy_to_clipboard",
       "clipboard_grab_selected_text",
       "clipboard_grab_selected_text_uia",
@@ -890,7 +892,7 @@
       "clipboard_write_text_to_clipboard",
       "src_tauri_src_commands_clipboard_rs"
     ],
-    "26": [
+    "25": [
       "src_tauri_src_commands_updater_rs",
       "updater_appupdateinfo",
       "updater_check_app_update",
@@ -902,7 +904,7 @@
       "updater_open_external_url",
       "updater_parse_version"
     ],
-    "27": [
+    "26": [
       "download_service_clear_download_task",
       "download_service_downloadline",
       "download_service_emit_download_status",
@@ -914,7 +916,7 @@
       "download_service_run_download",
       "src_tauri_src_services_download_service_rs"
     ],
-    "28": [
+    "27": [
       "hotkey_collectmodifiers",
       "hotkey_eventmainkey",
       "hotkey_formathotkeyfordisplay",
@@ -925,7 +927,7 @@
       "hotkey_normalizemainkeytoken",
       "src_lib_hotkey_ts"
     ],
-    "29": [
+    "28": [
       "download_models_candidate_endpoints",
       "download_models_cleanup_locks",
       "download_models_download_file",
@@ -936,7 +938,7 @@
       "download_models_rationale_123",
       "src_tauri_resources_download_models_py"
     ],
-    "30": [
+    "29": [
       "assistant_get_web_search_api_key",
       "assistant_set_assistant_hotkey",
       "assistant_set_assistant_screen_context_enabled",
@@ -946,7 +948,7 @@
       "assistant_web_search_keyring_user",
       "src_tauri_src_commands_assistant_rs"
     ],
-    "31": [
+    "30": [
       "sound_generate_double_tone",
       "sound_generate_tone",
       "sound_play_assistant_start_sound",
@@ -956,7 +958,7 @@
       "sound_play_wav_async",
       "src_tauri_src_utils_sound_rs"
     ],
-    "32": [
+    "31": [
       "engine_cmd_download",
       "engine_cmd_serve",
       "engine_main",
@@ -964,7 +966,7 @@
       "engine_setup_frozen_paths",
       "src_tauri_resources_engine_py"
     ],
-    "33": [
+    "32": [
       "hf_cache_utils_get_hf_cache_root",
       "hf_cache_utils_is_hf_repo_ready",
       "hf_cache_utils_rationale_1",
@@ -972,229 +974,229 @@
       "hf_cache_utils_rationale_35",
       "src_tauri_resources_hf_cache_utils_py"
     ],
-    "34": [
+    "33": [
       "src_components_statusindicator_tsx",
       "statusindicator_getchiplabel",
       "statusindicator_getdevicelabel",
       "statusindicator_getloadingprogress",
       "statusindicator_getstatustext"
     ],
-    "35": [
+    "34": [
       "src_hooks_usemodelstatus_ts",
       "usemodelstatus_getenginestartfallbackmessage",
       "usemodelstatus_normalizeprogress",
       "usemodelstatus_toerrormessage",
       "usemodelstatus_usemodelstatus"
     ],
-    "36": [
+    "35": [
       "src_hooks_usetheme_ts",
       "usetheme_applythemetodom",
       "usetheme_getsystemprefersdark",
       "usetheme_resolveisdark",
       "usetheme_usetheme"
     ],
-    "37": [
+    "36": [
       "main_componentdidcatch",
       "main_constructor",
       "main_getderivedstatefromerror",
       "src_main_tsx"
     ],
-    "38": [
+    "37": [
       "src_hooks_usehotkey_ts",
       "usehotkey_readstoredhotkey",
       "usehotkey_usehotkey",
       "usehotkey_writestoredhotkey"
     ],
-    "39": [
+    "38": [
       "codex_oauth_get_openai_codex_oauth_status",
       "codex_oauth_login_openai_codex_oauth",
       "codex_oauth_logout_openai_codex_oauth",
       "src_tauri_src_commands_codex_oauth_rs"
     ],
-    "40": [
+    "39": [
       "error_apperror",
       "error_apperror_from",
       "error_apperror_serialize",
       "src_tauri_src_utils_error_rs"
     ],
-    "41": [
+    "40": [
       "appwindow_appwindow",
       "appwindow_circle",
       "promo_src_components_appwindow_tsx"
     ],
-    "42": [
+    "41": [
       "recordingcontext_recordingprovider",
       "recordingcontext_userecordingcontext",
       "src_contexts_recordingcontext_tsx"
     ],
-    "43": [
-      "src_hooks_userecording_ts",
+    "42": [
+      "c_users_sun_downloads_light_whisper_src_hooks_userecording_ts",
       "userecording_userecording",
       "userecording_usetaurievent"
     ],
-    "44": [
+    "43": [
       "src_lib_storage_ts",
       "storage_readlocalstorage",
       "storage_writelocalstorage"
     ],
-    "45": [
+    "44": [
       "promo_src_root_tsx",
       "root_remotionroot"
     ],
-    "46": [
+    "45": [
       "cursor_blinkingcursor",
       "promo_src_components_cursor_tsx"
     ],
-    "47": [
+    "46": [
       "src_components_titlebar_tsx",
       "titlebar_startdrag"
     ],
-    "48": [
+    "47": [
       "src_hooks_usedebouncedcallback_ts",
       "usedebouncedcallback_usedebouncedcallback"
     ],
-    "49": [
+    "48": [
       "src_hooks_useexclusivepicker_ts",
       "useexclusivepicker_useexclusivepicker"
     ],
-    "50": [
+    "49": [
       "src_hooks_usehotkeycapture_ts",
       "usehotkeycapture_usehotkeycapture"
     ],
-    "51": [
+    "50": [
       "vite_config_ts"
     ],
-    "52": [
+    "51": [
       "promo_remotion_config_ts"
     ],
-    "53": [
+    "52": [
       "promo_src_index_ts"
     ],
-    "54": [
+    "53": [
       "promo_src_showcasevideo_tsx"
     ],
-    "55": [
+    "54": [
       "promo_src_theme_ts"
     ],
-    "56": [
+    "55": [
       "promo_src_components_cinematic_tsx"
     ],
-    "57": [
+    "56": [
       "promo_src_components_micbutton_tsx"
     ],
-    "58": [
+    "57": [
       "promo_src_components_resultcard_tsx"
     ],
-    "59": [
+    "58": [
       "promo_src_components_subtitlecapsule_tsx"
     ],
-    "60": [
+    "59": [
       "promo_src_scenes_assistant_tsx"
     ],
-    "61": [
+    "60": [
       "promo_src_scenes_dictation_tsx"
     ],
-    "62": [
+    "61": [
       "promo_src_scenes_editmode_tsx"
     ],
-    "63": [
+    "62": [
       "promo_src_scenes_intro_tsx"
     ],
-    "64": [
+    "63": [
       "promo_src_scenes_outro_tsx"
     ],
-    "65": [
+    "64": [
       "promo_src_scenes_translation_tsx"
     ],
-    "66": [
+    "65": [
       "src_vite_env_d_ts"
     ],
-    "67": [
+    "66": [
       "c_users_sun_downloads_light_whisper_src_components_kbd_tsx"
     ],
-    "68": [
+    "67": [
       "src_components_recordingbutton_tsx"
     ],
-    "69": [
+    "68": [
       "src_components_transcriptionhistory_tsx"
     ],
-    "70": [
+    "69": [
       "c_users_sun_downloads_light_whisper_src_components_transcriptionresult_tsx"
     ],
-    "71": [
+    "70": [
       "src_i18n_en_ts"
     ],
-    "72": [
+    "71": [
       "src_i18n_index_ts"
     ],
-    "73": [
+    "72": [
       "src_i18n_zh_ts"
     ],
-    "74": [
+    "73": [
       "src_lib_constants_ts"
     ],
-    "75": [
+    "74": [
       "src_types_index_ts"
     ],
-    "76": [
+    "75": [
       "src_tauri_src_commands_mod_rs"
     ],
-    "77": [
+    "76": [
       "src_tauri_src_services_mod_rs"
     ],
-    "78": [
+    "77": [
       "src_tauri_src_state_mod_rs"
     ],
-    "79": [
+    "78": [
       "src_tauri_src_utils_mod_rs"
     ]
   },
   "cohesion": {
     "0": 0.07,
-    "1": 0.06,
-    "2": 0.08,
+    "1": 0.04,
+    "2": 0.06,
     "3": 0.08,
-    "4": 0.05,
-    "5": 0.08,
-    "6": 0.06,
-    "7": 0.1,
-    "8": 0.06,
+    "4": 0.08,
+    "5": 0.05,
+    "6": 0.08,
+    "7": 0.06,
+    "8": 0.1,
     "9": 0.12,
     "10": 0.11,
     "11": 0.09,
     "12": 0.1,
     "13": 0.14,
-    "14": 0.09,
-    "15": 0.15,
-    "16": 0.1,
-    "17": 0.13,
-    "18": 0.12,
-    "19": 0.2,
-    "20": 0.27,
-    "21": 0.21,
-    "22": 0.3,
-    "23": 0.38,
-    "24": 0.24,
-    "25": 0.35,
-    "26": 0.33,
-    "27": 0.24,
-    "28": 0.36,
-    "29": 0.42,
-    "30": 0.36,
-    "31": 0.54,
-    "32": 0.53,
+    "14": 0.15,
+    "15": 0.11,
+    "16": 0.13,
+    "17": 0.12,
+    "18": 0.2,
+    "19": 0.27,
+    "20": 0.21,
+    "21": 0.3,
+    "22": 0.38,
+    "23": 0.24,
+    "24": 0.35,
+    "25": 0.33,
+    "26": 0.24,
+    "27": 0.36,
+    "28": 0.42,
+    "29": 0.36,
+    "30": 0.54,
+    "31": 0.53,
+    "32": 0.4,
     "33": 0.4,
     "34": 0.4,
-    "35": 0.4,
+    "35": 0.5,
     "36": 0.5,
     "37": 0.5,
     "38": 0.5,
     "39": 0.5,
-    "40": 0.5,
+    "40": 0.67,
     "41": 0.67,
-    "42": 0.67,
-    "43": 1.0,
-    "44": 0.67,
+    "42": 1.0,
+    "43": 0.67,
+    "44": 1.0,
     "45": 1.0,
     "46": 1.0,
     "47": 1.0,
@@ -1228,8 +1230,7 @@
     "75": 1.0,
     "76": 1.0,
     "77": 1.0,
-    "78": 1.0,
-    "79": 1.0
+    "78": 1.0
   },
   "gods": [
     {
@@ -1243,14 +1244,14 @@
       "edges": 29
     },
     {
+      "id": "server_common_baseasrserver",
+      "label": "BaseASRServer",
+      "edges": 25
+    },
+    {
       "id": "doc_light_whisper_overview",
       "label": "Light-Whisper overview",
       "edges": 18
-    },
-    {
-      "id": "server_common_baseasrserver",
-      "label": "BaseASRServer",
-      "edges": 17
     },
     {
       "id": "hotkey_register_custom_hotkey",
@@ -1268,6 +1269,11 @@
       "edges": 14
     },
     {
+      "id": "whisper_server_whisperserver",
+      "label": "WhisperServer",
+      "edges": 13
+    },
+    {
       "id": "llm_provider_reasoning_control_kind",
       "label": "reasoning_control_kind()",
       "edges": 13
@@ -1276,25 +1282,9 @@
       "id": "llm_provider_reasoning_support",
       "label": "reasoning_support()",
       "edges": 13
-    },
-    {
-      "id": "hotkey_register_translation_hotkey_inner",
-      "label": "register_translation_hotkey_inner()",
-      "edges": 12
     }
   ],
   "surprises": [
-    {
-      "source": "FunASRServer",
-      "target": "SenseVoice engine",
-      "source_files": [
-        "src-tauri\\resources\\funasr_server.py",
-        "README.md"
-      ],
-      "confidence": "INFERRED",
-      "relation": "implements",
-      "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories; bridges separate communities"
-    },
     {
       "source": "BaseASRServer",
       "target": "Python ASR runtime",
@@ -1304,13 +1294,24 @@
       ],
       "confidence": "INFERRED",
       "relation": "implements",
-      "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories; peripheral node `Python ASR runtime` unexpectedly reaches hub `BaseASRServer`"
+      "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories; bridges separate communities; peripheral node `Python ASR runtime` unexpectedly reaches hub `BaseASRServer`"
+    },
+    {
+      "source": "FunASRServer",
+      "target": "SenseVoice engine",
+      "source_files": [
+        "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\resources\\funasr_server.py",
+        "README.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "implements",
+      "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories; bridges separate communities"
     },
     {
       "source": "WhisperServer",
       "target": "Faster Whisper engine",
       "source_files": [
-        "src-tauri\\resources\\whisper_server.py",
+        "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\resources\\whisper_server.py",
         "README.md"
       ],
       "confidence": "INFERRED",
@@ -1329,8 +1330,8 @@
       "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories; bridges separate communities"
     },
     {
-      "source": "register_translation_hotkey()",
-      "target": "Real-time translation",
+      "source": "register_assistant_hotkey()",
+      "target": "Voice assistant",
       "source_files": [
         "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\commands\\hotkey.rs",
         "README.md"
@@ -1343,12 +1344,12 @@
   "questions": [
     {
       "type": "bridge_node",
-      "question": "Why does `Light-Whisper overview` connect `R E A D M E` to `Python ASR Runtime`, `Adaptive Learning Profile`, `Audio Service`, `Profile Commands`, `Subtitle Window System`?",
-      "why": "High betweenness centrality (0.189) - this node is a cross-community bridge."
+      "question": "Why does `Light-Whisper overview` connect `R E A D M E` to `Hotkey`, `Adaptive Learning Profile`, `Audio Service`, `Subtitle Window System`?",
+      "why": "High betweenness centrality (0.190) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `LLM integration layer` connect `R E A D M E` to `LLM Provider`, `LLM Client`?",
+      "question": "Why does `LLM integration layer` connect `R E A D M E` to `LLM Client`, `LLM Provider`?",
       "why": "High betweenness centrality (0.109) - this node is a cross-community bridge."
     },
     {
@@ -1357,9 +1358,14 @@
       "why": "High betweenness centrality (0.089) - this node is a cross-community bridge."
     },
     {
+      "type": "verify_inferred",
+      "question": "Are the 9 inferred relationships involving `BaseASRServer` (e.g. with `FunASRServer` and `Skip FunASR's model-side pip auto-install in bundled runtime.      Some FunASR`) actually correct?",
+      "why": "`BaseASRServer` has 9 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
       "type": "isolated_nodes",
       "question": "What connects `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。` to the rest of the system?",
-      "why": "95 weakly-connected nodes found - possible documentation gaps or missing edges."
+      "why": "91 weakly-connected nodes found - possible documentation gaps or missing edges."
     },
     {
       "type": "low_cohesion",
@@ -1368,13 +1374,8 @@
     },
     {
       "type": "low_cohesion",
-      "question": "Should `LLM Provider` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.06 - nodes in this community are weakly interconnected."
-    },
-    {
-      "type": "low_cohesion",
-      "question": "Should `Frontend IPC Bridge` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.08 - nodes in this community are weakly interconnected."
+      "question": "Should `Python ASR Runtime` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.04 - nodes in this community are weakly interconnected."
     }
   ]
 }

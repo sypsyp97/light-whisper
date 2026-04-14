@@ -141,10 +141,10 @@ pub(crate) async fn start_recording_inner(
         return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
     }
 
-    if let Err(e) = crate::commands::window::show_subtitle_window(app_handle.clone()).await {
-        log::warn!("显示字幕窗口失败（录音继续）: {}", e);
-    }
-
+    // 先发 recording-state，后显示字幕窗口。show_subtitle_window 在 Windows 上
+    // CreateWindow + 布局会花 50-100ms，这段窗口里前端如果还没收到本会话的
+    // recording-state，上一 session 的延迟 transcription-result 会钻进来覆盖当前
+    // 显示（useRecording 的 stale 过滤只能挡住已登记的 latestSessionIdRef）。
     let _ = app_handle.emit(
         "recording-state",
         serde_json::json!({
@@ -154,6 +154,15 @@ pub(crate) async fn start_recording_inner(
             "mode": trigger.mode().as_str(),
         }),
     );
+
+    {
+        let app = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = crate::commands::window::show_subtitle_window(app).await {
+                log::warn!("显示字幕窗口失败（录音继续）: {}", e);
+            }
+        });
+    }
 
     if state.sound_enabled.load(Ordering::Acquire) {
         match trigger.mode() {
@@ -188,7 +197,6 @@ pub(crate) async fn stop_recording_inner(
         RecordingSlot::Starting(p) => {
             p.stop_flag.store(true, Ordering::Relaxed);
             p.stop_notify.notify_waiters();
-            state.edit_context.lock().take();
             log::info!("录音启动阶段已取消 (session {})", p.session_id);
             let _ = app_handle.emit(
                 "recording-state",
