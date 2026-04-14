@@ -1,6 +1,6 @@
 # login()
 
-> God node · 15 connections · `src-tauri\src\services\codex_oauth_service.rs`
+> God node · 15 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\codex_oauth_service.rs`
 
 ## Connections by Relation
 

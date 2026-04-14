@@ -193,6 +193,7 @@ pub async fn set_llm_provider_config(
     assistant_use_separate_model: Option<bool>,
     assistant_model: Option<String>,
     assistant_provider: Option<Option<String>>,
+    openai_auth_mode: Option<crate::state::user_profile::OpenaiAuthMode>,
 ) -> Result<(), String> {
     let normalized_base_url = custom_base_url
         .map(|value| value.trim().to_string())
@@ -222,6 +223,9 @@ pub async fn set_llm_provider_config(
         }
         if let Some(ap) = &assistant_provider {
             profile.llm_provider.assistant_provider = ap.clone();
+        }
+        if let Some(mode) = openai_auth_mode {
+            profile.llm_provider.openai_auth_mode = Some(mode);
         }
         // 自定义 provider → 同步到 custom_providers，不污染旧字段
         if let Some(cp) = profile

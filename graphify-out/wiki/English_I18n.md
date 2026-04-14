@@ -4,7 +4,7 @@
 
 ## Key Concepts
 
-- **en.ts** (0 connections) — `src\i18n\en.ts`
+- **en.ts** (0 connections) — `C:\Users\sun\Downloads\light-whisper\src\i18n\en.ts`
 
 ## Relationships
 
@@ -12,7 +12,7 @@
 
 ## Source Files
 
-- `src\i18n\en.ts`
+- `C:\Users\sun\Downloads\light-whisper\src\i18n\en.ts`
 
 ## Audit Trail
 

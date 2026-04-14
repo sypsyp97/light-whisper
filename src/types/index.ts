@@ -153,6 +153,9 @@ export interface CustomProvider {
   api_format: ApiFormat;
 }
 
+// OpenAI 认证方式（仅当 active / assistant provider 为 openai 时生效）
+export type OpenaiAuthMode = "api_key" | "oauth";
+
 // LLM 后端配置
 export interface LlmProviderConfig {
   active: string;
@@ -168,6 +171,7 @@ export interface LlmProviderConfig {
   validation_use_separate_model?: boolean;
   validation_provider?: string | null;
   validation_model?: string | null;
+  openai_auth_mode?: OpenaiAuthMode | null;
 }
 
 // 用户画像

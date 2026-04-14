@@ -425,6 +425,7 @@ pub fn endpoint_for_preview(
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            openai_auth_mode: None,
         }
     } else {
         LlmProviderConfig {
@@ -447,6 +448,7 @@ pub fn endpoint_for_preview(
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            openai_auth_mode: None,
         }
     };
 
@@ -999,6 +1001,7 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            openai_auth_mode: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1027,6 +1030,7 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            openai_auth_mode: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1051,6 +1055,7 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            openai_auth_mode: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1091,6 +1096,7 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            openai_auth_mode: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1119,6 +1125,7 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            openai_auth_mode: None,
         };
 
         let endpoint = assistant_endpoint_for_config(&config);
@@ -1153,6 +1160,7 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            openai_auth_mode: None,
         };
 
         let endpoint = assistant_endpoint_for_config(&config);

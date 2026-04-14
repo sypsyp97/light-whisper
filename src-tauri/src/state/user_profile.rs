@@ -150,6 +150,16 @@ pub enum ApiFormat {
     Anthropic,
 }
 
+/// OpenAI 认证方式选择（仅当 active / assistant provider 为 openai 时生效）
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenaiAuthMode {
+    /// 只使用用户填入的 API Key，忽略已登录的 OAuth session
+    ApiKey,
+    /// 只使用 OAuth session，忽略手填的 API Key
+    Oauth,
+}
+
 /// 推理/思考模式（跨供应商抽象层）
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -218,6 +228,10 @@ pub struct LlmProviderConfig {
     /// 纠错审核独立模型
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validation_model: Option<String>,
+    /// OpenAI 认证方式：None = 用户未显式选择（resolver 按 OAuth 登录状态推断智能默认）；
+    /// Some(ApiKey) / Some(Oauth) = 用户通过设置页明确选定后存进来
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openai_auth_mode: Option<OpenaiAuthMode>,
 }
 
 impl Default for LlmProviderConfig {
@@ -236,6 +250,7 @@ impl Default for LlmProviderConfig {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            openai_auth_mode: None,
         }
     }
 }

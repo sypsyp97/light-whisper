@@ -225,7 +225,7 @@
       "llm_provider_volcan_seed_2_models_report_reasoning_support"
     ],
     "3": [
-      "src_api_tauri_ts",
+      "c_users_sun_downloads_light_whisper_src_api_tauri_ts",
       "tauri_addcustomprovider",
       "tauri_addhotword",
       "tauri_copytoclipboard",
@@ -376,6 +376,7 @@
       "c_users_sun_downloads_light_whisper_src_tauri_src_state_app_state_rs"
     ],
     "6": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_codex_oauth_service_rs",
       "codex_oauth_service_accept_callback_connection",
       "codex_oauth_service_authclaims",
       "codex_oauth_service_base64_url_encode",
@@ -421,8 +422,7 @@
       "codex_oauth_service_tokenexchangeresponse",
       "codex_oauth_service_tokenresponse",
       "codex_oauth_service_wait_for_callback",
-      "codex_oauth_service_write_session_meta",
-      "src_tauri_src_services_codex_oauth_service_rs"
+      "codex_oauth_service_write_session_meta"
     ],
     "7": [
       "architecture_llm_integration",
@@ -598,7 +598,7 @@
       "feature_one_key_dictation"
     ],
     "11": [
-      "src_tauri_src_state_user_profile_rs",
+      "c_users_sun_downloads_light_whisper_src_tauri_src_state_user_profile_rs",
       "user_profile_apiformat",
       "user_profile_correctionpattern",
       "user_profile_correctionsource",
@@ -621,6 +621,7 @@
       "user_profile_llmproviderconfig_resolve_validation_provider",
       "user_profile_llmproviderconfig_validation_model",
       "user_profile_llmreasoningmode",
+      "user_profile_openaiauthmode",
       "user_profile_resolves_invalid_active_provider_to_latest_custom_provider",
       "user_profile_split_reasoning_modes_fall_back_to_legacy_mode",
       "user_profile_userprofile",
@@ -722,6 +723,7 @@
       "src_tauri_src_utils_paths_rs"
     ],
     "15": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_commands_profile_rs",
       "profile_add_custom_provider",
       "profile_add_hot_word",
       "profile_export_user_profile",
@@ -742,8 +744,7 @@
       "profile_submit_user_correction",
       "profile_update_custom_provider",
       "profile_update_validation_timestamp",
-      "profile_validate_corrections",
-      "src_tauri_src_commands_profile_rs"
+      "profile_validate_corrections"
     ],
     "16": [
       "c_users_sun_downloads_light_whisper_src_pages_settingspage_tsx",
@@ -1124,19 +1125,19 @@
       "c_users_sun_downloads_light_whisper_src_components_transcriptionresult_tsx"
     ],
     "70": [
-      "src_i18n_en_ts"
+      "c_users_sun_downloads_light_whisper_src_i18n_en_ts"
     ],
     "71": [
       "src_i18n_index_ts"
     ],
     "72": [
-      "src_i18n_zh_ts"
+      "c_users_sun_downloads_light_whisper_src_i18n_zh_ts"
     ],
     "73": [
       "src_lib_constants_ts"
     ],
     "74": [
-      "src_types_index_ts"
+      "c_users_sun_downloads_light_whisper_src_types_index_ts"
     ],
     "75": [
       "src_tauri_src_commands_mod_rs"
@@ -1163,7 +1164,7 @@
     "8": 0.1,
     "9": 0.12,
     "10": 0.11,
-    "11": 0.09,
+    "11": 0.08,
     "12": 0.1,
     "13": 0.14,
     "14": 0.15,
@@ -1345,12 +1346,12 @@
     {
       "type": "bridge_node",
       "question": "Why does `Light-Whisper overview` connect `R E A D M E` to `Hotkey`, `Adaptive Learning Profile`, `Audio Service`, `Subtitle Window System`?",
-      "why": "High betweenness centrality (0.190) - this node is a cross-community bridge."
+      "why": "High betweenness centrality (0.189) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
       "question": "Why does `LLM integration layer` connect `R E A D M E` to `LLM Client`, `LLM Provider`?",
-      "why": "High betweenness centrality (0.109) - this node is a cross-community bridge."
+      "why": "High betweenness centrality (0.108) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
@@ -1365,7 +1366,7 @@
     {
       "type": "isolated_nodes",
       "question": "What connects `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。` to the rest of the system?",
-      "why": "91 weakly-connected nodes found - possible documentation gaps or missing edges."
+      "why": "92 weakly-connected nodes found - possible documentation gaps or missing edges."
     },
     {
       "type": "low_cohesion",

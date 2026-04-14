@@ -38,8 +38,8 @@
 ## Source Files
 
 - `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs`
+- `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
 - `README.md`
-- `src-tauri\src\commands\profile.rs`
 
 ## Audit Trail
 

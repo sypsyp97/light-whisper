@@ -4,7 +4,7 @@
 
 ## Key Concepts
 
-- **zh.ts** (0 connections) — `src\i18n\zh.ts`
+- **zh.ts** (0 connections) — `C:\Users\sun\Downloads\light-whisper\src\i18n\zh.ts`
 
 ## Relationships
 
@@ -12,7 +12,7 @@
 
 ## Source Files
 
-- `src\i18n\zh.ts`
+- `C:\Users\sun\Downloads\light-whisper\src\i18n\zh.ts`
 
 ## Audit Trail
 

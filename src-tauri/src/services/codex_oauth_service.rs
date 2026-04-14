@@ -9,6 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
 use crate::services::llm_provider::KEYRING_SERVICE;
+use crate::state::user_profile::OpenaiAuthMode;
 use crate::state::AppState;
 use crate::utils::paths;
 
@@ -810,30 +811,49 @@ pub async fn resolve_api_key_for_provider(
     manual_api_key: &str,
 ) -> Result<String, String> {
     let manual_api_key = manual_api_key.trim();
-    if !manual_api_key.is_empty() {
+
+    // 非 OpenAI provider：直接返回用户填的 key（可能为空，由调用方决定报错）
+    if provider != OPENAI_PROVIDER {
         return Ok(manual_api_key.to_string());
     }
 
-    if provider != OPENAI_PROVIDER {
-        return Ok(String::new());
+    // OpenAI：按用户选的认证方式分支。存储的偏好可能是 None（用户还没点过开关），
+    // 那就按 OAuth 登录状态智能推断：登录过 → Oauth；没登录 → ApiKey。
+    // 这跟前端的默认计算保持一致，避免前后端对同一条 profile 给出不同决策。
+    let stored_mode = state.llm_provider_config().openai_auth_mode;
+    let effective_mode = stored_mode.unwrap_or_else(|| {
+        if state.read_openai_codex_oauth_session().is_some() {
+            OpenaiAuthMode::Oauth
+        } else {
+            OpenaiAuthMode::ApiKey
+        }
+    });
+
+    match effective_mode {
+        OpenaiAuthMode::ApiKey => {
+            // 明确走 API Key：只看手填的 key，即使 OAuth 已登录也不用
+            Ok(manual_api_key.to_string())
+        }
+        OpenaiAuthMode::Oauth => {
+            // 明确走 OAuth：读 session，忽略手填 key
+            let Some(session) = state.read_openai_codex_oauth_session() else {
+                return Ok(String::new());
+            };
+
+            let session = refresh_session_if_needed(app_handle, state, session).await?;
+            if !session.api_key.trim().is_empty() {
+                return Ok(session.api_key);
+            }
+
+            if session.access_token.trim().is_empty() {
+                return Ok(String::new());
+            }
+
+            encode_chatgpt_bearer_token(&ChatgptBearerToken {
+                access_token: session.access_token,
+                account_id: session.account_id,
+            })
+            .ok_or_else(|| "编码 OpenAI Codex bearer 会话失败".to_string())
+        }
     }
-
-    let Some(session) = state.read_openai_codex_oauth_session() else {
-        return Ok(String::new());
-    };
-
-    let session = refresh_session_if_needed(app_handle, state, session).await?;
-    if !session.api_key.trim().is_empty() {
-        return Ok(session.api_key);
-    }
-
-    if session.access_token.trim().is_empty() {
-        return Ok(String::new());
-    }
-
-    encode_chatgpt_bearer_token(&ChatgptBearerToken {
-        access_token: session.access_token,
-        account_id: session.account_id,
-    })
-    .ok_or_else(|| "编码 OpenAI Codex bearer 会话失败".to_string())
 }

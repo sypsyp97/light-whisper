@@ -1,11 +1,11 @@
 # Graph Report - .  (2026-04-14)
 
 ## Corpus Check
-- 92 files · ~78,477 words
+- 92 files · ~78,921 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 992 nodes · 1644 edges · 79 communities detected
+- 993 nodes · 1645 edges · 79 communities detected
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 43 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
@@ -13,19 +13,19 @@
 - [[_COMMUNITY_Hotkey|Hotkey]]
 - [[_COMMUNITY_Python ASR Runtime|Python ASR Runtime]]
 - [[_COMMUNITY_LLM Provider|LLM Provider]]
-- [[_COMMUNITY_Frontend IPC Bridge|Frontend IPC Bridge]]
+- [[_COMMUNITY_Tauri|Tauri]]
 - [[_COMMUNITY_Funasr Service|Funasr Service]]
 - [[_COMMUNITY_App State|App State]]
-- [[_COMMUNITY_Codex OAuth Flow|Codex OAuth Flow]]
+- [[_COMMUNITY_Codex OAuth Service|Codex OAuth Service]]
 - [[_COMMUNITY_R E A D M E|R E A D M E]]
 - [[_COMMUNITY_LLM Client|LLM Client]]
 - [[_COMMUNITY_Adaptive Learning Profile|Adaptive Learning Profile]]
 - [[_COMMUNITY_Audio Service|Audio Service]]
-- [[_COMMUNITY_User Profile Schema|User Profile Schema]]
+- [[_COMMUNITY_User Profile|User Profile]]
 - [[_COMMUNITY_Release Packaging|Release Packaging]]
 - [[_COMMUNITY_AI Polish Service|AI Polish Service]]
 - [[_COMMUNITY_Runtime Paths|Runtime Paths]]
-- [[_COMMUNITY_Profile Commands|Profile Commands]]
+- [[_COMMUNITY_Profile|Profile]]
 - [[_COMMUNITY_Settings Page|Settings Page]]
 - [[_COMMUNITY_Model Management Commands|Model Management Commands]]
 - [[_COMMUNITY_Foreground Context|Foreground Context]]
@@ -134,7 +134,7 @@ Nodes (33): BaseASRServer, _disable_funasr_auto_requirement_install(), FunASRSer
 Cohesion: 0.06
 Nodes (57): apply_reasoning_controls(), assistant_endpoint_for_config(), assistant_endpoint_uses_separate_model_for_builtin_provider(), assistant_endpoint_uses_separate_model_for_custom_provider(), build_auth_headers(), builds_cerebras_image_support_probe_url(), cerebras_glm_reports_reasoning_support(), cerebras_public_model_probe_url() (+49 more)
 
-### Community 3 - "Frontend IPC Bridge"
+### Community 3 - "Tauri"
 Cohesion: 0.08
 Nodes (46): addCustomProvider(), addHotWord(), copyToClipboard(), getAiPolishApiKey(), getAssistantApiKey(), getLlmReasoningSupport(), getModelsDir(), getOnlineAsrApiKey() (+38 more)
 
@@ -146,7 +146,7 @@ Nodes (45): check_model_files(), check_status(), create_temp_audio_path(), encod
 Cohesion: 0.05
 Nodes (12): AppState, DictationOutputMode, DownloadTask, FunasrProcess, HotkeyDiagnosticState, InterimCache, MicrophoneLevelMonitor, PendingRecordingSession (+4 more)
 
-### Community 6 - "Codex OAuth Flow"
+### Community 6 - "Codex OAuth Service"
 Cohesion: 0.08
 Nodes (45): accept_callback_connection(), AuthClaims, base64_url_encode(), bind_callback_listeners(), build_authorize_url(), callback_html(), CallbackListeners, ChatgptBearerToken (+37 more)
 
@@ -166,9 +166,9 @@ Nodes (40): Adaptive learning, add_hot_word(), cleanup_profile(), contains_sente
 Cohesion: 0.11
 Nodes (32): adjust_interval(), compute_waveform_bars(), do_final_asr(), do_paste(), emit_done(), emit_error(), emit_recording_state_if_current(), encode_wav() (+24 more)
 
-### Community 11 - "User Profile Schema"
-Cohesion: 0.09
-Nodes (17): ApiFormat, CorrectionPattern, CorrectionSource, CustomProvider, default_max_results(), falls_back_to_last_remaining_provider_when_removing_first(), falls_back_to_previous_provider_after_removal(), HotWord (+9 more)
+### Community 11 - "User Profile"
+Cohesion: 0.08
+Nodes (18): ApiFormat, CorrectionPattern, CorrectionSource, CustomProvider, default_max_results(), falls_back_to_last_remaining_provider_when_removing_first(), falls_back_to_previous_provider_after_removal(), HotWord (+10 more)
 
 ### Community 12 - "Release Packaging"
 Cohesion: 0.1
@@ -182,7 +182,7 @@ Nodes (28): build_polish_user_input(), build_system_prompt(), build_user_content
 Cohesion: 0.15
 Nodes (20): default_hf_cache_root(), get_data_dir(), get_download_script_path(), get_effective_models_dir(), get_engine_config_path(), get_engine_dir(), get_engine_exe_path(), get_funasr_server_path() (+12 more)
 
-### Community 15 - "Profile Commands"
+### Community 15 - "Profile"
 Cohesion: 0.11
 Nodes (7): extract_corrections_via_llm(), parse_correction_pairs(), parse_invalid_indices(), run_correction_validation(), submit_user_correction(), update_validation_timestamp(), validate_corrections()
 
@@ -439,7 +439,7 @@ Cohesion: 1.0
 Nodes (0): 
 
 ## Knowledge Gaps
-- **91 isolated node(s):** `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。`, `校验 torch_cuda.dll 的直接 CUDA 依赖仍然存在。`, `使用 Python 标准库压缩为 tar.xz，返回压缩包大小 MB。` (+86 more)
+- **92 isolated node(s):** `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。`, `校验 torch_cuda.dll 的直接 CUDA 依赖仍然存在。`, `使用 Python 标准库压缩为 tar.xz，返回压缩包大小 MB。` (+87 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **Thin community `Promo Root`** (2 nodes): `Root.tsx`, `RemotionRoot()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -516,15 +516,15 @@ Nodes (0):
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Light-Whisper overview` connect `R E A D M E` to `Hotkey`, `Adaptive Learning Profile`, `Audio Service`, `Subtitle Window System`?**
-  _High betweenness centrality (0.190) - this node is a cross-community bridge._
+  _High betweenness centrality (0.189) - this node is a cross-community bridge._
 - **Why does `LLM integration layer` connect `R E A D M E` to `LLM Client`, `LLM Provider`?**
-  _High betweenness centrality (0.109) - this node is a cross-community bridge._
+  _High betweenness centrality (0.108) - this node is a cross-community bridge._
 - **Why does `polish_text()` connect `AI Polish Service` to `Release Packaging`, `R E A D M E`?**
   _High betweenness centrality (0.089) - this node is a cross-community bridge._
 - **Are the 9 inferred relationships involving `BaseASRServer` (e.g. with `FunASRServer` and `Skip FunASR's model-side pip auto-install in bundled runtime.      Some FunASR`) actually correct?**
   _`BaseASRServer` has 9 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。` to the rest of the system?**
-  _91 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _92 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Hotkey` be split into smaller, more focused modules?**
   _Cohesion score 0.07 - nodes in this community are weakly interconnected._
 - **Should `Python ASR Runtime` be split into smaller, more focused modules?**

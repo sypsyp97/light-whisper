@@ -64,7 +64,7 @@ import {
   removeCorrection,
   hideMainWindow,
 } from "@/api/tauri";
-import type { AiModelInfo, CorrectionPattern, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiCodexOauthStatus, WebSearchProvider } from "@/types";
+import type { AiModelInfo, CorrectionPattern, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthStatus, WebSearchProvider } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
@@ -426,6 +426,8 @@ export default function SettingsPage({
   const [assistantModel, setAssistantModel] = useState("");
   const [assistantProvider, setAssistantProviderState] = useState("");
   const [assistantApiKeyState, setAssistantApiKeyState] = useState("");
+  // null = 用户未显式选择，effectiveOpenaiAuthMode 会根据 OAuth 登录态给出智能默认
+  const [openaiAuthMode, setOpenaiAuthModeState] = useState<OpenaiAuthMode | null>(null);
   const [polishReasoningMode, setPolishReasoningMode] = useState<LlmReasoningMode>("provider_default");
   const [assistantReasoningMode, setAssistantReasoningMode] = useState<LlmReasoningMode>("provider_default");
   const defaultReasoningSupport: LlmReasoningSupport = { supported: false, strategy: null, summary: t("model.reasoningDetecting") };
@@ -443,12 +445,19 @@ export default function SettingsPage({
   const assistantManualApiKey =
     assistantApiKeyState.trim()
     || (effectiveAssistantProvider === llmProvider ? polishManualApiKey : "");
+  // openaiAuthMode 为 null 表示用户没在设置页里明确点过，沿用智能默认：
+  // 已登录 OAuth → oauth；否则 → api_key。前端和后端 resolve_api_key_for_provider
+  // 的默认推断逻辑完全对齐，避免 UI 显示和实际请求走向不一致。
+  const effectiveOpenaiAuthMode: OpenaiAuthMode =
+    openaiAuthMode ?? (openaiCodexOauthStatus.loggedIn ? "oauth" : "api_key");
   const polishUsesOpenaiOauth =
-    llmProvider === "openai" && openaiCodexOauthStatus.loggedIn && !polishManualApiKey;
+    llmProvider === "openai"
+    && effectiveOpenaiAuthMode === "oauth"
+    && openaiCodexOauthStatus.loggedIn;
   const assistantUsesOpenaiOauth =
     effectiveAssistantProvider === "openai"
-    && openaiCodexOauthStatus.loggedIn
-    && !assistantManualApiKey;
+    && effectiveOpenaiAuthMode === "oauth"
+    && openaiCodexOauthStatus.loggedIn;
   const polishHasAuth = !!aiPolishApiKey.trim() || polishUsesOpenaiOauth;
   const assistantHasAuth = !!assistantManualApiKey || assistantUsesOpenaiOauth;
 
@@ -512,6 +521,9 @@ export default function SettingsPage({
     nextAssistantModel: string,
     nextAssistantProvider?: string | null,
   ) => {
+    // openaiAuthMode 直接从闭包读最新值：useDebouncedCallback 内部用 useEffectEvent
+    // 包了 callback，每次 timer 触发时调用的是最新一版闭包，所以不用把它作为参数
+    // 一路透传到所有 schedule 调用点（保持现有 call site 签名不变）。
     setLlmProviderConfig(
       provider,
       baseUrl || undefined,
@@ -521,6 +533,7 @@ export default function SettingsPage({
       nextAssistantUseSeparateModel,
       nextAssistantModel || undefined,
       nextAssistantProvider,
+      openaiAuthMode,
     ).catch(() => {});
   }, 400, { onUnmount: "flush" });
 
@@ -637,6 +650,10 @@ export default function SettingsPage({
       setAssistantProviderState(p.llm_provider.assistant_provider ?? nextProvider);
       setPolishReasoningMode(p.llm_provider.polish_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
       setAssistantReasoningMode(p.llm_provider.assistant_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
+      const storedAuthMode = p.llm_provider.openai_auth_mode;
+      setOpenaiAuthModeState(
+        storedAuthMode === "api_key" || storedAuthMode === "oauth" ? storedAuthMode : null,
+      );
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
       setTranslationTargetState(p.translation_target ?? null);
       setTranslationHotkeyDisplay(p.translation_hotkey ? formatHotkeyForDisplay(p.translation_hotkey) : "");
@@ -1109,6 +1126,71 @@ export default function SettingsPage({
       setOpenaiCodexOauthLoading(false);
     }
   }, [aiPolishApiKey, assistantApiKeyState, t]);
+  const handleOpenaiAuthModeChange = useCallback((mode: OpenaiAuthMode) => {
+    if (mode === effectiveOpenaiAuthMode && openaiAuthMode !== null) return;
+    setOpenaiAuthModeState(mode);
+    // schedule 触发时 useDebouncedCallback 的闭包会读到刚更新的 openaiAuthMode
+    llmConfigSave.schedule(
+      llmProvider,
+      customBaseUrl,
+      customModel,
+      polishReasoningMode,
+      assistantReasoningMode,
+      assistantUseSeparateModel,
+      assistantModel,
+      assistantProvider,
+    );
+  }, [
+    assistantModel,
+    assistantProvider,
+    assistantReasoningMode,
+    assistantUseSeparateModel,
+    customBaseUrl,
+    customModel,
+    effectiveOpenaiAuthMode,
+    llmConfigSave,
+    llmProvider,
+    openaiAuthMode,
+    polishReasoningMode,
+  ]);
+
+  const renderOpenaiAuthModeToggle = useCallback(() => (
+    <div className="settings-column" style={{ gap: 6 }}>
+      <span className="settings-option-desc">{t("settings.openaiAuthModeLabel")}</span>
+      <div
+        role="radiogroup"
+        aria-label={t("settings.openaiAuthModeLabel")}
+        className="openai-auth-mode-toggle"
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={effectiveOpenaiAuthMode === "api_key"}
+          data-active={effectiveOpenaiAuthMode === "api_key"}
+          className="openai-auth-mode-toggle-btn"
+          onClick={() => handleOpenaiAuthModeChange("api_key")}
+        >
+          {t("settings.openaiAuthModeApiKey")}
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={effectiveOpenaiAuthMode === "oauth"}
+          data-active={effectiveOpenaiAuthMode === "oauth"}
+          className="openai-auth-mode-toggle-btn"
+          onClick={() => handleOpenaiAuthModeChange("oauth")}
+        >
+          {t("settings.openaiAuthModeOauth")}
+        </button>
+      </div>
+      <p className="settings-hint" style={{ margin: 0 }}>
+        {effectiveOpenaiAuthMode === "oauth"
+          ? t("settings.openaiAuthModeOauthHint")
+          : t("settings.openaiAuthModeApiKeyHint")}
+      </p>
+    </div>
+  ), [effectiveOpenaiAuthMode, handleOpenaiAuthModeChange, t]);
+
   const renderOpenaiCodexOauthBlock = useCallback((scope: "polish" | "assistant") => {
     const visible = scope === "polish" ? llmProvider === "openai" : effectiveAssistantProvider === "openai";
     if (!visible) return null;
@@ -1156,9 +1238,6 @@ export default function SettingsPage({
             </button>
           ) : null}
         </div>
-        <p className="settings-hint" style={{ margin: 0 }}>
-          {t("settings.codexOauthApiKeyFallbackHint")}
-        </p>
       </div>
     );
   }, [effectiveAssistantProvider, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, llmProvider, openaiCodexOauthLoading, openaiCodexOauthStatus, t]);
@@ -2413,6 +2492,8 @@ export default function SettingsPage({
                   </p>
                 </div>
 
+                {llmProvider === "openai" && renderOpenaiAuthModeToggle()}
+
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">{t("settings.apiKey")}</span>
                   <SecretInput
@@ -2799,20 +2880,23 @@ export default function SettingsPage({
 
                   {/* 助手独立 API Key（仅当 provider 与润色不同时显示） */}
                   {assistantProviderDiffers ? (
-                    <div className="settings-column" style={{ gap: 4 }}>
-                      <span className="settings-option-desc">{currentAssistantPreset.label} API Key</span>
-                      <SecretInput
-                        value={assistantApiKeyState}
-                        placeholder={`${currentAssistantPreset.label} API Key`}
-                        ariaLabel={t("settings.assistantApiKey")}
-                        ariaLabelShow={t("settings.showApiKey")}
-                        ariaLabelHide={t("settings.hideApiKey")}
-                        onChange={(value) => {
-                          setAssistantApiKeyState(value);
-                          assistantKeySave.schedule(value);
-                        }}
-                      />
-                    </div>
+                    <>
+                      {assistantProvider === "openai" && renderOpenaiAuthModeToggle()}
+                      <div className="settings-column" style={{ gap: 4 }}>
+                        <span className="settings-option-desc">{currentAssistantPreset.label} API Key</span>
+                        <SecretInput
+                          value={assistantApiKeyState}
+                          placeholder={`${currentAssistantPreset.label} API Key`}
+                          ariaLabel={t("settings.assistantApiKey")}
+                          ariaLabelShow={t("settings.showApiKey")}
+                          ariaLabelHide={t("settings.hideApiKey")}
+                          onChange={(value) => {
+                            setAssistantApiKeyState(value);
+                            assistantKeySave.schedule(value);
+                          }}
+                        />
+                      </div>
+                    </>
                   ) : null}
 
                   {/* 助手模型选择器 */}

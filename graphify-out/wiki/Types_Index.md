@@ -4,7 +4,7 @@
 
 ## Key Concepts
 
-- **index.ts** (0 connections) — `src\types\index.ts`
+- **index.ts** (0 connections) — `C:\Users\sun\Downloads\light-whisper\src\types\index.ts`
 
 ## Relationships
 
@@ -12,7 +12,7 @@
 
 ## Source Files
 
-- `src\types\index.ts`
+- `C:\Users\sun\Downloads\light-whisper\src\types\index.ts`
 
 ## Audit Trail
 

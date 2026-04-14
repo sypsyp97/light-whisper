@@ -15,6 +15,7 @@ import type {
   LlmReasoningMode,
   LlmReasoningSupport,
   ModelCheckResult,
+  OpenaiAuthMode,
   OpenaiCodexOauthStatus,
   TranscriptionResult,
   UserProfile,
@@ -177,6 +178,7 @@ export function setLlmProviderConfig(
   assistantUseSeparateModel?: boolean,
   assistantModel?: string,
   assistantProvider?: string | null,
+  openaiAuthMode?: OpenaiAuthMode | null,
 ): Promise<void> {
   return invokeCommand<void>("set_llm_provider_config", {
     active,
@@ -187,6 +189,7 @@ export function setLlmProviderConfig(
     assistantUseSeparateModel: assistantUseSeparateModel ?? null,
     assistantModel: assistantModel ?? null,
     assistantProvider: assistantProvider !== undefined ? assistantProvider : null,
+    openaiAuthMode: openaiAuthMode ?? null,
   });
 }
 
@@ -260,7 +263,7 @@ export function setWebSearchConfig(
   return invokeCommand<void>("set_web_search_config", {
     enabled,
     provider,
-    max_results: maxResults ?? null,
+    maxResults: maxResults ?? null,
   });
 }
 
