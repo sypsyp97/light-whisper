@@ -36,7 +36,27 @@ const INTERIM_MAX_AUDIO_WINDOW_SEC: f64 = 12.0;
 
 const RESULT_HIDE_DELAY_MS: u64 = 2500;
 const EMPTY_RESULT_HIDE_DELAY_MS: u64 = 360;
-const PASTE_DELAY_MS: u64 = 260;
+/// ASR 结果出来后到实际粘贴之间的固定延迟。**本质是 UX 节奏，不是焦点防护**。
+///
+/// stop→paste 之间发生的事：
+///   1. `emit_done` 发 "transcription-result" 事件
+///   2. 字幕窗口 React 侧更新 DOM（纯 DOM 变化，不触发 OS 级窗口激活）
+///   3. `do_paste` 运行，`GetForegroundWindow()` 读用户原目标 app（一直没变过）
+///
+/// 字幕窗口在 start_recording_inner 阶段就由后台 task 调 `show_subtitle_window`
+/// 创建好，且建窗参数是 `.focused(false) + skip_taskbar + ignore_cursor_events`。
+/// 其中 `force_window_topmost` 用 `SWP_NOACTIVATE` 明确告诉 Windows 不激活窗口。
+/// 也就是说从 start 到 stop 这几秒里，目标 app 的前台状态从未被动过。
+///
+/// 所以这个 sleep 真正做的是：让用户在按键事件进入目标 app 之前，有短暂一瞬能在
+/// 字幕上看到识别结果——视觉确认 → 动作确认的节奏。曾经是 260ms（v1.2.3 之前），
+/// 降到 120ms（v1.2.3），再降到 60ms。60ms 低于大多数人的"注意到字幕更新"阈值，
+/// 基本等于立即粘贴，适合追求速度的用户。
+///
+/// 如果用户反馈 "结果出现和粘贴同时发生感觉太突然"，可以往回调到 120-150ms。
+/// 如果以后真的出现 "粘到字幕窗口而不是目标 app" 或按键顺序错乱，说明焦点理论被
+/// 翻案了，需要调回 200+ ms 并重新审查 show_subtitle_window 里的窗口操作序列。
+const PASTE_DELAY_MS: u64 = 60;
 const AUDIO_CAPTURE_INIT_TIMEOUT_SECS: u64 = 8;
 const MICROPHONE_LEVEL_EMIT_INTERVAL_MS: u64 = 70;
 /// finalize 阶段等待并行抓取选中文本的最大时长。超时就按普通听写处理。

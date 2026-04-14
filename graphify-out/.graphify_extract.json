@@ -3652,231 +3652,231 @@
       "label": "InputDeviceInfo",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L47"
+      "source_location": "L67"
     },
     {
       "id": "audio_service_inputdevicelistpayload",
       "label": "InputDeviceListPayload",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L54"
+      "source_location": "L74"
     },
     {
       "id": "audio_service_encode_wav",
       "label": "encode_wav()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L61"
+      "source_location": "L81"
     },
     {
       "id": "audio_service_f32_to_i16",
       "label": "f32_to_i16()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L82"
+      "source_location": "L102"
     },
     {
       "id": "audio_service_u16_to_i16",
       "label": "u16_to_i16()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L91"
+      "source_location": "L111"
     },
     {
       "id": "audio_service_resample_to_16k",
       "label": "resample_to_16k()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L97"
+      "source_location": "L117"
     },
     {
       "id": "audio_service_resolve_input_device",
       "label": "resolve_input_device()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L132"
+      "source_location": "L152"
     },
     {
       "id": "audio_service_load_best_input_config",
       "label": "load_best_input_config()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L155"
+      "source_location": "L175"
     },
     {
       "id": "audio_service_list_input_devices_sync",
       "label": "list_input_devices_sync()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L192"
+      "source_location": "L212"
     },
     {
       "id": "audio_service_mix_to_mono_i16",
       "label": "mix_to_mono_i16()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L241"
+      "source_location": "L261"
     },
     {
       "id": "audio_service_mix_to_mono_f32",
       "label": "mix_to_mono_f32()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L252"
+      "source_location": "L272"
     },
     {
       "id": "audio_service_mix_to_mono_u16",
       "label": "mix_to_mono_u16()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L263"
+      "source_location": "L283"
     },
     {
       "id": "audio_service_mono_peak_i16",
       "label": "mono_peak_i16()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L276"
+      "source_location": "L296"
     },
     {
       "id": "audio_service_mono_peak_f32",
       "label": "mono_peak_f32()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L292"
+      "source_location": "L312"
     },
     {
       "id": "audio_service_mono_peak_u16",
       "label": "mono_peak_u16()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L305"
+      "source_location": "L325"
     },
     {
       "id": "audio_service_peak_to_meter",
       "label": "peak_to_meter()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L322"
+      "source_location": "L342"
     },
     {
       "id": "audio_service_compute_waveform_bars",
       "label": "compute_waveform_bars()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L332"
+      "source_location": "L352"
     },
     {
       "id": "audio_service_spawn_waveform_emitter",
       "label": "spawn_waveform_emitter()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L355"
+      "source_location": "L375"
     },
     {
       "id": "audio_service_spawn_audio_capture_thread",
       "label": "spawn_audio_capture_thread()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L385"
+      "source_location": "L405"
     },
     {
       "id": "audio_service_spawn_interim_loop",
       "label": "spawn_interim_loop()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L509"
+      "source_location": "L529"
     },
     {
       "id": "audio_service_adjust_interval",
       "label": "adjust_interval()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L629"
+      "source_location": "L649"
     },
     {
       "id": "audio_service_finalize_recording",
       "label": "finalize_recording()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L652"
+      "source_location": "L672"
     },
     {
       "id": "audio_service_discard_recording",
       "label": "discard_recording()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L928"
+      "source_location": "L948"
     },
     {
       "id": "audio_service_do_final_asr",
       "label": "do_final_asr()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L952"
+      "source_location": "L972"
     },
     {
       "id": "audio_service_emit_done",
       "label": "emit_done()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L979"
+      "source_location": "L999"
     },
     {
       "id": "audio_service_emit_error",
       "label": "emit_error()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1008"
+      "source_location": "L1028"
     },
     {
       "id": "audio_service_emit_recording_state_if_current",
       "label": "emit_recording_state_if_current()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1013"
+      "source_location": "L1033"
     },
     {
       "id": "audio_service_schedule_hide",
       "label": "schedule_hide()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1045"
+      "source_location": "L1065"
     },
     {
       "id": "audio_service_flush_pending_paste",
       "label": "flush_pending_paste()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1064"
+      "source_location": "L1084"
     },
     {
       "id": "audio_service_do_paste",
       "label": "do_paste()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1082"
+      "source_location": "L1102"
     },
     {
       "id": "audio_service_stop_microphone_level_monitor",
       "label": "stop_microphone_level_monitor()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1104"
+      "source_location": "L1124"
     },
     {
       "id": "audio_service_start_microphone_level_monitor",
       "label": "start_microphone_level_monitor()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1113"
+      "source_location": "L1133"
     },
     {
       "id": "audio_service_test_microphone_sync",
       "label": "test_microphone_sync()",
       "file_type": "code",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1215"
+      "source_location": "L1235"
     },
     {
       "id": "c_users_sun_downloads_light_whisper_src_tauri_src_services_codex_oauth_service_rs",
@@ -17196,7 +17196,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L47",
+      "source_location": "L67",
       "weight": 1.0
     },
     {
@@ -17205,7 +17205,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L54",
+      "source_location": "L74",
       "weight": 1.0
     },
     {
@@ -17214,7 +17214,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L61",
+      "source_location": "L81",
       "weight": 1.0
     },
     {
@@ -17223,7 +17223,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L82",
+      "source_location": "L102",
       "weight": 1.0
     },
     {
@@ -17232,7 +17232,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L91",
+      "source_location": "L111",
       "weight": 1.0
     },
     {
@@ -17241,7 +17241,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L97",
+      "source_location": "L117",
       "weight": 1.0
     },
     {
@@ -17250,7 +17250,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L132",
+      "source_location": "L152",
       "weight": 1.0
     },
     {
@@ -17259,7 +17259,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L155",
+      "source_location": "L175",
       "weight": 1.0
     },
     {
@@ -17268,7 +17268,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L192",
+      "source_location": "L212",
       "weight": 1.0
     },
     {
@@ -17277,7 +17277,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L241",
+      "source_location": "L261",
       "weight": 1.0
     },
     {
@@ -17286,7 +17286,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L252",
+      "source_location": "L272",
       "weight": 1.0
     },
     {
@@ -17295,7 +17295,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L263",
+      "source_location": "L283",
       "weight": 1.0
     },
     {
@@ -17304,7 +17304,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L276",
+      "source_location": "L296",
       "weight": 1.0
     },
     {
@@ -17313,7 +17313,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L292",
+      "source_location": "L312",
       "weight": 1.0
     },
     {
@@ -17322,7 +17322,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L305",
+      "source_location": "L325",
       "weight": 1.0
     },
     {
@@ -17331,7 +17331,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L322",
+      "source_location": "L342",
       "weight": 1.0
     },
     {
@@ -17340,7 +17340,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L332",
+      "source_location": "L352",
       "weight": 1.0
     },
     {
@@ -17349,7 +17349,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L355",
+      "source_location": "L375",
       "weight": 1.0
     },
     {
@@ -17358,7 +17358,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L385",
+      "source_location": "L405",
       "weight": 1.0
     },
     {
@@ -17367,7 +17367,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L509",
+      "source_location": "L529",
       "weight": 1.0
     },
     {
@@ -17376,7 +17376,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L629",
+      "source_location": "L649",
       "weight": 1.0
     },
     {
@@ -17385,7 +17385,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L652",
+      "source_location": "L672",
       "weight": 1.0
     },
     {
@@ -17394,7 +17394,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L928",
+      "source_location": "L948",
       "weight": 1.0
     },
     {
@@ -17403,7 +17403,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L952",
+      "source_location": "L972",
       "weight": 1.0
     },
     {
@@ -17412,7 +17412,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L979",
+      "source_location": "L999",
       "weight": 1.0
     },
     {
@@ -17421,7 +17421,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1008",
+      "source_location": "L1028",
       "weight": 1.0
     },
     {
@@ -17430,7 +17430,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1013",
+      "source_location": "L1033",
       "weight": 1.0
     },
     {
@@ -17439,7 +17439,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1045",
+      "source_location": "L1065",
       "weight": 1.0
     },
     {
@@ -17448,7 +17448,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1064",
+      "source_location": "L1084",
       "weight": 1.0
     },
     {
@@ -17457,7 +17457,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1082",
+      "source_location": "L1102",
       "weight": 1.0
     },
     {
@@ -17466,7 +17466,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1104",
+      "source_location": "L1124",
       "weight": 1.0
     },
     {
@@ -17475,7 +17475,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1113",
+      "source_location": "L1133",
       "weight": 1.0
     },
     {
@@ -17484,7 +17484,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1215",
+      "source_location": "L1235",
       "weight": 1.0
     },
     {
@@ -17493,7 +17493,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L120",
+      "source_location": "L140",
       "weight": 1.0
     },
     {
@@ -17502,7 +17502,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L254",
+      "source_location": "L274",
       "weight": 1.0
     },
     {
@@ -17511,7 +17511,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L265",
+      "source_location": "L285",
       "weight": 1.0
     },
     {
@@ -17520,7 +17520,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L295",
+      "source_location": "L315",
       "weight": 1.0
     },
     {
@@ -17529,7 +17529,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L308",
+      "source_location": "L328",
       "weight": 1.0
     },
     {
@@ -17538,7 +17538,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L373",
+      "source_location": "L393",
       "weight": 1.0
     },
     {
@@ -17547,7 +17547,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L398",
+      "source_location": "L418",
       "weight": 1.0
     },
     {
@@ -17556,7 +17556,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L408",
+      "source_location": "L428",
       "weight": 1.0
     },
     {
@@ -17565,7 +17565,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L436",
+      "source_location": "L456",
       "weight": 1.0
     },
     {
@@ -17574,7 +17574,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L446",
+      "source_location": "L466",
       "weight": 1.0
     },
     {
@@ -17583,7 +17583,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L456",
+      "source_location": "L476",
       "weight": 1.0
     },
     {
@@ -17592,7 +17592,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L557",
+      "source_location": "L577",
       "weight": 1.0
     },
     {
@@ -17601,7 +17601,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L572",
+      "source_location": "L592",
       "weight": 1.0
     },
     {
@@ -17610,7 +17610,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L723",
+      "source_location": "L743",
       "weight": 1.0
     },
     {
@@ -17619,7 +17619,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L733",
+      "source_location": "L753",
       "weight": 1.0
     },
     {
@@ -17628,7 +17628,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L764",
+      "source_location": "L784",
       "weight": 1.0
     },
     {
@@ -17637,7 +17637,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L773",
+      "source_location": "L793",
       "weight": 1.0
     },
     {
@@ -17646,7 +17646,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L828",
+      "source_location": "L848",
       "weight": 1.0
     },
     {
@@ -17655,7 +17655,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L959",
+      "source_location": "L979",
       "weight": 1.0
     },
     {
@@ -17664,7 +17664,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L963",
+      "source_location": "L983",
       "weight": 1.0
     },
     {
@@ -17673,7 +17673,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L994",
+      "source_location": "L1014",
       "weight": 1.0
     },
     {
@@ -17682,7 +17682,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1004",
+      "source_location": "L1024",
       "weight": 1.0
     },
     {
@@ -17691,7 +17691,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1009",
+      "source_location": "L1029",
       "weight": 1.0
     },
     {
@@ -17700,7 +17700,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1010",
+      "source_location": "L1030",
       "weight": 1.0
     },
     {
@@ -17709,7 +17709,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1078",
+      "source_location": "L1098",
       "weight": 1.0
     },
     {
@@ -17718,7 +17718,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1119",
+      "source_location": "L1139",
       "weight": 1.0
     },
     {
@@ -17727,7 +17727,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1122",
+      "source_location": "L1142",
       "weight": 1.0
     },
     {
@@ -17736,7 +17736,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1123",
+      "source_location": "L1143",
       "weight": 1.0
     },
     {
@@ -17745,7 +17745,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1143",
+      "source_location": "L1163",
       "weight": 1.0
     },
     {
@@ -17754,7 +17754,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1143",
+      "source_location": "L1163",
       "weight": 1.0
     },
     {
@@ -17763,7 +17763,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1149",
+      "source_location": "L1169",
       "weight": 1.0
     },
     {
@@ -17772,7 +17772,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1155",
+      "source_location": "L1175",
       "weight": 1.0
     },
     {
@@ -17781,7 +17781,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1218",
+      "source_location": "L1238",
       "weight": 1.0
     },
     {
@@ -17790,7 +17790,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
-      "source_location": "L1219",
+      "source_location": "L1239",
       "weight": 1.0
     },
     {
