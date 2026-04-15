@@ -967,6 +967,34 @@
       "source_location": "L66"
     },
     {
+      "id": "c_users_sun_downloads_light_whisper_src_hooks_usesmoothtext_ts",
+      "label": "useSmoothText.ts",
+      "file_type": "code",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "usesmoothtext_prefersreducedmotion",
+      "label": "prefersReducedMotion()",
+      "file_type": "code",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
+      "source_location": "L18"
+    },
+    {
+      "id": "usesmoothtext_segmentgraphemes",
+      "label": "segmentGraphemes()",
+      "file_type": "code",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
+      "source_location": "L24"
+    },
+    {
+      "id": "usesmoothtext_usesmoothtext",
+      "label": "useSmoothText()",
+      "file_type": "code",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
+      "source_location": "L47"
+    },
+    {
       "id": "src_hooks_usetheme_ts",
       "label": "useTheme.ts",
       "file_type": "code",
@@ -1254,18 +1282,18 @@
       "source_location": "L3702"
     },
     {
-      "id": "src_pages_subtitleoverlay_tsx",
+      "id": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "label": "SubtitleOverlay.tsx",
       "file_type": "code",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L1"
     },
     {
       "id": "subtitleoverlay_subtitleoverlay",
       "label": "SubtitleOverlay()",
       "file_type": "code",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
-      "source_location": "L29"
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
+      "source_location": "L30"
     },
     {
       "id": "c_users_sun_downloads_light_whisper_src_types_index_ts",
@@ -9727,6 +9755,51 @@
       "weight": 1.0
     },
     {
+      "source": "c_users_sun_downloads_light_whisper_src_hooks_usesmoothtext_ts",
+      "target": "react",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "c_users_sun_downloads_light_whisper_src_hooks_usesmoothtext_ts",
+      "target": "usesmoothtext_prefersreducedmotion",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "c_users_sun_downloads_light_whisper_src_hooks_usesmoothtext_ts",
+      "target": "usesmoothtext_segmentgraphemes",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "c_users_sun_downloads_light_whisper_src_hooks_usesmoothtext_ts",
+      "target": "usesmoothtext_usesmoothtext",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
+      "source_location": "L47",
+      "weight": 1.0
+    },
+    {
+      "source": "usesmoothtext_usesmoothtext",
+      "target": "usesmoothtext_segmentgraphemes",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
+      "source_location": "L52",
+      "weight": 1.0
+    },
+    {
       "source": "src_hooks_usetheme_ts",
       "target": "react",
       "relation": "imports_from",
@@ -10528,93 +10601,102 @@
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "target": "react",
       "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L1",
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "target": "react_i18next",
       "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L2",
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "target": "event",
       "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L3",
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "target": "tauri",
       "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L4",
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "target": "storage",
       "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L5",
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "target": "constants",
       "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L6",
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
-      "target": "i18n",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
+      "target": "usesmoothtext",
       "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L7",
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
-      "target": "src_pages_styles_theme_css",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
+      "target": "i18n",
       "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L8",
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
-      "target": "src_pages_styles_subtitle_css",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
+      "target": "c_users_sun_downloads_light_whisper_src_pages_styles_theme_css",
       "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
       "source_location": "L9",
       "weight": 1.0
     },
     {
-      "source": "src_pages_subtitleoverlay_tsx",
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
+      "target": "c_users_sun_downloads_light_whisper_src_pages_styles_subtitle_css",
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "target": "subtitleoverlay_subtitleoverlay",
       "relation": "contains",
       "confidence": "EXTRACTED",
-      "source_file": "src\\pages\\SubtitleOverlay.tsx",
-      "source_location": "L29",
+      "source_file": "C:\\Users\\sun\\Downloads\\light-whisper\\src\\pages\\SubtitleOverlay.tsx",
+      "source_location": "L30",
       "weight": 1.0
     },
     {

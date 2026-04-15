@@ -1,11 +1,11 @@
 # Graph Report - .  (2026-04-15)
 
 ## Corpus Check
-- 92 files · ~79,033 words
+- 93 files · ~79,770 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 993 nodes · 1645 edges · 79 communities detected
+- 997 nodes · 1649 edges · 80 communities detected
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 43 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
@@ -48,6 +48,7 @@
 - [[_COMMUNITY_Theme Hook|Theme Hook]]
 - [[_COMMUNITY_Frontend Entry|Frontend Entry]]
 - [[_COMMUNITY_Hotkey Storage Hook|Hotkey Storage Hook]]
+- [[_COMMUNITY_Use Smooth Text|Use Smooth Text]]
 - [[_COMMUNITY_Codex OAuth Commands|Codex OAuth Commands]]
 - [[_COMMUNITY_App Errors|App Errors]]
 - [[_COMMUNITY_Promo App Window|Promo App Window]]
@@ -274,167 +275,171 @@ Nodes (0):
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 38 - "Codex OAuth Commands"
+### Community 38 - "Use Smooth Text"
+Cohesion: 0.67
+Nodes (2): segmentGraphemes(), useSmoothText()
+
+### Community 39 - "Codex OAuth Commands"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 39 - "App Errors"
+### Community 40 - "App Errors"
 Cohesion: 0.5
 Nodes (1): AppError
 
-### Community 40 - "Promo App Window"
+### Community 41 - "Promo App Window"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 41 - "Recording Context"
+### Community 42 - "Recording Context"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 42 - "Use Recording"
+### Community 43 - "Use Recording"
 Cohesion: 1.0
 Nodes (2): useRecording(), useTauriEvent()
 
-### Community 43 - "Local Storage Helpers"
+### Community 44 - "Local Storage Helpers"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 44 - "Promo Root"
+### Community 45 - "Promo Root"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 45 - "Promo Cursor"
+### Community 46 - "Promo Cursor"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 46 - "Title Bar"
+### Community 47 - "Title Bar"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 47 - "Debounced Callback Hook"
+### Community 48 - "Debounced Callback Hook"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 48 - "Exclusive Picker Hook"
+### Community 49 - "Exclusive Picker Hook"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 49 - "Hotkey Capture Hook"
+### Community 50 - "Hotkey Capture Hook"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 50 - "Vite Config"
+### Community 51 - "Vite Config"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 51 - "Remotion Config"
+### Community 52 - "Remotion Config"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 52 - "Promo Src Index"
+### Community 53 - "Promo Src Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 53 - "Promo Showcase Video"
+### Community 54 - "Promo Showcase Video"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 54 - "Promo Theme"
+### Community 55 - "Promo Theme"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 55 - "Promo Cinematic Scene"
+### Community 56 - "Promo Cinematic Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 56 - "Promo Mic Button"
+### Community 57 - "Promo Mic Button"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 57 - "Promo Result Card"
+### Community 58 - "Promo Result Card"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 58 - "Promo Subtitle Capsule"
+### Community 59 - "Promo Subtitle Capsule"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 59 - "Promo Assistant Scene"
+### Community 60 - "Promo Assistant Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 60 - "Promo Dictation Scene"
+### Community 61 - "Promo Dictation Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 61 - "Promo Edit Scene"
+### Community 62 - "Promo Edit Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 62 - "Promo Intro Scene"
+### Community 63 - "Promo Intro Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 63 - "Promo Outro Scene"
+### Community 64 - "Promo Outro Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 64 - "Promo Translation Scene"
+### Community 65 - "Promo Translation Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 65 - "Vite Env Types"
+### Community 66 - "Vite Env Types"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 66 - "Kbd"
+### Community 67 - "Kbd"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 67 - "Recording Button UI"
+### Community 68 - "Recording Button UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 68 - "Transcription History UI"
+### Community 69 - "Transcription History UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 69 - "Transcription Result UI"
+### Community 70 - "Transcription Result UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 70 - "English I18n"
+### Community 71 - "English I18n"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 71 - "I18n Index"
+### Community 72 - "I18n Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 72 - "Chinese I18n"
+### Community 73 - "Chinese I18n"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 73 - "App Constants"
+### Community 74 - "App Constants"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 74 - "Types Index"
+### Community 75 - "Types Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 75 - "Commands Module"
+### Community 76 - "Commands Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 76 - "Services Module"
+### Community 77 - "Services Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 77 - "State Module"
+### Community 78 - "State Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 78 - "Utils Module"
+### Community 79 - "Utils Module"
 Cohesion: 1.0
 Nodes (0): 
 
@@ -516,7 +521,7 @@ Nodes (0):
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Light-Whisper overview` connect `R E A D M E` to `Hotkey`, `Adaptive Learning Profile`, `Audio Service`, `Subtitle Window System`?**
-  _High betweenness centrality (0.189) - this node is a cross-community bridge._
+  _High betweenness centrality (0.188) - this node is a cross-community bridge._
 - **Why does `LLM integration layer` connect `R E A D M E` to `LLM Client`, `LLM Provider`?**
   _High betweenness centrality (0.108) - this node is a cross-community bridge._
 - **Why does `polish_text()` connect `AI Polish Service` to `Release Packaging`, `R E A D M E`?**

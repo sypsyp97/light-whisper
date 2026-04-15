@@ -15,11 +15,11 @@
 - **Subtitle overlay** (3 connections) — `README.md`
 - **hide_main_window()** (3 connections) — `src-tauri\src\commands\window.rs`
 - **require_window()** (3 connections) — `src-tauri\src\commands\window.rs`
-- **SubtitleOverlay()** (2 connections) — `src\pages\SubtitleOverlay.tsx`
+- **SubtitleOverlay()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\pages\SubtitleOverlay.tsx`
 - **find_cursor_monitor()** (2 connections) — `src-tauri\src\commands\window.rs`
 - **force_window_topmost()** (2 connections) — `src-tauri\src\commands\window.rs`
 - **hide_subtitle_window()** (2 connections) — `src-tauri\src\commands\window.rs`
-- **SubtitleOverlay.tsx** (1 connections) — `src\pages\SubtitleOverlay.tsx`
+- **SubtitleOverlay.tsx** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src\pages\SubtitleOverlay.tsx`
 
 ## Relationships
 
@@ -27,9 +27,9 @@
 
 ## Source Files
 
+- `C:\Users\sun\Downloads\light-whisper\src\pages\SubtitleOverlay.tsx`
 - `README.md`
 - `src-tauri\src\commands\window.rs`
-- `src\pages\SubtitleOverlay.tsx`
 
 ## Audit Trail
 

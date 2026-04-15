@@ -107,6 +107,36 @@ body,
   color: var(--color-text-primary);
   white-space: pre-wrap;
   word-break: break-word;
+  /* Smooth the subtle size adjustments when new lines wrap in */
+  font-variant-ligatures: common-ligatures contextual;
+  font-kerning: normal;
+}
+
+/* Per-character fade-in for streaming text.
+   Each new grapheme mounts as its own span and opacity-fades on mount,
+   so newly-arriving text genuinely eases in instead of popping. */
+.stream-char {
+  animation: stream-char-in 260ms var(--ease-out-expo) both;
+}
+
+@keyframes stream-char-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Streaming caret — inline block that follows the last character.
+   Uses ::after so it lives at the end of the text flow and wraps with it. */
+.subtitle-text-streaming::after {
+  content: "";
+  display: inline-block;
+  width: 0.42em;
+  height: 1.02em;
+  margin-left: 0.08em;
+  vertical-align: text-bottom;
+  background: currentColor;
+  border-radius: 1px;
+  animation: stream-caret-blink 1.05s var(--ease-out-quart) infinite;
+  transform: translateY(-0.08em);
 }
 
 .subtitle-capsule-assistant .subtitle-text {
@@ -430,6 +460,16 @@ body,
   .subtitle-hint {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .stream-char {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+
+  .subtitle-text-streaming::after {
+    animation: none;
+    opacity: 0;
   }
 
   .subtitle-waveform-indicator-bar {

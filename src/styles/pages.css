@@ -50,7 +50,7 @@
 /* Result card — elevated container for transcription output */
 @keyframes result-arrive {
   0%   { border-color: var(--color-border-subtle); box-shadow: var(--shadow-sm); }
-  35%  { border-color: var(--color-border-accent); box-shadow: var(--shadow-sm), 0 0 12px rgba(var(--color-accent-rgb), 0.12); }
+  35%  { border-color: var(--color-border-accent); box-shadow: var(--shadow-sm), 0 0 14px rgba(var(--color-accent-rgb), 0.14); }
   100% { border-color: var(--color-border-subtle); box-shadow: var(--shadow-sm); }
 }
 
@@ -60,14 +60,16 @@
   border: 1px solid var(--color-border-subtle);
   box-shadow: var(--shadow-sm);
   animation: result-arrive 1s var(--ease-out-expo);
-  transition: background-color 0.3s var(--ease-out-expo),
-              box-shadow 0.3s var(--ease-out-expo),
-              border-color 0.3s var(--ease-out-expo);
+  transition: background-color var(--dur-4) var(--ease-out-expo),
+              box-shadow var(--dur-4) var(--ease-out-expo),
+              border-color var(--dur-4) var(--ease-out-expo),
+              transform var(--dur-5) var(--ease-spring-soft);
 }
 
 .result-card:hover {
   border-color: var(--color-border);
   box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 /* Result card — first in stack */
@@ -334,11 +336,28 @@
   gap: 9px;
 }
 
+@keyframes skeleton-line-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
 .skeleton-line {
   height: 11px;
   border-radius: var(--radius-xs);
   background: var(--color-bg-sunken);
+  transform-origin: left center;
+  animation: skeleton-line-in var(--dur-5) var(--ease-out-expo) both;
 }
+
+.skeleton-paragraph > .skeleton-line:nth-child(1) { animation-delay: 40ms; }
+.skeleton-paragraph > .skeleton-line:nth-child(2) { animation-delay: 140ms; }
+.skeleton-paragraph > .skeleton-line:nth-child(3) { animation-delay: 240ms; }
 
 /* Keyboard key caps — used inside hotkey-capture buttons and inline hints */
 .kbd-group {

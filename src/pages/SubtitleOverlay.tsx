@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { copyToClipboard, hideSubtitleWindow } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
 import { THEME_STORAGE_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
+import { useSmoothText, segmentGraphemes } from "@/hooks/useSmoothText";
 import "@/i18n";
 import "../styles/theme.css";
 import "../styles/subtitle.css";
@@ -35,6 +36,9 @@ export default function SubtitleOverlay() {
   const [waveformBars, setWaveformBars] = useState<number[]>([]);
   const [mode, setMode] = useState<"dictation" | "assistant">("dictation");
   const [assistantCopied, setAssistantCopied] = useState(false);
+  // Smoothly drain the streaming source so chunks never snap in.
+  // Works for both assistant streaming (polishing phase) and interim dictation.
+  const smoothText = useSmoothText(text);
   const latestSessionIdRef = useRef(0);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const assistantTextRef = useRef<HTMLDivElement | null>(null);
@@ -270,7 +274,7 @@ export default function SubtitleOverlay() {
     const node = assistantTextRef.current;
     if (!node || !shouldAutoScrollRef.current) return;
     node.scrollTop = node.scrollHeight;
-  }, [assistantPanelActive, text]);
+  }, [assistantPanelActive, smoothText]);
 
   // 监听转写结果（中间结果 interim=true，最终结果 interim=false）
   useEffect(() => {
@@ -338,7 +342,8 @@ export default function SubtitleOverlay() {
     };
   }, [clearFadeTimer]);
 
-  const hasText = text.length > 0;
+  const isStreaming = text.length > 0 && smoothText.length < text.length;
+  const hasText = smoothText.length > 0;
   const isAssistant = mode === "assistant";
 
   let indicatorClass: string | null = null;
@@ -355,7 +360,7 @@ export default function SubtitleOverlay() {
     case "processing": hintText = isAssistant ? t("subtitle.aiGenerating") : t("subtitle.recognizing"); break;
     case "searching":  hintText = t("subtitle.webSearching"); break;
     case "polishing":
-      if (isAssistant) { hintText = text ? null : t("subtitle.aiGenerating"); }
+      if (isAssistant) { hintText = hasText ? null : t("subtitle.aiGenerating"); }
       else { hintText = streamTokens > 0 ? t("subtitle.polishingWithTokens", { tokens: streamTokens }) : t("subtitle.polishing"); }
       break;
   }
@@ -426,13 +431,19 @@ export default function SubtitleOverlay() {
         {hasText && (
           <div
             ref={assistantTextRef}
-            className={`subtitle-text${polishFlash ? " subtitle-polish-flash" : ""}`}
+            className={`subtitle-text${polishFlash ? " subtitle-polish-flash" : ""}${isStreaming ? " subtitle-text-streaming" : ""}`}
             role="status"
             aria-live="polite"
             onScroll={assistantPanelActive ? handleAssistantScroll : undefined}
-            onAnimationEnd={() => setPolishFlash(false)}
+            onAnimationEnd={(e) => {
+              // Only react to the div's own polish-flash animation, not to
+              // animationend events bubbling up from per-char .stream-char spans.
+              if (e.target === e.currentTarget) setPolishFlash(false);
+            }}
           >
-            {text}
+            {segmentGraphemes(smoothText).map((g, i) => (
+              <span key={i} className="stream-char">{g}</span>
+            ))}
           </div>
         )}
         {hasText && phase === "polishing" && streamTokens > 0 && (

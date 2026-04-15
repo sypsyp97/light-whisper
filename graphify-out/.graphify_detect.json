@@ -37,6 +37,7 @@
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useHotkeyCapture.ts",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useModelStatus.ts",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useRecording.ts",
+      "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useSmoothText.ts",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\hooks\\useTheme.ts",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\i18n\\en.ts",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\i18n\\index.ts",
@@ -100,8 +101,8 @@
     "image": [],
     "video": []
   },
-  "total_files": 92,
-  "total_words": 79033,
+  "total_files": 93,
+  "total_words": 79770,
   "needs_graph": true,
   "warning": null,
   "skipped_sensitive": [
