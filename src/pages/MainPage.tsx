@@ -127,7 +127,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
 
       <div className={pageContentClass} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
         {/* Recording zone */}
-        <div className="recording-zone" style={{ padding: `16px ${PADDING}px 12px` }}>
+        <div className="recording-zone" style={{ padding: `16px ${PADDING}px 6px` }}>
           <StatusIndicator
             stage={stage}
             isReady={isReady}
@@ -166,7 +166,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
         )}
 
         {/* Results */}
-        <div className="results-area" style={{ padding: `0 ${PADDING}px 12px` }}>
+        <div className="results-area" style={{ padding: `12px ${PADDING}px 12px` }}>
           <TranscriptionResult
             text={transcriptionResult}
             originalText={originalAsrText}

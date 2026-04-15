@@ -64,17 +64,25 @@
               box-shadow var(--dur-4) var(--ease-out-expo),
               border-color var(--dur-4) var(--ease-out-expo),
               transform var(--dur-5) var(--ease-spring-soft);
+  /* Promote to a stable compositing layer at rest. Chrome on Windows drops
+     ClearType subpixel AA the moment an element *becomes* composited, so
+     hovering a plain transform would flash the text from sharp to grayscale
+     and back. Pre-promoting keeps layer state constant — the hover animates
+     the transform value only, and text rendering never toggles. */
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 .result-card:hover {
   border-color: var(--color-border);
   box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
+  transform: translate3d(0, -2px, 0);
 }
 
-/* Result card — first in stack */
+/* Result card — first in stack (onboarding card only; the main result card
+   gets its top gap from .results-area padding) */
 .result-card-first {
-  margin-top: 8px;
+  margin-top: 2px;
 }
 
 /* Result card header — title row with copy button */
