@@ -326,8 +326,15 @@ export function setCorrectionValidationConfig(params: {
   });
 }
 
-export function setOnlineAsrApiKey(apiKey: string): Promise<void> {
-  return invokeCommand<void>("set_online_asr_api_key", { apiKey });
+/**
+ * 保存在线 ASR 的 API Key。`keyringUser` 由调用方在用户键入瞬间就锁定，
+ * 避免 debounce 与 engine/region 切换产生的 race。
+ */
+export function setOnlineAsrApiKey(apiKey: string, keyringUser?: string): Promise<void> {
+  return invokeCommand<void>("set_online_asr_api_key", {
+    apiKey,
+    keyringUser: keyringUser ?? null,
+  });
 }
 
 export function getOnlineAsrApiKey(): Promise<string> {
@@ -340,6 +347,30 @@ export function getOnlineAsrEndpoint(): Promise<{ region: string; url: string }>
 
 export function setOnlineAsrEndpoint(region: string): Promise<{ region: string; url: string }> {
   return invokeCommand<{ region: string; url: string }>("set_online_asr_endpoint", { region });
+}
+
+export interface AlibabaAsrConfig {
+  region: string;
+  url: string;
+  model: string;
+  models: readonly string[];
+}
+
+export function getAlibabaAsrConfig(): Promise<AlibabaAsrConfig> {
+  return invokeCommand<AlibabaAsrConfig>("get_alibaba_asr_config");
+}
+
+export function setAlibabaAsrModel(model: string): Promise<{ model: string }> {
+  return invokeCommand<{ model: string }>("set_alibaba_asr_model", { model });
+}
+
+export interface AlibabaModelsPayload {
+  models: string[];
+  source: "live" | "fallback";
+}
+
+export function listAlibabaAsrModels(): Promise<AlibabaModelsPayload> {
+  return invokeCommand<AlibabaModelsPayload>("list_alibaba_asr_models");
 }
 
 export function getModelsDir(): Promise<{ path: string; is_custom: boolean }> {

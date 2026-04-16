@@ -1,12 +1,12 @@
-# Graph Report - .  (2026-04-15)
+# Graph Report - .  (2026-04-16)
 
 ## Corpus Check
-- 93 files · ~79,770 words
+- 94 files · ~82,351 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 997 nodes · 1649 edges · 80 communities detected
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 43 edges (avg confidence: 0.85)
+- 1036 nodes · 1719 edges · 82 communities detected
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 42 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
@@ -20,19 +20,20 @@
 - [[_COMMUNITY_R E A D M E|R E A D M E]]
 - [[_COMMUNITY_LLM Client|LLM Client]]
 - [[_COMMUNITY_Adaptive Learning Profile|Adaptive Learning Profile]]
+- [[_COMMUNITY_Paths|Paths]]
 - [[_COMMUNITY_Audio Service|Audio Service]]
 - [[_COMMUNITY_User Profile|User Profile]]
 - [[_COMMUNITY_Release Packaging|Release Packaging]]
 - [[_COMMUNITY_AI Polish Service|AI Polish Service]]
-- [[_COMMUNITY_Runtime Paths|Runtime Paths]]
+- [[_COMMUNITY_Funasr|Funasr]]
 - [[_COMMUNITY_Profile|Profile]]
 - [[_COMMUNITY_Settings Page|Settings Page]]
-- [[_COMMUNITY_Model Management Commands|Model Management Commands]]
+- [[_COMMUNITY_Alibaba ASR Service|Alibaba ASR Service]]
 - [[_COMMUNITY_Foreground Context|Foreground Context]]
 - [[_COMMUNITY_Subtitle Window System|Subtitle Window System]]
 - [[_COMMUNITY_Audio|Audio]]
 - [[_COMMUNITY_Rebuild Graphify|Rebuild Graphify]]
-- [[_COMMUNITY_App Bootstrap|App Bootstrap]]
+- [[_COMMUNITY_Lib|Lib]]
 - [[_COMMUNITY_AI Polish Commands|AI Polish Commands]]
 - [[_COMMUNITY_Clipboard Bridge|Clipboard Bridge]]
 - [[_COMMUNITY_Updater Commands|Updater Commands]]
@@ -85,6 +86,7 @@
 - [[_COMMUNITY_I18n Index|I18n Index]]
 - [[_COMMUNITY_Chinese I18n|Chinese I18n]]
 - [[_COMMUNITY_App Constants|App Constants]]
+- [[_COMMUNITY_Main Page|Main Page]]
 - [[_COMMUNITY_Types Index|Types Index]]
 - [[_COMMUNITY_Commands Module|Commands Module]]
 - [[_COMMUNITY_Services Module|Services Module]]
@@ -92,7 +94,7 @@
 - [[_COMMUNITY_Utils Module|Utils Module]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `invokeCommand()` - 46 edges
+1. `invokeCommand()` - 49 edges
 2. `AppState` - 29 edges
 3. `BaseASRServer` - 25 edges
 4. `Light-Whisper overview` - 18 edges
@@ -112,7 +114,7 @@
   C:\Users\sun\Downloads\light-whisper\src-tauri\resources\whisper_server.py → README.md
 - `register_custom_hotkey()` --implements--> `One-key dictation`  [INFERRED]
   C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs → README.md
-- `register_assistant_hotkey()` --implements--> `Voice assistant`  [INFERRED]
+- `register_translation_hotkey()` --implements--> `Real-time translation`  [INFERRED]
   C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs → README.md
 
 ## Hyperedges (group relationships)
@@ -125,7 +127,7 @@
 
 ### Community 0 - "Hotkey"
 Cohesion: 0.07
-Nodes (75): Real-time translation, all_modifiers_down(), build_hook_state(), build_hook_state_with_backend(), classify_backend(), dispatch_channel(), dispatch_hotkey_press(), dispatch_hotkey_release() (+67 more)
+Nodes (73): all_modifiers_down(), build_hook_state(), build_hook_state_with_backend(), classify_backend(), dispatch_channel(), dispatch_hotkey_press(), dispatch_hotkey_release(), DispatchEvent (+65 more)
 
 ### Community 1 - "Python ASR Runtime"
 Cohesion: 0.04
@@ -136,8 +138,8 @@ Cohesion: 0.06
 Nodes (57): apply_reasoning_controls(), assistant_endpoint_for_config(), assistant_endpoint_uses_separate_model_for_builtin_provider(), assistant_endpoint_uses_separate_model_for_custom_provider(), build_auth_headers(), builds_cerebras_image_support_probe_url(), cerebras_glm_reports_reasoning_support(), cerebras_public_model_probe_url() (+49 more)
 
 ### Community 3 - "Tauri"
-Cohesion: 0.08
-Nodes (46): addCustomProvider(), addHotWord(), copyToClipboard(), getAiPolishApiKey(), getAssistantApiKey(), getLlmReasoningSupport(), getModelsDir(), getOnlineAsrApiKey() (+38 more)
+Cohesion: 0.07
+Nodes (49): addCustomProvider(), addHotWord(), copyToClipboard(), getAiPolishApiKey(), getAlibabaAsrConfig(), getAssistantApiKey(), getLlmReasoningSupport(), getModelsDir() (+41 more)
 
 ### Community 4 - "Funasr Service"
 Cohesion: 0.08
@@ -153,7 +155,7 @@ Nodes (45): accept_callback_connection(), AuthClaims, base64_url_encode(), bind_
 
 ### Community 7 - "R E A D M E"
 Cohesion: 0.06
-Nodes (36): LLM integration layer, Python ASR runtime, React UI, Rust core, assistant_input_preserves_symbols_and_splits_cdata(), build_assistant_user_content_with_selection(), generate_content(), render_assistant_user_content() (+28 more)
+Nodes (37): LLM integration layer, Python ASR runtime, React UI, Rust core, assistant_input_preserves_symbols_and_splits_cdata(), build_assistant_user_content_with_selection(), generate_content(), render_assistant_user_content() (+29 more)
 
 ### Community 8 - "LLM Client"
 Cohesion: 0.1
@@ -163,288 +165,296 @@ Nodes (32): adapt_body_for_backend(), anthropic_output_tokens(), api_error_messa
 Cohesion: 0.12
 Nodes (40): Adaptive learning, add_hot_word(), cleanup_profile(), contains_sentence_punctuation(), extract_diff_segments(), finalize_learning(), hot_word_priority(), is_blocked_hot_word() (+32 more)
 
-### Community 10 - "Audio Service"
+### Community 10 - "Paths"
 Cohesion: 0.11
-Nodes (32): adjust_interval(), compute_waveform_bars(), do_final_asr(), do_paste(), emit_done(), emit_error(), emit_recording_state_if_current(), encode_wav() (+24 more)
+Nodes (29): default_hf_cache_root(), get_data_dir(), get_download_script_path(), get_effective_models_dir(), get_engine_config_path(), get_engine_dir(), get_engine_exe_path(), get_funasr_server_path() (+21 more)
 
-### Community 11 - "User Profile"
+### Community 11 - "Audio Service"
+Cohesion: 0.12
+Nodes (31): adjust_interval(), compute_waveform_bars(), do_final_asr(), do_paste(), emit_done(), emit_error(), emit_recording_state_if_current(), encode_wav() (+23 more)
+
+### Community 12 - "User Profile"
 Cohesion: 0.08
 Nodes (18): ApiFormat, CorrectionPattern, CorrectionSource, CustomProvider, default_max_results(), falls_back_to_last_remaining_provider_when_removing_first(), falls_back_to_previous_provider_after_removal(), HotWord (+10 more)
 
-### Community 12 - "Release Packaging"
+### Community 13 - "Release Packaging"
 Cohesion: 0.1
 Nodes (26): emit_rerun_hints(), create_tar_xz(), create_tar_xz_with_7z(), create_tar_xz_with_python(), find_7z_executable(), get_size_mb(), main(), 删除目录；在 Windows 文件句柄尚未释放时做有限重试。 (+18 more)
 
-### Community 13 - "AI Polish Service"
+### Community 14 - "AI Polish Service"
 Cohesion: 0.14
 Nodes (28): build_polish_user_input(), build_system_prompt(), build_user_content(), CorrectionItem, edit_text(), emit_polish_status(), extract_edit_result(), extract_edit_result_accepts_array_wrapper() (+20 more)
 
-### Community 14 - "Runtime Paths"
-Cohesion: 0.15
-Nodes (20): default_hf_cache_root(), get_data_dir(), get_download_script_path(), get_effective_models_dir(), get_engine_config_path(), get_engine_dir(), get_engine_exe_path(), get_funasr_server_path() (+12 more)
-
-### Community 15 - "Profile"
+### Community 15 - "Funasr"
 Cohesion: 0.11
-Nodes (7): extract_corrections_via_llm(), parse_correction_pairs(), parse_invalid_indices(), run_correction_validation(), submit_user_correction(), update_validation_timestamp(), validate_corrections()
+Nodes (9): active_online_keyring_user(), copy_dir_recursive(), migrate_model_dirs(), online_status_payload(), reload_online_asr_key(), set_engine(), set_models_dir(), set_online_asr_api_key() (+1 more)
 
-### Community 16 - "Settings Page"
+### Community 16 - "Profile"
+Cohesion: 0.1
+Nodes (9): Real-time translation, extract_corrections_via_llm(), parse_correction_pairs(), parse_invalid_indices(), run_correction_validation(), set_translation_target(), submit_user_correction(), update_validation_timestamp() (+1 more)
+
+### Community 17 - "Settings Page"
 Cohesion: 0.13
-Nodes (5): findLlmPreset(), isBuiltinCustomPreset(), isFixedPresetProvider(), resolveLlmBaseUrl(), resolveLlmModel()
+Nodes (7): findLlmPreset(), handleEngineSwitch(), isBuiltinCustomPreset(), isFixedPresetProvider(), isOnlineEngineKey(), resolveLlmBaseUrl(), resolveLlmModel()
 
-### Community 17 - "Model Management Commands"
-Cohesion: 0.12
-Nodes (3): copy_dir_recursive(), migrate_model_dirs(), set_models_dir()
+### Community 18 - "Alibaba ASR Service"
+Cohesion: 0.15
+Nodes (15): b64(), DashScopeAsrChoice, DashScopeAsrContent, DashScopeAsrContentField, DashScopeAsrMessage, DashScopeAsrOutput, DashScopeAsrResponse, exceeds_dashscope_limit() (+7 more)
 
-### Community 18 - "Foreground Context"
+### Community 19 - "Foreground Context"
 Cohesion: 0.2
 Nodes (11): ForegroundApp, format_prompt_context(), get_foreground_app(), get_process_name(), get_window_title(), normalize_whitespace(), preserves_xml_sensitive_characters_in_prompt_context(), prompt_context_block() (+3 more)
 
-### Community 19 - "Subtitle Window System"
+### Community 20 - "Subtitle Window System"
 Cohesion: 0.27
 Nodes (14): Subtitle overlay, SubtitleOverlay(), apply_subtitle_layout(), create_subtitle_window(), find_cursor_monitor(), force_window_topmost(), hide_main_window(), hide_subtitle_window() (+6 more)
 
-### Community 20 - "Audio"
+### Community 21 - "Audio"
 Cohesion: 0.21
 Nodes (6): clear_pending_recording_if_current(), start_recording(), start_recording_inner(), stop_microphone_level_monitor(), stop_recording(), stop_recording_inner()
 
-### Community 21 - "Rebuild Graphify"
+### Community 22 - "Rebuild Graphify"
 Cohesion: 0.3
 Nodes (10): build_ast_extraction(), build_labels(), build_outputs(), build_semantic_layer(), detect_corpus(), main(), make_edge(), make_hyperedge() (+2 more)
 
-### Community 22 - "App Bootstrap"
+### Community 23 - "Lib"
 Cohesion: 0.38
 Nodes (10): focus_main_window(), hide_main_window(), mark_setup_once(), run(), setup_system_tray(), spawn_funasr_startup(), spawn_profile_maintenance(), spawn_subtitle_prewarm() (+2 more)
 
-### Community 23 - "AI Polish Commands"
+### Community 24 - "AI Polish Commands"
 Cohesion: 0.24
 Nodes (7): AiModelInfo, AiModelListPayload, anthropic_models(), codex_oauth_models(), list_ai_models(), set_ai_polish_config(), set_assistant_api_key()
 
-### Community 24 - "Clipboard Bridge"
+### Community 25 - "Clipboard Bridge"
 Cohesion: 0.35
 Nodes (10): copy_to_clipboard(), grab_selected_text(), grab_selected_text_uia(), make_key_input(), paste_text(), paste_text_impl(), release_stuck_modifiers(), send_inputs() (+2 more)
 
-### Community 25 - "Updater Commands"
+### Community 26 - "Updater Commands"
 Cohesion: 0.33
 Nodes (9): AppUpdateInfo, check_app_update(), fetch_latest_release(), GitHubRelease, is_version_newer(), normalize_version(), open_app_release_page(), open_external_url() (+1 more)
 
-### Community 26 - "Model Download Service"
+### Community 27 - "Model Download Service"
 Cohesion: 0.24
 Nodes (4): clear_download_task(), DownloadLine, emit_download_status(), run_download()
 
-### Community 27 - "Hotkey Normalization"
+### Community 28 - "Hotkey Normalization"
 Cohesion: 0.36
 Nodes (7): collectModifiers(), eventMainKey(), isModifierOnlyCombo(), keyboardEventToHotkey(), modifierFromKeyboardEvent(), normalizeHotkey(), normalizeMainKeyToken()
 
-### Community 28 - "Model Download Script"
+### Community 29 - "Model Download Script"
 Cohesion: 0.42
 Nodes (8): _candidate_endpoints(), _cleanup_locks(), _download_file(), download_model(), _emit(), _get_repo_info(), main(), 清理残留的 .lock 和 .incomplete 文件
 
-### Community 29 - "Assistant Commands"
+### Community 30 - "Assistant Commands"
 Cohesion: 0.36
 Nodes (3): get_web_search_api_key(), set_web_search_api_key(), web_search_keyring_user()
 
-### Community 30 - "Sound Effects"
+### Community 31 - "Sound Effects"
 Cohesion: 0.54
 Nodes (7): generate_double_tone(), generate_tone(), play_assistant_start_sound(), play_assistant_stop_sound(), play_start_sound(), play_stop_sound(), play_wav_async()
 
-### Community 31 - "Engine"
+### Community 32 - "Engine"
 Cohesion: 0.53
 Nodes (5): cmd_download(), cmd_serve(), main(), PyInstaller frozen 环境下，将 _internal/ 加入 sys.path, _setup_frozen_paths()
 
-### Community 32 - "HF Cache Utilities"
+### Community 33 - "HF Cache Utilities"
 Cohesion: 0.4
 Nodes (5): get_hf_cache_root(), is_hf_repo_ready(), HuggingFace 缓存检测共享工具模块  供 funasr_server.py 和 download_models.py 共同使用， 避免重复实现缓, 返回 HuggingFace 缓存根目录      优先级：HF_HUB_CACHE（由 Rust 设置的自定义路径）> HF_HOME/hub > 默认, 检查 HuggingFace 模型是否已缓存且包含实际模型权重文件。      仅检查目录结构不够——下载中途取消会留下空壳目录（refs/snapshot
 
-### Community 33 - "Status Indicator UI"
+### Community 34 - "Status Indicator UI"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 34 - "Model Status Hook"
+### Community 35 - "Model Status Hook"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 35 - "Theme Hook"
+### Community 36 - "Theme Hook"
 Cohesion: 0.5
 Nodes (2): getSystemPrefersDark(), resolveIsDark()
 
-### Community 36 - "Frontend Entry"
+### Community 37 - "Frontend Entry"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 37 - "Hotkey Storage Hook"
+### Community 38 - "Hotkey Storage Hook"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 38 - "Use Smooth Text"
+### Community 39 - "Use Smooth Text"
 Cohesion: 0.67
 Nodes (2): segmentGraphemes(), useSmoothText()
 
-### Community 39 - "Codex OAuth Commands"
+### Community 40 - "Codex OAuth Commands"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 40 - "App Errors"
+### Community 41 - "App Errors"
 Cohesion: 0.5
 Nodes (1): AppError
 
-### Community 41 - "Promo App Window"
+### Community 42 - "Promo App Window"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 42 - "Recording Context"
+### Community 43 - "Recording Context"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 43 - "Use Recording"
+### Community 44 - "Use Recording"
 Cohesion: 1.0
 Nodes (2): useRecording(), useTauriEvent()
 
-### Community 44 - "Local Storage Helpers"
+### Community 45 - "Local Storage Helpers"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 45 - "Promo Root"
+### Community 46 - "Promo Root"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 46 - "Promo Cursor"
+### Community 47 - "Promo Cursor"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 47 - "Title Bar"
+### Community 48 - "Title Bar"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 48 - "Debounced Callback Hook"
+### Community 49 - "Debounced Callback Hook"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 49 - "Exclusive Picker Hook"
+### Community 50 - "Exclusive Picker Hook"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 50 - "Hotkey Capture Hook"
+### Community 51 - "Hotkey Capture Hook"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 51 - "Vite Config"
+### Community 52 - "Vite Config"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 52 - "Remotion Config"
+### Community 53 - "Remotion Config"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 53 - "Promo Src Index"
+### Community 54 - "Promo Src Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 54 - "Promo Showcase Video"
+### Community 55 - "Promo Showcase Video"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 55 - "Promo Theme"
+### Community 56 - "Promo Theme"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 56 - "Promo Cinematic Scene"
+### Community 57 - "Promo Cinematic Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 57 - "Promo Mic Button"
+### Community 58 - "Promo Mic Button"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 58 - "Promo Result Card"
+### Community 59 - "Promo Result Card"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 59 - "Promo Subtitle Capsule"
+### Community 60 - "Promo Subtitle Capsule"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 60 - "Promo Assistant Scene"
+### Community 61 - "Promo Assistant Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 61 - "Promo Dictation Scene"
+### Community 62 - "Promo Dictation Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 62 - "Promo Edit Scene"
+### Community 63 - "Promo Edit Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 63 - "Promo Intro Scene"
+### Community 64 - "Promo Intro Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 64 - "Promo Outro Scene"
+### Community 65 - "Promo Outro Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 65 - "Promo Translation Scene"
+### Community 66 - "Promo Translation Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 66 - "Vite Env Types"
+### Community 67 - "Vite Env Types"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 67 - "Kbd"
+### Community 68 - "Kbd"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 68 - "Recording Button UI"
+### Community 69 - "Recording Button UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 69 - "Transcription History UI"
+### Community 70 - "Transcription History UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 70 - "Transcription Result UI"
+### Community 71 - "Transcription Result UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 71 - "English I18n"
+### Community 72 - "English I18n"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 72 - "I18n Index"
+### Community 73 - "I18n Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 73 - "Chinese I18n"
+### Community 74 - "Chinese I18n"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 74 - "App Constants"
+### Community 75 - "App Constants"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 75 - "Types Index"
+### Community 76 - "Main Page"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 76 - "Commands Module"
+### Community 77 - "Types Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 77 - "Services Module"
+### Community 78 - "Commands Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 78 - "State Module"
+### Community 79 - "Services Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 79 - "Utils Module"
+### Community 80 - "State Module"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 81 - "Utils Module"
 Cohesion: 1.0
 Nodes (0): 
 
 ## Knowledge Gaps
-- **92 isolated node(s):** `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。`, `校验 torch_cuda.dll 的直接 CUDA 依赖仍然存在。`, `使用 Python 标准库压缩为 tar.xz，返回压缩包大小 MB。` (+87 more)
+- **101 isolated node(s):** `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。`, `校验 torch_cuda.dll 的直接 CUDA 依赖仍然存在。`, `使用 Python 标准库压缩为 tar.xz，返回压缩包大小 MB。` (+96 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **Thin community `Promo Root`** (2 nodes): `Root.tsx`, `RemotionRoot()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -506,6 +516,8 @@ Nodes (0):
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `App Constants`** (1 nodes): `constants.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Main Page`** (1 nodes): `MainPage.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Types Index`** (1 nodes): `index.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Commands Module`** (1 nodes): `mod.rs`
@@ -520,16 +532,16 @@ Nodes (0):
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Light-Whisper overview` connect `R E A D M E` to `Hotkey`, `Adaptive Learning Profile`, `Audio Service`, `Subtitle Window System`?**
-  _High betweenness centrality (0.188) - this node is a cross-community bridge._
+- **Why does `Light-Whisper overview` connect `R E A D M E` to `Profile`, `Adaptive Learning Profile`, `Subtitle Window System`?**
+  _High betweenness centrality (0.173) - this node is a cross-community bridge._
 - **Why does `LLM integration layer` connect `R E A D M E` to `LLM Client`, `LLM Provider`?**
-  _High betweenness centrality (0.108) - this node is a cross-community bridge._
+  _High betweenness centrality (0.099) - this node is a cross-community bridge._
 - **Why does `polish_text()` connect `AI Polish Service` to `Release Packaging`, `R E A D M E`?**
-  _High betweenness centrality (0.089) - this node is a cross-community bridge._
+  _High betweenness centrality (0.082) - this node is a cross-community bridge._
 - **Are the 9 inferred relationships involving `BaseASRServer` (e.g. with `FunASRServer` and `Skip FunASR's model-side pip auto-install in bundled runtime.      Some FunASR`) actually correct?**
   _`BaseASRServer` has 9 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。` to the rest of the system?**
-  _92 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _101 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Hotkey` be split into smaller, more focused modules?**
   _Cohesion score 0.07 - nodes in this community are weakly interconnected._
 - **Should `Python ASR Runtime` be split into smaller, more focused modules?**

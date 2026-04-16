@@ -619,6 +619,17 @@
   gap: 10px;
 }
 
+/* Inline sub-config panel shown below a selected engine in a collapsible picker */
+.settings-inline-panel {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--color-border-subtle);
+  background: var(--color-bg-tertiary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* OpenAI 认证方式切换（API Key / OAuth 二选一）segmented control */
 .openai-auth-mode-toggle {
   display: inline-flex;

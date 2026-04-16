@@ -22,9 +22,9 @@
 - [[SenseVoice engine]] `EXTRACTED`
 - [[Faster Whisper engine]] `EXTRACTED`
 - [[GLM-ASR engine]] `EXTRACTED`
-- [[React UI]] `EXTRACTED`
 - [[Rust core]] `EXTRACTED`
 - [[Python ASR runtime]] `EXTRACTED`
+- [[React UI]] `EXTRACTED`
 
 ---
 

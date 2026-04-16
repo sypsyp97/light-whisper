@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
@@ -43,6 +43,9 @@ import {
   getOnlineAsrApiKey,
   getOnlineAsrEndpoint,
   setOnlineAsrEndpoint,
+  getAlibabaAsrConfig,
+  setAlibabaAsrModel,
+  listAlibabaAsrModels,
   getModelsDir,
   pickFolder,
   setModelsDir,
@@ -81,10 +84,14 @@ const themeOptions = [
 ] as const;
 
 const engineOptions = [
-  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", descKey: "settings.sensevoiceDesc" },
-  { key: "whisper", icon: Zap, label: "Faster Whisper", descKey: "settings.whisperDesc" },
-  { key: "glm-asr", icon: Globe, label: "GLM-ASR", descKey: "settings.glmAsrDesc" },
+  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", labelKey: undefined, descKey: "settings.sensevoiceDesc" },
+  { key: "whisper", icon: Zap, label: "Faster Whisper", labelKey: undefined, descKey: "settings.whisperDesc" },
+  { key: "glm-asr", icon: Globe, label: "GLM-ASR", labelKey: undefined, descKey: "settings.glmAsrDesc" },
+  { key: "alibaba-asr", icon: Cloud, label: "Alibaba DashScope", labelKey: "settings.alibabaAsrLabel", descKey: "settings.alibabaAsrDesc" },
 ] as const;
+
+const ONLINE_ENGINES: ReadonlySet<string> = new Set(["glm-asr", "alibaba-asr"]);
+const isOnlineEngineKey = (engine: string) => ONLINE_ENGINES.has(engine);
 
 const inputOptions = [
   { key: "sendInput" as const, icon: Keyboard, labelKey: "settings.directInput", descKey: "settings.directInputDesc" },
@@ -347,7 +354,7 @@ export default function SettingsPage({
   }, [activeNavSection, active]);
 
   // --- Picker group (mutually exclusive dropdowns) ---
-  type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider" | "language";
+  type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider" | "language" | "alibabaModel" | "engine";
   const picker = useExclusivePicker<PickerId>();
   const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
   const modelSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -400,6 +407,10 @@ export default function SettingsPage({
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
+  const [alibabaAsrModel, setAlibabaAsrModelState] = useState<string>("qwen3-asr-flash");
+  const [alibabaAsrModels, setAlibabaAsrModelsState] = useState<readonly string[]>([]);
+  const [alibabaAsrModelsSource, setAlibabaAsrModelsSource] = useState<"live" | "fallback">("fallback");
+  const [alibabaAsrModelsLoading, setAlibabaAsrModelsLoading] = useState(false);
   const [modelsDir, setModelsDirState] = useState("");
   const [modelsDirCustom, setModelsDirCustom] = useState(false);
   const [modelsDirMigrating, setModelsDirMigrating] = useState(false);
@@ -537,8 +548,21 @@ export default function SettingsPage({
     ).catch(() => {});
   }, 400, { onUnmount: "flush" });
 
-  const onlineAsrKeySave = useDebouncedCallback((value: string) => {
-    setOnlineAsrApiKey(value).catch(() => {});
+  // 在线 ASR 的 keyring 槽由调用瞬间锁定（不是 debounce 触发瞬间），
+  // 避免"在 GLM 输入框打字 → 立刻切 Alibaba → 延迟回调把 GLM 的 key 写进
+  // Alibaba 槽"这种数据丢失。
+  const computeOnlineAsrKeyringUser = useCallback(
+    (engineValue: string, region: string): string => {
+      if (engineValue === "alibaba-asr") {
+        return region === "domestic" ? "alibaba-asr-cn-api-key" : "alibaba-asr-intl-api-key";
+      }
+      return "glm-asr-api-key";
+    },
+    [],
+  );
+
+  const onlineAsrKeySave = useDebouncedCallback((value: string, keyringUser: string) => {
+    setOnlineAsrApiKey(value, keyringUser).catch(() => {});
   }, 600, { onUnmount: "flush" });
 
   const customPromptSave = useDebouncedCallback((value: string) => {
@@ -701,11 +725,41 @@ export default function SettingsPage({
       setOnlineAsrRegion(ep.region);
       setOnlineAsrUrl(ep.url);
     }).catch(() => {});
+    getAlibabaAsrConfig().then(cfg => {
+      setAlibabaAsrModelState(cfg.model);
+      setAlibabaAsrModelsState(cfg.models);
+    }).catch(() => {});
     getModelsDir().then(info => {
       setModelsDirState(info.path);
       setModelsDirCustom(info.is_custom);
     }).catch(() => {});
   }, []);
+
+  /** 触发一次 DashScope /v1/models 抓取，用于刷新 Alibaba 模型下拉框。 */
+  const refreshAlibabaModels = useCallback(async () => {
+    setAlibabaAsrModelsLoading(true);
+    try {
+      const res = await listAlibabaAsrModels();
+      if (res.models.length > 0) {
+        setAlibabaAsrModelsState(res.models);
+        setAlibabaAsrModelsSource(res.source);
+      }
+    } catch {
+      // 静默失败：保留上次的 fallback 列表，避免 UI 空白
+    } finally {
+      setAlibabaAsrModelsLoading(false);
+    }
+  }, []);
+
+  // Alibaba 引擎下：有 API Key 或区域切换时自动刷新模型清单。
+  // 故意不把 alibabaAsrModel 或 onlineAsrApiKey 的每一次 keystroke 都当触发点——
+  // 那样会在用户边输入边发请求。只看 key 从空变非空的瞬间 + 区域变化。
+  const alibabaHasKey = engine === "alibaba-asr" && onlineAsrApiKey.trim().length > 0;
+  useEffect(() => {
+    if (engine !== "alibaba-asr") return;
+    if (!alibabaHasKey) return;
+    void refreshAlibabaModels();
+  }, [engine, alibabaHasKey, onlineAsrRegion, refreshAlibabaModels]);
 
   useEffect(() => {
     const unlisten = listen<{ status: string; message?: string; progress?: number }>(
@@ -724,12 +778,28 @@ export default function SettingsPage({
 
   const handleEngineSwitch = async (newEngine: string) => {
     if (engineLoading || newEngine === engine) return;
+    // 切换引擎之前先把 debounce 里还在等待的 key 落盘到原引擎槽，
+    // 防止它变成 fire-and-forget 和 set_engine 抢 engine.json 的写入顺序。
+    onlineAsrKeySave.flush();
     setEngineLoading(true);
     try {
       await setEngine(newEngine);
       setEngineState(newEngine);
       const label = engineOptions.find((o) => o.key === newEngine)?.label ?? newEngine;
       toast.success(t("toast.switchedToEngine", { label }));
+      // 切到在线引擎后，后端已按新 engine 的 keyring user 重新加载了 key；
+      // 前端也同步刷新，否则输入框还会显示上一个引擎的 key。
+      if (isOnlineEngineKey(newEngine)) {
+        try {
+          const [k, ep] = await Promise.all([
+            getOnlineAsrApiKey(),
+            getOnlineAsrEndpoint(),
+          ]);
+          setOnlineAsrApiKeyState(k || "");
+          setOnlineAsrRegion(ep.region);
+          setOnlineAsrUrl(ep.url);
+        } catch {}
+      }
       retryModel();
     } catch {
       toast.error(t("toast.switchEngineFailed"));
@@ -1817,29 +1887,81 @@ export default function SettingsPage({
           </section>
 
           {/* Engine */}
-          <section className="settings-card" data-nav-id="engine" style={{ animationDelay: "40ms" }}>
+          <section
+            className="settings-card"
+            data-nav-id="engine"
+            style={{
+              animationDelay: "40ms",
+              position: "relative",
+              zIndex: (picker.isOpen("engine") || picker.isOpen("alibabaModel")) ? 8 : "auto",
+            }}
+          >
             <div className="settings-section-header">
               <AudioLines size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.engine")}</h2>
             </div>
-            <div className="settings-grid-3">
-              {engineOptions.map(({ key, icon: Icon, label, descKey }) => (
-                <button
-                  key={key}
-                  className="theme-btn settings-option-btn"
-                  aria-label={label}
-                  aria-pressed={engine === key}
-                  disabled={engineLoading}
-                  onClick={() => handleEngineSwitch(key)}
-                >
-                  <Icon size={20} strokeWidth={1.5} />
-                  <span className="settings-option-label">{label}</span>
-                  <span className="settings-option-desc">{t(descKey)}</span>
-                </button>
-              ))}
-            </div>
-            {engine === "glm-asr" && (
-              <div className="settings-column" style={{ gap: 8, marginTop: 8 }}>
+            {(() => {
+              const currentOption = engineOptions.find((o) => o.key === engine) ?? engineOptions[0];
+              const CurrentIcon = currentOption.icon;
+              const currentLabel = currentOption.labelKey ? t(currentOption.labelKey) : currentOption.label;
+              return (
+                <div ref={picker.setRef("engine")} style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    className="picker-trigger"
+                    data-open={picker.isOpen("engine")}
+                    aria-haspopup="listbox"
+                    aria-expanded={picker.isOpen("engine")}
+                    aria-label={t("settings.engine")}
+                    disabled={engineLoading}
+                    onClick={() => picker.toggle("engine")}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                      <CurrentIcon size={18} strokeWidth={1.5} style={{ flexShrink: 0, color: "var(--color-accent)" }} />
+                      <span className="picker-trigger-copy">
+                        <strong>{currentLabel}</strong>
+                        <span>{t(currentOption.descKey)}</span>
+                      </span>
+                    </span>
+                    <ChevronsUpDown size={14} style={{ flexShrink: 0, opacity: 0.6 }} />
+                  </button>
+                  {picker.isOpen("engine") && (
+                    <div className={picker.popoverClass("engine")}>
+                      <div className="picker-list" role="listbox">
+                        {engineOptions.map(({ key, icon: Icon, label, labelKey, descKey }) => {
+                          const displayLabel = labelKey ? t(labelKey) : label;
+                          const selected = engine === key;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              className="picker-option"
+                              data-active={selected}
+                              disabled={engineLoading}
+                              onClick={() => {
+                                picker.close();
+                                void handleEngineSwitch(key);
+                              }}
+                            >
+                              <span style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                                <Icon size={16} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+                                <span className="picker-option-copy">
+                                  <strong>{displayLabel}</strong>
+                                  <span>{t(descKey)}</span>
+                                </span>
+                              </span>
+                              {selected && <Check size={13} style={{ flexShrink: 0, opacity: 0.7 }} />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            {(engine === "glm-asr" || engine === "alibaba-asr") && (
+              <div className="settings-inline-panel" style={{ marginTop: 8 }}>
                 <div className="settings-column" style={{ gap: 4 }}>
                   <span className="settings-option-desc">{t("settings.apiEndpoint")}</span>
                   <div className="settings-row" style={{ gap: 6 }}>
@@ -1849,12 +1971,23 @@ export default function SettingsPage({
                     ] as const).map(({ region, labelKey }) => (
                       <button
                         key={region}
+                        type="button"
                         className={`theme-btn${onlineAsrRegion === region ? " active" : ""}`}
                         onClick={async () => {
+                          // 区域切换也会换 keyring 槽（Alibaba CN / Intl），
+                          // 先把还在 debounce 里的 key 落盘到旧区域槽。
+                          onlineAsrKeySave.flush();
                           try {
                             const ep = await setOnlineAsrEndpoint(region);
                             setOnlineAsrRegion(ep.region);
                             setOnlineAsrUrl(ep.url);
+                            // 区域切换后，后端已按新 keyring user 重载了 key；前端同步
+                            if (engine === "alibaba-asr") {
+                              try {
+                                const k = await getOnlineAsrApiKey();
+                                setOnlineAsrApiKeyState(k || "");
+                              } catch {}
+                            }
                           } catch {}
                         }}
                         style={{ flex: 1 }}
@@ -1869,23 +2002,93 @@ export default function SettingsPage({
                     </span>
                   )}
                 </div>
+                {engine === "alibaba-asr" && alibabaAsrModels.length > 0 && (
+                  <div className="settings-column" style={{ gap: 4 }}>
+                    <div className="settings-row" style={{ gap: 6, alignItems: "center" }}>
+                      <span className="settings-option-desc" style={{ flex: 1 }}>
+                        {t("settings.alibabaModelLabel")}
+                        <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.55 }}>
+                          {alibabaAsrModelsLoading
+                            ? t("settings.alibabaModelsLoading")
+                            : alibabaAsrModelsSource === "live"
+                              ? t("settings.alibabaModelsLive", { count: alibabaAsrModels.length })
+                              : t("settings.alibabaModelsFallback")}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="theme-btn theme-btn-xs"
+                        disabled={alibabaAsrModelsLoading || !alibabaHasKey}
+                        onClick={() => { void refreshAlibabaModels(); }}
+                        aria-label={t("settings.alibabaModelsRefresh")}
+                      >
+                        <RotateCcw size={11} />
+                        {t("settings.alibabaModelsRefresh")}
+                      </button>
+                    </div>
+                    <div ref={picker.setRef("alibabaModel")} style={{ position: "relative" }}>
+                      <button
+                        type="button"
+                        className="picker-trigger"
+                        data-open={picker.isOpen("alibabaModel")}
+                        aria-haspopup="listbox"
+                        aria-expanded={picker.isOpen("alibabaModel")}
+                        aria-label={t("settings.alibabaModelLabel")}
+                        onClick={() => picker.toggle("alibabaModel")}
+                      >
+                        <span style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 12, color: "var(--color-text-primary)" }}>
+                          {alibabaAsrModel}
+                        </span>
+                        <ChevronsUpDown size={13} />
+                      </button>
+                      {picker.isOpen("alibabaModel") && (
+                        <div className={picker.popoverClass("alibabaModel")}>
+                          <div className="picker-list" role="listbox">
+                            {alibabaAsrModels.map((m) => (
+                              <button
+                                key={m}
+                                type="button"
+                                className="picker-option"
+                                data-active={alibabaAsrModel === m}
+                                onClick={async () => {
+                                  try {
+                                    await setAlibabaAsrModel(m);
+                                    setAlibabaAsrModelState(m);
+                                  } catch {}
+                                  picker.close();
+                                }}
+                              >
+                                <strong style={{ fontSize: 12, fontFamily: "var(--font-mono, monospace)" }}>{m}</strong>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className="settings-column" style={{ gap: 4 }}>
                   <span className="settings-option-desc">{t("settings.apiKey")}</span>
                   <SecretInput
                     value={onlineAsrApiKey}
-                    placeholder={t("settings.glmApiKeyPlaceholder")}
+                    placeholder={engine === "alibaba-asr"
+                      ? t("settings.alibabaApiKeyPlaceholder")
+                      : t("settings.glmApiKeyPlaceholder")}
                     ariaLabelShow={t("settings.showApiKey")}
                     ariaLabelHide={t("settings.hideApiKey")}
                     onChange={(value) => {
                       setOnlineAsrApiKeyState(value);
-                      onlineAsrKeySave.schedule(value);
+                      onlineAsrKeySave.schedule(
+                        value,
+                        computeOnlineAsrKeyringUser(engine, onlineAsrRegion),
+                      );
                     }}
                   />
                 </div>
               </div>
             )}
             {/* Model Directory */}
-            {engine !== "glm-asr" && (
+            {!isOnlineEngineKey(engine) && (
               <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
                 <div className="settings-row" style={{ gap: 6, alignItems: "center" }}>
                   <HardDrive size={13} style={{ opacity: 0.6, flexShrink: 0 }} />

@@ -1,10 +1,10 @@
-# Services Module
+# Main Page
 
 > 1 nodes · cohesion 1.00
 
 ## Key Concepts
 
-- **mod.rs** (0 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\mod.rs`
+- **MainPage.tsx** (0 connections) — `C:\Users\sun\Downloads\light-whisper\src\pages\MainPage.tsx`
 
 ## Relationships
 
@@ -12,7 +12,7 @@
 
 ## Source Files
 
-- `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\mod.rs`
+- `C:\Users\sun\Downloads\light-whisper\src\pages\MainPage.tsx`
 
 ## Audit Trail
 

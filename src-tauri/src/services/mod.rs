@@ -4,6 +4,7 @@ pub mod codex_oauth_service;
 pub mod audio_service;
 pub mod download_service;
 pub mod funasr_service;
+pub mod alibaba_asr_service;
 pub mod glm_asr_service;
 pub mod llm_client;
 pub mod llm_provider;

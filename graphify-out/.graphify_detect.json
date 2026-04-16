@@ -70,6 +70,7 @@
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\commands\\updater.rs",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\commands\\window.rs",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\ai_polish_service.rs",
+      "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\alibaba_asr_service.rs",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\assistant_service.rs",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\audio_service.rs",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\services\\codex_oauth_service.rs",
@@ -101,8 +102,8 @@
     "image": [],
     "video": []
   },
-  "total_files": 93,
-  "total_words": 79770,
+  "total_files": 94,
+  "total_words": 82351,
   "needs_graph": true,
   "warning": null,
   "skipped_sensitive": [

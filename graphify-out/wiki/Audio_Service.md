@@ -1,6 +1,6 @@
 # Audio Service
 
-> 35 nodes · cohesion 0.11
+> 34 nodes · cohesion 0.12
 
 ## Key Concepts
 
@@ -15,7 +15,6 @@
 - **load_best_input_config()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
 - **resample_to_16k()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
 - **resolve_input_device()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
-- **One-key dictation** (4 connections) — `README.md`
 - **do_paste()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
 - **emit_recording_state_if_current()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
 - **flush_pending_paste()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
@@ -29,7 +28,8 @@
 - **u16_to_i16()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
 - **adjust_interval()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
 - **compute_waveform_bars()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
-- *... and 10 more nodes in this community*
+- **encode_wav()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
+- *... and 9 more nodes in this community*
 
 ## Relationships
 
@@ -38,12 +38,11 @@
 ## Source Files
 
 - `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service.rs`
-- `README.md`
 
 ## Audit Trail
 
-- EXTRACTED: 135 (97%)
-- INFERRED: 4 (3%)
+- EXTRACTED: 134 (99%)
+- INFERRED: 1 (1%)
 - AMBIGUOUS: 0 (0%)
 
 ---

@@ -7,7 +7,9 @@ use std::sync::{
 
 use tauri::{Emitter, Manager};
 
-use crate::services::{ai_polish_service, assistant_service, funasr_service, glm_asr_service};
+use crate::services::{
+    ai_polish_service, alibaba_asr_service, assistant_service, funasr_service, glm_asr_service,
+};
 use crate::state::{
     AppState, DictationOutputMode, MicrophoneLevelMonitor, RecordingMode, RecordingSession,
     RecordingSlot,
@@ -981,7 +983,10 @@ async fn do_final_asr(
     let engine = paths::read_engine_config();
     let result = if paths::is_online_engine(&engine) {
         let wav = encode_wav(&resampled, TARGET_SAMPLE_RATE);
-        glm_asr_service::transcribe(state, wav).await
+        match engine.as_str() {
+            "alibaba-asr" => alibaba_asr_service::transcribe(state, wav).await,
+            _ => glm_asr_service::transcribe(state, wav).await,
+        }
     } else {
         funasr_service::transcribe_pcm16(state, &resampled, TARGET_SAMPLE_RATE, app_handle).await
     };

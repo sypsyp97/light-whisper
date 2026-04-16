@@ -50,7 +50,7 @@ pub fn get_engine_config_path() -> PathBuf {
 pub fn read_engine_config() -> String {
     if let Some(engine) = read_engine_json().get("engine").and_then(|v| v.as_str()) {
         match engine {
-            "whisper" | "sensevoice" | "glm-asr" => return engine.to_string(),
+            "whisper" | "sensevoice" | "glm-asr" | "alibaba-asr" => return engine.to_string(),
             _ => {}
         }
     }
@@ -58,11 +58,63 @@ pub fn read_engine_config() -> String {
 }
 
 pub fn is_online_engine(engine: &str) -> bool {
-    engine == "glm-asr"
+    matches!(engine, "glm-asr" | "alibaba-asr")
 }
 
 const GLM_ENDPOINT_INTERNATIONAL: &str = "https://api.z.ai";
 const GLM_ENDPOINT_DOMESTIC: &str = "https://open.bigmodel.cn";
+
+const ALIBABA_ENDPOINT_INTERNATIONAL: &str = "https://dashscope-intl.aliyuncs.com";
+const ALIBABA_ENDPOINT_DOMESTIC: &str = "https://dashscope.aliyuncs.com";
+
+pub const ALIBABA_DEFAULT_MODEL: &str = "qwen3-asr-flash";
+
+/// 运行时抓取失败时使用的静态兜底列表。包含 2026-04 已知在 DashScope 上架的
+/// 全部 Qwen ASR / Omni 家族模型；抓取成功后以实际结果为准，不受此列表限制。
+///
+/// 走哪条 HTTP 路径由 `alibaba_model_uses_omni_chat` 运行时决定：
+/// - `qwen3-asr-*` → `/api/v1/services/aigc/multimodal-generation/generation`
+/// - `*omni*` → `/compatible-mode/v1/chat/completions`
+pub const ALIBABA_FALLBACK_MODEL_IDS: &[&str] = &[
+    "qwen3-asr-flash",
+    "qwen3-omni-flash",
+    "qwen3-omni-plus",
+    "qwen3.5-omni-flash",
+    "qwen3.5-omni-plus",
+    "qwen-omni-turbo",
+];
+
+/// 模型 ID 是否可能胜任 ASR（作为语音转文字使用）。
+///
+/// 用于过滤 DashScope `/v1/models` 返回的完整模型清单：包含 asr/omni/audio 关键词
+/// 的模型入围，同时排除明确不做转写的 realtime / tts / vl / coder 等家族。
+pub fn is_asr_capable_model_id(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    let looks_asr =
+        id.contains("asr") || id.contains("omni") || id.contains("audio") || id.contains("stt");
+    if !looks_asr {
+        return false;
+    }
+    // 精确匹配：`-vl-` / `-vl` 尾部（避免误伤 "novel"/"evaluation" 等普通词）
+    const BLOCK_SUBSTR: &[&str] = &[
+        "realtime", "tts", "embedding", "embed", "rerank", "caption",
+        "coder", "math", "thinking", "image", "video-gen",
+    ];
+    if BLOCK_SUBSTR.iter().any(|b| id.contains(b)) {
+        return false;
+    }
+    // vision-language 模型（qwen2.5-vl-*, qwen3-vl-*）走段边界匹配
+    if id.contains("-vl-") || id.ends_with("-vl") {
+        return false;
+    }
+    true
+}
+
+/// Omni 家族模型走 OpenAI-compat chat.completions 路径；
+/// 其它走 qwen3-asr-flash 专用的 multimodal-generation 路径。
+pub fn alibaba_model_uses_omni_chat(model: &str) -> bool {
+    model.contains("omni")
+}
 
 fn read_engine_json() -> serde_json::Value {
     std::fs::read_to_string(get_engine_config_path())
@@ -85,22 +137,65 @@ fn write_engine_json(obj: &serde_json::Value) -> Result<(), std::io::Error> {
     std::fs::write(&config_path, serialized)
 }
 
-/// 返回当前配置的区域标识：`"international"` 或 `"domestic"`
-pub fn read_online_asr_region() -> String {
-    match read_engine_json()
-        .get("glm_endpoint")
-        .and_then(|v| v.as_str())
-    {
+fn read_region_field(field: &str) -> String {
+    match read_engine_json().get(field).and_then(|v| v.as_str()) {
         Some("domestic") => "domestic".to_string(),
         _ => "international".to_string(),
     }
 }
 
-/// 返回 GLM-ASR 端点域名（不含路径）。
+/// 返回 GLM-ASR 区域标识：`"international"` 或 `"domestic"`
+pub fn read_glm_region() -> String {
+    read_region_field("glm_endpoint")
+}
+
+/// 返回 Alibaba ASR 区域标识：`"international"` 或 `"domestic"`
+pub fn read_alibaba_region() -> String {
+    read_region_field("alibaba_region")
+}
+
+/// 返回 Alibaba ASR 当前选择的模型 ID。
+///
+/// 这里不再对值做白名单校验——DashScope 上架速度快于硬编码列表的更新频率，
+/// 运行时抓取回来的新模型应该能直接用。非法字符由 write_alibaba_model 入口过滤。
+pub fn read_alibaba_model() -> String {
+    read_engine_json()
+        .get("alibaba_model")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| ALIBABA_DEFAULT_MODEL.to_string())
+}
+
+/// 返回当前活跃在线引擎的区域标识。
+pub fn read_online_asr_region() -> String {
+    match read_engine_config().as_str() {
+        "alibaba-asr" => read_alibaba_region(),
+        _ => read_glm_region(),
+    }
+}
+
+/// 返回当前活跃在线引擎的端点域名（不含路径）。
 pub fn read_online_asr_endpoint() -> String {
-    match read_online_asr_region().as_str() {
+    match read_engine_config().as_str() {
+        "alibaba-asr" => read_alibaba_endpoint(),
+        _ => read_glm_endpoint(),
+    }
+}
+
+/// 返回 GLM-ASR 端点域名（不含路径）。
+pub fn read_glm_endpoint() -> String {
+    match read_glm_region().as_str() {
         "domestic" => GLM_ENDPOINT_DOMESTIC.to_string(),
         _ => GLM_ENDPOINT_INTERNATIONAL.to_string(),
+    }
+}
+
+/// 返回 Alibaba DashScope 端点域名（不含路径）。
+pub fn read_alibaba_endpoint() -> String {
+    match read_alibaba_region().as_str() {
+        "domestic" => ALIBABA_ENDPOINT_DOMESTIC.to_string(),
+        _ => ALIBABA_ENDPOINT_INTERNATIONAL.to_string(),
     }
 }
 
@@ -113,9 +208,27 @@ fn update_engine_json_field(key: &str, value: &str) -> Result<(), std::io::Error
     write_engine_json(&obj)
 }
 
-/// `region`: `"international"` 或 `"domestic"`
-pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
+/// 写入 GLM-ASR 区域。`region`: `"international"` 或 `"domestic"`
+pub fn write_glm_region(region: &str) -> Result<(), std::io::Error> {
     update_engine_json_field("glm_endpoint", region)
+}
+
+/// 写入 Alibaba ASR 区域。`region`: `"international"` 或 `"domestic"`
+pub fn write_alibaba_region(region: &str) -> Result<(), std::io::Error> {
+    update_engine_json_field("alibaba_region", region)
+}
+
+/// 写入 Alibaba ASR 当前选择的模型 ID。
+pub fn write_alibaba_model(model: &str) -> Result<(), std::io::Error> {
+    update_engine_json_field("alibaba_model", model)
+}
+
+/// 根据当前引擎写入对应区域配置。
+pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
+    match read_engine_config().as_str() {
+        "alibaba-asr" => write_alibaba_region(region),
+        _ => write_glm_region(region),
+    }
 }
 
 /// 查找已解压的 engine.exe

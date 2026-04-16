@@ -106,15 +106,13 @@ pub fn run() {
                 if !key.is_empty() {
                     log::info!("已从密钥环加载 AI 润色 API Key (provider: {})", provider);
                 }
-                if let Some(asr_key) = app_handle
-                    .keyring()
-                    .get_password("light-whisper", "glm-asr-api-key")
-                    .ok()
-                    .flatten()
-                    .filter(|k| !k.is_empty())
-                {
-                    state.set_online_asr_api_key(&asr_key);
-                    log::info!("已从密钥环加载在线 ASR API Key");
+                // 从密钥环加载当前活跃在线引擎对应的 API Key（GLM / Alibaba-CN / Alibaba-Intl）
+                commands::funasr::reload_online_asr_key(&app_handle, state.inner());
+                if !state.read_online_asr_api_key().is_empty() {
+                    log::info!(
+                        "已从密钥环加载在线 ASR API Key ({})",
+                        commands::funasr::active_online_keyring_user()
+                    );
                 }
                 // 加载联网搜索 API Key（Tavily）
                 if let Some(ws_key) = app_handle
@@ -169,6 +167,9 @@ pub fn run() {
             commands::funasr::get_online_asr_api_key,
             commands::funasr::get_online_asr_endpoint,
             commands::funasr::set_online_asr_endpoint,
+            commands::funasr::get_alibaba_asr_config,
+            commands::funasr::set_alibaba_asr_model,
+            commands::funasr::list_alibaba_asr_models,
             commands::funasr::get_models_dir,
             commands::funasr::set_models_dir,
             commands::funasr::pick_folder,
@@ -250,11 +251,19 @@ fn spawn_funasr_startup(app_handle: tauri::AppHandle) {
         if utils::paths::is_online_engine(&engine) {
             let has_key = !state.read_online_asr_api_key().is_empty();
             state.set_funasr_ready(has_key);
+            let label = match engine.as_str() {
+                "alibaba-asr" => "Alibaba DashScope",
+                _ => "GLM-ASR",
+            };
             let _ = app_handle.emit(
                 "funasr-status",
                 serde_json::json!({
                     "status": if has_key { "ready" } else { "need_api_key" },
-                    "message": if has_key { "GLM-ASR 在线服务就绪" } else { "请配置 GLM-ASR API Key" },
+                    "message": if has_key {
+                        format!("{} 在线服务就绪", label)
+                    } else {
+                        format!("请配置 {} API Key", label)
+                    },
                     "device": "cloud",
                     "gpu_name": serde_json::Value::Null,
                     "models_present": true,

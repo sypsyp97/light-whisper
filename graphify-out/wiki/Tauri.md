@@ -1,15 +1,16 @@
 # Tauri
 
-> 49 nodes · cohesion 0.08
+> 52 nodes · cohesion 0.07
 
 ## Key Concepts
 
-- **tauri.ts** (48 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
-- **invokeCommand()** (46 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
+- **tauri.ts** (51 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
+- **invokeCommand()** (49 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **addCustomProvider()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **addHotWord()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **copyToClipboard()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **getAiPolishApiKey()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
+- **getAlibabaAsrConfig()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **getAssistantApiKey()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **getLlmReasoningSupport()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **getModelsDir()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
@@ -18,6 +19,7 @@
 - **getWebSearchApiKey()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **importUserProfile()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **listAiModels()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
+- **listAlibabaAsrModels()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **openAppReleasePage()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **pasteText()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **pickFolder()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
@@ -27,9 +29,7 @@
 - **removeCustomProvider()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **removeHotWord()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **setAiPolishConfig()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
-- **setAiPolishScreenContextEnabled()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
-- **setAssistantApiKey()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
-- *... and 24 more nodes in this community*
+- *... and 27 more nodes in this community*
 
 ## Relationships
 
@@ -41,7 +41,7 @@
 
 ## Audit Trail
 
-- EXTRACTED: 186 (100%)
+- EXTRACTED: 198 (100%)
 - INFERRED: 0 (0%)
 - AMBIGUOUS: 0 (0%)
 

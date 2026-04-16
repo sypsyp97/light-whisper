@@ -1187,6 +1187,10 @@ pub async fn check_status(
         let engine = paths::read_engine_config();
         if paths::is_online_engine(&engine) {
             let has_key = !state.read_online_asr_api_key().is_empty();
+            let label = match engine.as_str() {
+                "alibaba-asr" => "Alibaba DashScope",
+                _ => "GLM-ASR",
+            };
             return Ok(FunASRStatus {
                 running: true,
                 ready: has_key,
@@ -1195,9 +1199,9 @@ pub async fn check_status(
                 gpu_name: None,
                 gpu_memory_total: None,
                 message: if has_key {
-                    "GLM-ASR 在线服务就绪".into()
+                    format!("{} 在线服务就绪", label)
                 } else {
-                    "请配置 GLM-ASR API Key".into()
+                    format!("请配置 {} API Key", label)
                 },
                 engine: Some(engine),
                 models_present: Some(true),
