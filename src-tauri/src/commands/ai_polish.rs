@@ -27,7 +27,7 @@ pub async fn set_ai_polish_config(
     enabled: bool,
     api_key: String,
 ) -> Result<(), String> {
-    state.ai_polish_enabled.store(enabled, Ordering::Release);
+    state.profile.ai_polish_enabled.store(enabled, Ordering::Release);
 
     let provider = state.active_llm_provider();
     let keyring_user = llm_provider::keyring_user_for_provider(&provider);

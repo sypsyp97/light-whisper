@@ -3,13 +3,13 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import i18n from "@/i18n";
 import { startRecording as invokeStartRecording, stopRecording as invokeStopRecording } from "@/api/tauri";
-import type { HistoryItem, RecordingMode, TranscriptionResult } from "@/types";
+import type { HistoryItem, RecordingMode } from "@/types";
 
 interface UseRecordingReturn {
   isRecording: boolean;
   isProcessing: boolean;
   startRecording: () => Promise<void>;
-  stopRecording: () => Promise<TranscriptionResult | null>;
+  stopRecording: () => Promise<void>;
   error: string | null;
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
@@ -146,7 +146,7 @@ export function useRecording(): UseRecordingReturn {
     }
   }, []);
 
-  const stopRecording = useCallback(async (): Promise<TranscriptionResult | null> => {
+  const stopRecording = useCallback(async (): Promise<void> => {
     if (isRecording) {
       setIsRecording(false);
       setIsProcessing(true);
@@ -157,7 +157,6 @@ export function useRecording(): UseRecordingReturn {
       if (isRecording) setIsProcessing(false);
       setError(err instanceof Error ? err.message : String(err));
     }
-    return null;
   }, [isRecording]);
 
   return {

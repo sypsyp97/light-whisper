@@ -63,7 +63,7 @@ where
 }
 
 async fn clear_download_task(state: &AppState) {
-    let mut guard = state.download_task.lock().await;
+    let mut guard = state.engine.download_task.lock().await;
     guard.take();
 }
 
@@ -101,7 +101,7 @@ pub async fn run_download(
     let (cancel_tx, mut cancel_rx) = oneshot::channel();
     {
         // 防止重复下载
-        let mut guard = state.download_task.lock().await;
+        let mut guard = state.engine.download_task.lock().await;
         if guard.is_some() {
             return Err(AppError::Download(
                 "已有下载任务正在进行，请先取消或等待完成".to_string(),

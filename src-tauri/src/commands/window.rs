@@ -215,7 +215,7 @@ pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String
 
     // 递增"显示代"，使之前排队的 schedule_hide 全部作废
     let state = app_handle.state::<AppState>();
-    state.subtitle_show_gen.fetch_add(1, Ordering::Relaxed);
+    state.recording.subtitle_show_gen.fetch_add(1, Ordering::Relaxed);
 
     Ok("字幕窗口已显示".to_string())
 }

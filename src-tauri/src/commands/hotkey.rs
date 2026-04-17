@@ -414,6 +414,7 @@ fn handle_hotkey_stop(
 
         let matches_trigger = state
             .recording
+            .recording
             .lock()
             .as_ref()
             .is_some_and(|slot| slot.trigger() == trigger);
@@ -466,6 +467,7 @@ fn dispatch_hotkey_press(
 ) {
     let active_trigger = app_handle
         .state::<AppState>()
+        .recording
         .recording
         .lock()
         .as_ref()
@@ -2023,7 +2025,7 @@ pub async fn set_recording_mode(
     // If switching from toggle→hold while toggle is active, stop recording
     if !toggle {
         let state = _app_handle.state::<AppState>();
-        let active_trigger = state.recording.lock().as_ref().map(RecordingSlot::trigger);
+        let active_trigger = state.recording.recording.lock().as_ref().map(RecordingSlot::trigger);
         if let Some(trigger) = active_trigger {
             handle_hotkey_stop(
                 _app_handle.clone(),

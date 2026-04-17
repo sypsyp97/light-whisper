@@ -490,7 +490,7 @@ pub async fn generate_content(
         }),
     );
 
-    if state.sound_enabled.load(Ordering::Acquire) {
+    if state.ui.sound_enabled.load(Ordering::Acquire) {
         log::info!(
             "助手生成完成 (session {}, {} chars)",
             session_id,

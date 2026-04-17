@@ -17,7 +17,7 @@ pub(crate) const RECORDING_ALREADY_ACTIVE_ERROR: &str = "已有录音正在进�
 pub(crate) const RECORDING_START_CANCELLED_ERROR: &str = "录音启动已取消";
 
 fn clear_pending_recording_if_current(state: &AppState, session_id: u64) {
-    let mut guard = state.recording.lock();
+    let mut guard = state.recording.recording.lock();
     if matches!(guard.as_ref(), Some(RecordingSlot::Starting(s)) if s.session_id == session_id) {
         *guard = None;
     }
@@ -39,11 +39,11 @@ pub(crate) async fn start_recording_inner(
     audio_service::stop_microphone_level_monitor(state);
 
     let (session_id, stop_flag, stop_notify) = {
-        let mut guard = state.recording.lock();
+        let mut guard = state.recording.recording.lock();
         if guard.is_some() {
             return Err(AppError::Audio(RECORDING_ALREADY_ACTIVE_ERROR.into()));
         }
-        let session_id = state.session_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let session_id = state.recording.session_counter.fetch_add(1, Ordering::Relaxed) + 1;
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_notify = Arc::new(tokio::sync::Notify::new());
         *guard = Some(RecordingSlot::Starting(PendingRecordingSession {
@@ -122,7 +122,7 @@ pub(crate) async fn start_recording_inner(
     });
 
     let cancelled = {
-        let mut guard = state.recording.lock();
+        let mut guard = state.recording.recording.lock();
         match guard.as_ref() {
             Some(RecordingSlot::Starting(p)) if p.session_id == session_id => {
                 if let Some(s) = session.take() {
@@ -164,7 +164,7 @@ pub(crate) async fn start_recording_inner(
         });
     }
 
-    if state.sound_enabled.load(Ordering::Acquire) {
+    if state.ui.sound_enabled.load(Ordering::Acquire) {
         match trigger.mode() {
             RecordingMode::Dictation => crate::utils::sound::play_start_sound(),
             RecordingMode::Assistant => crate::utils::sound::play_assistant_start_sound(),
@@ -183,7 +183,7 @@ pub(crate) async fn stop_recording_inner(
     app_handle: tauri::AppHandle,
     state: &AppState,
 ) -> Result<Option<u64>, AppError> {
-    let recording = state.recording.lock().take();
+    let recording = state.recording.recording.lock().take();
 
     let recording = match recording {
         Some(s) => s,
@@ -215,7 +215,7 @@ pub(crate) async fn stop_recording_inner(
     let session_id = session.session_id;
     session.stop_flag.store(true, Ordering::Relaxed);
     session.stop_notify.notify_waiters();
-    if state.sound_enabled.load(Ordering::Acquire) {
+    if state.ui.sound_enabled.load(Ordering::Acquire) {
         match session.trigger.mode() {
             RecordingMode::Dictation => crate::utils::sound::play_stop_sound(),
             RecordingMode::Assistant => crate::utils::sound::play_assistant_stop_sound(),
@@ -310,7 +310,7 @@ pub async fn set_sound_enabled(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), AppError> {
-    state.sound_enabled.store(enabled, Ordering::Release);
+    state.ui.sound_enabled.store(enabled, Ordering::Release);
     Ok(())
 }
 
@@ -319,6 +319,6 @@ pub async fn set_input_method(
     state: tauri::State<'_, AppState>,
     method: String,
 ) -> Result<(), AppError> {
-    *state.input_method.lock() = method;
+    *state.ui.input_method.lock() = method;
     Ok(())
 }

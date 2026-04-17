@@ -151,65 +151,119 @@ impl Default for HotkeyDiagnosticState {
     }
 }
 
-pub struct AppState {
+// ---------- AppState 按领域分组的子结构 ----------
+
+/// ASR 引擎生命周期 + 下载 + 传输能力探测
+pub struct EngineState {
     pub funasr_process: Arc<Mutex<Option<FunasrProcess>>>,
     pub funasr_ready: Arc<AtomicBool>,
     pub funasr_starting: Arc<AtomicBool>,
-    pub download_task: Arc<Mutex<Option<DownloadTask>>>,
-    pub recording: Arc<parking_lot::Mutex<Option<RecordingSlot>>>,
-    pub session_counter: AtomicU64,
-    pub input_method: Arc<parking_lot::Mutex<String>>,
-    pub pending_paste: Arc<parking_lot::Mutex<Vec<String>>>,
-    pub subtitle_show_gen: AtomicU64,
-    pub selected_input_device_name: Arc<parking_lot::Mutex<Option<String>>>,
-    pub microphone_level_monitor: Arc<parking_lot::Mutex<Option<MicrophoneLevelMonitor>>>,
-    pub sound_enabled: Arc<AtomicBool>,
-    pub ai_polish_enabled: Arc<AtomicBool>,
-    pub ai_polish_api_key: Arc<parking_lot::Mutex<String>>,
-    pub assistant_api_key: Arc<parking_lot::Mutex<String>>,
-    pub openai_codex_oauth_session: Arc<parking_lot::Mutex<Option<OpenaiCodexOauthSession>>>,
-    pub http_client: reqwest::Client,
-    pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
-    pub assistant_image_support_cache: Arc<parking_lot::Mutex<HashMap<String, bool>>>,
-    pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
-    pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
-    pub web_search_api_key: Arc<parking_lot::Mutex<String>>,
     /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
     pub funasr_generation: AtomicU64,
+    pub download_task: Arc<Mutex<Option<DownloadTask>>>,
     /// 内存音频传输支持状态：0=未知, 1=支持, 2=不支持
     pub inline_audio_transport: AtomicU8,
 }
 
-impl Default for AppState {
+impl Default for EngineState {
     fn default() -> Self {
         Self {
             funasr_process: Default::default(),
             funasr_ready: Default::default(),
             funasr_starting: Default::default(),
+            funasr_generation: AtomicU64::new(0),
             download_task: Default::default(),
+            inline_audio_transport: AtomicU8::new(0),
+        }
+    }
+}
+
+/// 当前录音会话 + 粘贴队列 + 麦克风相关运行时
+pub struct RecordingState {
+    pub recording: Arc<parking_lot::Mutex<Option<RecordingSlot>>>,
+    pub session_counter: AtomicU64,
+    pub pending_paste: Arc<parking_lot::Mutex<Vec<String>>>,
+    pub selected_input_device_name: Arc<parking_lot::Mutex<Option<String>>>,
+    pub microphone_level_monitor: Arc<parking_lot::Mutex<Option<MicrophoneLevelMonitor>>>,
+    pub subtitle_show_gen: AtomicU64,
+}
+
+impl Default for RecordingState {
+    fn default() -> Self {
+        Self {
             recording: Default::default(),
             session_counter: AtomicU64::new(0),
-            input_method: Arc::new(parking_lot::Mutex::new("sendInput".into())),
             pending_paste: Default::default(),
-            subtitle_show_gen: AtomicU64::new(0),
             selected_input_device_name: Default::default(),
             microphone_level_monitor: Default::default(),
-            sound_enabled: Arc::new(AtomicBool::new(true)),
+            subtitle_show_gen: AtomicU64::new(0),
+        }
+    }
+}
+
+/// 用户配置 + 各类 AI / ASR API key + 能力缓存
+pub struct ProfileState {
+    pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
+    pub ai_polish_enabled: Arc<AtomicBool>,
+    pub ai_polish_api_key: Arc<parking_lot::Mutex<String>>,
+    pub assistant_api_key: Arc<parking_lot::Mutex<String>>,
+    pub openai_codex_oauth_session: Arc<parking_lot::Mutex<Option<OpenaiCodexOauthSession>>>,
+    pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
+    pub web_search_api_key: Arc<parking_lot::Mutex<String>>,
+    pub assistant_image_support_cache: Arc<parking_lot::Mutex<HashMap<String, bool>>>,
+}
+
+impl Default for ProfileState {
+    fn default() -> Self {
+        Self {
+            user_profile: Default::default(),
             ai_polish_enabled: Default::default(),
             ai_polish_api_key: Default::default(),
             assistant_api_key: Default::default(),
             openai_codex_oauth_session: Default::default(),
+            online_asr_api_key: Default::default(),
+            web_search_api_key: Default::default(),
+            assistant_image_support_cache: Default::default(),
+        }
+    }
+}
+
+/// UI / 交互类偏好 + 诊断
+pub struct UiState {
+    pub input_method: Arc<parking_lot::Mutex<String>>,
+    pub sound_enabled: Arc<AtomicBool>,
+    pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            input_method: Arc::new(parking_lot::Mutex::new("sendInput".into())),
+            sound_enabled: Arc::new(AtomicBool::new(true)),
+            hotkey_diagnostic: Default::default(),
+        }
+    }
+}
+
+pub struct AppState {
+    pub engine: EngineState,
+    pub recording: RecordingState,
+    pub profile: ProfileState,
+    pub ui: UiState,
+    pub http_client: reqwest::Client,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            engine: Default::default(),
+            recording: Default::default(),
+            profile: Default::default(),
+            ui: Default::default(),
             http_client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(3))
                 .build()
                 .unwrap_or_default(),
-            user_profile: Default::default(),
-            assistant_image_support_cache: Default::default(),
-            hotkey_diagnostic: Default::default(),
-            online_asr_api_key: Default::default(),
-            web_search_api_key: Default::default(),
-            funasr_generation: AtomicU64::new(0),
-            inline_audio_transport: AtomicU8::new(0),
         }
     }
 }
@@ -236,32 +290,32 @@ impl AppState {
     }
 
     pub fn is_funasr_ready(&self) -> bool {
-        self.funasr_ready.load(Ordering::Acquire)
+        self.engine.funasr_ready.load(Ordering::Acquire)
     }
 
     pub fn set_funasr_ready(&self, ready: bool) {
-        self.funasr_ready.store(ready, Ordering::Release);
+        self.engine.funasr_ready.store(ready, Ordering::Release);
     }
 
     pub fn snapshot_profile(&self) -> UserProfile {
-        self.user_profile.lock().clone()
+        self.profile.user_profile.lock().clone()
     }
 
     /// 借用 profile 执行只读操作，无需克隆
     pub fn with_profile<R>(&self, f: impl FnOnce(&UserProfile) -> R) -> R {
-        f(&self.user_profile.lock())
+        f(&self.profile.user_profile.lock())
     }
 
     /// 修改 profile 并返回克隆（用于需要持久化的场景）
     pub fn update_profile<R>(&self, f: impl FnOnce(&mut UserProfile) -> R) -> (R, UserProfile) {
-        let mut guard = self.user_profile.lock();
+        let mut guard = self.profile.user_profile.lock();
         let result = f(&mut guard);
         (result, guard.clone())
     }
 
     /// 修改 profile，不返回克隆（无需持久化时使用）
     pub fn update_profile_mut<R>(&self, f: impl FnOnce(&mut UserProfile) -> R) -> R {
-        f(&mut self.user_profile.lock())
+        f(&mut self.profile.user_profile.lock())
     }
 
     pub fn active_llm_provider(&self) -> String {
@@ -273,50 +327,50 @@ impl AppState {
     }
 
     pub fn read_ai_polish_api_key(&self) -> String {
-        self.ai_polish_api_key.lock().clone()
+        self.profile.ai_polish_api_key.lock().clone()
     }
 
     pub fn set_ai_polish_api_key(&self, api_key: impl Into<String>) {
-        *self.ai_polish_api_key.lock() = api_key.into();
+        *self.profile.ai_polish_api_key.lock() = api_key.into();
     }
 
     pub fn read_assistant_api_key(&self) -> String {
-        self.assistant_api_key.lock().clone()
+        self.profile.assistant_api_key.lock().clone()
     }
 
     pub fn set_assistant_api_key(&self, api_key: impl Into<String>) {
-        *self.assistant_api_key.lock() = api_key.into();
+        *self.profile.assistant_api_key.lock() = api_key.into();
     }
 
     pub fn read_openai_codex_oauth_session(&self) -> Option<OpenaiCodexOauthSession> {
-        self.openai_codex_oauth_session.lock().clone()
+        self.profile.openai_codex_oauth_session.lock().clone()
     }
 
     pub fn set_openai_codex_oauth_session(
         &self,
         session: Option<OpenaiCodexOauthSession>,
     ) {
-        *self.openai_codex_oauth_session.lock() = session;
+        *self.profile.openai_codex_oauth_session.lock() = session;
     }
 
     pub fn read_online_asr_api_key(&self) -> String {
-        self.online_asr_api_key.lock().clone()
+        self.profile.online_asr_api_key.lock().clone()
     }
 
     pub fn set_online_asr_api_key(&self, api_key: impl Into<String>) {
-        *self.online_asr_api_key.lock() = api_key.into();
+        *self.profile.online_asr_api_key.lock() = api_key.into();
     }
 
     pub fn read_web_search_api_key(&self) -> String {
-        self.web_search_api_key.lock().clone()
+        self.profile.web_search_api_key.lock().clone()
     }
 
     pub fn set_web_search_api_key(&self, api_key: impl Into<String>) {
-        *self.web_search_api_key.lock() = api_key.into();
+        *self.profile.web_search_api_key.lock() = api_key.into();
     }
 
     pub fn inline_audio_transport(&self) -> Option<bool> {
-        match self.inline_audio_transport.load(Ordering::Acquire) {
+        match self.engine.inline_audio_transport.load(Ordering::Acquire) {
             1 => Some(true),
             2 => Some(false),
             _ => None,
@@ -329,43 +383,46 @@ impl AppState {
             Some(false) => 2,
             None => 0,
         };
-        self.inline_audio_transport
+        self.engine
+            .inline_audio_transport
             .store(encoded, Ordering::Release);
     }
 
     pub fn assistant_image_support(&self, cache_key: &str) -> Option<bool> {
-        self.assistant_image_support_cache
+        self.profile
+            .assistant_image_support_cache
             .lock()
             .get(cache_key)
             .copied()
     }
 
     pub fn set_assistant_image_support(&self, cache_key: impl Into<String>, supported: bool) {
-        self.assistant_image_support_cache
+        self.profile
+            .assistant_image_support_cache
             .lock()
             .insert(cache_key.into(), supported);
     }
 
     pub fn selected_input_device_name(&self) -> Option<String> {
-        self.selected_input_device_name.lock().clone()
+        self.recording.selected_input_device_name.lock().clone()
     }
 
     pub fn set_selected_input_device_name(&self, name: Option<String>) {
-        *self.selected_input_device_name.lock() = name.and_then(|v| {
+        *self.recording.selected_input_device_name.lock() = name.and_then(|v| {
             let trimmed = v.trim().to_string();
             (!trimmed.is_empty()).then_some(trimmed)
         });
     }
 
     pub fn hotkey_diagnostic_snapshot(&self) -> HotkeyDiagnosticState {
-        self.hotkey_diagnostic.lock().clone()
+        self.ui.hotkey_diagnostic.lock().clone()
     }
 
     pub fn update_hotkey_diagnostic<R>(
         &self,
         f: impl FnOnce(&mut HotkeyDiagnosticState) -> R,
     ) -> (R, HotkeyDiagnosticState) {
-        let mut guard = self.hotkey_diagnostic.lock();
+        let mut guard = self.ui.hotkey_diagnostic.lock();
         let result = f(&mut guard);
         (result, guard.clone())
     }

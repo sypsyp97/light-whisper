@@ -369,10 +369,10 @@ pub async fn set_translation_target(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let auto_enabled_polish = target.is_some() && !state.ai_polish_enabled.load(Ordering::Acquire);
+    let auto_enabled_polish = target.is_some() && !state.profile.ai_polish_enabled.load(Ordering::Acquire);
 
     if auto_enabled_polish {
-        state.ai_polish_enabled.store(true, Ordering::Release);
+        state.profile.ai_polish_enabled.store(true, Ordering::Release);
     }
 
     profile_service::update_profile_and_schedule(state.inner(), |profile| {

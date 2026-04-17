@@ -11,10 +11,10 @@
 - [[Voice assistant]] `EXTRACTED`
 - [[Hybrid ASR engine layer]] `EXTRACTED`
 - [[LLM integration layer]] `EXTRACTED`
-- [[One-key dictation]] `EXTRACTED`
 - [[AI polish]] `EXTRACTED`
 - [[Web search context]] `EXTRACTED`
 - [[Screen context capture]] `EXTRACTED`
+- [[One-key dictation]] `EXTRACTED`
 - [[Selected text editing]] `EXTRACTED`
 - [[Real-time translation]] `EXTRACTED`
 - [[Adaptive learning]] `EXTRACTED`

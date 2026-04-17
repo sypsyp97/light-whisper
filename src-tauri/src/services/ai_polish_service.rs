@@ -474,7 +474,7 @@ pub async fn polish_text(
     session_id: u64,
     translation_target_override: Option<Option<String>>,
 ) -> Result<String, String> {
-    if !state.ai_polish_enabled.load(Ordering::Acquire) {
+    if !state.profile.ai_polish_enabled.load(Ordering::Acquire) {
         return Ok(text.to_string());
     }
 

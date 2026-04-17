@@ -4,9 +4,9 @@
 
 ## Key Concepts
 
-- **RecordingContext.tsx** (2 connections) — `src\contexts\RecordingContext.tsx`
-- **RecordingProvider()** (1 connections) — `src\contexts\RecordingContext.tsx`
-- **useRecordingContext()** (1 connections) — `src\contexts\RecordingContext.tsx`
+- **RecordingContext.tsx** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\contexts\RecordingContext.tsx`
+- **RecordingProvider()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src\contexts\RecordingContext.tsx`
+- **useRecordingContext()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src\contexts\RecordingContext.tsx`
 
 ## Relationships
 
@@ -14,7 +14,7 @@
 
 ## Source Files
 
-- `src\contexts\RecordingContext.tsx`
+- `C:\Users\sun\Downloads\light-whisper\src\contexts\RecordingContext.tsx`
 
 ## Audit Trail
 

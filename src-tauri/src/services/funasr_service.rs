@@ -637,7 +637,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
 
     // 先检查是否已经有运行中的服务器或正在启动中
     {
-        let process_guard = state.funasr_process.lock().await;
+        let process_guard = state.engine.funasr_process.lock().await;
         if process_guard.is_some() {
             log::warn!("FunASR 服务器已在运行中");
             return Ok(());
@@ -646,6 +646,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
 
     // 原子标志防止并发启动（模型加载可能 25+ 秒，比 Mutex 更高效）
     if state
+        .engine
         .funasr_starting
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -655,10 +656,10 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     }
 
     // 记录启动时的代数，后续写入 state 前比对，防止被 stop_server 取消后仍写回旧进程
-    let gen_at_start = state.funasr_generation.load(Ordering::SeqCst);
+    let gen_at_start = state.engine.funasr_generation.load(Ordering::SeqCst);
 
     // 确保无论成功还是失败，都要重置 starting 标志
-    let _starting_guard = StartingFlagGuard(state.funasr_starting.clone());
+    let _starting_guard = StartingFlagGuard(state.engine.funasr_starting.clone());
     state.set_funasr_ready(false);
     state.set_inline_audio_transport(None);
 
@@ -676,7 +677,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     let engine = paths::read_engine_config();
 
     // 解压或查找运行时期间可能被 stop_server 取消（例如用户切换引擎）。
-    if state.funasr_generation.load(Ordering::SeqCst) != gen_at_start {
+    if state.engine.funasr_generation.load(Ordering::SeqCst) != gen_at_start {
         log::warn!("引擎运行时已就绪但代数已变更，取消本次启动");
         return Err(AppError::Asr("启动已被取消".to_string()));
     }
@@ -806,7 +807,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
 
     if initialized {
         // 检查启动期间是否被 stop_server 取消（引擎切换 / 重启）
-        if state.funasr_generation.load(Ordering::SeqCst) != gen_at_start {
+        if state.engine.funasr_generation.load(Ordering::SeqCst) != gen_at_start {
             log::warn!("FunASR 初始化完成但代数已变更，丢弃旧进程");
             let _ = child.kill().await;
             return Err(AppError::Asr("启动已被取消".to_string()));
@@ -817,7 +818,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
 
         // 只有初始化成功才把子进程存入 state
         {
-            let mut process_guard = state.funasr_process.lock().await;
+            let mut process_guard = state.engine.funasr_process.lock().await;
             *process_guard = Some(FunasrProcess {
                 child,
                 stdin,
@@ -963,7 +964,7 @@ fn encode_pcm16_base64(samples: &[i16]) -> String {
 }
 
 fn encode_wav_bytes(samples: &[i16], sample_rate: u32) -> Result<Vec<u8>, AppError> {
-    Ok(super::audio_service::encode_wav(samples, sample_rate))
+    super::audio_service::encode_wav(samples, sample_rate)
 }
 
 fn create_temp_audio_path() -> std::path::PathBuf {
@@ -1078,7 +1079,7 @@ async fn send_command_to_server(
     command: &ServerCommand,
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<ServerResponse, AppError> {
-    let mut guard = state.funasr_process.lock().await;
+    let mut guard = state.engine.funasr_process.lock().await;
 
     let result = {
         let process = guard
@@ -1178,7 +1179,7 @@ pub async fn check_status(
 ) -> Result<FunASRStatus, AppError> {
     // 先检查进程是否存在
     let has_process = {
-        let guard = state.funasr_process.lock().await;
+        let guard = state.engine.funasr_process.lock().await;
         guard.is_some()
     };
 
@@ -1210,7 +1211,7 @@ pub async fn check_status(
         }
 
         use std::sync::atomic::Ordering;
-        if state.funasr_starting.load(Ordering::SeqCst) {
+        if state.engine.funasr_starting.load(Ordering::SeqCst) {
             // 正在启动中（模型加载中），告诉前端"正在运行但还没准备好"
             return Ok(status_with_defaults(
                 true,
@@ -1285,11 +1286,11 @@ pub async fn check_status(
 ///
 pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
     // 递增代数，使正在进行的 start_server 感知到取消
-    state.funasr_generation.fetch_add(1, Ordering::SeqCst);
+    state.engine.funasr_generation.fetch_add(1, Ordering::SeqCst);
 
     // 先取出子进程句柄，避免关闭流程被常规请求超时拖住
     let mut process = {
-        let mut guard = state.funasr_process.lock().await;
+        let mut guard = state.engine.funasr_process.lock().await;
         guard.take()
     };
 

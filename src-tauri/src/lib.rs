@@ -402,7 +402,7 @@ fn stop_funasr_on_exit(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     services::audio_service::stop_microphone_level_monitor(state.inner());
 
-    if let Some(recording) = state.recording.lock().take() {
+    if let Some(recording) = state.recording.recording.lock().take() {
         match recording {
             RecordingSlot::Starting(s) => {
                 s.stop_flag
@@ -420,7 +420,7 @@ fn stop_funasr_on_exit(app: &tauri::AppHandle) {
         }
     }
 
-    let funasr_process = state.funasr_process.clone();
+    let funasr_process = state.engine.funasr_process.clone();
 
     tauri::async_runtime::block_on(async {
         match tokio::time::timeout(std::time::Duration::from_secs(2), funasr_process.lock()).await {

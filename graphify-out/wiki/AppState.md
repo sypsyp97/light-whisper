@@ -8,9 +8,9 @@
 - [[app_state.rs]] `EXTRACTED`
 
 ### method
+- [[.default()]] `EXTRACTED`
 - [[.new()]] `EXTRACTED`
 - [[.with_profile()]] `EXTRACTED`
-- [[.default()]] `EXTRACTED`
 - [[.active_llm_provider()]] `EXTRACTED`
 - [[.llm_provider_config()]] `EXTRACTED`
 - [[.is_funasr_ready()]] `EXTRACTED`

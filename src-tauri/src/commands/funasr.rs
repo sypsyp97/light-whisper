@@ -52,7 +52,7 @@ pub async fn download_models(
 #[tauri::command]
 pub async fn cancel_model_download(state: tauri::State<'_, AppState>) -> Result<String, AppError> {
     let task = {
-        let mut guard = state.download_task.lock().await;
+        let mut guard = state.engine.download_task.lock().await;
         guard.take()
     };
 
@@ -78,7 +78,7 @@ pub async fn restart_funasr(
     }
 
     // 首次启动可能仍在解压 engine.zip 或加载模型，自动重启不应打断这一过程。
-    if state.funasr_starting.load(Ordering::SeqCst) {
+    if state.engine.funasr_starting.load(Ordering::SeqCst) {
         log::info!("FunASR 正在启动中，跳过本次重启请求");
         return Ok("FunASR 正在启动中，跳过重启".to_string());
     }
@@ -177,6 +177,7 @@ pub async fn set_engine(
 
     // 强制重置启动标志，确保新引擎可以立即启动。
     state
+        .engine
         .funasr_starting
         .store(false, std::sync::atomic::Ordering::SeqCst);
 
@@ -447,6 +448,7 @@ pub async fn set_models_dir(
     if migrate && old_dir.is_dir() {
         // 设置 starting 标志，阻止前端轮询触发的自动重启
         state
+            .engine
             .funasr_starting
             .store(true, std::sync::atomic::Ordering::SeqCst);
 
@@ -472,6 +474,7 @@ pub async fn set_models_dir(
 
         // 无论成功失败都解除阻止，让后续 retryModel 能正常启动
         state
+            .engine
             .funasr_starting
             .store(false, std::sync::atomic::Ordering::SeqCst);
 
