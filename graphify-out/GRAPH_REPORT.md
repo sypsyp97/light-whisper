@@ -1,11 +1,11 @@
 # Graph Report - .  (2026-04-18)
 
 ## Corpus Check
-- 105 files · ~84,848 words
+- 105 files · ~85,000 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1062 nodes · 1733 edges · 93 communities detected
+- 1068 nodes · 1746 edges · 93 communities detected
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 41 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
@@ -16,14 +16,14 @@
 - [[_COMMUNITY_App State|App State]]
 - [[_COMMUNITY_Tauri|Tauri]]
 - [[_COMMUNITY_Funasr Service|Funasr Service]]
+- [[_COMMUNITY_LLM Client|LLM Client]]
 - [[_COMMUNITY_Codex OAuth Service|Codex OAuth Service]]
 - [[_COMMUNITY_R E A D M E|R E A D M E]]
-- [[_COMMUNITY_LLM Client|LLM Client]]
 - [[_COMMUNITY_Profile Service|Profile Service]]
 - [[_COMMUNITY_Paths|Paths]]
 - [[_COMMUNITY_User Profile|User Profile]]
-- [[_COMMUNITY_Release Packaging|Release Packaging]]
 - [[_COMMUNITY_Ai Polish Service|Ai Polish Service]]
+- [[_COMMUNITY_Release Packaging|Release Packaging]]
 - [[_COMMUNITY_Funasr|Funasr]]
 - [[_COMMUNITY_Profile|Profile]]
 - [[_COMMUNITY_Settings Page|Settings Page]]
@@ -34,8 +34,8 @@
 - [[_COMMUNITY_Rebuild Graphify|Rebuild Graphify]]
 - [[_COMMUNITY_Lib|Lib]]
 - [[_COMMUNITY_Ai Polish|Ai Polish]]
-- [[_COMMUNITY_Clipboard|Clipboard]]
-- [[_COMMUNITY_Updater|Updater]]
+- [[_COMMUNITY_Clipboard Bridge|Clipboard Bridge]]
+- [[_COMMUNITY_Updater Commands|Updater Commands]]
 - [[_COMMUNITY_Download Service|Download Service]]
 - [[_COMMUNITY_Capture|Capture]]
 - [[_COMMUNITY_Finalize|Finalize]]
@@ -113,8 +113,8 @@
 6. `login()` - 15 edges
 7. `endpoint_for_config()` - 14 edges
 8. `WhisperServer` - 13 edges
-9. `reasoning_control_kind()` - 13 edges
-10. `reasoning_support()` - 13 edges
+9. `build_llm_body()` - 13 edges
+10. `send_llm_request()` - 13 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `BaseASRServer` --implements--> `Python ASR runtime`  [INFERRED]
@@ -160,17 +160,17 @@ Nodes (49): addCustomProvider(), addHotWord(), copyToClipboard(), getAiPolishApi
 Cohesion: 0.08
 Nodes (45): check_model_files(), check_status(), create_temp_audio_path(), encode_pcm16_base64(), encode_wav_bytes(), EngineRuntime, expected_engine_install_fingerprint(), extract_engine_archive() (+37 more)
 
-### Community 6 - "Codex OAuth Service"
+### Community 6 - "LLM Client"
+Cohesion: 0.09
+Nodes (35): adapt_body_for_backend(), anthropic_output_tokens(), api_error_message_falls_back_to_openai_compat_parser(), build_llm_body(), cerebras_json_output_disables_stream_to_preserve_response_format(), cerebras_without_json_output_keeps_stream(), chat_body_keeps_provider_default_reasoning(), chat_body_sets_max_tokens_for_openai_compat() (+27 more)
+
+### Community 7 - "Codex OAuth Service"
 Cohesion: 0.08
 Nodes (45): accept_callback_connection(), AuthClaims, base64_url_encode(), bind_callback_listeners(), build_authorize_url(), callback_html(), CallbackListeners, ChatgptBearerToken (+37 more)
 
-### Community 7 - "R E A D M E"
+### Community 8 - "R E A D M E"
 Cohesion: 0.06
 Nodes (37): LLM integration layer, Python ASR runtime, React UI, Rust core, assistant_input_preserves_symbols_and_splits_cdata(), build_assistant_user_content_with_selection(), generate_content(), render_assistant_user_content() (+29 more)
-
-### Community 8 - "LLM Client"
-Cohesion: 0.1
-Nodes (32): adapt_body_for_backend(), anthropic_output_tokens(), api_error_message_falls_back_to_openai_compat_parser(), build_llm_body(), cerebras_json_output_disables_stream_to_preserve_response_format(), cerebras_without_json_output_keeps_stream(), chat_body_keeps_provider_default_reasoning(), chat_body_sets_max_tokens_for_openai_compat() (+24 more)
 
 ### Community 9 - "Profile Service"
 Cohesion: 0.11
@@ -184,13 +184,13 @@ Nodes (29): default_hf_cache_root(), get_data_dir(), get_download_script_path(),
 Cohesion: 0.08
 Nodes (18): ApiFormat, CorrectionPattern, CorrectionSource, CustomProvider, default_max_results(), falls_back_to_last_remaining_provider_when_removing_first(), falls_back_to_previous_provider_after_removal(), HotWord (+10 more)
 
-### Community 12 - "Release Packaging"
+### Community 12 - "Ai Polish Service"
+Cohesion: 0.13
+Nodes (28): build_polish_user_input(), build_system_prompt(), build_user_content(), CorrectionItem, edit_text(), emit_polish_status(), extract_edit_result(), extract_edit_result_accepts_array_wrapper() (+20 more)
+
+### Community 13 - "Release Packaging"
 Cohesion: 0.1
 Nodes (26): emit_rerun_hints(), create_tar_xz(), create_tar_xz_with_7z(), create_tar_xz_with_python(), find_7z_executable(), get_size_mb(), main(), 删除目录；在 Windows 文件句柄尚未释放时做有限重试。 (+18 more)
-
-### Community 13 - "Ai Polish Service"
-Cohesion: 0.14
-Nodes (28): build_polish_user_input(), build_system_prompt(), build_user_content(), CorrectionItem, edit_text(), emit_polish_status(), extract_edit_result(), extract_edit_result_accepts_array_wrapper() (+20 more)
 
 ### Community 14 - "Funasr"
 Cohesion: 0.11
@@ -232,11 +232,11 @@ Nodes (10): focus_main_window(), hide_main_window(), mark_setup_once(), run(), s
 Cohesion: 0.24
 Nodes (7): AiModelInfo, AiModelListPayload, anthropic_models(), codex_oauth_models(), list_ai_models(), set_ai_polish_config(), set_assistant_api_key()
 
-### Community 24 - "Clipboard"
+### Community 24 - "Clipboard Bridge"
 Cohesion: 0.35
 Nodes (10): copy_to_clipboard(), grab_selected_text(), grab_selected_text_uia(), make_key_input(), paste_text(), paste_text_impl(), release_stuck_modifiers(), send_inputs() (+2 more)
 
-### Community 25 - "Updater"
+### Community 25 - "Updater Commands"
 Cohesion: 0.33
 Nodes (9): AppUpdateInfo, check_app_update(), fetch_latest_release(), GitHubRelease, is_version_newer(), normalize_version(), open_app_release_page(), open_external_url() (+1 more)
 
@@ -598,11 +598,11 @@ Nodes (0):
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Light-Whisper overview` connect `R E A D M E` to `Profile Service`, `Window`, `Profile`?**
-  _High betweenness centrality (0.141) - this node is a cross-community bridge._
-- **Why does `LLM integration layer` connect `R E A D M E` to `LLM Client`, `LLM Provider`?**
-  _High betweenness centrality (0.088) - this node is a cross-community bridge._
-- **Why does `polish_text()` connect `Ai Polish Service` to `Release Packaging`, `R E A D M E`?**
-  _High betweenness centrality (0.073) - this node is a cross-community bridge._
+  _High betweenness centrality (0.142) - this node is a cross-community bridge._
+- **Why does `LLM integration layer` connect `R E A D M E` to `LLM Provider`, `LLM Client`?**
+  _High betweenness centrality (0.091) - this node is a cross-community bridge._
+- **Why does `polish_text()` connect `Ai Polish Service` to `R E A D M E`, `Release Packaging`?**
+  _High betweenness centrality (0.074) - this node is a cross-community bridge._
 - **Are the 9 inferred relationships involving `BaseASRServer` (e.g. with `FunASRServer` and `Skip FunASR's model-side pip auto-install in bundled runtime.      Some FunASR`) actually correct?**
   _`BaseASRServer` has 9 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。` to the rest of the system?**

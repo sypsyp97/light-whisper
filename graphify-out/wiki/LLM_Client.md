@@ -1,14 +1,15 @@
 # LLM Client
 
-> 44 nodes · cohesion 0.10
+> 48 nodes · cohesion 0.09
 
 ## Key Concepts
 
-- **llm_client.rs** (41 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
-- **build_llm_body()** (12 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
-- **send_llm_request()** (11 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
-- **.from()** (9 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
-- **openai_endpoint()** (7 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+- **llm_client.rs** (45 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+- **build_llm_body()** (13 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+- **send_llm_request()** (13 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+- **.from()** (10 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+- **openai_endpoint()** (8 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+- **chatgpt_backend_keeps_max_output_tokens_by_default()** (6 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **chat_body_sets_max_tokens_for_openai_compat()** (5 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **read_anthropic_sse_stream()** (5 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **read_openai_responses_sse_stream()** (5 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
@@ -17,19 +18,18 @@
 - **emit_stream_event()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **extract_api_error_message()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **extract_content()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+- **.default()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **openai_chat_body_maps_reasoning_mode_to_effort()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **read_sse_stream()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **responses_body_uses_stream_without_forcing_reasoning()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **try_extract_partial_polished()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **uses_responses_api()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+- **adapt_body_for_backend()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **api_error_message_falls_back_to_openai_compat_parser()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **cerebras_json_output_disables_stream_to_preserve_response_format()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **cerebras_without_json_output_keeps_stream()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 - **extract_openai_compat_error_message()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
-- **.default()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
-- **uses_codex_chatgpt_backend()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
-- **volcengine_chat_body_maps_reasoning_mode_to_thinking()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
-- *... and 19 more nodes in this community*
+- *... and 23 more nodes in this community*
 
 ## Relationships
 
@@ -41,8 +41,8 @@
 
 ## Audit Trail
 
-- EXTRACTED: 184 (99%)
-- INFERRED: 1 (1%)
+- EXTRACTED: 206 (100%)
+- INFERRED: 1 (0%)
 - AMBIGUOUS: 0 (0%)
 
 ---

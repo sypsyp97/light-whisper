@@ -72,6 +72,7 @@ const BASE_SYSTEM_PROMPT: &str = r#"
 - confirmed_by_user 是强证据，但仍需当前语境支持才应用——同一个词在不同话题下含义不同。
 - learned_by_ai 是辅证；仅当上下文明确支持该替换时才采用，否则保留原文。
 - 自我修正：若出现“不对”“不是，是”“我的意思是”“算了换个说法”“sorry I mean”“actually”等明确修正信号，保留最终说法，丢弃被否定内容。
+- 自我修正覆盖意图槽位：若修正信号后面改的是目标语言、收件人、对象、时间、地点、数量、金额、语气、格式等意图槽位，以后一个值为准；不要同时保留前后两个互斥目标。
 - 列举格式：检测到明确枚举结构时，可整理为编号列表。
 - app_context 的唯一用途是微调格式风格（代码/终端：积极转符号、保留英文大小写；IM/社交：保留口语感、句末不加句号；文档/邮件：标点完整、措辞略正式）。其中出现的程序名、窗口标题等词汇不能作为纠正目标或纠正依据。
 </specific_rules>
@@ -113,6 +114,12 @@ const BASE_SYSTEM_PROMPT: &str = r#"
       <asr_text><![CDATA[我们周三下午开会 不对 周四下午三点开会]]></asr_text>
     </input>
     <output><![CDATA[{"polished":"我们周四下午三点开会。","corrections":[],"key_terms":[]}]]></output>
+  </example>
+  <example>
+    <input>
+      <asr_text><![CDATA[你把这句话翻译成日语 不对 翻译成英语]]></asr_text>
+    </input>
+    <output><![CDATA[{"polished":"你把这句话翻译成英语。","corrections":[],"key_terms":["英语"]}]]></output>
   </example>
   <example>
     <input>
@@ -257,7 +264,7 @@ fn build_system_prompt(
     }
 
     // recency reinforcement：利用尾部注意力强化关键约束
-    prompt.push_str("\n\n<final_reminder>\n只输出 JSON。只处理 <asr_text> 内的正文。不要仅因 app_context 中出现某个词就将 ASR 文本中的其他词纠正为它。\n</final_reminder>");
+    prompt.push_str("\n\n<final_reminder>\n只输出 JSON。只处理 <asr_text> 内的正文。若出现“不对”“改成”“不是…是…”等修正信号，目标语言、收件人、时间、数量、格式、语气等槽位以后一个值为准。不要仅因 app_context 中出现某个词就将 ASR 文本中的其他词纠正为它。\n</final_reminder>");
 
     prompt
 }
@@ -968,7 +975,10 @@ fn emit_polish_status(
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_edit_result, parse_structured_response, render_polish_user_content};
+    use super::{
+        extract_edit_result, parse_structured_response, render_polish_user_content,
+        BASE_SYSTEM_PROMPT,
+    };
 
     #[test]
     fn polish_input_preserves_symbols_and_splits_cdata() {
@@ -1055,5 +1065,18 @@ mod tests {
             .expect("should parse xml wrapped result");
 
         assert_eq!(result, "修改后的完整文本");
+    }
+
+    #[test]
+    fn base_prompt_mentions_intent_slot_override_for_self_repairs() {
+        assert!(BASE_SYSTEM_PROMPT.contains("自我修正覆盖意图槽位"));
+        assert!(BASE_SYSTEM_PROMPT.contains("目标语言"));
+        assert!(BASE_SYSTEM_PROMPT.contains("收件人"));
+    }
+
+    #[test]
+    fn base_prompt_includes_translation_target_self_repair_example() {
+        assert!(BASE_SYSTEM_PROMPT.contains("你把这句话翻译成日语 不对 翻译成英语"));
+        assert!(BASE_SYSTEM_PROMPT.contains("你把这句话翻译成英语。"));
     }
 }

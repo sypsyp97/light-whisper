@@ -5,7 +5,7 @@
 ## Key Concepts
 
 - **Light-Whisper overview** (18 connections) — `README.md`
-- **web_search_service.rs** (12 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\web_search_service.rs`
+- **web_search_service.rs** (12 connections) — `src-tauri\src\services\web_search_service.rs`
 - **assistant_service.rs** (6 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
 - **Voice assistant** (6 connections) — `README.md`
 - **LLM integration layer** (5 connections) — `README.md`
@@ -23,7 +23,7 @@
 - **SenseVoice engine** (3 connections) — `README.md`
 - **One-key dictation** (3 connections) — `README.md`
 - **Selected text editing** (3 connections) — `README.md`
-- **parse_exa_text_block()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\web_search_service.rs`
+- **parse_exa_text_block()** (3 connections) — `src-tauri\src\services\web_search_service.rs`
 - **Python ASR runtime** (2 connections) — `README.md`
 - **Rust core** (2 connections) — `README.md`
 - **assistant_input_preserves_symbols_and_splits_cdata()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
@@ -38,12 +38,12 @@
 ## Source Files
 
 - `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
-- `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\web_search_service.rs`
 - `README.md`
 - `README.zh-CN.md`
 - `src-tauri\src\main.rs`
 - `src-tauri\src\services\glm_asr_service.rs`
 - `src-tauri\src\services\screen_capture_service.rs`
+- `src-tauri\src\services\web_search_service.rs`
 
 ## Audit Trail
 

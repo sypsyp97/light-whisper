@@ -78,10 +78,28 @@ fn adapt_body_for_backend(endpoint: &LlmEndpoint, api_key: &str, body: &Value) -
 
     if let Some(map) = adapted.as_object_mut() {
         map.insert("store".to_string(), serde_json::json!(false));
-        map.remove("max_output_tokens");
     }
 
     adapted
+}
+
+fn looks_like_max_output_tokens_unsupported_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    let mentions_output_limit = normalized.contains("max_output_tokens")
+        || normalized.contains("max completion tokens")
+        || normalized.contains("maximum output tokens");
+
+    mentions_output_limit
+        && (normalized.contains("unsupported")
+            || normalized.contains("not supported")
+            || normalized.contains("unknown parameter")
+            || normalized.contains("invalid"))
+}
+
+fn strip_max_output_tokens(body: &mut Value) {
+    if let Some(map) = body.as_object_mut() {
+        map.remove("max_output_tokens");
+    }
 }
 
 pub fn build_llm_body(
@@ -742,6 +760,30 @@ pub async fn send_llm_request(
 
         if let Some(retry_response) = successful_retry {
             response = retry_response;
+        } else if looks_like_max_output_tokens_unsupported_error(&error_message) {
+            log::warn!(
+                "当前后端不支持 max_output_tokens，已移除后自动重试: provider={}, model={}, err={}",
+                endpoint.provider,
+                endpoint.model,
+                error_message
+            );
+            let mut fallback_body = body.clone();
+            strip_max_output_tokens(&mut fallback_body);
+            response = dispatch_request(
+                http_client,
+                endpoint,
+                api_key,
+                headers,
+                &fallback_body,
+                timeout,
+            )
+            .await?;
+            if !response.status().is_success() {
+                status = response.status();
+                body_text = response.text().await.unwrap_or_default();
+                error_message = extract_api_error_message(endpoint, &body_text);
+                return Err(format!("API 返回错误 {}: {}", status, error_message));
+            }
         } else if options.reasoning_mode != LlmReasoningMode::ProviderDefault
             && llm_provider::looks_like_reasoning_unsupported_error(&error_message)
         {
@@ -825,10 +867,12 @@ pub async fn send_llm_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_llm_body, extract_api_error_message, extract_openai_compat_error_message,
-        is_retryable_overload_error, try_extract_partial_polished, LlmRequestOptions,
-        LlmUserInput,
+        adapt_body_for_backend, build_llm_body, extract_api_error_message,
+        extract_openai_compat_error_message, is_retryable_overload_error,
+        looks_like_max_output_tokens_unsupported_error, try_extract_partial_polished,
+        LlmRequestOptions, LlmUserInput,
     };
+    use base64::Engine;
     use crate::services::llm_provider::LlmEndpoint;
     use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
 
@@ -1004,6 +1048,41 @@ mod tests {
         );
 
         assert_eq!(body["max_output_tokens"], serde_json::json!(4096));
+    }
+
+    #[test]
+    fn chatgpt_backend_keeps_max_output_tokens_by_default() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+        let api_key = format!(
+            "openai-codex-chatgpt:{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+                r#"{"access_token":"test","account_id":"acc"}"#
+            )
+        );
+
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body);
+
+        assert_eq!(adapted["max_output_tokens"], serde_json::json!(4096));
+        assert_eq!(adapted["store"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn recognizes_max_output_tokens_unsupported_errors() {
+        assert!(looks_like_max_output_tokens_unsupported_error(
+            "Unknown parameter: max_output_tokens"
+        ));
+        assert!(looks_like_max_output_tokens_unsupported_error(
+            "max_output_tokens is not supported by this backend"
+        ));
+        assert!(!looks_like_max_output_tokens_unsupported_error(
+            "request timed out after 30s"
+        ));
     }
 
     #[test]

@@ -1,10 +1,10 @@
 # Ai Polish Service
 
-> 29 nodes · cohesion 0.14
+> 31 nodes · cohesion 0.13
 
 ## Key Concepts
 
-- **ai_polish_service.rs** (28 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\ai_polish_service.rs`
+- **ai_polish_service.rs** (30 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\ai_polish_service.rs`
 - **parse_structured_response()** (8 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\ai_polish_service.rs`
 - **polish_text()** (8 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\ai_polish_service.rs`
 - **normalize_structured_payload()** (7 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\ai_polish_service.rs`
@@ -29,7 +29,7 @@
 - **send_ai_polish_request()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\ai_polish_service.rs`
 - **strip_cdata_wrapper()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\ai_polish_service.rs`
 - **strip_markdown_code_block()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\ai_polish_service.rs`
-- *... and 4 more nodes in this community*
+- *... and 6 more nodes in this community*
 
 ## Relationships
 
@@ -41,8 +41,8 @@
 
 ## Audit Trail
 
-- EXTRACTED: 114 (97%)
-- INFERRED: 3 (3%)
+- EXTRACTED: 118 (98%)
+- INFERRED: 3 (2%)
 - AMBIGUOUS: 0 (0%)
 
 ---

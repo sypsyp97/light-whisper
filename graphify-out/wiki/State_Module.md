@@ -4,7 +4,7 @@
 
 ## Key Concepts
 
-- **mod.rs** (0 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\mod.rs`
+- **mod.rs** (0 connections) — `src-tauri\src\state\mod.rs`
 
 ## Relationships
 
@@ -12,7 +12,7 @@
 
 ## Source Files
 
-- `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\mod.rs`
+- `src-tauri\src\state\mod.rs`
 
 ## Audit Trail
 
