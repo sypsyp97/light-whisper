@@ -14,7 +14,8 @@ interface UseRecordingReturn {
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
   originalAsrText: string | null;
-  setOriginalAsrText: (text: string | null) => void;
+  editBaselineText: string | null;
+  setEditBaselineText: (text: string | null) => void;
   durationSec: number | null;
   charCount: number | null;
   detectedLanguage: string | null;
@@ -69,6 +70,7 @@ export function useRecording(): UseRecordingReturn {
   const [error, setError] = useState<string | null>(null);
   const [transcriptionResult, setTranscriptionResult] = useState<string | null>(null);
   const [originalAsrText, setOriginalAsrText] = useState<string | null>(null);
+  const [editBaselineText, setEditBaselineText] = useState<string | null>(null);
   const [durationSec, setDurationSec] = useState<number | null>(null);
   const [charCount, setCharCount] = useState<number | null>(null);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
@@ -98,6 +100,7 @@ export function useRecording(): UseRecordingReturn {
     if (payload.interim) return;
     const sessionId = Number(payload.sessionId || 0);
     const { text } = payload;
+    const rawText = payload.originalText ?? text;
     const now = Date.now();
     const historyId = sessionId > 0 ? `session-${sessionId}` : `session-local-${now}`;
     // 旧 session 的 final 结果可以进 history，但不能覆盖当前显示。避免的是
@@ -107,7 +110,8 @@ export function useRecording(): UseRecordingReturn {
     if (!staleForDisplay && sessionId >= latestDisplayedFinalSessionIdRef.current) {
       latestDisplayedFinalSessionIdRef.current = sessionId;
       setTranscriptionResult(text);
-      setOriginalAsrText(payload.originalText ?? text);
+      setOriginalAsrText(rawText);
+      setEditBaselineText(text);
       setDurationSec(payload.durationSec ?? null);
       setCharCount(payload.charCount ?? null);
       setDetectedLanguage(payload.language ?? null);
@@ -120,7 +124,7 @@ export function useRecording(): UseRecordingReturn {
           {
             id: historyId,
             text,
-            originalText: payload.originalText ?? text,
+            originalText: rawText,
             timestamp: now, timeDisplay: new Date(now).toLocaleTimeString(),
           },
           ...prev.filter((item) => item.id !== historyId),
@@ -162,7 +166,8 @@ export function useRecording(): UseRecordingReturn {
   return {
     isRecording, isProcessing, startRecording, stopRecording,
     error, transcriptionResult, setTranscriptionResult,
-    originalAsrText, setOriginalAsrText, durationSec, charCount, detectedLanguage, history,
+    originalAsrText, editBaselineText, setEditBaselineText,
+    durationSec, charCount, detectedLanguage, history,
     resultMode,
   };
 }

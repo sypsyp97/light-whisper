@@ -445,6 +445,7 @@
       "assistant_service_render_assistant_user_content",
       "assistant_service_run_third_party_search",
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_assistant_service_rs",
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_web_search_service_rs",
       "doc_light_whisper_overview",
       "doc_light_whisper_overview_zh",
       "engine_faster_whisper",
@@ -466,7 +467,6 @@
       "src_tauri_src_main_rs",
       "src_tauri_src_services_glm_asr_service_rs",
       "src_tauri_src_services_screen_capture_service_rs",
-      "src_tauri_src_services_web_search_service_rs",
       "web_search_service_exa_search",
       "web_search_service_jsonrpcresponse",
       "web_search_service_mcpcontent",
@@ -481,6 +481,7 @@
       "web_search_service_truncate_str"
     ],
     "8": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_client_rs",
       "llm_client_adapt_body_for_backend",
       "llm_client_anthropic_output_tokens",
       "llm_client_anthropic_user_content",
@@ -523,13 +524,15 @@
       "llm_client_try_extract_partial_polished",
       "llm_client_uses_codex_chatgpt_backend",
       "llm_client_uses_responses_api",
-      "llm_client_volcengine_chat_body_maps_reasoning_mode_to_thinking",
-      "src_tauri_src_services_llm_client_rs"
+      "llm_client_volcengine_chat_body_maps_reasoning_mode_to_thinking"
     ],
     "9": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_profile_service_rs",
       "feature_adaptive_learning",
       "profile_service_add_hot_word",
       "profile_service_cleanup_profile",
+      "profile_service_collect_diff_correction_pairs",
+      "profile_service_collect_diff_correction_pairs_merges_and_dedupes_baselines",
       "profile_service_contains_sentence_punctuation",
       "profile_service_extract_diff_segments",
       "profile_service_finalize_learning",
@@ -566,8 +569,7 @@
       "profile_service_update_profile_and_schedule",
       "profile_service_update_vocab_frequency",
       "profile_service_upsert_correction",
-      "profile_service_write_profile_async",
-      "src_tauri_src_services_profile_service_rs"
+      "profile_service_write_profile_async"
     ],
     "10": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_utils_paths_rs",
@@ -893,6 +895,7 @@
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_ai_polish_rs"
     ],
     "24": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_commands_clipboard_rs",
       "clipboard_copy_to_clipboard",
       "clipboard_grab_selected_text",
       "clipboard_grab_selected_text_uia",
@@ -902,11 +905,10 @@
       "clipboard_release_stuck_modifiers",
       "clipboard_send_inputs",
       "clipboard_try_get_selection",
-      "clipboard_write_text_to_clipboard",
-      "src_tauri_src_commands_clipboard_rs"
+      "clipboard_write_text_to_clipboard"
     ],
     "25": [
-      "src_tauri_src_commands_updater_rs",
+      "c_users_sun_downloads_light_whisper_src_tauri_src_commands_updater_rs",
       "updater_appupdateinfo",
       "updater_check_app_update",
       "updater_fetch_latest_release",
@@ -1241,7 +1243,7 @@
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_mod_rs"
     ],
     "91": [
-      "src_tauri_src_state_mod_rs"
+      "c_users_sun_downloads_light_whisper_src_tauri_src_state_mod_rs"
     ],
     "92": [
       "src_tauri_src_utils_mod_rs"
@@ -1257,7 +1259,7 @@
     "6": 0.08,
     "7": 0.06,
     "8": 0.1,
-    "9": 0.12,
+    "9": 0.11,
     "10": 0.11,
     "11": 0.08,
     "12": 0.1,
@@ -1454,8 +1456,8 @@
   "questions": [
     {
       "type": "bridge_node",
-      "question": "Why does `Light-Whisper overview` connect `R E A D M E` to `Adaptive Learning Profile`, `Window`, `Profile`?",
-      "why": "High betweenness centrality (0.140) - this node is a cross-community bridge."
+      "question": "Why does `Light-Whisper overview` connect `R E A D M E` to `Profile Service`, `Window`, `Profile`?",
+      "why": "High betweenness centrality (0.141) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",

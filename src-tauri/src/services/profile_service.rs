@@ -1,4 +1,5 @@
 use std::collections::hash_map::Entry;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
@@ -234,7 +235,10 @@ fn sanitize_corrections(profile: &mut UserProfile) -> usize {
             return false;
         }
         // 长度比例异常（如 "话"→"的源代码，"）
-        let (longer, shorter) = (orig_chars.max(corrected_chars), orig_chars.min(corrected_chars));
+        let (longer, shorter) = (
+            orig_chars.max(corrected_chars),
+            orig_chars.min(corrected_chars),
+        );
         if shorter >= 2 && longer > shorter * 3 {
             return false;
         }
@@ -620,7 +624,7 @@ pub fn learn_from_correction(
     profile.total_transcriptions += 1;
     profile.last_updated = now;
 
-    for (orig_seg, pol_seg) in extract_diff_segments(original, polished) {
+    for (orig_seg, pol_seg) in collect_diff_correction_pairs(&[original], polished) {
         upsert_correction(
             &mut profile.correction_patterns,
             &orig_seg,
@@ -631,6 +635,28 @@ pub fn learn_from_correction(
         );
     }
     finalize_learning(profile);
+}
+
+pub fn collect_diff_correction_pairs(baselines: &[&str], corrected: &str) -> Vec<(String, String)> {
+    if corrected.is_empty() {
+        return Vec::new();
+    }
+
+    let mut seen = HashSet::new();
+    let mut pairs = Vec::new();
+
+    for baseline in baselines {
+        if baseline.is_empty() || *baseline == corrected {
+            continue;
+        }
+        for (original, updated) in extract_diff_segments(baseline, corrected) {
+            if seen.insert((original.clone(), updated.clone())) {
+                pairs.push((original, updated));
+            }
+        }
+    }
+
+    pairs
 }
 
 /// 从 LLM 结构化输出中学习
@@ -738,4 +764,21 @@ fn extract_diff_segments(original: &str, polished: &str) -> Vec<(String, String)
     }
 
     diffs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_diff_correction_pairs;
+
+    #[test]
+    fn collect_diff_correction_pairs_merges_and_dedupes_baselines() {
+        let pairs = collect_diff_correction_pairs(&["abc", "xbc", "abc"], "zbc");
+        assert_eq!(
+            pairs,
+            vec![
+                ("a".to_string(), "z".to_string()),
+                ("x".to_string(), "z".to_string()),
+            ]
+        );
+    }
 }

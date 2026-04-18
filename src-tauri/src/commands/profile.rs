@@ -11,23 +11,48 @@ pub async fn submit_user_correction(
     state: tauri::State<'_, AppState>,
     original: String,
     corrected: String,
+    raw_original: Option<String>,
 ) -> Result<(), String> {
-    // 用 LLM 对比两句话，提取词级纠错
-    let corrections = extract_corrections_via_llm(&app_handle, &state, &original, &corrected).await;
+    // 用 LLM 结合 ASR 原文和当前显示文本，提取词级纠错
+    let corrections = extract_corrections_via_llm(
+        &app_handle,
+        &state,
+        raw_original.as_deref(),
+        &original,
+        &corrected,
+    )
+    .await;
+    let fallback_corrections = if corrections.is_empty() {
+        let mut baselines = Vec::with_capacity(2);
+        if let Some(raw) = raw_original.as_deref() {
+            baselines.push(raw);
+        }
+        baselines.push(original.as_str());
+        profile_service::collect_diff_correction_pairs(&baselines, &corrected)
+    } else {
+        Vec::new()
+    };
 
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
-        if corrections.is_empty() {
-            profile_service::learn_from_correction(
-                profile,
-                &original,
-                &corrected,
-                CorrectionSource::User,
-            );
-        } else {
+        if !corrections.is_empty() {
             profile_service::learn_from_structured(
                 profile,
                 &corrections,
                 &[],
+                CorrectionSource::User,
+            );
+        } else if !fallback_corrections.is_empty() {
+            profile_service::learn_from_structured(
+                profile,
+                &fallback_corrections,
+                &[],
+                CorrectionSource::User,
+            );
+        } else {
+            profile_service::learn_from_correction(
+                profile,
+                &original,
+                &corrected,
                 CorrectionSource::User,
             );
         }
@@ -35,10 +60,11 @@ pub async fn submit_user_correction(
     Ok(())
 }
 
-/// 调用 LLM 对比润色前后文本，提取词级别纠错
+/// 调用 LLM 结合 ASR 原文和当前显示文本，提取词级别纠错
 async fn extract_corrections_via_llm(
     app_handle: &tauri::AppHandle,
     state: &AppState,
+    raw_original: Option<&str>,
     before: &str,
     after: &str,
 ) -> Vec<(String, String)> {
@@ -63,13 +89,28 @@ async fn extract_corrections_via_llm(
     let config = state.llm_provider_config();
     let endpoint = llm_provider::endpoint_for_config(&config);
 
-    let prompt = format!(
-        "对比以下两句话，提取用户修改的词级别纠错。\n\
-         修改前：{}\n修改后：{}\n\n\
-         以 JSON 数组输出，每项 {{\"from\":\"原词\",\"to\":\"改后词\"}}。\n\
-         只输出被改动的词/短语，不要输出整句。如无差异输出空数组 []。",
-        before, after
-    );
+    let prompt = if let Some(raw) = raw_original.filter(|value| !value.trim().is_empty()) {
+        format!(
+            "对比以下三段文本，提取应该写入学习规则的词级纠错。\n\
+             ASR 原文（润色前）：{}\n\
+             当前显示文本：{}\n\
+             用户修改后：{}\n\n\
+             以 JSON 数组输出，每项 {{\"from\":\"原词\",\"to\":\"改后词\"}}。\n\
+             优先提取稳定、可复用的识别纠错或术语纠错。\n\
+             如果用户最终文本已经和 ASR 原文一致，说明是当前显示文本把内容改坏了，此时提取“当前显示文本 -> 用户修改后”。\n\
+             如果用户最终文本修正了 ASR 原文里的错误，也提取“ASR 原文 -> 用户修改后”。\n\
+             同一处只保留最直接的一条映射，不要输出整句。如无有效差异输出空数组 []。",
+            raw, before, after
+        )
+    } else {
+        format!(
+            "对比以下两句话，提取用户修改的词级别纠错。\n\
+             修改前：{}\n修改后：{}\n\n\
+             以 JSON 数组输出，每项 {{\"from\":\"原词\",\"to\":\"改后词\"}}。\n\
+             只输出被改动的词/短语，不要输出整句。如无差异输出空数组 []。",
+            before, after
+        )
+    };
 
     let system = "你是文本差异提取工具，只输出 JSON。";
     let opts = LlmRequestOptions {
@@ -369,10 +410,14 @@ pub async fn set_translation_target(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let auto_enabled_polish = target.is_some() && !state.profile.ai_polish_enabled.load(Ordering::Acquire);
+    let auto_enabled_polish =
+        target.is_some() && !state.profile.ai_polish_enabled.load(Ordering::Acquire);
 
     if auto_enabled_polish {
-        state.profile.ai_polish_enabled.store(true, Ordering::Release);
+        state
+            .profile
+            .ai_polish_enabled
+            .store(true, Ordering::Release);
     }
 
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
@@ -608,7 +653,11 @@ fn parse_invalid_indices(raw: &str) -> Vec<usize> {
     if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
         return arr
             .iter()
-            .filter_map(|v| v.as_u64().map(|n| n as usize).or_else(|| v.as_f64().map(|n| n as usize)))
+            .filter_map(|v| {
+                v.as_u64()
+                    .map(|n| n as usize)
+                    .or_else(|| v.as_f64().map(|n| n as usize))
+            })
             .collect();
     }
     if let Ok(obj) = serde_json::from_str::<serde_json::Value>(raw) {
@@ -617,7 +666,11 @@ fn parse_invalid_indices(raw: &str) -> Vec<usize> {
                 if let Some(arr) = val.as_array() {
                     return arr
                         .iter()
-                        .filter_map(|v| v.as_u64().map(|n| n as usize).or_else(|| v.as_f64().map(|n| n as usize)))
+                        .filter_map(|v| {
+                            v.as_u64()
+                                .map(|n| n as usize)
+                                .or_else(|| v.as_f64().map(|n| n as usize))
+                        })
                         .collect();
                 }
             }

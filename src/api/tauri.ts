@@ -222,8 +222,12 @@ export function importUserProfile(jsonData: string): Promise<void> {
   return invokeCommand<void>("import_user_profile", { jsonData });
 }
 
-export function submitUserCorrection(original: string, corrected: string): Promise<void> {
-  return invokeCommand<void>("submit_user_correction", { original, corrected });
+export function submitUserCorrection(original: string, corrected: string, rawOriginal?: string | null): Promise<void> {
+  return invokeCommand<void>("submit_user_correction", {
+    original,
+    corrected,
+    rawOriginal: rawOriginal ?? null,
+  });
 }
 
 export function setRecordingMode(toggle: boolean): Promise<void> {

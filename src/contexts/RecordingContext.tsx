@@ -17,7 +17,8 @@ interface RecordingContextValue {
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
   originalAsrText: string | null;
-  setOriginalAsrText: (text: string | null) => void;
+  editBaselineText: string | null;
+  setEditBaselineText: (text: string | null) => void;
   durationSec: number | null;
   charCount: number | null;
   detectedLanguage: string | null;
@@ -54,7 +55,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     transcriptionResult,
     setTranscriptionResult,
     originalAsrText,
-    setOriginalAsrText,
+    editBaselineText,
+    setEditBaselineText,
     durationSec,
     charCount,
     detectedLanguage,
@@ -151,7 +153,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     transcriptionResult,
     setTranscriptionResult,
     originalAsrText,
-    setOriginalAsrText,
+    editBaselineText,
+    setEditBaselineText,
     durationSec,
     charCount,
     detectedLanguage,
@@ -174,7 +177,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     hotkeyDiagnostic,
   }), [
     isRecording, isProcessing, startRecording, stopRecording, recordingError,
-    transcriptionResult, setTranscriptionResult, originalAsrText, setOriginalAsrText,
+    transcriptionResult, setTranscriptionResult, originalAsrText,
+    editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, history, resultMode,
     stage, isReady, device, gpuName, downloadProgress, downloadMessage, isDownloading,
     modelError, downloadModels, cancelDownload, retryModel,

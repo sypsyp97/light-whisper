@@ -1,11 +1,11 @@
-# Graph Report - .  (2026-04-17)
+# Graph Report - .  (2026-04-18)
 
 ## Corpus Check
-- 105 files · ~84,519 words
+- 105 files · ~84,848 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1060 nodes · 1729 edges · 93 communities detected
+- 1062 nodes · 1733 edges · 93 communities detected
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 41 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
@@ -19,7 +19,7 @@
 - [[_COMMUNITY_Codex OAuth Service|Codex OAuth Service]]
 - [[_COMMUNITY_R E A D M E|R E A D M E]]
 - [[_COMMUNITY_LLM Client|LLM Client]]
-- [[_COMMUNITY_Adaptive Learning Profile|Adaptive Learning Profile]]
+- [[_COMMUNITY_Profile Service|Profile Service]]
 - [[_COMMUNITY_Paths|Paths]]
 - [[_COMMUNITY_User Profile|User Profile]]
 - [[_COMMUNITY_Release Packaging|Release Packaging]]
@@ -34,8 +34,8 @@
 - [[_COMMUNITY_Rebuild Graphify|Rebuild Graphify]]
 - [[_COMMUNITY_Lib|Lib]]
 - [[_COMMUNITY_Ai Polish|Ai Polish]]
-- [[_COMMUNITY_Clipboard Bridge|Clipboard Bridge]]
-- [[_COMMUNITY_Updater Commands|Updater Commands]]
+- [[_COMMUNITY_Clipboard|Clipboard]]
+- [[_COMMUNITY_Updater|Updater]]
 - [[_COMMUNITY_Download Service|Download Service]]
 - [[_COMMUNITY_Capture|Capture]]
 - [[_COMMUNITY_Finalize|Finalize]]
@@ -172,9 +172,9 @@ Nodes (37): LLM integration layer, Python ASR runtime, React UI, Rust core, assi
 Cohesion: 0.1
 Nodes (32): adapt_body_for_backend(), anthropic_output_tokens(), api_error_message_falls_back_to_openai_compat_parser(), build_llm_body(), cerebras_json_output_disables_stream_to_preserve_response_format(), cerebras_without_json_output_keeps_stream(), chat_body_keeps_provider_default_reasoning(), chat_body_sets_max_tokens_for_openai_compat() (+24 more)
 
-### Community 9 - "Adaptive Learning Profile"
-Cohesion: 0.12
-Nodes (40): Adaptive learning, add_hot_word(), cleanup_profile(), contains_sentence_punctuation(), extract_diff_segments(), finalize_learning(), hot_word_priority(), is_blocked_hot_word() (+32 more)
+### Community 9 - "Profile Service"
+Cohesion: 0.11
+Nodes (42): Adaptive learning, add_hot_word(), cleanup_profile(), collect_diff_correction_pairs(), collect_diff_correction_pairs_merges_and_dedupes_baselines(), contains_sentence_punctuation(), extract_diff_segments(), finalize_learning() (+34 more)
 
 ### Community 10 - "Paths"
 Cohesion: 0.11
@@ -232,11 +232,11 @@ Nodes (10): focus_main_window(), hide_main_window(), mark_setup_once(), run(), s
 Cohesion: 0.24
 Nodes (7): AiModelInfo, AiModelListPayload, anthropic_models(), codex_oauth_models(), list_ai_models(), set_ai_polish_config(), set_assistant_api_key()
 
-### Community 24 - "Clipboard Bridge"
+### Community 24 - "Clipboard"
 Cohesion: 0.35
 Nodes (10): copy_to_clipboard(), grab_selected_text(), grab_selected_text_uia(), make_key_input(), paste_text(), paste_text_impl(), release_stuck_modifiers(), send_inputs() (+2 more)
 
-### Community 25 - "Updater Commands"
+### Community 25 - "Updater"
 Cohesion: 0.33
 Nodes (9): AppUpdateInfo, check_app_update(), fetch_latest_release(), GitHubRelease, is_version_newer(), normalize_version(), open_app_release_page(), open_external_url() (+1 more)
 
@@ -597,8 +597,8 @@ Nodes (0):
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Light-Whisper overview` connect `R E A D M E` to `Adaptive Learning Profile`, `Window`, `Profile`?**
-  _High betweenness centrality (0.140) - this node is a cross-community bridge._
+- **Why does `Light-Whisper overview` connect `R E A D M E` to `Profile Service`, `Window`, `Profile`?**
+  _High betweenness centrality (0.141) - this node is a cross-community bridge._
 - **Why does `LLM integration layer` connect `R E A D M E` to `LLM Client`, `LLM Provider`?**
   _High betweenness centrality (0.088) - this node is a cross-community bridge._
 - **Why does `polish_text()` connect `Ai Polish Service` to `Release Packaging`, `R E A D M E`?**

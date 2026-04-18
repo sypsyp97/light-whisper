@@ -21,7 +21,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
   const { t } = useTranslation();
   const {
     isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, originalAsrText, setOriginalAsrText, setTranscriptionResult,
+    recordingError, transcriptionResult, originalAsrText, editBaselineText, setEditBaselineText, setTranscriptionResult,
     durationSec, charCount, detectedLanguage, history, recordingMode, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError, hotkeyDisplay,
@@ -46,8 +46,8 @@ export default function MainPage({ onNavigate, animClass = "" }: {
 
   const pageContentClass = `page-content ${animClass || ""}`.trim();
 
-  const correctionSubmit = useDebouncedCallback((previousText: string, nextText: string) => {
-    submitUserCorrection(previousText, nextText)
+  const correctionSubmit = useDebouncedCallback((previousText: string, nextText: string, rawOriginalText: string | null) => {
+    submitUserCorrection(previousText, nextText, rawOriginalText)
       .then(() => toast.success(t("toast.correctionRecorded"), { duration: 1500 }))
       .catch(() => toast.error(t("toast.correctionFailed")));
   }, 900, { onUnmount: "flush" });
@@ -76,18 +76,19 @@ export default function MainPage({ onNavigate, animClass = "" }: {
       setTranscriptionResult(newText);
       return;
     }
-    if (originalAsrText && newText !== originalAsrText) {
-      const prevText = originalAsrText;
-      setOriginalAsrText(newText);
+    if (editBaselineText && newText !== editBaselineText) {
+      const prevText = editBaselineText;
+      setEditBaselineText(newText);
       setTranscriptionResult(newText);
-      correctionSubmit.schedule(prevText, newText);
+      correctionSubmit.schedule(prevText, newText, originalAsrText);
     }
   }, [
     correctionSubmit,
+    editBaselineText,
     originalAsrText,
     recordingMode,
     setTranscriptionResult,
-    setOriginalAsrText,
+    setEditBaselineText,
   ]);
 
   const flushPendingEditAndNavigate = useCallback((target: "main" | "settings") => {
@@ -169,7 +170,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
         <div className="results-area" style={{ padding: `12px ${PADDING}px 12px` }}>
           <TranscriptionResult
             text={transcriptionResult}
-            originalText={originalAsrText}
+            originalText={editBaselineText}
             isProcessing={isProcessing}
             copiedId={copiedId}
             onCopy={handleCopy}

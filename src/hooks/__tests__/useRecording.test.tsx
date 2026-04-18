@@ -202,6 +202,26 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
     });
   });
 
+  it("keeps both raw ASR text and editable baseline after a final result arrives", async () => {
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 8,
+        text: "润色后的结果",
+        originalText: "润色前原文",
+        interim: false,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.transcriptionResult).toBe("润色后的结果");
+      expect(result.current.originalAsrText).toBe("润色前原文");
+      expect(result.current.editBaselineText).toBe("润色后的结果");
+    });
+  });
+
   it("recording-state from an older session must be ignored", async () => {
     const { result } = renderHook(() => useRecording());
     await flushMicrotasks();
