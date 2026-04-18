@@ -81,6 +81,86 @@
       "hotkey_vk_to_required_index"
     ],
     "1": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_provider_rs",
+      "llm_provider_apply_reasoning_controls",
+      "llm_provider_assistant_endpoint_for_config",
+      "llm_provider_assistant_endpoint_uses_separate_model_for_builtin_provider",
+      "llm_provider_assistant_endpoint_uses_separate_model_for_custom_provider",
+      "llm_provider_build_auth_headers",
+      "llm_provider_builds_cerebras_image_support_probe_url",
+      "llm_provider_builds_cerebras_public_model_probe_url",
+      "llm_provider_cerebras_glm_reports_reasoning_support",
+      "llm_provider_cerebras_public_model_probe_url",
+      "llm_provider_custom_preset_keeps_custom_endpoint_and_model",
+      "llm_provider_deepseek_reasoner_reports_reasoning_support",
+      "llm_provider_default_api_suffix",
+      "llm_provider_default_endpoint_parts",
+      "llm_provider_endpoint_for_config",
+      "llm_provider_endpoint_for_preview",
+      "llm_provider_image_support_cache_key",
+      "llm_provider_image_support_probe_url",
+      "llm_provider_indicates_unsupported",
+      "llm_provider_invalid_active_provider_falls_back_to_latest_custom_provider",
+      "llm_provider_is_cerebras_like_endpoint",
+      "llm_provider_is_deepseek_like_endpoint",
+      "llm_provider_is_preset",
+      "llm_provider_is_siliconflow_like_endpoint",
+      "llm_provider_is_volcengine_like_endpoint",
+      "llm_provider_keyring_user_for_provider",
+      "llm_provider_llmendpoint",
+      "llm_provider_llmreasoningsupport",
+      "llm_provider_load_api_key_for_active_provider",
+      "llm_provider_load_api_key_for_provider",
+      "llm_provider_looks_like_image_input_unsupported_error",
+      "llm_provider_looks_like_json_output_unsupported_error",
+      "llm_provider_looks_like_reasoning_unsupported_error",
+      "llm_provider_looks_like_web_search_unsupported_error",
+      "llm_provider_models_url",
+      "llm_provider_named_presets_ignore_custom_endpoint_overrides",
+      "llm_provider_named_presets_preserve_manual_model_override",
+      "llm_provider_normalize_anthropic_models_url",
+      "llm_provider_normalize_anthropic_url",
+      "llm_provider_normalize_api_url",
+      "llm_provider_normalize_models_url",
+      "llm_provider_only_cerebras_like_endpoints_use_public_model_probe",
+      "llm_provider_openai_gpt5_1_codex_max_reaches_xhigh",
+      "llm_provider_openai_gpt5_2_codex_clamps_to_low_then_rises",
+      "llm_provider_openai_gpt5_2_off_maps_reasoning_effort_to_none",
+      "llm_provider_openai_gpt5_4_off_maps_reasoning_effort_to_none",
+      "llm_provider_openai_gpt5_effort_for_mode",
+      "llm_provider_openai_gpt5_mini_keeps_minimal_family_mapping",
+      "llm_provider_openai_gpt5_pro_uses_high_only",
+      "llm_provider_openai_gpt5_reasoning_efforts",
+      "llm_provider_openai_non_reasoning_models_report_unsupported",
+      "llm_provider_parse_image_input_support_from_model_metadata",
+      "llm_provider_parses_multimodal_model_metadata_as_image_supported",
+      "llm_provider_parses_text_only_model_metadata_as_no_image_support",
+      "llm_provider_preview_endpoint_preserves_custom_provider_format",
+      "llm_provider_probe_image_support_from_provider_metadata",
+      "llm_provider_reasoning_control_kind",
+      "llm_provider_reasoning_efforts_for_modes",
+      "llm_provider_reasoning_support",
+      "llm_provider_reasoningcontrolkind",
+      "llm_provider_reasoningcontrolkind_strategy_name",
+      "llm_provider_reasoningcontrolkind_summary",
+      "llm_provider_recognizes_image_unsupported_errors",
+      "llm_provider_recognizes_json_output_unsupported_errors",
+      "llm_provider_recognizes_reasoning_unsupported_errors",
+      "llm_provider_save_or_delete_api_key",
+      "llm_provider_should_probe_cerebras_public_model_metadata",
+      "llm_provider_strings",
+      "llm_provider_strip_reasoning_controls",
+      "llm_provider_supports_anthropic_thinking",
+      "llm_provider_supports_cerebras_reasoning",
+      "llm_provider_supports_deepseek_thinking",
+      "llm_provider_supports_siliconflow_reasoning",
+      "llm_provider_supports_volcengine_thinking",
+      "llm_provider_sync_assistant_api_key",
+      "llm_provider_sync_runtime_api_key",
+      "llm_provider_validation_endpoint_for_config",
+      "llm_provider_volcan_seed_2_models_report_reasoning_support"
+    ],
+    "2": [
       "baseasrserver",
       "c_users_sun_downloads_light_whisper_src_tauri_resources_funasr_server_py",
       "c_users_sun_downloads_light_whisper_src_tauri_resources_whisper_server_py",
@@ -151,78 +231,71 @@
       "whisper_server_whisperserver_transcribe_audio",
       "whisper_server_whisperserver_warmup_inference"
     ],
-    "2": [
-      "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_provider_rs",
-      "llm_provider_apply_reasoning_controls",
-      "llm_provider_assistant_endpoint_for_config",
-      "llm_provider_assistant_endpoint_uses_separate_model_for_builtin_provider",
-      "llm_provider_assistant_endpoint_uses_separate_model_for_custom_provider",
-      "llm_provider_build_auth_headers",
-      "llm_provider_builds_cerebras_image_support_probe_url",
-      "llm_provider_builds_cerebras_public_model_probe_url",
-      "llm_provider_cerebras_glm_reports_reasoning_support",
-      "llm_provider_cerebras_public_model_probe_url",
-      "llm_provider_custom_preset_keeps_custom_endpoint_and_model",
-      "llm_provider_deepseek_reasoner_reports_reasoning_support",
-      "llm_provider_default_api_suffix",
-      "llm_provider_default_endpoint_parts",
-      "llm_provider_endpoint_for_config",
-      "llm_provider_endpoint_for_preview",
-      "llm_provider_image_support_cache_key",
-      "llm_provider_image_support_probe_url",
-      "llm_provider_indicates_unsupported",
-      "llm_provider_invalid_active_provider_falls_back_to_latest_custom_provider",
-      "llm_provider_is_cerebras_like_endpoint",
-      "llm_provider_is_deepseek_like_endpoint",
-      "llm_provider_is_gpt5_reasoning_model",
-      "llm_provider_is_preset",
-      "llm_provider_is_siliconflow_like_endpoint",
-      "llm_provider_is_volcengine_like_endpoint",
-      "llm_provider_keyring_user_for_provider",
-      "llm_provider_llmendpoint",
-      "llm_provider_llmreasoningsupport",
-      "llm_provider_load_api_key_for_active_provider",
-      "llm_provider_load_api_key_for_provider",
-      "llm_provider_looks_like_image_input_unsupported_error",
-      "llm_provider_looks_like_json_output_unsupported_error",
-      "llm_provider_looks_like_reasoning_unsupported_error",
-      "llm_provider_looks_like_web_search_unsupported_error",
-      "llm_provider_models_url",
-      "llm_provider_named_presets_ignore_custom_endpoint_overrides",
-      "llm_provider_named_presets_preserve_manual_model_override",
-      "llm_provider_normalize_anthropic_models_url",
-      "llm_provider_normalize_anthropic_url",
-      "llm_provider_normalize_api_url",
-      "llm_provider_normalize_models_url",
-      "llm_provider_only_cerebras_like_endpoints_use_public_model_probe",
-      "llm_provider_openai_non_reasoning_models_report_unsupported",
-      "llm_provider_parse_image_input_support_from_model_metadata",
-      "llm_provider_parses_multimodal_model_metadata_as_image_supported",
-      "llm_provider_parses_text_only_model_metadata_as_no_image_support",
-      "llm_provider_preview_endpoint_preserves_custom_provider_format",
-      "llm_provider_probe_image_support_from_provider_metadata",
-      "llm_provider_reasoning_control_kind",
-      "llm_provider_reasoning_support",
-      "llm_provider_reasoningcontrolkind",
-      "llm_provider_reasoningcontrolkind_strategy_name",
-      "llm_provider_reasoningcontrolkind_summary",
-      "llm_provider_recognizes_image_unsupported_errors",
-      "llm_provider_recognizes_json_output_unsupported_errors",
-      "llm_provider_recognizes_reasoning_unsupported_errors",
-      "llm_provider_save_or_delete_api_key",
-      "llm_provider_should_probe_cerebras_public_model_metadata",
-      "llm_provider_strip_reasoning_controls",
-      "llm_provider_supports_anthropic_thinking",
-      "llm_provider_supports_cerebras_reasoning",
-      "llm_provider_supports_deepseek_thinking",
-      "llm_provider_supports_siliconflow_reasoning",
-      "llm_provider_supports_volcengine_thinking",
-      "llm_provider_sync_assistant_api_key",
-      "llm_provider_sync_runtime_api_key",
-      "llm_provider_validation_endpoint_for_config",
-      "llm_provider_volcan_seed_2_models_report_reasoning_support"
-    ],
     "3": [
+      "architecture_llm_integration",
+      "architecture_python_asr_runtime",
+      "architecture_react_ui",
+      "architecture_rust_core",
+      "assistant_service_assistant_input_preserves_symbols_and_splits_cdata",
+      "assistant_service_build_assistant_system_prompt",
+      "assistant_service_build_assistant_user_content_with_selection",
+      "assistant_service_generate_content",
+      "assistant_service_render_assistant_user_content",
+      "assistant_service_run_third_party_search",
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_assistant_service_rs",
+      "doc_light_whisper_overview",
+      "doc_light_whisper_overview_zh",
+      "engine_faster_whisper",
+      "engine_glm_asr",
+      "engine_sensevoice",
+      "feature_ai_polish",
+      "feature_local_online_asr",
+      "feature_one_key_dictation",
+      "feature_screen_context",
+      "feature_selected_text_editing",
+      "feature_voice_assistant",
+      "feature_web_search_context",
+      "foreground_escape_cdata_text",
+      "foreground_foregroundapp",
+      "foreground_format_prompt_context",
+      "foreground_get_foreground_app",
+      "foreground_get_process_name",
+      "foreground_get_window_title",
+      "foreground_normalize_whitespace",
+      "foreground_omits_empty_prompt_context",
+      "foreground_preserves_xml_sensitive_characters_in_prompt_context",
+      "foreground_prompt_context_block",
+      "foreground_shortens_editor_window_titles_for_prompt_context",
+      "foreground_splits_cdata_terminator_safely",
+      "foreground_summarize_window_title",
+      "foreground_truncate_chars",
+      "foreground_wrap_xml_cdata",
+      "foreground_wraps_xml_cdata_helper",
+      "glm_asr_service_build_form",
+      "glm_asr_service_glmresponse",
+      "glm_asr_service_transcribe",
+      "main_main",
+      "screen_capture_service_capture_full_screen_context",
+      "screen_capture_service_capturedscreen",
+      "src_tauri_src_main_rs",
+      "src_tauri_src_services_glm_asr_service_rs",
+      "src_tauri_src_services_screen_capture_service_rs",
+      "src_tauri_src_services_web_search_service_rs",
+      "src_tauri_src_utils_foreground_rs",
+      "web_search_service_exa_search",
+      "web_search_service_jsonrpcresponse",
+      "web_search_service_mcpcontent",
+      "web_search_service_mcpresult",
+      "web_search_service_parse_exa_block_extracts_fields",
+      "web_search_service_parse_exa_text_block",
+      "web_search_service_render_search_context",
+      "web_search_service_searchresult",
+      "web_search_service_tavily_search",
+      "web_search_service_tavilyhit",
+      "web_search_service_tavilyresponse",
+      "web_search_service_truncate_str"
+    ],
+    "4": [
       "app_state_appstate",
       "app_state_appstate_active_llm_provider",
       "app_state_appstate_assistant_image_support",
@@ -280,7 +353,7 @@
       "app_state_uistate_default",
       "c_users_sun_downloads_light_whisper_src_tauri_src_state_app_state_rs"
     ],
-    "4": [
+    "5": [
       "c_users_sun_downloads_light_whisper_src_api_tauri_ts",
       "tauri_addcustomprovider",
       "tauri_addhotword",
@@ -334,7 +407,60 @@
       "tauri_updatecustomprovider",
       "tauri_validatecorrections"
     ],
-    "5": [
+    "6": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_client_rs",
+      "llm_client_adapt_body_for_backend",
+      "llm_client_anthropic_output_tokens",
+      "llm_client_anthropic_user_content",
+      "llm_client_api_error_message_falls_back_to_openai_compat_parser",
+      "llm_client_build_llm_body",
+      "llm_client_cerebras_json_output_disables_stream_to_preserve_response_format",
+      "llm_client_cerebras_without_json_output_keeps_stream",
+      "llm_client_chat_body_keeps_provider_default_reasoning",
+      "llm_client_chat_body_sets_max_tokens_for_openai_compat",
+      "llm_client_chatgpt_backend_keeps_max_output_tokens_by_default",
+      "llm_client_chatgpt_backend_responses_gpt5_reasoning_off_forces_stream_transport",
+      "llm_client_chatgpt_backend_responses_json_output_forces_stream_transport",
+      "llm_client_chatgpt_codex_api_key",
+      "llm_client_dynamic_timeout",
+      "llm_client_emit_stream_event",
+      "llm_client_extract_api_error_message",
+      "llm_client_extract_content",
+      "llm_client_extract_openai_compat_error_message",
+      "llm_client_extracts_partial_polished_from_incomplete_json",
+      "llm_client_extracts_polished_from_complete_json",
+      "llm_client_handles_escape_sequences_in_partial_polished",
+      "llm_client_inject_anthropic_web_search",
+      "llm_client_inject_openai_web_search",
+      "llm_client_is_retryable_overload_error",
+      "llm_client_llmimageinput",
+      "llm_client_llmrequestoptions",
+      "llm_client_llmrequestoptions_default",
+      "llm_client_llmuserinput",
+      "llm_client_llmuserinput_from",
+      "llm_client_looks_like_max_output_tokens_unsupported_error",
+      "llm_client_openai_chat_body_maps_reasoning_mode_to_effort",
+      "llm_client_openai_chat_user_content",
+      "llm_client_openai_endpoint",
+      "llm_client_openai_responses_user_content",
+      "llm_client_parses_openai_compat_top_level_error_message",
+      "llm_client_read_anthropic_sse_stream",
+      "llm_client_read_openai_responses_sse_stream",
+      "llm_client_read_sse_stream",
+      "llm_client_recognizes_max_output_tokens_unsupported_errors",
+      "llm_client_recognizes_retryable_queue_exceeded_errors",
+      "llm_client_responses_body_sets_max_output_tokens",
+      "llm_client_responses_body_uses_stream_without_forcing_reasoning",
+      "llm_client_returns_none_for_empty_polished_value",
+      "llm_client_returns_none_when_no_polished_field",
+      "llm_client_send_llm_request",
+      "llm_client_strip_max_output_tokens",
+      "llm_client_try_extract_partial_polished",
+      "llm_client_uses_codex_chatgpt_backend",
+      "llm_client_uses_responses_api",
+      "llm_client_volcengine_chat_body_maps_reasoning_mode_to_thinking"
+    ],
+    "7": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_funasr_service_rs",
       "funasr_service_check_model_files",
       "funasr_service_check_status",
@@ -384,57 +510,7 @@
       "funasr_service_transcriptionresult",
       "funasr_service_try_send_exit_command"
     ],
-    "6": [
-      "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_client_rs",
-      "llm_client_adapt_body_for_backend",
-      "llm_client_anthropic_output_tokens",
-      "llm_client_anthropic_user_content",
-      "llm_client_api_error_message_falls_back_to_openai_compat_parser",
-      "llm_client_build_llm_body",
-      "llm_client_cerebras_json_output_disables_stream_to_preserve_response_format",
-      "llm_client_cerebras_without_json_output_keeps_stream",
-      "llm_client_chat_body_keeps_provider_default_reasoning",
-      "llm_client_chat_body_sets_max_tokens_for_openai_compat",
-      "llm_client_chatgpt_backend_keeps_max_output_tokens_by_default",
-      "llm_client_dynamic_timeout",
-      "llm_client_emit_stream_event",
-      "llm_client_extract_api_error_message",
-      "llm_client_extract_content",
-      "llm_client_extract_openai_compat_error_message",
-      "llm_client_extracts_partial_polished_from_incomplete_json",
-      "llm_client_extracts_polished_from_complete_json",
-      "llm_client_handles_escape_sequences_in_partial_polished",
-      "llm_client_inject_anthropic_web_search",
-      "llm_client_inject_openai_web_search",
-      "llm_client_is_retryable_overload_error",
-      "llm_client_llmimageinput",
-      "llm_client_llmrequestoptions",
-      "llm_client_llmrequestoptions_default",
-      "llm_client_llmuserinput",
-      "llm_client_llmuserinput_from",
-      "llm_client_looks_like_max_output_tokens_unsupported_error",
-      "llm_client_openai_chat_body_maps_reasoning_mode_to_effort",
-      "llm_client_openai_chat_user_content",
-      "llm_client_openai_endpoint",
-      "llm_client_openai_responses_user_content",
-      "llm_client_parses_openai_compat_top_level_error_message",
-      "llm_client_read_anthropic_sse_stream",
-      "llm_client_read_openai_responses_sse_stream",
-      "llm_client_read_sse_stream",
-      "llm_client_recognizes_max_output_tokens_unsupported_errors",
-      "llm_client_recognizes_retryable_queue_exceeded_errors",
-      "llm_client_responses_body_sets_max_output_tokens",
-      "llm_client_responses_body_uses_stream_without_forcing_reasoning",
-      "llm_client_returns_none_for_empty_polished_value",
-      "llm_client_returns_none_when_no_polished_field",
-      "llm_client_send_llm_request",
-      "llm_client_strip_max_output_tokens",
-      "llm_client_try_extract_partial_polished",
-      "llm_client_uses_codex_chatgpt_backend",
-      "llm_client_uses_responses_api",
-      "llm_client_volcengine_chat_body_maps_reasoning_mode_to_thinking"
-    ],
-    "7": [
+    "8": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_codex_oauth_service_rs",
       "codex_oauth_service_accept_callback_connection",
       "codex_oauth_service_authclaims",
@@ -482,53 +558,6 @@
       "codex_oauth_service_tokenresponse",
       "codex_oauth_service_wait_for_callback",
       "codex_oauth_service_write_session_meta"
-    ],
-    "8": [
-      "architecture_llm_integration",
-      "architecture_python_asr_runtime",
-      "architecture_react_ui",
-      "architecture_rust_core",
-      "assistant_service_assistant_input_preserves_symbols_and_splits_cdata",
-      "assistant_service_build_assistant_system_prompt",
-      "assistant_service_build_assistant_user_content_with_selection",
-      "assistant_service_generate_content",
-      "assistant_service_render_assistant_user_content",
-      "assistant_service_run_third_party_search",
-      "c_users_sun_downloads_light_whisper_src_tauri_src_services_assistant_service_rs",
-      "doc_light_whisper_overview",
-      "doc_light_whisper_overview_zh",
-      "engine_faster_whisper",
-      "engine_glm_asr",
-      "engine_sensevoice",
-      "feature_ai_polish",
-      "feature_local_online_asr",
-      "feature_one_key_dictation",
-      "feature_screen_context",
-      "feature_selected_text_editing",
-      "feature_voice_assistant",
-      "feature_web_search_context",
-      "glm_asr_service_build_form",
-      "glm_asr_service_glmresponse",
-      "glm_asr_service_transcribe",
-      "main_main",
-      "screen_capture_service_capture_full_screen_context",
-      "screen_capture_service_capturedscreen",
-      "src_tauri_src_main_rs",
-      "src_tauri_src_services_glm_asr_service_rs",
-      "src_tauri_src_services_screen_capture_service_rs",
-      "src_tauri_src_services_web_search_service_rs",
-      "web_search_service_exa_search",
-      "web_search_service_jsonrpcresponse",
-      "web_search_service_mcpcontent",
-      "web_search_service_mcpresult",
-      "web_search_service_parse_exa_block_extracts_fields",
-      "web_search_service_parse_exa_text_block",
-      "web_search_service_render_search_context",
-      "web_search_service_searchresult",
-      "web_search_service_tavily_search",
-      "web_search_service_tavilyhit",
-      "web_search_service_tavilyresponse",
-      "web_search_service_truncate_str"
     ],
     "9": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_profile_service_rs",
@@ -809,25 +838,6 @@
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_alibaba_asr_service_rs"
     ],
     "18": [
-      "foreground_escape_cdata_text",
-      "foreground_foregroundapp",
-      "foreground_format_prompt_context",
-      "foreground_get_foreground_app",
-      "foreground_get_process_name",
-      "foreground_get_window_title",
-      "foreground_normalize_whitespace",
-      "foreground_omits_empty_prompt_context",
-      "foreground_preserves_xml_sensitive_characters_in_prompt_context",
-      "foreground_prompt_context_block",
-      "foreground_shortens_editor_window_titles_for_prompt_context",
-      "foreground_splits_cdata_terminator_safely",
-      "foreground_summarize_window_title",
-      "foreground_truncate_chars",
-      "foreground_wrap_xml_cdata",
-      "foreground_wraps_xml_cdata_helper",
-      "src_tauri_src_utils_foreground_rs"
-    ],
-    "19": [
       "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_window_rs",
       "feature_subtitle_overlay",
@@ -845,7 +855,7 @@
       "window_show_subtitle_window",
       "window_tauri_error"
     ],
-    "20": [
+    "19": [
       "audio_clear_pending_recording_if_current",
       "audio_list_input_devices",
       "audio_set_input_device",
@@ -860,7 +870,7 @@
       "audio_test_microphone",
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_audio_rs"
     ],
-    "21": [
+    "20": [
       "c_users_sun_downloads_light_whisper_scripts_rebuild_graphify_py",
       "rebuild_graphify_build_ast_extraction",
       "rebuild_graphify_build_labels",
@@ -874,7 +884,7 @@
       "rebuild_graphify_merge_extractions",
       "rebuild_graphify_titleize"
     ],
-    "22": [
+    "21": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_lib_rs",
       "lib_focus_main_window",
       "lib_hide_main_window",
@@ -887,7 +897,7 @@
       "lib_stop_funasr_on_exit",
       "lib_toggle_main_window"
     ],
-    "23": [
+    "22": [
       "ai_polish_aimodelinfo",
       "ai_polish_aimodellistpayload",
       "ai_polish_anthropic_models",
@@ -900,7 +910,7 @@
       "ai_polish_set_assistant_api_key",
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_ai_polish_rs"
     ],
-    "24": [
+    "23": [
       "clipboard_copy_to_clipboard",
       "clipboard_grab_selected_text",
       "clipboard_grab_selected_text_uia",
@@ -913,7 +923,7 @@
       "clipboard_write_text_to_clipboard",
       "src_tauri_src_commands_clipboard_rs"
     ],
-    "25": [
+    "24": [
       "src_tauri_src_commands_updater_rs",
       "updater_appupdateinfo",
       "updater_check_app_update",
@@ -925,7 +935,7 @@
       "updater_open_external_url",
       "updater_parse_version"
     ],
-    "26": [
+    "25": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_download_service_rs",
       "download_service_clear_download_task",
       "download_service_downloadline",
@@ -937,7 +947,7 @@
       "download_service_parse_json_line_with_recovery",
       "download_service_run_download"
     ],
-    "27": [
+    "26": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_capture_rs",
       "capture_compute_waveform_bars",
       "capture_list_input_devices_sync",
@@ -949,7 +959,7 @@
       "capture_spawn_audio_capture_thread",
       "capture_spawn_waveform_emitter"
     ],
-    "28": [
+    "27": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_finalize_rs",
       "finalize_discard_recording",
       "finalize_do_final_asr",
@@ -961,7 +971,7 @@
       "finalize_flush_pending_paste",
       "finalize_schedule_hide"
     ],
-    "29": [
+    "28": [
       "hotkey_collectmodifiers",
       "hotkey_eventmainkey",
       "hotkey_formathotkeyfordisplay",
@@ -972,7 +982,7 @@
       "hotkey_normalizemainkeytoken",
       "src_lib_hotkey_ts"
     ],
-    "30": [
+    "29": [
       "download_models_candidate_endpoints",
       "download_models_cleanup_locks",
       "download_models_download_file",
@@ -983,7 +993,7 @@
       "download_models_rationale_123",
       "src_tauri_resources_download_models_py"
     ],
-    "31": [
+    "30": [
       "assistant_get_web_search_api_key",
       "assistant_set_assistant_hotkey",
       "assistant_set_assistant_screen_context_enabled",
@@ -993,7 +1003,7 @@
       "assistant_web_search_keyring_user",
       "src_tauri_src_commands_assistant_rs"
     ],
-    "32": [
+    "31": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_monitor_rs",
       "monitor_mono_peak_f32",
       "monitor_mono_peak_i16",
@@ -1003,7 +1013,7 @@
       "monitor_stop_microphone_level_monitor",
       "monitor_test_microphone_sync"
     ],
-    "33": [
+    "32": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_utils_sound_rs",
       "sound_generate_double_tone",
       "sound_generate_tone",
@@ -1013,7 +1023,7 @@
       "sound_play_stop_sound",
       "sound_play_wav_async"
     ],
-    "34": [
+    "33": [
       "engine_cmd_download",
       "engine_cmd_serve",
       "engine_main",
@@ -1021,7 +1031,7 @@
       "engine_setup_frozen_paths",
       "src_tauri_resources_engine_py"
     ],
-    "35": [
+    "34": [
       "hf_cache_utils_get_hf_cache_root",
       "hf_cache_utils_is_hf_repo_ready",
       "hf_cache_utils_rationale_1",
@@ -1029,242 +1039,242 @@
       "hf_cache_utils_rationale_35",
       "src_tauri_resources_hf_cache_utils_py"
     ],
-    "36": [
+    "35": [
       "src_components_statusindicator_tsx",
       "statusindicator_getchiplabel",
       "statusindicator_getdevicelabel",
       "statusindicator_getloadingprogress",
       "statusindicator_getstatustext"
     ],
-    "37": [
+    "36": [
       "src_hooks_usemodelstatus_ts",
       "usemodelstatus_getenginestartfallbackmessage",
       "usemodelstatus_normalizeprogress",
       "usemodelstatus_toerrormessage",
       "usemodelstatus_usemodelstatus"
     ],
-    "38": [
+    "37": [
       "src_hooks_usetheme_ts",
       "usetheme_applythemetodom",
       "usetheme_getsystemprefersdark",
       "usetheme_resolveisdark",
       "usetheme_usetheme"
     ],
-    "39": [
+    "38": [
       "main_componentdidcatch",
       "main_constructor",
       "main_getderivedstatefromerror",
       "src_main_tsx"
     ],
-    "40": [
+    "39": [
       "src_hooks_usehotkey_ts",
       "usehotkey_readstoredhotkey",
       "usehotkey_usehotkey",
       "usehotkey_writestoredhotkey"
     ],
-    "41": [
+    "40": [
       "c_users_sun_downloads_light_whisper_src_hooks_usesmoothtext_ts",
       "usesmoothtext_prefersreducedmotion",
       "usesmoothtext_segmentgraphemes",
       "usesmoothtext_usesmoothtext"
     ],
-    "42": [
+    "41": [
       "codex_oauth_get_openai_codex_oauth_status",
       "codex_oauth_login_openai_codex_oauth",
       "codex_oauth_logout_openai_codex_oauth",
       "src_tauri_src_commands_codex_oauth_rs"
     ],
-    "43": [
+    "42": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_resample_rs",
       "resample_f32_to_i16",
       "resample_resample_to_16k",
       "resample_u16_to_i16"
     ],
-    "44": [
+    "43": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_wav_rs",
       "wav_encode_wav",
       "wav_test_encode_wav_handles_empty_samples",
       "wav_test_encode_wav_returns_ok_for_normal_samples"
     ],
-    "45": [
+    "44": [
       "error_apperror",
       "error_apperror_from",
       "error_apperror_serialize",
       "src_tauri_src_utils_error_rs"
     ],
-    "46": [
+    "45": [
       "appwindow_appwindow",
       "appwindow_circle",
       "promo_src_components_appwindow_tsx"
     ],
-    "47": [
+    "46": [
       "c_users_sun_downloads_light_whisper_src_contexts_recordingcontext_tsx",
       "recordingcontext_recordingprovider",
       "recordingcontext_userecordingcontext"
     ],
-    "48": [
+    "47": [
       "c_users_sun_downloads_light_whisper_src_hooks_userecording_ts",
       "userecording_userecording",
       "userecording_usetaurievent"
     ],
-    "49": [
+    "48": [
       "src_lib_storage_ts",
       "storage_readlocalstorage",
       "storage_writelocalstorage"
     ],
-    "50": [
+    "49": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_interim_rs",
       "interim_adjust_interval",
       "interim_spawn_interim_loop"
     ],
-    "51": [
+    "50": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_mod_rs",
       "mod_inputdeviceinfo",
       "mod_inputdevicelistpayload"
     ],
-    "52": [
+    "51": [
       "promo_src_root_tsx",
       "root_remotionroot"
     ],
-    "53": [
+    "52": [
       "cursor_blinkingcursor",
       "promo_src_components_cursor_tsx"
     ],
-    "54": [
+    "53": [
       "src_components_titlebar_tsx",
       "titlebar_startdrag"
     ],
-    "55": [
+    "54": [
       "c_users_sun_downloads_light_whisper_src_contexts_tests_recordingcontext_test_tsx",
       "recordingcontext_test_flushpromises"
     ],
-    "56": [
+    "55": [
       "src_hooks_usedebouncedcallback_ts",
       "usedebouncedcallback_usedebouncedcallback"
     ],
-    "57": [
+    "56": [
       "src_hooks_useexclusivepicker_ts",
       "useexclusivepicker_useexclusivepicker"
     ],
-    "58": [
+    "57": [
       "src_hooks_usehotkeycapture_ts",
       "usehotkeycapture_usehotkeycapture"
     ],
-    "59": [
+    "58": [
       "c_users_sun_downloads_light_whisper_src_hooks_tests_userecording_test_tsx",
       "userecording_test_flushmicrotasks"
     ],
-    "60": [
+    "59": [
       "c_users_sun_downloads_light_whisper_src_test_taurieventmock_ts",
       "taurieventmock_createtaurieventcontroller"
     ],
-    "61": [
+    "60": [
       "vite_config_ts"
     ],
-    "62": [
+    "61": [
       "c_users_sun_downloads_light_whisper_vitest_config_ts"
     ],
-    "63": [
+    "62": [
       "promo_remotion_config_ts"
     ],
-    "64": [
+    "63": [
       "promo_src_index_ts"
     ],
-    "65": [
+    "64": [
       "promo_src_showcasevideo_tsx"
     ],
-    "66": [
+    "65": [
       "promo_src_theme_ts"
     ],
-    "67": [
+    "66": [
       "promo_src_components_cinematic_tsx"
     ],
-    "68": [
+    "67": [
       "promo_src_components_micbutton_tsx"
     ],
-    "69": [
+    "68": [
       "promo_src_components_resultcard_tsx"
     ],
-    "70": [
+    "69": [
       "promo_src_components_subtitlecapsule_tsx"
     ],
-    "71": [
+    "70": [
       "promo_src_scenes_assistant_tsx"
     ],
-    "72": [
+    "71": [
       "promo_src_scenes_dictation_tsx"
     ],
-    "73": [
+    "72": [
       "promo_src_scenes_editmode_tsx"
     ],
-    "74": [
+    "73": [
       "promo_src_scenes_intro_tsx"
     ],
-    "75": [
+    "74": [
       "promo_src_scenes_outro_tsx"
     ],
-    "76": [
+    "75": [
       "promo_src_scenes_translation_tsx"
     ],
-    "77": [
+    "76": [
       "src_vite_env_d_ts"
     ],
-    "78": [
+    "77": [
       "c_users_sun_downloads_light_whisper_src_components_kbd_tsx"
     ],
-    "79": [
+    "78": [
       "src_components_recordingbutton_tsx"
     ],
-    "80": [
+    "79": [
       "src_components_transcriptionhistory_tsx"
     ],
-    "81": [
+    "80": [
       "c_users_sun_downloads_light_whisper_src_components_transcriptionresult_tsx"
     ],
-    "82": [
+    "81": [
       "c_users_sun_downloads_light_whisper_src_i18n_en_ts"
     ],
-    "83": [
+    "82": [
       "src_i18n_index_ts"
     ],
-    "84": [
+    "83": [
       "c_users_sun_downloads_light_whisper_src_i18n_zh_ts"
     ],
-    "85": [
+    "84": [
       "src_lib_constants_ts"
     ],
-    "86": [
+    "85": [
       "c_users_sun_downloads_light_whisper_src_pages_mainpage_tsx"
     ],
-    "87": [
+    "86": [
       "c_users_sun_downloads_light_whisper_src_test_setup_ts"
     ],
-    "88": [
+    "87": [
       "c_users_sun_downloads_light_whisper_src_types_index_ts"
     ],
-    "89": [
+    "88": [
       "src_tauri_src_commands_mod_rs"
     ],
-    "90": [
+    "89": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_mod_rs"
     ],
-    "91": [
+    "90": [
       "src_tauri_src_state_mod_rs"
     ],
-    "92": [
+    "91": [
       "src_tauri_src_utils_mod_rs"
     ]
   },
   "cohesion": {
     "0": 0.07,
-    "1": 0.04,
-    "2": 0.06,
-    "3": 0.04,
-    "4": 0.07,
-    "5": 0.08,
+    "1": 0.05,
+    "2": 0.04,
+    "3": 0.05,
+    "4": 0.04,
+    "5": 0.07,
     "6": 0.09,
     "7": 0.08,
-    "8": 0.06,
+    "8": 0.08,
     "9": 0.11,
     "10": 0.11,
     "11": 0.08,
@@ -1274,40 +1284,40 @@
     "15": 0.1,
     "16": 0.13,
     "17": 0.15,
-    "18": 0.2,
-    "19": 0.27,
-    "20": 0.21,
-    "21": 0.3,
-    "22": 0.38,
-    "23": 0.24,
-    "24": 0.35,
-    "25": 0.33,
-    "26": 0.24,
-    "27": 0.33,
-    "28": 0.42,
-    "29": 0.36,
-    "30": 0.42,
-    "31": 0.36,
-    "32": 0.43,
-    "33": 0.54,
-    "34": 0.53,
+    "18": 0.27,
+    "19": 0.21,
+    "20": 0.3,
+    "21": 0.38,
+    "22": 0.24,
+    "23": 0.35,
+    "24": 0.33,
+    "25": 0.24,
+    "26": 0.33,
+    "27": 0.42,
+    "28": 0.36,
+    "29": 0.42,
+    "30": 0.36,
+    "31": 0.43,
+    "32": 0.54,
+    "33": 0.53,
+    "34": 0.4,
     "35": 0.4,
     "36": 0.4,
-    "37": 0.4,
+    "37": 0.5,
     "38": 0.5,
     "39": 0.5,
-    "40": 0.5,
-    "41": 0.67,
-    "42": 0.5,
-    "43": 0.67,
-    "44": 0.83,
-    "45": 0.5,
+    "40": 0.67,
+    "41": 0.5,
+    "42": 0.67,
+    "43": 0.83,
+    "44": 0.5,
+    "45": 0.67,
     "46": 0.67,
-    "47": 0.67,
-    "48": 1.0,
-    "49": 0.67,
-    "50": 1.0,
-    "51": 0.67,
+    "47": 1.0,
+    "48": 0.67,
+    "49": 1.0,
+    "50": 0.67,
+    "51": 1.0,
     "52": 1.0,
     "53": 1.0,
     "54": 1.0,
@@ -1347,8 +1357,7 @@
     "88": 1.0,
     "89": 1.0,
     "90": 1.0,
-    "91": 1.0,
-    "92": 1.0
+    "91": 1.0
   },
   "gods": [
     {
@@ -1372,6 +1381,11 @@
       "edges": 18
     },
     {
+      "id": "llm_provider_endpoint_for_preview",
+      "label": "endpoint_for_preview()",
+      "edges": 16
+    },
+    {
       "id": "hotkey_register_custom_hotkey",
       "label": "register_custom_hotkey()",
       "edges": 15
@@ -1382,24 +1396,19 @@
       "edges": 15
     },
     {
-      "id": "llm_provider_endpoint_for_config",
-      "label": "endpoint_for_config()",
-      "edges": 14
-    },
-    {
-      "id": "whisper_server_whisperserver",
-      "label": "WhisperServer",
-      "edges": 13
-    },
-    {
       "id": "llm_client_build_llm_body",
       "label": "build_llm_body()",
-      "edges": 13
+      "edges": 15
     },
     {
       "id": "llm_client_send_llm_request",
       "label": "send_llm_request()",
-      "edges": 13
+      "edges": 14
+    },
+    {
+      "id": "llm_provider_endpoint_for_config",
+      "label": "endpoint_for_config()",
+      "edges": 14
     }
   ],
   "surprises": [
@@ -1462,17 +1471,17 @@
   "questions": [
     {
       "type": "bridge_node",
-      "question": "Why does `Light-Whisper overview` connect `R E A D M E` to `Profile Service`, `Window`, `Profile`?",
-      "why": "High betweenness centrality (0.142) - this node is a cross-community bridge."
+      "question": "Why does `Light-Whisper overview` connect `Foreground Context` to `Profile Service`, `Window`, `Profile`?",
+      "why": "High betweenness centrality (0.143) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `LLM integration layer` connect `R E A D M E` to `LLM Provider`, `LLM Client`?",
-      "why": "High betweenness centrality (0.091) - this node is a cross-community bridge."
+      "question": "Why does `LLM integration layer` connect `Foreground Context` to `LLM Provider`, `LLM Client`?",
+      "why": "High betweenness centrality (0.098) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `polish_text()` connect `Ai Polish Service` to `R E A D M E`, `Release Packaging`?",
+      "question": "Why does `polish_text()` connect `Ai Polish Service` to `Foreground Context`, `Release Packaging`?",
       "why": "High betweenness centrality (0.074) - this node is a cross-community bridge."
     },
     {
@@ -1492,8 +1501,8 @@
     },
     {
       "type": "low_cohesion",
-      "question": "Should `Python ASR Runtime` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.04 - nodes in this community are weakly interconnected."
+      "question": "Should `LLM Provider` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.05 - nodes in this community are weakly interconnected."
     }
   ]
 }

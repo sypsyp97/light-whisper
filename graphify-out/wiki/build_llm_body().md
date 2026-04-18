@@ -1,14 +1,16 @@
 # build_llm_body()
 
-> God node · 13 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+> God node · 15 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 
 ## Connections by Relation
 
 ### calls
 - [[chatgpt_backend_keeps_max_output_tokens_by_default()]] `EXTRACTED`
+- [[chatgpt_backend_responses_json_output_forces_stream_transport()]] `EXTRACTED`
+- [[chatgpt_backend_responses_gpt5_reasoning_off_forces_stream_transport()]] `EXTRACTED`
+- [[uses_responses_api()]] `EXTRACTED`
 - [[chat_body_sets_max_tokens_for_openai_compat()]] `EXTRACTED`
 - [[responses_body_sets_max_output_tokens()]] `EXTRACTED`
-- [[uses_responses_api()]] `EXTRACTED`
 - [[responses_body_uses_stream_without_forcing_reasoning()]] `EXTRACTED`
 - [[chat_body_keeps_provider_default_reasoning()]] `EXTRACTED`
 - [[openai_chat_body_maps_reasoning_mode_to_effort()]] `EXTRACTED`

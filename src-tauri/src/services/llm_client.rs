@@ -78,6 +78,9 @@ fn adapt_body_for_backend(endpoint: &LlmEndpoint, api_key: &str, body: &Value) -
 
     if let Some(map) = adapted.as_object_mut() {
         map.insert("store".to_string(), serde_json::json!(false));
+        if uses_responses_api(endpoint) {
+            map.insert("stream".to_string(), serde_json::json!(true));
+        }
     }
 
     adapted
@@ -310,14 +313,14 @@ fn try_extract_partial_polished(accumulated: &str) -> Option<String> {
 }
 
 fn emit_stream_event(
-    app_handle: &tauri::AppHandle,
+    app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
     chunk: Option<&str>,
     tokens: usize,
     partial_text: Option<&str>,
 ) {
-    if let Some(event_name) = event_name {
+    if let (Some(app_handle), Some(event_name)) = (app_handle, event_name) {
         let mut payload = serde_json::json!({ "status": "streaming" });
         if let Some(chunk) = chunk {
             payload["chunk"] = serde_json::json!(chunk);
@@ -344,7 +347,7 @@ fn anthropic_output_tokens(json: &Value) -> Option<usize> {
 
 pub async fn read_sse_stream(
     response: reqwest::Response,
-    app_handle: &tauri::AppHandle,
+    app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
 ) -> Result<String, String> {
@@ -392,7 +395,7 @@ pub async fn read_sse_stream(
 pub async fn read_openai_responses_sse_stream(
     response: reqwest::Response,
     endpoint: &LlmEndpoint,
-    app_handle: &tauri::AppHandle,
+    app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
 ) -> Result<String, String> {
@@ -512,7 +515,7 @@ pub async fn read_openai_responses_sse_stream(
 
 pub async fn read_anthropic_sse_stream(
     response: reqwest::Response,
-    app_handle: &tauri::AppHandle,
+    app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
 ) -> Result<String, String> {
@@ -688,6 +691,12 @@ pub async fn send_llm_request(
         }
     }
     let timeout = dynamic_timeout(endpoint.timeout_secs, text_len);
+    let request_body = adapt_body_for_backend(endpoint, api_key, body);
+    let transport_stream = request_body
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let requested_stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
     async fn dispatch_request(
         http_client: &reqwest::Client,
@@ -702,9 +711,8 @@ pub async fn send_llm_request(
         } else {
             endpoint.api_url.as_str()
         };
-        let request_body = adapt_body_for_backend(endpoint, api_key, body);
         let request = http_client.post(request_url).headers(headers);
-        tokio::time::timeout(timeout, request.json(&request_body).send())
+        tokio::time::timeout(timeout, request.json(body).send())
             .await
             .map_err(|_| format!("请求超时（{} 秒）", timeout.as_secs()))?
             .map_err(|e| format!("请求失败: {}", e))
@@ -715,7 +723,7 @@ pub async fn send_llm_request(
         endpoint,
         api_key,
         headers.clone(),
-        body,
+        &request_body,
         timeout,
     )
     .await?;
@@ -741,7 +749,7 @@ pub async fn send_llm_request(
                     endpoint,
                     api_key,
                     headers.clone(),
-                    body,
+                    &request_body,
                     timeout,
                 )
                 .await?;
@@ -767,7 +775,7 @@ pub async fn send_llm_request(
                 endpoint.model,
                 error_message
             );
-            let mut fallback_body = body.clone();
+            let mut fallback_body = request_body.clone();
             strip_max_output_tokens(&mut fallback_body);
             response = dispatch_request(
                 http_client,
@@ -793,7 +801,7 @@ pub async fn send_llm_request(
                 endpoint.model,
                 error_message
             );
-            let mut fallback_body = body.clone();
+            let mut fallback_body = request_body.clone();
             llm_provider::strip_reasoning_controls(&mut fallback_body);
             response = dispatch_request(
                 http_client,
@@ -817,18 +825,16 @@ pub async fn send_llm_request(
 
     // 根据 body 中实际是否启用了 stream 来决定响应解析方式
     // （build_llm_body 可能因供应商限制而跳过 stream，如 Cerebras json_object 不兼容流式）
-    let actually_streaming = body
-        .get("stream")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-
-    if actually_streaming {
-        let app_handle = app_handle.ok_or_else(|| "流式请求缺少 app_handle".to_string())?;
+    if transport_stream {
+        if requested_stream && app_handle.is_none() {
+            return Err("流式请求缺少 app_handle".to_string());
+        }
+        let stream_app_handle = if requested_stream { app_handle } else { None };
         match endpoint.api_format {
             ApiFormat::Anthropic => {
                 read_anthropic_sse_stream(
                     response,
-                    app_handle,
+                    stream_app_handle,
                     options.stream_event,
                     options.session_id,
                 )
@@ -839,7 +845,7 @@ pub async fn send_llm_request(
                     read_openai_responses_sse_stream(
                         response,
                         endpoint,
-                        app_handle,
+                        stream_app_handle,
                         options.stream_event,
                         options.session_id,
                     )
@@ -847,7 +853,7 @@ pub async fn send_llm_request(
                 } else {
                     read_sse_stream(
                         response,
-                        app_handle,
+                        stream_app_handle,
                         options.stream_event,
                         options.session_id,
                     )
@@ -884,6 +890,15 @@ mod tests {
             timeout_secs: 10,
             api_format: ApiFormat::OpenaiCompat,
         }
+    }
+
+    fn chatgpt_codex_api_key() -> String {
+        format!(
+            "openai-codex-chatgpt:{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+                r#"{"access_token":"test","account_id":"acc"}"#
+            )
+        )
     }
 
     #[test]
@@ -1070,6 +1085,56 @@ mod tests {
 
         assert_eq!(adapted["max_output_tokens"], serde_json::json!(4096));
         assert_eq!(adapted["store"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn chatgpt_backend_responses_json_output_forces_stream_transport() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                stream: false,
+                json_output: true,
+                reasoning_mode: LlmReasoningMode::ProviderDefault,
+                stream_event: None,
+                session_id: None,
+                web_search: false,
+            },
+        );
+        let api_key = chatgpt_codex_api_key();
+
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body);
+
+        assert_eq!(adapted["store"], serde_json::json!(false));
+        assert_eq!(adapted["stream"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn chatgpt_backend_responses_gpt5_reasoning_off_forces_stream_transport() {
+        let mut endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        endpoint.model = "gpt-5.1-mini".to_string();
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                stream: false,
+                json_output: false,
+                reasoning_mode: LlmReasoningMode::Off,
+                stream_event: None,
+                session_id: None,
+                web_search: false,
+            },
+        );
+        let api_key = chatgpt_codex_api_key();
+
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body);
+
+        assert_eq!(adapted["store"], serde_json::json!(false));
+        assert_eq!(adapted["reasoning"]["effort"], serde_json::json!("none"));
+        assert_eq!(adapted["stream"], serde_json::json!(true));
     }
 
     #[test]

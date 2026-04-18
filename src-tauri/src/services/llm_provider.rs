@@ -568,10 +568,58 @@ pub fn is_cerebras_like_endpoint(endpoint: &LlmEndpoint) -> bool {
             .contains("cerebras.ai")
 }
 
-fn is_gpt5_reasoning_model(model: &str) -> bool {
+const GPT5_EFFORTS: &[&str] = &["minimal", "low", "medium", "high"];
+const GPT5_1_EFFORTS: &[&str] = &["none", "low", "medium", "high"];
+const GPT5_2_54_EFFORTS: &[&str] = &["none", "low", "medium", "high", "xhigh"];
+const GPT5_PRO_EFFORTS: &[&str] = &["high"];
+const GPT5_2_54_PRO_EFFORTS: &[&str] = &["medium", "high", "xhigh"];
+const GPT5_2_3_CODEX_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
+const GPT5_1_CODEX_MAX_EFFORTS: &[&str] = &["none", "medium", "high", "xhigh"];
+
+fn openai_gpt5_reasoning_efforts(model: &str) -> Option<&'static [&'static str]> {
     let normalized = model.trim().to_ascii_lowercase();
     let tail = normalized.rsplit('/').next().unwrap_or(&normalized);
-    tail.starts_with("gpt-5")
+    match tail {
+        "gpt-5-pro" => Some(GPT5_PRO_EFFORTS),
+        _ if tail.starts_with("gpt-5-pro-") => Some(GPT5_PRO_EFFORTS),
+        "gpt-5.2-pro" | "gpt-5.4-pro" => Some(GPT5_2_54_PRO_EFFORTS),
+        _ if tail.starts_with("gpt-5.2-pro-") || tail.starts_with("gpt-5.4-pro-") => {
+            Some(GPT5_2_54_PRO_EFFORTS)
+        }
+        "gpt-5.2-codex" | "gpt-5.3-codex" => Some(GPT5_2_3_CODEX_EFFORTS),
+        _ if tail.starts_with("gpt-5.2-codex-") || tail.starts_with("gpt-5.3-codex-") => {
+            Some(GPT5_2_3_CODEX_EFFORTS)
+        }
+        "gpt-5.1-codex-max" => Some(GPT5_1_CODEX_MAX_EFFORTS),
+        _ if tail.starts_with("gpt-5.1-codex-max-") => Some(GPT5_1_CODEX_MAX_EFFORTS),
+        "gpt-5-mini" | "gpt-5-nano" => Some(GPT5_EFFORTS),
+        _ if tail.starts_with("gpt-5-mini-") || tail.starts_with("gpt-5-nano-") => {
+            Some(GPT5_EFFORTS)
+        }
+        "gpt-5.1" => Some(GPT5_1_EFFORTS),
+        _ if tail.starts_with("gpt-5.1-") => Some(GPT5_1_EFFORTS),
+        "gpt-5.2" | "gpt-5.4" => Some(GPT5_2_54_EFFORTS),
+        _ if tail.starts_with("gpt-5.2-") || tail.starts_with("gpt-5.4-") => {
+            Some(GPT5_2_54_EFFORTS)
+        }
+        "gpt-5" => Some(GPT5_EFFORTS),
+        _ if tail.starts_with("gpt-5-") => Some(GPT5_EFFORTS),
+        _ => None,
+    }
+}
+
+fn openai_gpt5_effort_for_mode(model: &str, mode: LlmReasoningMode) -> Option<&'static str> {
+    let efforts = openai_gpt5_reasoning_efforts(model)?;
+    let index = match mode {
+        LlmReasoningMode::Off => 0,
+        LlmReasoningMode::Light => 1,
+        LlmReasoningMode::Balanced => 2,
+        LlmReasoningMode::Deep => 3,
+        LlmReasoningMode::ProviderDefault => return None,
+    }
+    .min(efforts.len() - 1);
+
+    Some(efforts[index])
 }
 
 fn supports_anthropic_thinking(model: &str) -> bool {
@@ -710,7 +758,7 @@ fn reasoning_control_kind(
         }
     }
 
-    if is_gpt5_reasoning_model(model) {
+    if openai_gpt5_reasoning_efforts(model).is_some() {
         return Some(ReasoningControlKind::OpenaiEffort);
     }
 
@@ -736,7 +784,7 @@ pub fn reasoning_support(endpoint: &LlmEndpoint, uses_responses_api: bool) -> Ll
         "当前 SiliconFlow 模型不在官方支持 thinking_budget 的推理模型范围内，思考模式不可用。"
     } else if is_cerebras_like_endpoint(endpoint) {
         "当前 Cerebras 模型未识别到官方 reasoning_effort 支持，思考模式不可用。"
-    } else if is_gpt5_reasoning_model(&endpoint.model) {
+    } else if openai_gpt5_reasoning_efforts(&endpoint.model).is_some() {
         "当前模型名看起来属于 GPT-5，但当前接口路径不支持对应的思考控制参数。"
     } else {
         "当前模型未识别到官方思考控制参数，思考模式不可用。"
@@ -823,12 +871,8 @@ pub fn apply_reasoning_controls(
             body["disable_reasoning"] = serde_json::json!(mode == LlmReasoningMode::Off);
         }
         (ReasoningControlKind::OpenaiEffort, _) => {
-            let effort = match mode {
-                LlmReasoningMode::Off => "minimal",
-                LlmReasoningMode::Light => "low",
-                LlmReasoningMode::Balanced => "medium",
-                LlmReasoningMode::Deep => "high",
-                LlmReasoningMode::ProviderDefault => return,
+            let Some(effort) = openai_gpt5_effort_for_mode(&endpoint.model, mode) else {
+                return;
             };
 
             if uses_responses_api {
@@ -1319,6 +1363,99 @@ mod tests {
 
         assert!(!support.supported);
         assert!(support.summary.contains("不可用"));
+    }
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    fn reasoning_efforts_for_modes(endpoint: &LlmEndpoint) -> Vec<String> {
+        [
+            LlmReasoningMode::Off,
+            LlmReasoningMode::Light,
+            LlmReasoningMode::Balanced,
+            LlmReasoningMode::Deep,
+        ]
+        .into_iter()
+        .map(|mode| {
+            let mut body = serde_json::json!({});
+            apply_reasoning_controls(endpoint, true, &mut body, mode);
+            body["reasoning"]["effort"]
+                .as_str()
+                .expect("reasoning.effort should be set")
+                .to_string()
+        })
+        .collect()
+    }
+
+    #[test]
+    fn openai_gpt5_4_off_maps_reasoning_effort_to_none() {
+        let endpoint =
+            endpoint_for_preview(OPENAI, None, Some("gpt-5.4"), ApiFormat::OpenaiCompat);
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, true, &mut body, LlmReasoningMode::Off);
+
+        assert_eq!(body["reasoning"]["effort"], serde_json::json!("none"));
+    }
+
+    #[test]
+    fn openai_gpt5_mini_keeps_minimal_family_mapping() {
+        let endpoint =
+            endpoint_for_preview(OPENAI, None, Some("gpt-5-mini"), ApiFormat::OpenaiCompat);
+
+        assert_eq!(
+            reasoning_efforts_for_modes(&endpoint),
+            strings(&["minimal", "low", "medium", "high"])
+        );
+    }
+
+    #[test]
+    fn openai_gpt5_2_off_maps_reasoning_effort_to_none() {
+        let endpoint =
+            endpoint_for_preview(OPENAI, None, Some("gpt-5.2"), ApiFormat::OpenaiCompat);
+
+        assert_eq!(
+            reasoning_efforts_for_modes(&endpoint),
+            strings(&["none", "low", "medium", "high"])
+        );
+    }
+
+    #[test]
+    fn openai_gpt5_pro_uses_high_only() {
+        let endpoint =
+            endpoint_for_preview(OPENAI, None, Some("gpt-5-pro"), ApiFormat::OpenaiCompat);
+
+        assert_eq!(
+            reasoning_efforts_for_modes(&endpoint),
+            strings(&["high", "high", "high", "high"])
+        );
+    }
+
+    #[test]
+    fn openai_gpt5_2_codex_clamps_to_low_then_rises() {
+        let endpoint =
+            endpoint_for_preview(OPENAI, None, Some("gpt-5.2-codex"), ApiFormat::OpenaiCompat);
+
+        assert_eq!(
+            reasoning_efforts_for_modes(&endpoint),
+            strings(&["low", "medium", "high", "xhigh"])
+        );
+    }
+
+    #[test]
+    fn openai_gpt5_1_codex_max_reaches_xhigh() {
+        let endpoint = endpoint_for_preview(
+            OPENAI,
+            None,
+            Some("gpt-5.1-codex-max"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        assert_eq!(
+            reasoning_efforts_for_modes(&endpoint),
+            strings(&["none", "medium", "high", "xhigh"])
+        );
     }
 
     #[test]
