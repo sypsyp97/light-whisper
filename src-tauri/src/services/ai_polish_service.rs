@@ -8,7 +8,7 @@ use crate::services::llm_client::{LlmImageInput, LlmRequestOptions};
 use crate::services::{
     codex_oauth_service, llm_client, llm_provider, profile_service, screen_capture_service,
 };
-use crate::state::user_profile::CorrectionSource;
+use crate::state::user_profile::{CorrectionSource, LlmReasoningMode};
 use crate::state::AppState;
 
 /// LLM 结构化输出
@@ -293,15 +293,63 @@ async fn send_ai_polish_request(
     .await
 }
 
-/// 线性降级链：格式优先于流式
+/// AI 润色的四段传输计划。
 ///
-/// 1. stream + json  （最优：结构化 + 流式预览）
-/// 2. nostream + json（保留结构化输出，可能只是 json+stream 组合不兼容）
-/// 3. stream + nojson（JSON 确认不支持，用 prompt 约束 + 流式）
-/// 4. nostream + nojson（最终兜底）
-///
-/// 阶段 2→3 的跳转条件：阶段 2 的错误明确指向 json 格式不被支持。
-/// 如果阶段 2 失败但不是 json 问题（网络/鉴权/限流等），直接报错不再继续。
+/// `prefer_streaming_after_partial` 只影响 stage1 已经吐出 chunk/token 后的后续顺序。
+pub(crate) fn ai_polish_transport_plan(
+    reasoning_mode: LlmReasoningMode,
+    session_id: u64,
+    prefer_streaming_after_partial: bool,
+) -> [LlmRequestOptions<'static>; 4] {
+    let stage1 = LlmRequestOptions {
+        stream: true,
+        json_output: true,
+        reasoning_mode,
+        stream_event: Some("ai-polish-status"),
+        session_id: Some(session_id),
+        web_search: false,
+    };
+    let stream_nojson = LlmRequestOptions {
+        stream: true,
+        json_output: false,
+        reasoning_mode,
+        stream_event: Some("ai-polish-status"),
+        session_id: Some(session_id),
+        web_search: false,
+    };
+    let nostream_json = LlmRequestOptions {
+        stream: false,
+        json_output: true,
+        reasoning_mode,
+        stream_event: None,
+        session_id: Some(session_id),
+        web_search: false,
+    };
+    let nostream_nojson = LlmRequestOptions {
+        stream: false,
+        json_output: false,
+        reasoning_mode,
+        stream_event: None,
+        session_id: Some(session_id),
+        web_search: false,
+    };
+
+    if prefer_streaming_after_partial {
+        [stage1, stream_nojson, nostream_json, nostream_nojson]
+    } else {
+        [stage1, nostream_json, stream_nojson, nostream_nojson]
+    }
+}
+
+fn ai_polish_transport_label(options: &LlmRequestOptions<'_>) -> &'static str {
+    match (options.stream, options.json_output) {
+        (true, true) => "stream+json",
+        (true, false) => "stream+nojson",
+        (false, true) => "nostream+json",
+        (false, false) => "nostream+nojson",
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn send_llm_request_with_transport_fallback(
     state: &AppState,
@@ -314,16 +362,8 @@ async fn send_llm_request_with_transport_fallback(
     session_id: u64,
 ) -> Result<String, String> {
     let reasoning_mode = state.with_profile(|profile| profile.llm_provider.polish_reasoning_mode());
-
-    // ── 阶段 1: stream + json ──
-    let stage1 = LlmRequestOptions {
-        stream: true,
-        json_output: true,
-        reasoning_mode,
-        stream_event: Some("ai-polish-status"),
-        session_id: Some(session_id),
-        web_search: false,
-    };
+    let _ = state.take_ai_polish_stream_started(session_id);
+    let [stage1, _, _, _] = ai_polish_transport_plan(reasoning_mode, session_id, false);
     match send_ai_polish_request(
         state,
         endpoint,
@@ -336,100 +376,75 @@ async fn send_llm_request_with_transport_fallback(
     )
     .await
     {
-        Ok(content) => return Ok(content),
-        Err(err) => {
-            log::warn!("AI 润色 stream+json 失败: {}", err);
-            emit_polish_status(app_handle, "fallback", "", "", &err, session_id);
+        Ok(content) => {
+            let _ = state.take_ai_polish_stream_started(session_id);
+            return Ok(content);
         }
-    }
-
-    // ── 阶段 2: nostream + json（优先保留结构化输出）──
-    let stage2 = LlmRequestOptions {
-        stream: false,
-        json_output: true,
-        reasoning_mode,
-        stream_event: None,
-        session_id: Some(session_id),
-        web_search: false,
-    };
-    match send_ai_polish_request(
-        state,
-        endpoint,
-        api_key,
-        system_prompt,
-        user_input,
-        user_content_len,
-        None,
-        stage2,
-    )
-    .await
-    {
-        Ok(content) => return Ok(content),
-        Err(err) if llm_provider::looks_like_json_output_unsupported_error(&err) => {
-            log::warn!("AI 润色确认 JSON 格式不被支持，降级到 prompt 约束: {}", err);
-            emit_polish_status(
-                app_handle,
-                "fallback",
-                "",
-                "",
-                "当前模型不支持 response_format，已自动降级重试",
-                session_id,
+        Err(err) => {
+            log::warn!(
+                "AI 润色 {} 失败: {}",
+                ai_polish_transport_label(&stage1),
+                err
             );
-        }
-        Err(err) => {
-            return Err(format!("stream+json 和 nostream+json 均失败: {}", err));
-        }
-    }
-
-    // ── 阶段 3: stream + nojson（JSON 不支持，保留流式）──
-    let stage3 = LlmRequestOptions {
-        stream: true,
-        json_output: false,
-        reasoning_mode,
-        stream_event: Some("ai-polish-status"),
-        session_id: Some(session_id),
-        web_search: false,
-    };
-    match send_ai_polish_request(
-        state,
-        endpoint,
-        api_key,
-        system_prompt,
-        user_input,
-        user_content_len,
-        Some(app_handle),
-        stage3,
-    )
-    .await
-    {
-        Ok(content) => return Ok(content),
-        Err(err) => {
-            log::warn!("AI 润色 stream+nojson 也失败，最终回退: {}", err);
             emit_polish_status(app_handle, "fallback", "", "", &err, session_id);
         }
     }
 
-    // ── 阶段 4: nostream + nojson（最终兜底）──
-    let stage4 = LlmRequestOptions {
-        stream: false,
-        json_output: false,
-        reasoning_mode,
-        stream_event: None,
-        session_id: Some(session_id),
-        web_search: false,
-    };
-    send_ai_polish_request(
-        state,
-        endpoint,
-        api_key,
-        system_prompt,
-        user_input,
-        user_content_len,
-        None,
-        stage4,
-    )
-    .await
-    .map_err(|err| format!("所有传输策略均失败: {}", err))
+    let prefer_streaming_after_partial = state.take_ai_polish_stream_started(session_id);
+    let [_, stage2, stage3, stage4] =
+        ai_polish_transport_plan(reasoning_mode, session_id, prefer_streaming_after_partial);
+    for (index, stage) in [stage2, stage3, stage4].into_iter().enumerate() {
+        let is_last_stage = index == 2;
+        let stage_label = ai_polish_transport_label(&stage);
+        match send_ai_polish_request(
+            state,
+            endpoint,
+            api_key,
+            system_prompt,
+            user_input,
+            user_content_len,
+            if stage.stream { Some(app_handle) } else { None },
+            stage,
+        )
+        .await
+        {
+            Ok(content) => {
+                let _ = state.take_ai_polish_stream_started(session_id);
+                return Ok(content);
+            }
+            Err(err) if stage.json_output => {
+                if !llm_provider::looks_like_json_output_unsupported_error(&err) {
+                    let _ = state.take_ai_polish_stream_started(session_id);
+                    return Err(format!("AI 润色 {} 失败: {}", stage_label, err));
+                }
+
+                log::warn!("AI 润色确认 JSON 格式不被支持，降级到 prompt 约束: {}", err);
+                emit_polish_status(
+                    app_handle,
+                    "fallback",
+                    "",
+                    "",
+                    "当前模型不支持 response_format，已自动降级重试",
+                    session_id,
+                );
+                if is_last_stage {
+                    let _ = state.take_ai_polish_stream_started(session_id);
+                    return Err(format!("所有传输策略均失败: {}", err));
+                }
+            }
+            Err(err) => {
+                if is_last_stage {
+                    let _ = state.take_ai_polish_stream_started(session_id);
+                    return Err(format!("所有传输策略均失败: {}", err));
+                }
+
+                log::warn!("AI 润色 {} 失败，继续回退: {}", stage_label, err);
+                emit_polish_status(app_handle, "fallback", "", "", &err, session_id);
+            }
+        }
+    }
+
+    unreachable!("transport fallback plan must always end in a return")
 }
 
 #[allow(clippy::too_many_arguments)]

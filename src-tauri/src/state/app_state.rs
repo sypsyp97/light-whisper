@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
     Arc,
@@ -211,6 +211,7 @@ pub struct ProfileState {
     pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
     pub web_search_api_key: Arc<parking_lot::Mutex<String>>,
     pub assistant_image_support_cache: Arc<parking_lot::Mutex<HashMap<String, bool>>>,
+    pub ai_polish_stream_started_sessions: Arc<parking_lot::Mutex<HashSet<u64>>>,
 }
 
 impl Default for ProfileState {
@@ -224,6 +225,7 @@ impl Default for ProfileState {
             online_asr_api_key: Default::default(),
             web_search_api_key: Default::default(),
             assistant_image_support_cache: Default::default(),
+            ai_polish_stream_started_sessions: Default::default(),
         }
     }
 }
@@ -398,6 +400,20 @@ impl AppState {
             .assistant_image_support_cache
             .lock()
             .insert(cache_key.into(), supported);
+    }
+
+    pub fn mark_ai_polish_stream_started(&self, session_id: u64) {
+        self.profile
+            .ai_polish_stream_started_sessions
+            .lock()
+            .insert(session_id);
+    }
+
+    pub fn take_ai_polish_stream_started(&self, session_id: u64) -> bool {
+        self.profile
+            .ai_polish_stream_started_sessions
+            .lock()
+            .remove(&session_id)
     }
 
     pub fn selected_input_device_name(&self) -> Option<String> {

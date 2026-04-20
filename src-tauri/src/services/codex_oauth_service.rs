@@ -712,18 +712,17 @@ async fn refresh_session_if_needed(
     };
 
     let mut refreshed = refreshed;
-    refreshed.api_key = match exchange_id_token_for_api_key(&state.http_client, &refreshed.id_token)
-        .await
-    {
-        Ok(api_key) => api_key,
-        Err(err) => {
-            log::warn!(
+    refreshed.api_key =
+        match exchange_id_token_for_api_key(&state.http_client, &refreshed.id_token).await {
+            Ok(api_key) => api_key,
+            Err(err) => {
+                log::warn!(
                 "OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}",
                 err
             );
-            String::new()
-        }
-    };
+                String::new()
+            }
+        };
     enrich_session_from_tokens(&mut refreshed, None);
     save_session_to_storage(app_handle, &refreshed)?;
     state.set_openai_codex_oauth_session(Some(refreshed.clone()));

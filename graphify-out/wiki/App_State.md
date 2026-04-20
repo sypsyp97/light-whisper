@@ -1,10 +1,10 @@
 # App State
 
-> 56 nodes · cohesion 0.04
+> 58 nodes · cohesion 0.04
 
 ## Key Concepts
 
-- **AppState** (29 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\app_state.rs`
+- **AppState** (31 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\app_state.rs`
 - **app_state.rs** (16 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\app_state.rs`
 - **.default()** (6 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\app_state.rs`
 - **.new()** (6 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\app_state.rs`
@@ -29,7 +29,7 @@
 - **.hotkey_diagnostic_snapshot()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\app_state.rs`
 - **.inline_audio_transport()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\app_state.rs`
 - **.is_funasr_ready()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\state\app_state.rs`
-- *... and 31 more nodes in this community*
+- *... and 33 more nodes in this community*
 
 ## Relationships
 
@@ -41,7 +41,7 @@
 
 ## Audit Trail
 
-- EXTRACTED: 132 (100%)
+- EXTRACTED: 136 (100%)
 - INFERRED: 0 (0%)
 - AMBIGUOUS: 0 (0%)
 

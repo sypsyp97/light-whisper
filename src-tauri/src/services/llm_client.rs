@@ -1,12 +1,13 @@
 use std::time::Duration;
 
 use serde_json::Value;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::services::codex_oauth_service;
 use crate::services::llm_provider;
 use crate::services::llm_provider::LlmEndpoint;
 use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
+use crate::state::AppState;
 
 const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
 const RETRYABLE_429_DELAYS_MS: &[u64] = &[600, 1200];
@@ -294,6 +295,13 @@ fn emit_stream_event(
     tokens: usize,
 ) {
     if let (Some(app_handle), Some(event_name)) = (app_handle, event_name) {
+        if event_name == "ai-polish-status" && (chunk.is_some() || tokens > 0) {
+            if let Some(session_id) = session_id {
+                app_handle
+                    .state::<AppState>()
+                    .mark_ai_polish_stream_started(session_id);
+            }
+        }
         let payload = build_stream_event_payload(session_id, chunk, tokens);
         let _ = app_handle.emit(event_name, payload);
     }
