@@ -43,7 +43,11 @@ pub(crate) async fn start_recording_inner(
         if guard.is_some() {
             return Err(AppError::Audio(RECORDING_ALREADY_ACTIVE_ERROR.into()));
         }
-        let session_id = state.recording.session_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let session_id = state
+            .recording
+            .session_counter
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_notify = Arc::new(tokio::sync::Notify::new());
         *guard = Some(RecordingSlot::Starting(PendingRecordingSession {

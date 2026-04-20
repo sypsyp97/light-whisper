@@ -346,10 +346,7 @@ impl AppState {
         self.profile.openai_codex_oauth_session.lock().clone()
     }
 
-    pub fn set_openai_codex_oauth_session(
-        &self,
-        session: Option<OpenaiCodexOauthSession>,
-    ) {
+    pub fn set_openai_codex_oauth_session(&self, session: Option<OpenaiCodexOauthSession>) {
         *self.profile.openai_codex_oauth_session.lock() = session;
     }
 

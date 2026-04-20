@@ -32,8 +32,7 @@ fn generate_tone(base_freq: f32, duration_ms: u32, ascending: bool) -> Vec<u8> {
     // 本地生成的提示音：输入是代码生成的正弦波 i16 + 编译期常量采样率，
     // hound 在这里失败只可能是开发阶段的参数错误（例如 spec 不匹配），
     // 不是运行时可恢复的错误。因此用 expect，而不是传播 Result。
-    audio_service::encode_wav(&samples, SAMPLE_RATE)
-        .expect("static tone encoding must succeed")
+    audio_service::encode_wav(&samples, SAMPLE_RATE).expect("static tone encoding must succeed")
 }
 
 fn generate_double_tone(base_freq: f32, tone_ms: u32, gap_ms: u32, ascending: bool) -> Vec<u8> {
@@ -71,8 +70,7 @@ fn generate_double_tone(base_freq: f32, tone_ms: u32, gap_ms: u32, ascending: bo
         .collect();
 
     // 同 generate_tone：静态生成的提示音，编码失败属于编程期错误。
-    audio_service::encode_wav(&samples, SAMPLE_RATE)
-        .expect("static tone encoding must succeed")
+    audio_service::encode_wav(&samples, SAMPLE_RATE).expect("static tone encoding must succeed")
 }
 
 #[cfg(target_os = "windows")]

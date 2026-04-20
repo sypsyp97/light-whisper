@@ -19,17 +19,17 @@ use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    RegisterHotKey, UnregisterHotKey, VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1,
-    VK_HOME, VK_INSERT, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR,
-    VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
-    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+    RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+    VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT, VK_LCONTROL,
+    VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RETURN, VK_RIGHT,
+    VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
     SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG,
-    PM_NOREMOVE, WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_NULL, WM_QUIT,
-    WM_SYSKEYDOWN, WM_SYSKEYUP,
+    PM_NOREMOVE, WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_NULL, WM_QUIT, WM_SYSKEYDOWN,
+    WM_SYSKEYUP,
 };
 
 const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
@@ -472,10 +472,9 @@ fn dispatch_hotkey_press(
         .lock()
         .as_ref()
         .map(RecordingSlot::trigger);
-    let allow_toggle_stop =
-        is_toggle_mode()
-            && gate.toggle_active.load(Ordering::Acquire)
-            && active_trigger == Some(trigger);
+    let allow_toggle_stop = is_toggle_mode()
+        && gate.toggle_active.load(Ordering::Acquire)
+        && active_trigger == Some(trigger);
 
     if active_trigger.is_some() && !allow_toggle_stop {
         log::debug!(
@@ -823,10 +822,14 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
     let vk = keyboard.vkCode;
 
     let mut swallow = false;
-    for state in [bundle.dictation.as_ref(), bundle.translation.as_ref(), bundle.assistant.as_ref()]
-        .into_iter()
-        .flatten()
-        .filter(|s| s.backend == HotkeyBackend::LowLevelHook)
+    for state in [
+        bundle.dictation.as_ref(),
+        bundle.translation.as_ref(),
+        bundle.assistant.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|s| s.backend == HotkeyBackend::LowLevelHook)
     {
         swallow |= match &state.spec {
             HotkeySpec::ModifierOnly {
@@ -1042,8 +1045,7 @@ enum RegHotkeyCmd {
 }
 
 #[cfg(target_os = "windows")]
-fn reg_hotkey_cmd_channel(
-) -> &'static (
+fn reg_hotkey_cmd_channel() -> &'static (
     std::sync::mpsc::Sender<RegHotkeyCmd>,
     Mutex<std::sync::mpsc::Receiver<RegHotkeyCmd>>,
 ) {
@@ -1120,8 +1122,7 @@ fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
 
             // Ensure message queue exists
             let mut peek_msg: MSG = unsafe { std::mem::zeroed() };
-            let _ =
-                unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
+            let _ = unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
 
             if ready_tx.send(Ok(thread_id)).is_err() {
                 return;
@@ -1176,10 +1177,8 @@ fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
                                         let _ = result_tx.send(Ok(()));
                                     } else {
                                         let err = std::io::Error::last_os_error();
-                                        let _ = result_tx.send(Err(format!(
-                                            "RegisterHotKey 失败: {}",
-                                            err
-                                        )));
+                                        let _ = result_tx
+                                            .send(Err(format!("RegisterHotKey 失败: {}", err)));
                                     }
                                 }
                                 RegHotkeyCmd::Unregister { id } => {
@@ -1266,11 +1265,9 @@ fn register_via_reg_hotkey(
 /// Unregister a hotkey from the RegisterHotKey backend.
 #[cfg(target_os = "windows")]
 fn unregister_via_reg_hotkey(kind: HotkeyKind) {
-    let _ = reg_hotkey_cmd_channel()
-        .0
-        .send(RegHotkeyCmd::Unregister {
-            id: hotkey_kind_to_reg_id(kind),
-        });
+    let _ = reg_hotkey_cmd_channel().0.send(RegHotkeyCmd::Unregister {
+        id: hotkey_kind_to_reg_id(kind),
+    });
 
     let tid = {
         let guard = match reg_backend_slot().lock() {
@@ -1677,7 +1674,10 @@ fn register_on_chosen_backend(
     label: &str,
 ) -> Result<&'static str, AppError> {
     if chosen_backend == HotkeyBackend::RegisterHotKey {
-        if let HotkeySpec::Standard { modifiers, main_vk, .. } = &hook_state.spec {
+        if let HotkeySpec::Standard {
+            modifiers, main_vk, ..
+        } = &hook_state.spec
+        {
             let (mods_copy, vk_copy) = (*modifiers, *main_vk);
             match register_via_reg_hotkey(kind, &mods_copy, vk_copy, hook_state.clone()) {
                 Ok(()) => {
@@ -1734,7 +1734,10 @@ fn try_register_hotkey_backend(kind: HotkeyKind, state: &Arc<UnifiedHookState>) 
     if state.backend != HotkeyBackend::RegisterHotKey {
         return;
     }
-    if let HotkeySpec::Standard { modifiers, main_vk, .. } = &state.spec {
+    if let HotkeySpec::Standard {
+        modifiers, main_vk, ..
+    } = &state.spec
+    {
         let (mods_copy, vk_copy) = (*modifiers, *main_vk);
         if let Err(e) = register_via_reg_hotkey(kind, &mods_copy, vk_copy, state.clone()) {
             log::warn!(
@@ -1801,14 +1804,17 @@ pub async fn register_custom_hotkey(
     }
 
     #[cfg(target_os = "windows")]
-    let hook_state = build_hook_state(app_handle.clone(), spec, RecordingTrigger::DictationOriginal);
+    let hook_state = build_hook_state(
+        app_handle.clone(),
+        spec,
+        RecordingTrigger::DictationOriginal,
+    );
 
     #[cfg(target_os = "windows")]
     let chosen_backend = hook_state.backend;
 
     #[cfg(target_os = "windows")]
-    let previous_state =
-        set_unified_hook_state(HotkeyKind::Dictation, Some(hook_state.clone()));
+    let previous_state = set_unified_hook_state(HotkeyKind::Dictation, Some(hook_state.clone()));
 
     #[cfg(target_os = "windows")]
     if let Some(previous) = previous_state.as_ref() {
@@ -2025,7 +2031,12 @@ pub async fn set_recording_mode(
     // If switching from toggle→hold while toggle is active, stop recording
     if !toggle {
         let state = _app_handle.state::<AppState>();
-        let active_trigger = state.recording.recording.lock().as_ref().map(RecordingSlot::trigger);
+        let active_trigger = state
+            .recording
+            .recording
+            .lock()
+            .as_ref()
+            .map(RecordingSlot::trigger);
         if let Some(trigger) = active_trigger {
             handle_hotkey_stop(
                 _app_handle.clone(),

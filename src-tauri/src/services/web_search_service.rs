@@ -63,7 +63,10 @@ pub async fn exa_search(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Exa MCP 返回 HTTP {status}: {}", truncate_str(&text, 200)));
+        return Err(format!(
+            "Exa MCP 返回 HTTP {status}: {}",
+            truncate_str(&text, 200)
+        ));
     }
 
     // 响应可能是 SSE（text/event-stream）或纯 JSON
@@ -86,10 +89,7 @@ pub async fn exa_search(
     let rpc: JsonRpcResponse =
         serde_json::from_str(json_str).map_err(|e| format!("Exa 响应解析失败: {e}"))?;
 
-    let content_blocks = rpc
-        .result
-        .map(|r| r.content)
-        .unwrap_or_default();
+    let content_blocks = rpc.result.map(|r| r.content).unwrap_or_default();
 
     // Exa MCP 返回的 text 是带标签的纯文本块，多条结果用空行分隔
     let mut results = Vec::new();
@@ -128,7 +128,10 @@ fn parse_exa_text_block(block: &str) -> SearchResult {
             if content.is_empty() {
                 content = val.trim().to_string();
             }
-        } else if content.is_empty() && !line.starts_with("Published") && !line.starts_with("Author") {
+        } else if content.is_empty()
+            && !line.starts_with("Published")
+            && !line.starts_with("Author")
+        {
             // 没有 Text: 前缀的额外内容行
             if !line.trim().is_empty() && !title.is_empty() {
                 content = line.trim().to_string();
@@ -136,7 +139,11 @@ fn parse_exa_text_block(block: &str) -> SearchResult {
         }
     }
 
-    SearchResult { title, url, content }
+    SearchResult {
+        title,
+        url,
+        content,
+    }
 }
 
 // ── Tavily（API，需要 Key）─────────────────────────────────────────
@@ -182,7 +189,10 @@ pub async fn tavily_search(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Tavily API 返回 HTTP {status}: {}", truncate_str(&text, 200)));
+        return Err(format!(
+            "Tavily API 返回 HTTP {status}: {}",
+            truncate_str(&text, 200)
+        ));
     }
 
     let parsed: TavilyResponse = resp
@@ -246,5 +256,4 @@ mod tests {
         assert_eq!(result.url, "https://rust-lang.org");
         assert_eq!(result.content, "Rust is a systems programming language.");
     }
-
 }

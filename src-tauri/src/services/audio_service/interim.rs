@@ -37,8 +37,7 @@ pub fn spawn_interim_loop(
         // 已写入 resampled_cache 的原始样本数（raw sample index）
         let mut raw_processed: usize = 0;
         let needs_resample = sample_rate != 0 && sample_rate != TARGET_SAMPLE_RATE;
-        let max_output_tail =
-            (TARGET_SAMPLE_RATE as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
+        let max_output_tail = (TARGET_SAMPLE_RATE as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
 
         if sample_rate == 0 {
             log::error!("中间转写启动失败：采样率为 0 (session {})", session_id);

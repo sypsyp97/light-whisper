@@ -532,9 +532,7 @@ fn report_extract_progress(
     total: Option<usize>,
     force: bool,
 ) {
-    let should_emit = force
-        || current.is_multiple_of(200)
-        || total.is_some_and(|t| current == t);
+    let should_emit = force || current.is_multiple_of(200) || total.is_some_and(|t| current == t);
 
     if !should_emit {
         return;
@@ -957,9 +955,8 @@ fn encode_pcm16_base64(samples: &[i16]) -> String {
     // 零拷贝 cast：i16 对齐 2、无填充，pcm_s16le 在 LE 目标上（Windows/macOS/Linux
     // 的 x86/ARM）就是 i16 的内存布局。避免原先逐样本 extend_from_slice 造成的
     // 192000 次小拷贝 + 一次 384KB Vec 分配，interim loop 每 ~220ms 一次的热点。
-    let byte_slice: &[u8] = unsafe {
-        std::slice::from_raw_parts(samples.as_ptr() as *const u8, samples.len() * 2)
-    };
+    let byte_slice: &[u8] =
+        unsafe { std::slice::from_raw_parts(samples.as_ptr() as *const u8, samples.len() * 2) };
     base64::engine::general_purpose::STANDARD.encode(byte_slice)
 }
 
@@ -1286,7 +1283,10 @@ pub async fn check_status(
 ///
 pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
     // 递增代数，使正在进行的 start_server 感知到取消
-    state.engine.funasr_generation.fetch_add(1, Ordering::SeqCst);
+    state
+        .engine
+        .funasr_generation
+        .fetch_add(1, Ordering::SeqCst);
 
     // 先取出子进程句柄，避免关闭流程被常规请求超时拖住
     let mut process = {
@@ -1361,7 +1361,11 @@ fn is_hf_repo_ready(repo_id: &str) -> bool {
     let entries = match std::fs::read_dir(&snapshots_dir) {
         Ok(e) => e,
         Err(err) => {
-            log::warn!("无法读取 snapshots 目录: {} — {}", snapshots_dir.display(), err);
+            log::warn!(
+                "无法读取 snapshots 目录: {} — {}",
+                snapshots_dir.display(),
+                err
+            );
             return false;
         }
     };

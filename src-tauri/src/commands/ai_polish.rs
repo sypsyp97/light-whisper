@@ -27,7 +27,10 @@ pub async fn set_ai_polish_config(
     enabled: bool,
     api_key: String,
 ) -> Result<(), String> {
-    state.profile.ai_polish_enabled.store(enabled, Ordering::Release);
+    state
+        .profile
+        .ai_polish_enabled
+        .store(enabled, Ordering::Release);
 
     let provider = state.active_llm_provider();
     let keyring_user = llm_provider::keyring_user_for_provider(&provider);
@@ -127,7 +130,8 @@ pub async fn list_ai_models(
         return Err("请先填写 API Key 或完成 OpenAI Codex 登录".to_string());
     }
 
-    if provider == "openai" && codex_oauth_service::decode_chatgpt_bearer_token(&api_key).is_some() {
+    if provider == "openai" && codex_oauth_service::decode_chatgpt_bearer_token(&api_key).is_some()
+    {
         return Ok(AiModelListPayload {
             models: codex_oauth_models(),
             source_url: codex_oauth_service::CHATGPT_CODEX_RESPONSES_URL.to_string(),

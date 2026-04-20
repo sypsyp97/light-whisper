@@ -53,11 +53,8 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let edit_context: Option<String> = match edit_grab {
         Some(handle) => {
             let abort_handle = handle.abort_handle();
-            match tokio::time::timeout(
-                std::time::Duration::from_millis(EDIT_GRAB_WAIT_MS),
-                handle,
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_millis(EDIT_GRAB_WAIT_MS), handle)
+                .await
             {
                 Ok(Ok(Some(selected))) => Some(selected),
                 Ok(Ok(None)) => None,
@@ -66,10 +63,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     None
                 }
                 Err(_) => {
-                    log::debug!(
-                        "选中文本抓取超过 {}ms，按普通听写处理",
-                        EDIT_GRAB_WAIT_MS
-                    );
+                    log::debug!("选中文本抓取超过 {}ms，按普通听写处理", EDIT_GRAB_WAIT_MS);
                     abort_handle.abort();
                     None
                 }
@@ -111,8 +105,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     //      250ms~500ms 的尾部音节丢掉。250ms 绝对阈值比百分比更保守，在长录音上
     //      也不会放宽门槛；最差只会丢掉一次 interim 间隔内的静音/换气。
     //   3. interim 确实返回了非空文本。
-    let max_interim_window_samples =
-        (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
+    let max_interim_window_samples = (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
     let tail_gap_threshold_samples = (sample_rate as f64 * 0.25) as usize;
     let (asr_text, detected_lang): (Result<String, String>, Option<String>) = match cached {
         Some(ref c)

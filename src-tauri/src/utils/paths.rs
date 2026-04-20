@@ -97,8 +97,17 @@ pub fn is_asr_capable_model_id(id: &str) -> bool {
     }
     // 精确匹配：`-vl-` / `-vl` 尾部（避免误伤 "novel"/"evaluation" 等普通词）
     const BLOCK_SUBSTR: &[&str] = &[
-        "realtime", "tts", "embedding", "embed", "rerank", "caption",
-        "coder", "math", "thinking", "image", "video-gen",
+        "realtime",
+        "tts",
+        "embedding",
+        "embed",
+        "rerank",
+        "caption",
+        "coder",
+        "math",
+        "thinking",
+        "image",
+        "video-gen",
     ];
     if BLOCK_SUBSTR.iter().any(|b| id.contains(b)) {
         return false;

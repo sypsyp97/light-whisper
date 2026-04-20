@@ -202,8 +202,8 @@ async fn transcribe_via_omni_chat(
     let mut logged_parse_failure = false;
 
     while let Some(event) = stream.next().await {
-        let event = event
-            .map_err(|e| AppError::Asr(format!("DashScope Omni 流式读取失败: {}", e)))?;
+        let event =
+            event.map_err(|e| AppError::Asr(format!("DashScope Omni 流式读取失败: {}", e)))?;
         let data = event.data.trim();
         if data.is_empty() || data == "[DONE]" {
             continue;
@@ -214,7 +214,11 @@ async fn transcribe_via_omni_chat(
                 // 对第一个 parse-fail 留一条日志，后续的保持安静——否则一条损坏
                 // 会淹没日志。HTTP 层错误已经在主路径上显式处理过，这里只兜底。
                 if !logged_parse_failure {
-                    log::warn!("DashScope Omni 流中跳过无法解析的 chunk: {} (err={})", data, e);
+                    log::warn!(
+                        "DashScope Omni 流中跳过无法解析的 chunk: {} (err={})",
+                        data,
+                        e
+                    );
                     logged_parse_failure = true;
                 }
                 continue;

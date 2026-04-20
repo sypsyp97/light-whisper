@@ -82,11 +82,20 @@ pub fn run() {
 
             // 注册翻译/助手热键
             {
-                type HotkeyRegisterFn = dyn Fn(tauri::AppHandle, Option<String>) -> Result<String, utils::AppError>;
+                type HotkeyRegisterFn =
+                    dyn Fn(tauri::AppHandle, Option<String>) -> Result<String, utils::AppError>;
                 let state = app_handle.state::<AppState>();
                 let hotkeys: [(&str, &HotkeyRegisterFn, Option<String>); 2] = [
-                    ("翻译", &commands::hotkey::register_translation_hotkey_inner, state.with_profile(|p| p.translation_hotkey.clone())),
-                    ("助手", &commands::hotkey::register_assistant_hotkey_inner, state.with_profile(|p| p.assistant_hotkey.clone())),
+                    (
+                        "翻译",
+                        &commands::hotkey::register_translation_hotkey_inner,
+                        state.with_profile(|p| p.translation_hotkey.clone()),
+                    ),
+                    (
+                        "助手",
+                        &commands::hotkey::register_assistant_hotkey_inner,
+                        state.with_profile(|p| p.assistant_hotkey.clone()),
+                    ),
                 ];
                 for (label, register, shortcut) in hotkeys {
                     if let Some(s) = shortcut.filter(|v| !v.trim().is_empty()) {
@@ -358,8 +367,7 @@ fn spawn_profile_maintenance(app_handle: tauri::AppHandle) {
 
             if should_validate {
                 let state = app_handle.state::<AppState>();
-                match commands::profile::run_correction_validation(&app_handle, state.inner())
-                    .await
+                match commands::profile::run_correction_validation(&app_handle, state.inner()).await
                 {
                     Ok(removed) if removed > 0 => {
                         log::info!("定期 LLM 纠错审核完成：删除 {} 条", removed);

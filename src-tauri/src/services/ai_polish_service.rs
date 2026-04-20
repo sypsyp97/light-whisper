@@ -325,8 +325,14 @@ async fn send_llm_request_with_transport_fallback(
         web_search: false,
     };
     match send_ai_polish_request(
-        state, endpoint, api_key, system_prompt, user_input, user_content_len,
-        Some(app_handle), stage1,
+        state,
+        endpoint,
+        api_key,
+        system_prompt,
+        user_input,
+        user_content_len,
+        Some(app_handle),
+        stage1,
     )
     .await
     {
@@ -347,8 +353,14 @@ async fn send_llm_request_with_transport_fallback(
         web_search: false,
     };
     match send_ai_polish_request(
-        state, endpoint, api_key, system_prompt, user_input, user_content_len,
-        None, stage2,
+        state,
+        endpoint,
+        api_key,
+        system_prompt,
+        user_input,
+        user_content_len,
+        None,
+        stage2,
     )
     .await
     {
@@ -356,8 +368,12 @@ async fn send_llm_request_with_transport_fallback(
         Err(err) if llm_provider::looks_like_json_output_unsupported_error(&err) => {
             log::warn!("AI 润色确认 JSON 格式不被支持，降级到 prompt 约束: {}", err);
             emit_polish_status(
-                app_handle, "fallback", "", "",
-                "当前模型不支持 response_format，已自动降级重试", session_id,
+                app_handle,
+                "fallback",
+                "",
+                "",
+                "当前模型不支持 response_format，已自动降级重试",
+                session_id,
             );
         }
         Err(err) => {
@@ -375,8 +391,14 @@ async fn send_llm_request_with_transport_fallback(
         web_search: false,
     };
     match send_ai_polish_request(
-        state, endpoint, api_key, system_prompt, user_input, user_content_len,
-        Some(app_handle), stage3,
+        state,
+        endpoint,
+        api_key,
+        system_prompt,
+        user_input,
+        user_content_len,
+        Some(app_handle),
+        stage3,
     )
     .await
     {
@@ -397,8 +419,14 @@ async fn send_llm_request_with_transport_fallback(
         web_search: false,
     };
     send_ai_polish_request(
-        state, endpoint, api_key, system_prompt, user_input, user_content_len,
-        None, stage4,
+        state,
+        endpoint,
+        api_key,
+        system_prompt,
+        user_input,
+        user_content_len,
+        None,
+        stage4,
     )
     .await
     .map_err(|err| format!("所有传输策略均失败: {}", err))
@@ -729,7 +757,11 @@ fn build_user_content(text: &str, has_screen_context: bool) -> String {
     render_polish_user_content(app_context.as_deref(), text, has_screen_context)
 }
 
-fn render_polish_user_content(app_context: Option<&str>, text: &str, has_screen_context: bool) -> String {
+fn render_polish_user_content(
+    app_context: Option<&str>,
+    text: &str,
+    has_screen_context: bool,
+) -> String {
     let mut sections = Vec::new();
     if let Some(app_context) = app_context {
         sections.push(app_context.to_string());
@@ -744,19 +776,23 @@ fn render_polish_user_content(app_context: Option<&str>, text: &str, has_screen_
     sections.join("\n\n")
 }
 
-
-
 async fn build_polish_user_input(
     state: &AppState,
     endpoint: &llm_provider::LlmEndpoint,
     api_key: &str,
     text: &str,
 ) -> llm_client::LlmUserInput {
-    let screen_context_enabled = state.with_profile(|profile| profile.ai_polish_screen_context_enabled);
+    let screen_context_enabled =
+        state.with_profile(|profile| profile.ai_polish_screen_context_enabled);
     let cache_key = llm_provider::image_support_cache_key(endpoint);
     let cached_image_support = state.assistant_image_support(&cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
-        let support = llm_provider::probe_image_support_from_provider_metadata(&state.http_client, endpoint, api_key).await;
+        let support = llm_provider::probe_image_support_from_provider_metadata(
+            &state.http_client,
+            endpoint,
+            api_key,
+        )
+        .await;
         if let Some(supported) = support {
             state.set_assistant_image_support(cache_key.clone(), supported);
             log::info!(

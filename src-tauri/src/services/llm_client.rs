@@ -268,48 +268,22 @@ fn anthropic_user_content(user_input: &LlmUserInput) -> Value {
     Value::Array(content)
 }
 
-/// 从流式累积的 JSON 中增量提取 "polished" 字段值（用于实时预览）
-fn try_extract_partial_polished(accumulated: &str) -> Option<String> {
-    let idx = accumulated.find("\"polished\"")?;
-    let rest = accumulated[idx + "\"polished\"".len()..].trim_start();
-    let rest = rest.strip_prefix(':')?;
-    let rest = rest.trim_start().strip_prefix('"')?;
-
-    let mut result = String::new();
-    let mut chars = rest.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '\\' => match chars.next() {
-                Some('n') => result.push('\n'),
-                Some('t') => result.push('\t'),
-                Some('r') => result.push('\r'),
-                Some('"') => result.push('"'),
-                Some('\\') => result.push('\\'),
-                Some('/') => result.push('/'),
-                Some('u') => {
-                    let hex: String = chars.by_ref().take(4).collect();
-                    if let Ok(code) = u32::from_str_radix(&hex, 16) {
-                        if let Some(c) = char::from_u32(code) {
-                            result.push(c);
-                        }
-                    }
-                }
-                Some(other) => {
-                    result.push('\\');
-                    result.push(other);
-                }
-                None => break, // trailing backslash, value still streaming
-            },
-            '"' => break,
-            _ => result.push(ch),
-        }
+fn build_stream_event_payload(
+    session_id: Option<u64>,
+    chunk: Option<&str>,
+    tokens: usize,
+) -> Value {
+    let mut payload = serde_json::json!({ "status": "streaming" });
+    if let Some(chunk) = chunk {
+        payload["chunk"] = serde_json::json!(chunk);
     }
-
-    if result.is_empty() {
-        None
-    } else {
-        Some(result)
+    if tokens > 0 {
+        payload["tokens"] = serde_json::json!(tokens);
     }
+    if let Some(session_id) = session_id {
+        payload["sessionId"] = serde_json::json!(session_id);
+    }
+    payload
 }
 
 fn emit_stream_event(
@@ -318,22 +292,9 @@ fn emit_stream_event(
     session_id: Option<u64>,
     chunk: Option<&str>,
     tokens: usize,
-    partial_text: Option<&str>,
 ) {
     if let (Some(app_handle), Some(event_name)) = (app_handle, event_name) {
-        let mut payload = serde_json::json!({ "status": "streaming" });
-        if let Some(chunk) = chunk {
-            payload["chunk"] = serde_json::json!(chunk);
-        }
-        if tokens > 0 {
-            payload["tokens"] = serde_json::json!(tokens);
-        }
-        if let Some(partial_text) = partial_text {
-            payload["partialText"] = serde_json::json!(partial_text);
-        }
-        if let Some(session_id) = session_id {
-            payload["sessionId"] = serde_json::json!(session_id);
-        }
+        let payload = build_stream_event_payload(session_id, chunk, tokens);
         let _ = app_handle.emit(event_name, payload);
     }
 }
@@ -356,7 +317,6 @@ pub async fn read_sse_stream(
 
     let mut accumulated = String::new();
     let mut token_count: usize = 0;
-    let is_polish = event_name == Some("ai-polish-status");
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let mut stream = response.bytes_stream().eventsource();
 
@@ -371,12 +331,13 @@ pub async fn read_sse_stream(
                     if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                         accumulated.push_str(content);
                         token_count += 1;
-                        let partial = if is_polish {
-                            try_extract_partial_polished(&accumulated)
-                        } else {
-                            None
-                        };
-                        emit_stream_event(app_handle, event_name, session_id, Some(content), token_count, partial.as_deref());
+                        emit_stream_event(
+                            app_handle,
+                            event_name,
+                            session_id,
+                            Some(content),
+                            token_count,
+                        );
                     }
                 }
             }
@@ -405,7 +366,6 @@ pub async fn read_openai_responses_sse_stream(
     let mut accumulated = String::new();
     let mut fallback_content: Option<String> = None;
     let mut token_count: usize = 0;
-    let is_polish = event_name == Some("ai-polish-status");
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let mut stream = response.bytes_stream().eventsource();
 
@@ -440,18 +400,12 @@ pub async fn read_openai_responses_sse_stream(
                         if let Some(delta) = json["delta"].as_str() {
                             accumulated.push_str(delta);
                             token_count += 1;
-                            let partial = if is_polish {
-                                try_extract_partial_polished(&accumulated)
-                            } else {
-                                None
-                            };
                             emit_stream_event(
                                 app_handle,
                                 event_name,
                                 session_id,
                                 Some(delta),
                                 token_count,
-                                partial.as_deref(),
                             );
                         }
                     }
@@ -459,18 +413,12 @@ pub async fn read_openai_responses_sse_stream(
                         if let Some(text) = json["text"].as_str() {
                             accumulated.push_str(text);
                             token_count += 1;
-                            let partial = if is_polish {
-                                try_extract_partial_polished(&accumulated)
-                            } else {
-                                None
-                            };
                             emit_stream_event(
                                 app_handle,
                                 event_name,
                                 session_id,
                                 Some(text),
                                 token_count,
-                                partial.as_deref(),
                             );
                         }
                     }
@@ -524,7 +472,6 @@ pub async fn read_anthropic_sse_stream(
 
     let mut accumulated = String::new();
     let mut output_tokens: usize = 0;
-    let is_polish = event_name == Some("ai-polish-status");
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let mut stream = response.bytes_stream().eventsource();
 
@@ -535,7 +482,13 @@ pub async fn read_anthropic_sse_stream(
                     if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
                         if let Some(tokens) = anthropic_output_tokens(&json) {
                             output_tokens = tokens;
-                            emit_stream_event(app_handle, event_name, session_id, None, output_tokens, None);
+                            emit_stream_event(
+                                app_handle,
+                                event_name,
+                                session_id,
+                                None,
+                                output_tokens,
+                            );
                         }
                     }
                 }
@@ -545,18 +498,12 @@ pub async fn read_anthropic_sse_stream(
                         if matches!(delta_type, Some("text_delta") | None) {
                             if let Some(text) = json["delta"]["text"].as_str() {
                                 accumulated.push_str(text);
-                                let partial = if is_polish {
-                                    try_extract_partial_polished(&accumulated)
-                                } else {
-                                    None
-                                };
                                 emit_stream_event(
                                     app_handle,
                                     event_name,
                                     session_id,
                                     Some(text),
                                     output_tokens,
-                                    partial.as_deref(),
                                 );
                             }
                         }
@@ -873,14 +820,14 @@ pub async fn send_llm_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        adapt_body_for_backend, build_llm_body, extract_api_error_message,
-        extract_openai_compat_error_message, is_retryable_overload_error,
-        looks_like_max_output_tokens_unsupported_error, try_extract_partial_polished,
+        adapt_body_for_backend, build_llm_body, build_stream_event_payload,
+        extract_api_error_message, extract_openai_compat_error_message,
+        is_retryable_overload_error, looks_like_max_output_tokens_unsupported_error,
         LlmRequestOptions, LlmUserInput,
     };
-    use base64::Engine;
     use crate::services::llm_provider::LlmEndpoint;
     use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
+    use base64::Engine;
 
     fn openai_endpoint(api_url: &str) -> LlmEndpoint {
         LlmEndpoint {
@@ -895,9 +842,8 @@ mod tests {
     fn chatgpt_codex_api_key() -> String {
         format!(
             "openai-codex-chatgpt:{}",
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-                r#"{"access_token":"test","account_id":"acc"}"#
-            )
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(r#"{"access_token":"test","account_id":"acc"}"#)
         )
     }
 
@@ -1040,6 +986,17 @@ mod tests {
     }
 
     #[test]
+    fn stream_event_payload_omits_partial_text() {
+        let payload = build_stream_event_payload(Some(7), Some("abc"), 3);
+
+        assert_eq!(payload["status"], serde_json::json!("streaming"));
+        assert_eq!(payload["chunk"], serde_json::json!("abc"));
+        assert_eq!(payload["tokens"], serde_json::json!(3));
+        assert_eq!(payload["sessionId"], serde_json::json!(7));
+        assert!(payload.get("partialText").is_none());
+    }
+
+    #[test]
     fn chat_body_sets_max_tokens_for_openai_compat() {
         let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
         let body = build_llm_body(
@@ -1076,9 +1033,8 @@ mod tests {
         );
         let api_key = format!(
             "openai-codex-chatgpt:{}",
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-                r#"{"access_token":"test","account_id":"acc"}"#
-            )
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(r#"{"access_token":"test","account_id":"acc"}"#)
         );
 
         let adapted = adapt_body_for_backend(&endpoint, &api_key, &body);
@@ -1178,12 +1134,10 @@ mod tests {
             body["response_format"],
             serde_json::json!({"type": "json_object"})
         );
-        assert!(
-            !body
-                .get("stream")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false)
-        );
+        assert!(!body
+            .get("stream")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false));
     }
 
     #[test]
@@ -1211,44 +1165,5 @@ mod tests {
 
         assert!(body.get("response_format").is_none());
         assert_eq!(body["stream"], serde_json::json!(true));
-    }
-
-    #[test]
-    fn extracts_partial_polished_from_incomplete_json() {
-        assert_eq!(
-            try_extract_partial_polished(r#"{"polished":"Hello world"#),
-            Some("Hello world".to_string())
-        );
-    }
-
-    #[test]
-    fn extracts_polished_from_complete_json() {
-        assert_eq!(
-            try_extract_partial_polished(
-                r#"{"polished":"Hello world","corrections":[],"key_terms":[]}"#
-            ),
-            Some("Hello world".to_string())
-        );
-    }
-
-    #[test]
-    fn handles_escape_sequences_in_partial_polished() {
-        assert_eq!(
-            try_extract_partial_polished(r#"{"polished":"Line 1\nLine 2"#),
-            Some("Line 1\nLine 2".to_string())
-        );
-    }
-
-    #[test]
-    fn returns_none_when_no_polished_field() {
-        assert_eq!(
-            try_extract_partial_polished(r#"{"result":"Hello"}"#),
-            None
-        );
-    }
-
-    #[test]
-    fn returns_none_for_empty_polished_value() {
-        assert_eq!(try_extract_partial_polished(r#"{"polished":""#), None);
     }
 }

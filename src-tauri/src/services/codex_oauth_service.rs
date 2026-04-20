@@ -246,7 +246,9 @@ fn enrich_session_from_tokens(
             .email
             .or_else(|| claims.profile.and_then(|profile| profile.email));
         if let Some(auth) = claims.auth {
-            session.account_id = auth.chatgpt_account_id.or_else(|| session.account_id.take());
+            session.account_id = auth
+                .chatgpt_account_id
+                .or_else(|| session.account_id.take());
             session.plan_type = auth.chatgpt_plan_type.or_else(|| session.plan_type.take());
         }
         if session.expires_at_ms.is_none() {
@@ -426,14 +428,16 @@ async fn accept_callback_connection(
             result = ipv6.accept() => result.map_err(|err| format!("接受 OpenAI OAuth IPv6 回调失败: {err}")),
         }
     } else {
-        ipv4
-            .accept()
+        ipv4.accept()
             .await
             .map_err(|err| format!("接受 OpenAI OAuth 回调失败: {err}"))
     }
 }
 
-async fn wait_for_callback(listeners: CallbackListeners, expected_state: String) -> Result<OAuthCallback, String> {
+async fn wait_for_callback(
+    listeners: CallbackListeners,
+    expected_state: String,
+) -> Result<OAuthCallback, String> {
     let (mut stream, _) = tokio::time::timeout(
         Duration::from_secs(OAUTH_TIMEOUT_SECS),
         accept_callback_connection(listeners),
@@ -461,10 +465,17 @@ async fn wait_for_callback(listeners: CallbackListeners, expected_state: String)
         return Err("OAuth 回调路径不正确".to_string());
     }
 
-    let query = url.query_pairs().into_owned().collect::<std::collections::HashMap<_, _>>();
+    let query = url
+        .query_pairs()
+        .into_owned()
+        .collect::<std::collections::HashMap<_, _>>();
     let state = query.get("state").map(String::as_str).unwrap_or_default();
     if state != expected_state {
-        let html = callback_html("State Mismatch", "Login state does not match the original request.", false);
+        let html = callback_html(
+            "State Mismatch",
+            "Login state does not match the original request.",
+            false,
+        );
         let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
         return Err("OpenAI OAuth state 校验失败，请重试。".to_string());
     }
@@ -479,8 +490,16 @@ async fn wait_for_callback(listeners: CallbackListeners, expected_state: String)
         return Err(message);
     }
 
-    let Some(code) = query.get("code").cloned().filter(|value| !value.trim().is_empty()) else {
-        let html = callback_html("Missing Code", "Authorization code was not returned.", false);
+    let Some(code) = query
+        .get("code")
+        .cloned()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        let html = callback_html(
+            "Missing Code",
+            "Authorization code was not returned.",
+            false,
+        );
         let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
         return Err("OAuth 回调缺少 authorization code".to_string());
     };
@@ -613,7 +632,11 @@ async fn exchange_id_token_for_api_key(
     Ok(payload.access_token)
 }
 
-fn build_authorize_url(redirect_uri: &str, code_challenge: &str, state: &str) -> Result<String, String> {
+fn build_authorize_url(
+    redirect_uri: &str,
+    code_challenge: &str,
+    state: &str,
+) -> Result<String, String> {
     let url = reqwest::Url::parse_with_params(
         &format!("{ISSUER}/oauth/authorize"),
         &[
@@ -663,7 +686,9 @@ async fn refresh_session_if_needed(
             return Err("OpenAI Codex OAuth 会话缺少 refresh token，请重新登录。".to_string());
         }
         let token_response = refresh_tokens(&state.http_client, &session.refresh_token).await?;
-        let id_token = token_response.id_token.unwrap_or_else(|| session.id_token.clone());
+        let id_token = token_response
+            .id_token
+            .unwrap_or_else(|| session.id_token.clone());
         let access_token = token_response.access_token;
         let refresh_token = token_response
             .refresh_token
@@ -687,10 +712,15 @@ async fn refresh_session_if_needed(
     };
 
     let mut refreshed = refreshed;
-    refreshed.api_key = match exchange_id_token_for_api_key(&state.http_client, &refreshed.id_token).await {
+    refreshed.api_key = match exchange_id_token_for_api_key(&state.http_client, &refreshed.id_token)
+        .await
+    {
         Ok(api_key) => api_key,
         Err(err) => {
-            log::warn!("OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}", err);
+            log::warn!(
+                "OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}",
+                err
+            );
             String::new()
         }
     };
@@ -723,25 +753,20 @@ pub async fn login(
     let state_token = generate_state();
     let auth_url = build_authorize_url(&redirect_uri, &code_challenge, &state_token)?;
 
-    webbrowser::open(&auth_url)
-        .map_err(|err| format!("打开浏览器失败: {err}"))?;
+    webbrowser::open(&auth_url).map_err(|err| format!("打开浏览器失败: {err}"))?;
 
     let OAuthCallback { code, mut stream } = wait_for_callback(listeners, state_token).await?;
-    let token_response = match exchange_code_for_tokens(
-        &state.http_client,
-        &code,
-        &redirect_uri,
-        &code_verifier,
-    )
-    .await
-    {
-        Ok(tokens) => tokens,
-        Err(err) => {
-            let html = callback_html("Authorization Failed", &err, false);
-            let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-            return Err(err);
-        }
-    };
+    let token_response =
+        match exchange_code_for_tokens(&state.http_client, &code, &redirect_uri, &code_verifier)
+            .await
+        {
+            Ok(tokens) => tokens,
+            Err(err) => {
+                let html = callback_html("Authorization Failed", &err, false);
+                let _ = respond_with_html(&mut stream, "200 OK", &html).await;
+                return Err(err);
+            }
+        };
 
     let id_token = match token_response.id_token.clone() {
         Some(id_token) if !id_token.trim().is_empty() => id_token,
@@ -768,7 +793,10 @@ pub async fn login(
     let api_key = match exchange_id_token_for_api_key(&state.http_client, &id_token).await {
         Ok(api_key) => api_key,
         Err(err) => {
-            log::warn!("OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}", err);
+            log::warn!(
+                "OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}",
+                err
+            );
             String::new()
         }
     };
@@ -793,7 +821,11 @@ pub async fn login(
         return Err(err);
     }
     state.set_openai_codex_oauth_session(Some(session.clone()));
-    let html = callback_html("Authorization Successful", "可以关闭这个页面并返回轻语。", true);
+    let html = callback_html(
+        "Authorization Successful",
+        "可以关闭这个页面并返回轻语。",
+        true,
+    );
     let _ = respond_with_html(&mut stream, "200 OK", &html).await;
 
     Ok(make_status(Some(&session)))

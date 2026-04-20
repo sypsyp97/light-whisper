@@ -141,7 +141,11 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
         LlmEndpoint {
             provider: active_provider.clone(),
             api_url: if use_custom_endpoint {
-                normalize_api_url(config.custom_base_url.as_deref(), default_base_url, api_suffix)
+                normalize_api_url(
+                    config.custom_base_url.as_deref(),
+                    default_base_url,
+                    api_suffix,
+                )
             } else {
                 normalize_api_url(None, default_base_url, api_suffix)
             },
@@ -162,9 +166,11 @@ pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     {
         let api_url = match cp.api_format {
             ApiFormat::Anthropic => normalize_anthropic_url(&cp.base_url),
-            ApiFormat::OpenaiCompat => {
-                normalize_api_url(Some(&cp.base_url), "http://127.0.0.1:8000", "chat/completions")
-            }
+            ApiFormat::OpenaiCompat => normalize_api_url(
+                Some(&cp.base_url),
+                "http://127.0.0.1:8000",
+                "chat/completions",
+            ),
         };
         LlmEndpoint {
             provider: active_provider,
@@ -526,8 +532,7 @@ pub fn looks_like_reasoning_unsupported_error(message: &str) -> bool {
         || normalized.contains("reasoning_content");
 
     mentions_reasoning
-        && (indicates_unsupported(&normalized)
-            || normalized.contains("unknown parameter"))
+        && (indicates_unsupported(&normalized) || normalized.contains("unknown parameter"))
 }
 
 pub fn is_volcengine_like_endpoint(endpoint: &LlmEndpoint) -> bool {
@@ -967,12 +972,22 @@ pub fn build_auth_headers(
         }
         ApiFormat::OpenaiCompat => {
             if let Some(token) = codex_oauth_service::decode_chatgpt_bearer_token(api_key) {
-                headers.insert("Authorization", parse(&format!("Bearer {}", token.access_token))?);
-                if let Some(account_id) = token.account_id.as_deref().filter(|value| !value.trim().is_empty()) {
+                headers.insert(
+                    "Authorization",
+                    parse(&format!("Bearer {}", token.access_token))?,
+                );
+                if let Some(account_id) = token
+                    .account_id
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                {
                     headers.insert("ChatGPT-Account-ID", parse(account_id)?);
                 }
                 headers.insert("originator", parse(codex_oauth_service::ORIGINATOR)?);
-                headers.insert("User-Agent", parse(codex_oauth_service::CHATGPT_BEARER_USER_AGENT)?);
+                headers.insert(
+                    "User-Agent",
+                    parse(codex_oauth_service::CHATGPT_BEARER_USER_AGENT)?,
+                );
             } else {
                 headers.insert("Authorization", parse(&format!("Bearer {api_key}"))?);
             }
@@ -1390,8 +1405,7 @@ mod tests {
 
     #[test]
     fn openai_gpt5_4_off_maps_reasoning_effort_to_none() {
-        let endpoint =
-            endpoint_for_preview(OPENAI, None, Some("gpt-5.4"), ApiFormat::OpenaiCompat);
+        let endpoint = endpoint_for_preview(OPENAI, None, Some("gpt-5.4"), ApiFormat::OpenaiCompat);
         let mut body = serde_json::json!({});
 
         apply_reasoning_controls(&endpoint, true, &mut body, LlmReasoningMode::Off);
@@ -1412,8 +1426,7 @@ mod tests {
 
     #[test]
     fn openai_gpt5_2_off_maps_reasoning_effort_to_none() {
-        let endpoint =
-            endpoint_for_preview(OPENAI, None, Some("gpt-5.2"), ApiFormat::OpenaiCompat);
+        let endpoint = endpoint_for_preview(OPENAI, None, Some("gpt-5.2"), ApiFormat::OpenaiCompat);
 
         assert_eq!(
             reasoning_efforts_for_modes(&endpoint),

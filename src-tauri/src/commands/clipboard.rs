@@ -8,7 +8,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 #[cfg(target_os = "windows")]
 #[link(name = "imm32")]
 extern "system" {
-    fn ImmGetDefaultIMEWnd(hwnd: windows_sys::Win32::Foundation::HWND) -> windows_sys::Win32::Foundation::HWND;
+    fn ImmGetDefaultIMEWnd(
+        hwnd: windows_sys::Win32::Foundation::HWND,
+    ) -> windows_sys::Win32::Foundation::HWND;
 }
 
 #[cfg(target_os = "windows")]
@@ -190,9 +192,7 @@ pub async fn paste_text_impl(
             ];
             send_inputs(&inputs)?;
         } else {
-            use windows_sys::Win32::UI::WindowsAndMessaging::{
-                GetForegroundWindow, SendMessageW,
-            };
+            use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SendMessageW};
 
             const VK_RETURN: u16 = 0x0D;
             const VK_TAB: u16 = 0x09;
@@ -210,9 +210,8 @@ pub async fn paste_text_impl(
             // 将 *mut c_void 转为 usize 以跨越 await（HWND 本质是个数值句柄）
             let ime_wnd = ime_wnd_ptr as usize;
             let ime_was_open = if ime_wnd != 0 {
-                let open = unsafe {
-                    SendMessageW(ime_wnd as _, WM_IME_CONTROL, IMC_GETOPENSTATUS, 0)
-                };
+                let open =
+                    unsafe { SendMessageW(ime_wnd as _, WM_IME_CONTROL, IMC_GETOPENSTATUS, 0) };
                 if open != 0 {
                     unsafe {
                         SendMessageW(ime_wnd as _, WM_IME_CONTROL, IMC_SETOPENSTATUS, 0);

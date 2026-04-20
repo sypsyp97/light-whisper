@@ -122,10 +122,7 @@ pub(crate) fn active_online_keyring_user() -> &'static str {
 }
 
 /// 从密钥环加载 active online provider 的 API Key 到运行时缓存。
-pub(crate) fn reload_online_asr_key(
-    app_handle: &tauri::AppHandle,
-    state: &AppState,
-) {
+pub(crate) fn reload_online_asr_key(app_handle: &tauri::AppHandle, state: &AppState) {
     use tauri_plugin_keyring::KeyringExt;
     let user = active_online_keyring_user();
     let key = app_handle
@@ -349,7 +346,10 @@ pub async fn list_alibaba_asr_models(
         .await;
 
     let Ok(resp) = resp_result else {
-        log::warn!("抓取 DashScope 模型列表失败 (network)：{:?}", resp_result.err());
+        log::warn!(
+            "抓取 DashScope 模型列表失败 (network)：{:?}",
+            resp_result.err()
+        );
         return Ok(fallback());
     };
 
@@ -506,12 +506,7 @@ fn migrate_model_dirs(
     let entries: Vec<_> = std::fs::read_dir(src)
         .map_err(|e| format!("读取源目录失败: {}", e))?
         .filter_map(Result::ok)
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("models--")
-                && e.path().is_dir()
-        })
+        .filter(|e| e.file_name().to_string_lossy().starts_with("models--") && e.path().is_dir())
         .collect();
 
     if entries.is_empty() {
@@ -553,7 +548,11 @@ fn migrate_model_dirs(
     // 第二阶段：全部复制成功后，统一清理源目录
     for source in &copied_sources {
         if let Err(e) = std::fs::remove_dir_all(source) {
-            log::warn!("清理源目录失败（不影响迁移结果）: {} — {}", source.display(), e);
+            log::warn!(
+                "清理源目录失败（不影响迁移结果）: {} — {}",
+                source.display(),
+                e
+            );
         }
     }
 

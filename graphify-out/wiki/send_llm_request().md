@@ -6,13 +6,13 @@
 
 ### calls
 - [[adapt_body_for_backend()]] `EXTRACTED`
-- [[read_anthropic_sse_stream()]] `EXTRACTED`
 - [[uses_responses_api()]] `EXTRACTED`
-- [[read_openai_responses_sse_stream()]] `EXTRACTED`
 - [[extract_api_error_message()]] `EXTRACTED`
-- [[read_sse_stream()]] `EXTRACTED`
+- [[read_anthropic_sse_stream()]] `EXTRACTED`
+- [[read_openai_responses_sse_stream()]] `EXTRACTED`
 - [[extract_content()]] `EXTRACTED`
 - [[uses_codex_chatgpt_backend()]] `EXTRACTED`
+- [[read_sse_stream()]] `EXTRACTED`
 - [[dynamic_timeout()]] `EXTRACTED`
 - [[is_retryable_overload_error()]] `EXTRACTED`
 - [[looks_like_max_output_tokens_unsupported_error()]] `EXTRACTED`
