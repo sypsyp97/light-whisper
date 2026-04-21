@@ -38,14 +38,22 @@ export interface RecordingContextValue {
 
 const TestRecordingContext = createContext<RecordingContextValue | null>(null);
 
+let fallbackCtx: RecordingContextValue | null = null;
+function getFallback(): RecordingContextValue {
+  if (!fallbackCtx) fallbackCtx = buildDefaultContext();
+  return fallbackCtx;
+}
+
 export function useRecordingContext(): RecordingContextValue {
-  const ctx = useContext(TestRecordingContext);
-  if (!ctx) throw new Error("TestRecordingContext missing — wrap in renderWithRecordingContext");
-  return ctx;
+  return useContext(TestRecordingContext) ?? getFallback();
 }
 
 export function RecordingProvider({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return (
+    <TestRecordingContext.Provider value={getFallback()}>
+      {children}
+    </TestRecordingContext.Provider>
+  );
 }
 
 export function buildDefaultContext(overrides?: Partial<RecordingContextValue>): RecordingContextValue {

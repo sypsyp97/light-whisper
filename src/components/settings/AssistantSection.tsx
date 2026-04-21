@@ -29,7 +29,7 @@ import TextArea from "@/components/ui/TextArea";
 import Button from "@/components/ui/Button";
 import Kbd from "@/components/ui/Kbd";
 
-export default function AssistantSection() {
+export function AssistantSection() {
   const { t } = useTranslation();
   const [assistantHotkey, setAssistantHotkeyState] = useState<string | null>(null);
   const [screenContext, setScreenContext] = useState(false);
@@ -374,3 +374,5 @@ export default function AssistantSection() {
     </section>
   );
 }
+
+export default AssistantSection;

@@ -12,7 +12,7 @@ import Kbd from "@/components/ui/Kbd";
 import Segmented from "@/components/ui/Segmented";
 import Banner from "@/components/ui/Banner";
 
-export default function HotkeySection() {
+export function HotkeySection() {
   const { t } = useTranslation();
   const { hotkeyDisplay, setHotkey, hotkeyError, hotkeyDiagnostic } = useRecordingContext();
   const [recordingMode, setRecordingModeState] = useState<"hold" | "toggle">(
@@ -85,3 +85,5 @@ export default function HotkeySection() {
     </section>
   );
 }
+
+export default HotkeySection;

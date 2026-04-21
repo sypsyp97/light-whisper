@@ -2,7 +2,7 @@ export interface KbdProps {
   combo: string;
 }
 
-export default function Kbd({ combo }: KbdProps) {
+export function Kbd({ combo }: KbdProps) {
   const tokens = combo.split("+").map((t) => t.trim()).filter(Boolean);
   if (tokens.length === 0) return null;
   return (
@@ -16,3 +16,5 @@ export default function Kbd({ combo }: KbdProps) {
     </span>
   );
 }
+
+export default Kbd;

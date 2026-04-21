@@ -1,0 +1,20 @@
+disabled_rules:
+  - trailing_whitespace
+
+opt_in_rules:
+  - empty_count
+  - closure_spacing
+
+excluded:
+  - .build
+
+line_length:
+  warning: 120
+  error: 200
+
+identifier_name:
+  min_length: 2
+  excluded:
+    - id
+    - x
+    - y

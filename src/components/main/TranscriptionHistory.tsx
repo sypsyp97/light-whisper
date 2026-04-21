@@ -9,7 +9,7 @@ export interface TranscriptionHistoryProps {
   onCopy: (item: HistoryItem) => void;
 }
 
-export default function TranscriptionHistory({ items, onCopy }: TranscriptionHistoryProps) {
+export function TranscriptionHistory({ items, onCopy }: TranscriptionHistoryProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -57,3 +57,5 @@ export default function TranscriptionHistory({ items, onCopy }: TranscriptionHis
     </div>
   );
 }
+
+export default TranscriptionHistory;

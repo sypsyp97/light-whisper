@@ -7,7 +7,7 @@ import Segmented from "@/components/ui/Segmented";
 import Picker from "@/components/ui/Picker";
 import Field from "@/components/ui/Field";
 
-export default function AppearanceSection() {
+export function AppearanceSection() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
 
@@ -60,3 +60,5 @@ export default function AppearanceSection() {
     </section>
   );
 }
+
+export default AppearanceSection;

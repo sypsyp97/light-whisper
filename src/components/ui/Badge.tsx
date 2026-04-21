@@ -6,7 +6,9 @@ export interface BadgeProps {
   "data-testid"?: string;
 }
 
-export default function Badge({ tone = "neutral", children, "data-testid": testId }: BadgeProps) {
+export function Badge({ tone = "neutral", children, "data-testid": testId }: BadgeProps) {
   const cls = tone !== "neutral" ? `lw-badge lw-badge--${tone}` : "lw-badge";
   return <span className={cls} data-testid={testId}>{children}</span>;
 }
+
+export default Badge;

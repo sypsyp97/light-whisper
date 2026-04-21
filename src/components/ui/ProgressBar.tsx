@@ -3,7 +3,7 @@ export interface ProgressBarProps {
   indeterminate?: boolean;
 }
 
-export default function ProgressBar({ value, indeterminate }: ProgressBarProps) {
+export function ProgressBar({ value, indeterminate }: ProgressBarProps) {
   const clamped = Math.max(0, Math.min(100, value));
   return (
     <div
@@ -17,3 +17,5 @@ export default function ProgressBar({ value, indeterminate }: ProgressBarProps) 
     </div>
   );
 }
+
+export default ProgressBar;

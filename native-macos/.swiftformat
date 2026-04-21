@@ -1,0 +1,11 @@
+--indent 4
+--indentcase false
+--trimwhitespace always
+--voidtype void
+--wraparguments before-first
+--wrapcollections before-first
+--maxwidth 120
+--swiftversion 6.0
+--exclude .build
+--disable redundantSelf
+--enable isEmpty

@@ -7,7 +7,7 @@ export interface TextAreaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaE
   "data-testid"?: string;
 }
 
-export default function TextArea({
+export function TextArea({
   value,
   onChange,
   placeholder,
@@ -28,3 +28,5 @@ export default function TextArea({
     />
   );
 }
+
+export default TextArea;

@@ -21,7 +21,7 @@ import Toggle from "@/components/ui/Toggle";
 
 interface LevelPayload { deviceName?: string; level?: number }
 
-export default function MicrophoneSection() {
+export function MicrophoneSection() {
   const { t } = useTranslation();
   const [devices, setDevices] = useState<InputDeviceInfo[]>([]);
   const [selected, setSelected] = useState("");
@@ -155,3 +155,5 @@ export default function MicrophoneSection() {
     </section>
   );
 }
+
+export default MicrophoneSection;

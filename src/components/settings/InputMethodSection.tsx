@@ -10,7 +10,7 @@ import Toggle from "@/components/ui/Toggle";
 
 type InputMethod = "sendInput" | "clipboard";
 
-export default function InputMethodSection() {
+export function InputMethodSection() {
   const { t } = useTranslation();
   const [method, setMethod] = useState<InputMethod>(
     () => readLocalStorage(INPUT_METHOD_KEY) === "clipboard" ? "clipboard" : "sendInput",
@@ -60,3 +60,5 @@ export default function InputMethodSection() {
     </section>
   );
 }
+
+export default InputMethodSection;

@@ -6,7 +6,7 @@ import { exportUserProfile, importUserProfile } from "@/api/tauri";
 import Field from "@/components/ui/Field";
 import Button from "@/components/ui/Button";
 
-export default function DataSection() {
+export function DataSection() {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -76,3 +76,5 @@ export default function DataSection() {
     </section>
   );
 }
+
+export default DataSection;

@@ -7,7 +7,7 @@ export interface RecordingButtonProps {
   "data-testid"?: string;
 }
 
-export default function RecordingButton({ state, onClick, "data-testid": testId }: RecordingButtonProps) {
+export function RecordingButton({ state, onClick, "data-testid": testId }: RecordingButtonProps) {
   const { t } = useTranslation();
   const label =
     state === "recording" ? t("recording.stop")
@@ -42,3 +42,5 @@ export default function RecordingButton({ state, onClick, "data-testid": testId 
     </div>
   );
 }
+
+export default RecordingButton;

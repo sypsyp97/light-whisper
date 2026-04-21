@@ -10,7 +10,7 @@ export interface SecretInputProps {
   "data-testid"?: string;
 }
 
-export default function SecretInput({ value, onChange, placeholder, "data-testid": testId }: SecretInputProps) {
+export function SecretInput({ value, onChange, placeholder, "data-testid": testId }: SecretInputProps) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   return (
@@ -35,3 +35,5 @@ export default function SecretInput({ value, onChange, placeholder, "data-testid
     </div>
   );
 }
+
+export default SecretInput;

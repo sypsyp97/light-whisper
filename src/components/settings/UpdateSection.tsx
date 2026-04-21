@@ -9,7 +9,7 @@ import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import Banner from "@/components/ui/Banner";
 
-export default function UpdateSection() {
+export function UpdateSection() {
   const { t } = useTranslation();
   const [version, setVersion] = useState("");
   const [checking, setChecking] = useState(false);
@@ -66,3 +66,5 @@ export default function UpdateSection() {
     </section>
   );
 }
+
+export default UpdateSection;

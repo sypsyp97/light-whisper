@@ -7,7 +7,7 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
   "data-testid"?: string;
 }
 
-export default function IconButton({
+export function IconButton({
   label,
   icon,
   variant = "ghost",
@@ -34,3 +34,5 @@ export default function IconButton({
     </button>
   );
 }
+
+export default IconButton;

@@ -9,7 +9,7 @@ export interface OnboardingHintProps {
   onDismiss: () => void;
 }
 
-export default function OnboardingHint({ hotkeyDisplay, mode, onDismiss }: OnboardingHintProps) {
+export function OnboardingHint({ hotkeyDisplay, mode, onDismiss }: OnboardingHintProps) {
   const { t } = useTranslation();
   return (
     <div className="lw-onboarding" data-testid="main-onboarding">
@@ -32,3 +32,5 @@ export default function OnboardingHint({ hotkeyDisplay, mode, onDismiss }: Onboa
     </div>
   );
 }
+
+export default OnboardingHint;

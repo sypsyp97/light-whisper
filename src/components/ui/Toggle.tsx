@@ -6,7 +6,7 @@ export interface ToggleProps {
   "data-testid"?: string;
 }
 
-export default function Toggle({ checked, onChange, label, disabled, "data-testid": testId }: ToggleProps) {
+export function Toggle({ checked, onChange, label, disabled, "data-testid": testId }: ToggleProps) {
   return (
     <button
       type="button"
@@ -22,3 +22,5 @@ export default function Toggle({ checked, onChange, label, disabled, "data-testi
     </button>
   );
 }
+
+export default Toggle;

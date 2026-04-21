@@ -8,7 +8,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   "data-testid"?: string;
 }
 
-export default function Button({
+export function Button({
   variant = "secondary",
   size = "md",
   loading = false,
@@ -40,3 +40,5 @@ export default function Button({
     </button>
   );
 }
+
+export default Button;

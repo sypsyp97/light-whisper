@@ -9,7 +9,7 @@ import {
 import Field from "@/components/ui/Field";
 import Toggle from "@/components/ui/Toggle";
 
-export default function StartupSection() {
+export function StartupSection() {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(false);
 
@@ -47,3 +47,5 @@ export default function StartupSection() {
     </section>
   );
 }
+
+export default StartupSection;

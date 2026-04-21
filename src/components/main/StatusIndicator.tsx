@@ -17,7 +17,7 @@ export interface StatusIndicatorProps {
   onCancelDownload?: () => void;
 }
 
-export default function StatusIndicator({
+export function StatusIndicator({
   stage,
   isReady,
   engineLabel,
@@ -92,3 +92,5 @@ export default function StatusIndicator({
     </div>
   );
 }
+
+export default StatusIndicator;

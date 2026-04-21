@@ -7,7 +7,7 @@ export interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElemen
   "data-testid"?: string;
 }
 
-export default function TextInput({
+export function TextInput({
   value,
   onChange,
   placeholder,
@@ -28,3 +28,5 @@ export default function TextInput({
     />
   );
 }
+
+export default TextInput;

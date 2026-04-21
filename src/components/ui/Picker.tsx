@@ -23,7 +23,7 @@ export interface PickerProps<T extends string> {
   "data-testid"?: string;
 }
 
-export default function Picker<T extends string>({
+export function Picker<T extends string>({
   value,
   options,
   onChange,
@@ -130,3 +130,5 @@ export default function Picker<T extends string>({
     </div>
   );
 }
+
+export default Picker;

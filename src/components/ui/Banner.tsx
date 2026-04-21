@@ -11,7 +11,7 @@ export interface BannerProps {
   "data-testid"?: string;
 }
 
-export default function Banner({ tone, message, action, onDismiss, "data-testid": testId }: BannerProps) {
+export function Banner({ tone, message, action, onDismiss, "data-testid": testId }: BannerProps) {
   const { t } = useTranslation();
   return (
     <div role="alert" className={`lw-banner lw-banner--${tone}`} data-testid={testId}>
@@ -34,3 +34,5 @@ export default function Banner({ tone, message, action, onDismiss, "data-testid"
     </div>
   );
 }
+
+export default Banner;

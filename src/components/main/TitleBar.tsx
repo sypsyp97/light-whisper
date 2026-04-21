@@ -12,7 +12,7 @@ export interface TitleBarProps {
   "data-testid"?: string;
 }
 
-export default function TitleBar({
+export function TitleBar({
   title,
   leftAction,
   onMinimize,
@@ -59,3 +59,5 @@ export default function TitleBar({
     </header>
   );
 }
+
+export default TitleBar;

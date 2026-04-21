@@ -21,7 +21,7 @@ import Segmented from "@/components/ui/Segmented";
 import Toggle from "@/components/ui/Toggle";
 import Picker from "@/components/ui/Picker";
 
-export default function VocabularySection() {
+export function VocabularySection() {
   const { t } = useTranslation();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [newWord, setNewWord] = useState("");
@@ -296,3 +296,5 @@ function CorrectionRulesModal({
     </Modal>
   );
 }
+
+export default VocabularySection;

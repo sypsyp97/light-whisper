@@ -21,7 +21,7 @@ import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 
 type EngineKey = "glm-asr" | "alibaba-asr";
 
-export default function EngineSection() {
+export function EngineSection() {
   const { t } = useTranslation();
   const [engine, setEngineState] = useState<EngineKey>("alibaba-asr");
   const [apiKey, setApiKey] = useState("");
@@ -160,3 +160,5 @@ export default function EngineSection() {
     </section>
   );
 }
+
+export default EngineSection;

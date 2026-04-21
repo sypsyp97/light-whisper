@@ -40,7 +40,7 @@ import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 
 const PRESETS = ["openai", "deepseek", "cerebras", "siliconflow", "custom_compat"] as const;
 
-export default function AiPolishSection() {
+export function AiPolishSection() {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
   const [screenContext, setScreenContext] = useState(false);
@@ -427,3 +427,5 @@ function AddProviderModal({
     </Modal>
   );
 }
+
+export default AiPolishSection;

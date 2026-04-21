@@ -12,7 +12,7 @@ export interface RecordingStageProps {
   onToggle: () => void;
 }
 
-export default function RecordingStage({
+export function RecordingStage({
   isRecording,
   isProcessing,
   isReady,
@@ -43,3 +43,5 @@ export default function RecordingStage({
     </div>
   );
 }
+
+export default RecordingStage;

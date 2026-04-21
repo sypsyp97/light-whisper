@@ -12,7 +12,7 @@ export interface ModalProps {
   "data-testid"?: string;
 }
 
-export default function Modal({ open, onClose, title, children, "data-testid": testId }: ModalProps) {
+export function Modal({ open, onClose, title, children, "data-testid": testId }: ModalProps) {
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement | null>(null);
 
@@ -55,3 +55,5 @@ export default function Modal({ open, onClose, title, children, "data-testid": t
     document.body,
   );
 }
+
+export default Modal;

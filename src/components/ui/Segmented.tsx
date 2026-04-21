@@ -7,7 +7,7 @@ export interface SegmentedProps<T extends string> {
   "data-testid"?: string;
 }
 
-export default function Segmented<T extends string>({ value, options, onChange, "data-testid": testId }: SegmentedProps<T>) {
+export function Segmented<T extends string>({ value, options, onChange, "data-testid": testId }: SegmentedProps<T>) {
   return (
     <div role="radiogroup" className="lw-segmented" data-testid={testId}>
       {options.map((opt) => {
@@ -30,3 +30,5 @@ export default function Segmented<T extends string>({ value, options, onChange, 
     </div>
   );
 }
+
+export default Segmented;

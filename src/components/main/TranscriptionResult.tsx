@@ -16,7 +16,7 @@ export interface TranscriptionResultProps {
   onCopy: () => void;
 }
 
-export default function TranscriptionResult({
+export function TranscriptionResult({
   text,
   originalText,
   mode,
@@ -87,3 +87,5 @@ export default function TranscriptionResult({
     </div>
   );
 }
+
+export default TranscriptionResult;

@@ -12,7 +12,7 @@ export interface SettingsNavProps {
   onNavigate: (id: string) => void;
 }
 
-export default function SettingsNav({ items, activeId, onNavigate }: SettingsNavProps) {
+export function SettingsNav({ items, activeId, onNavigate }: SettingsNavProps) {
   return (
     <nav className="lw-settings-nav" data-testid="settings-nav" aria-label="Settings sections">
       {items.map((item) => {
@@ -34,3 +34,5 @@ export default function SettingsNav({ items, activeId, onNavigate }: SettingsNav
     </nav>
   );
 }
+
+export default SettingsNav;

@@ -19,7 +19,7 @@ const PERMISSIONS: Array<{ kind: PermissionKind; labelKey: string; fallback: str
   { kind: "automation", labelKey: "settings.permAutomation", fallback: "Automation" },
 ];
 
-export default function PermissionsSection() {
+export function PermissionsSection() {
   const { t } = useTranslation();
   const [statuses, setStatuses] = useState<Record<PermissionKind, PermissionStatus>>({
     microphone: { granted: false, canRequest: true },
@@ -104,3 +104,5 @@ export default function PermissionsSection() {
     </section>
   );
 }
+
+export default PermissionsSection;

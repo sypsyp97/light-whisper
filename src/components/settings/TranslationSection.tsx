@@ -12,7 +12,7 @@ import Kbd from "@/components/ui/Kbd";
 
 const PRESET_LANGS = ["English", "日本語", "한국어", "Français", "Deutsch", "Español", "Русский", "Português"];
 
-export default function TranslationSection() {
+export function TranslationSection() {
   const { t } = useTranslation();
   const [hotkey, setHotkeyState] = useState<string | null>(null);
   const [target, setTargetState] = useState<string>("");
@@ -136,3 +136,5 @@ export default function TranslationSection() {
     </section>
   );
 }
+
+export default TranslationSection;

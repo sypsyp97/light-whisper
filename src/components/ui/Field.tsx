@@ -8,7 +8,7 @@ export interface FieldProps {
   "data-testid"?: string;
 }
 
-export default function Field({ label, hint, error, children, "data-testid": testId }: FieldProps) {
+export function Field({ label, hint, error, children, "data-testid": testId }: FieldProps) {
   const id = useId();
   return (
     <div className="lw-field" data-testid={testId ?? "ui-field"}>
@@ -19,3 +19,5 @@ export default function Field({ label, hint, error, children, "data-testid": tes
     </div>
   );
 }
+
+export default Field;
