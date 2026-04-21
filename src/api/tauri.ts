@@ -393,4 +393,19 @@ export function setModelsDir(path: string | null, migrate: boolean): Promise<str
   return invokeCommand<string>("set_models_dir", { path, migrate });
 }
 
+export type PermissionKind = "microphone" | "accessibility" | "screen" | "automation";
+
+export interface PermissionStatus {
+  granted: boolean;
+  canRequest: boolean;
+}
+
+export function checkPermission(kind: PermissionKind): Promise<PermissionStatus> {
+  return invokeCommand<PermissionStatus>("check_permission", { kind });
+}
+
+export function requestPermission(kind: PermissionKind): Promise<PermissionStatus> {
+  return invokeCommand<PermissionStatus>("request_permission", { kind });
+}
+
 export { enableAutostart, disableAutostart, isAutostartEnabled };
