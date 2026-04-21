@@ -5,6 +5,7 @@ pub mod clipboard;
 pub mod codex_oauth;
 pub mod funasr;
 pub mod hotkey;
+pub mod permissions;
 pub mod profile;
 pub mod updater;
 pub mod window;

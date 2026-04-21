@@ -148,6 +148,7 @@ pub fn run() {
                 }
             }
 
+            spawn_first_launch_permission_prompts(app_handle.clone());
             spawn_funasr_startup(app_handle.clone());
             spawn_subtitle_prewarm(app_handle.clone());
             spawn_profile_maintenance(app_handle.clone());
@@ -238,6 +239,8 @@ pub fn run() {
             commands::assistant::set_web_search_config,
             commands::assistant::set_web_search_api_key,
             commands::assistant::get_web_search_api_key,
+            commands::permissions::check_permission,
+            commands::permissions::request_permission,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");
@@ -252,6 +255,50 @@ fn mark_setup_once() -> bool {
         first_run = true;
     });
     first_run
+}
+
+fn spawn_first_launch_permission_prompts(app_handle: tauri::AppHandle) {
+    let marker_path = utils::paths::get_data_dir().join(".permissions-prompted");
+    if marker_path.exists() {
+        log::info!("首次权限提示标记已存在，跳过");
+        return;
+    }
+
+    let _ = app_handle;
+
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+
+        use crate::services::permissions_service::{
+            request_permission, PermissionKind,
+        };
+
+        let kinds = [
+            ("麦克风", PermissionKind::Microphone),
+            ("辅助功能", PermissionKind::Accessibility),
+            ("屏幕录制", PermissionKind::Screen),
+            ("自动化", PermissionKind::Automation),
+        ];
+        for (label, kind) in kinds {
+            let status = request_permission(kind).await;
+            log::info!(
+                "首次启动权限请求: {} -> granted={}, can_request={}",
+                label,
+                status.granted,
+                status.can_request
+            );
+        }
+
+        if let Err(err) = std::fs::write(&marker_path, b"prompted\n") {
+            log::warn!(
+                "写入权限提示标记失败: {} ({})",
+                marker_path.display(),
+                err
+            );
+        } else {
+            log::info!("已写入首次权限提示标记: {}", marker_path.display());
+        }
+    });
 }
 
 fn spawn_funasr_startup(app_handle: tauri::AppHandle) {

@@ -1,4 +1,5 @@
 use crate::utils::AppError;
+use serde::Serialize;
 
 #[cfg(target_os = "macos")]
 use core_foundation::{
@@ -14,6 +15,207 @@ use core_graphics::access::ScreenCaptureAccess;
 unsafe extern "C" {
     static kAXTrustedCheckOptionPrompt: CFStringRef;
     fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> Boolean;
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionStatus {
+    pub granted: bool,
+    pub can_request: bool,
+}
+
+impl PermissionStatus {
+    pub const fn granted() -> Self {
+        Self {
+            granted: true,
+            can_request: false,
+        }
+    }
+    pub const fn pending() -> Self {
+        Self {
+            granted: false,
+            can_request: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PermissionKind {
+    Microphone,
+    Accessibility,
+    Screen,
+    Automation,
+}
+
+pub fn parse_permission_kind(kind: &str) -> Option<PermissionKind> {
+    match kind {
+        "microphone" => Some(PermissionKind::Microphone),
+        "accessibility" => Some(PermissionKind::Accessibility),
+        "screen" => Some(PermissionKind::Screen),
+        "automation" => Some(PermissionKind::Automation),
+        _ => None,
+    }
+}
+
+pub async fn check_permission(kind: PermissionKind) -> PermissionStatus {
+    match kind {
+        PermissionKind::Microphone => check_microphone().await,
+        PermissionKind::Accessibility => check_accessibility(),
+        PermissionKind::Screen => check_screen_capture(),
+        PermissionKind::Automation => check_automation().await,
+    }
+}
+
+pub async fn request_permission(kind: PermissionKind) -> PermissionStatus {
+    match kind {
+        PermissionKind::Microphone => request_microphone().await,
+        PermissionKind::Accessibility => request_accessibility(),
+        PermissionKind::Screen => request_screen_capture(),
+        PermissionKind::Automation => request_automation().await,
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn check_microphone() -> PermissionStatus {
+    if probe_microphone_stream(false).await {
+        PermissionStatus::granted()
+    } else {
+        PermissionStatus::pending()
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn request_microphone() -> PermissionStatus {
+    if probe_microphone_stream(true).await {
+        PermissionStatus::granted()
+    } else {
+        PermissionStatus::pending()
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn probe_microphone_stream(allow_play: bool) -> bool {
+    tokio::task::spawn_blocking(move || {
+        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+        let host = cpal::default_host();
+        let Some(device) = host.default_input_device() else {
+            return false;
+        };
+        let Ok(config) = device.default_input_config() else {
+            return false;
+        };
+        let stream_config: cpal::StreamConfig = config.into();
+        let Ok(stream) = device.build_input_stream(
+            &stream_config,
+            |_data: &[f32], _info: &cpal::InputCallbackInfo| {},
+            |_err| {},
+            None,
+        ) else {
+            return false;
+        };
+        if allow_play {
+            if stream.play().is_err() {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+        drop(stream);
+        true
+    })
+    .await
+    .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+fn check_accessibility() -> PermissionStatus {
+    if accessibility_trusted_with_prompt(false) {
+        PermissionStatus::granted()
+    } else {
+        PermissionStatus::pending()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn request_accessibility() -> PermissionStatus {
+    if accessibility_trusted_with_prompt(true) {
+        PermissionStatus::granted()
+    } else {
+        PermissionStatus::pending()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn check_screen_capture() -> PermissionStatus {
+    if ScreenCaptureAccess.preflight() {
+        PermissionStatus::granted()
+    } else {
+        PermissionStatus::pending()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn request_screen_capture() -> PermissionStatus {
+    if ScreenCaptureAccess.request() {
+        PermissionStatus::granted()
+    } else {
+        PermissionStatus::pending()
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn check_automation() -> PermissionStatus {
+    run_system_events_probe().await
+}
+
+#[cfg(target_os = "macos")]
+async fn request_automation() -> PermissionStatus {
+    run_system_events_probe().await
+}
+
+#[cfg(target_os = "macos")]
+async fn run_system_events_probe() -> PermissionStatus {
+    match tokio::process::Command::new("osascript")
+        .arg("-e")
+        .arg("tell application \"System Events\" to count every process")
+        .output()
+        .await
+    {
+        Ok(output) if output.status.success() => PermissionStatus::granted(),
+        _ => PermissionStatus::pending(),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn check_microphone() -> PermissionStatus {
+    PermissionStatus::granted()
+}
+#[cfg(not(target_os = "macos"))]
+async fn request_microphone() -> PermissionStatus {
+    PermissionStatus::granted()
+}
+#[cfg(not(target_os = "macos"))]
+fn check_accessibility() -> PermissionStatus {
+    PermissionStatus::granted()
+}
+#[cfg(not(target_os = "macos"))]
+fn request_accessibility() -> PermissionStatus {
+    PermissionStatus::granted()
+}
+#[cfg(not(target_os = "macos"))]
+fn check_screen_capture() -> PermissionStatus {
+    PermissionStatus::granted()
+}
+#[cfg(not(target_os = "macos"))]
+fn request_screen_capture() -> PermissionStatus {
+    PermissionStatus::granted()
+}
+#[cfg(not(target_os = "macos"))]
+async fn check_automation() -> PermissionStatus {
+    PermissionStatus::granted()
+}
+#[cfg(not(target_os = "macos"))]
+async fn request_automation() -> PermissionStatus {
+    PermissionStatus::granted()
 }
 
 #[cfg(target_os = "macos")]
@@ -44,6 +246,19 @@ pub async fn ensure_accessibility_permission_for_input() -> Result<(), AppError>
 #[cfg(not(target_os = "macos"))]
 pub async fn ensure_accessibility_permission_for_input() -> Result<(), AppError> {
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn ensure_accessibility_permission_for_selection_sync() -> bool {
+    if accessibility_trusted_with_prompt(false) {
+        return true;
+    }
+    accessibility_trusted_with_prompt(true)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn ensure_accessibility_permission_for_selection_sync() -> bool {
+    true
 }
 
 #[cfg(target_os = "macos")]
