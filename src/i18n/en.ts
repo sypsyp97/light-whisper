@@ -269,6 +269,8 @@ const en: TranslationSchema = {
     codexOauthReauth: "Sign in again",
     codexOauthLogout: "Sign out",
     codexOauthWorking: "Working...",
+    fastModeLabel: "Fast mode",
+    fastModeHint: "Uses ChatGPT priority processing — ~1.5× faster, consumes ~2× credits. Only applies when signed in with ChatGPT; ignored for API-key requests.",
     openaiAuthModeLabel: "OpenAI auth method",
     openaiAuthModeApiKey: "API Key",
     openaiAuthModeOauth: "OAuth sign-in",

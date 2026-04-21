@@ -247,6 +247,10 @@ export function setCustomPrompt(prompt: string | null): Promise<void> {
   return invokeCommand<void>("set_custom_prompt", { prompt });
 }
 
+export function setOpenaiFastMode(enabled: boolean): Promise<void> {
+  return invokeCommand<void>("set_openai_fast_mode", { enabled });
+}
+
 export function setAssistantHotkey(shortcut: string | null): Promise<void> {
   return invokeCommand<void>("set_assistant_hotkey", { shortcut });
 }

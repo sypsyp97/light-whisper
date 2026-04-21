@@ -1,10 +1,10 @@
 # LLM Provider
 
-> 78 nodes · cohesion 0.05
+> 79 nodes · cohesion 0.05
 
 ## Key Concepts
 
-- **llm_provider.rs** (75 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
+- **llm_provider.rs** (76 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **endpoint_for_preview()** (16 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **endpoint_for_config()** (14 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **reasoning_control_kind()** (13 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
@@ -18,6 +18,7 @@
 - **is_cerebras_like_endpoint()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **load_api_key_for_provider()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **openai_gpt5_reasoning_efforts()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
+- **build_auth_headers()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **cerebras_glm_reports_reasoning_support()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **deepseek_reasoner_reports_reasoning_support()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **default_endpoint_parts()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
@@ -28,8 +29,7 @@
 - **load_api_key_for_active_provider()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **normalize_models_url()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 - **openai_gpt5_4_off_maps_reasoning_effort_to_none()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
-- **openai_gpt5_effort_for_mode()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
-- *... and 53 more nodes in this community*
+- *... and 54 more nodes in this community*
 
 ## Relationships
 
@@ -41,7 +41,7 @@
 
 ## Audit Trail
 
-- EXTRACTED: 308 (100%)
+- EXTRACTED: 312 (100%)
 - INFERRED: 1 (0%)
 - AMBIGUOUS: 0 (0%)
 

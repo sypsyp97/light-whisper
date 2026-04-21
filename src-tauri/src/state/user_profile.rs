@@ -232,6 +232,11 @@ pub struct LlmProviderConfig {
     /// Some(ApiKey) / Some(Oauth) = 用户通过设置页明确选定后存进来
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openai_auth_mode: Option<OpenaiAuthMode>,
+    /// ChatGPT OAuth 快速模式：注入 service_tier="priority" 走优先处理通道。
+    /// 仅对已登录的 ChatGPT OAuth 会话生效，API Key 请求永不携带该标记。
+    /// 用户侧叫 "fast mode / 快速模式"，wire 值是 "priority"（对齐官方 Codex CLI）。
+    #[serde(default)]
+    pub openai_fast_mode: bool,
 }
 
 impl Default for LlmProviderConfig {
@@ -251,6 +256,7 @@ impl Default for LlmProviderConfig {
             validation_provider: None,
             validation_model: None,
             openai_auth_mode: None,
+            openai_fast_mode: false,
         }
     }
 }
@@ -464,5 +470,19 @@ mod tests {
 
         assert_eq!(config.polish_reasoning_mode(), LlmReasoningMode::Light);
         assert_eq!(config.assistant_reasoning_mode(), LlmReasoningMode::Light);
+    }
+
+    /// TDD red-state: the new `openai_fast_mode` field must default to `false`
+    /// on `LlmProviderConfig`, so existing profiles without the key behave
+    /// exactly as before. The impl agent is responsible for adding the field
+    /// (serde-flagged as `#[serde(default)]`) and wiring its default.
+    #[test]
+    fn default_llm_provider_config_has_fast_mode_disabled() {
+        let config = LlmProviderConfig::default();
+
+        assert!(
+            !config.openai_fast_mode,
+            "openai_fast_mode must default to false so existing users do not silently start consuming fast-mode credits"
+        );
     }
 }

@@ -308,6 +308,7 @@ pub(crate) fn ai_polish_transport_plan(
         stream_event: Some("ai-polish-status"),
         session_id: Some(session_id),
         web_search: false,
+        openai_fast_mode: false,
     };
     let stream_nojson = LlmRequestOptions {
         stream: true,
@@ -316,6 +317,7 @@ pub(crate) fn ai_polish_transport_plan(
         stream_event: Some("ai-polish-status"),
         session_id: Some(session_id),
         web_search: false,
+        openai_fast_mode: false,
     };
     let nostream_json = LlmRequestOptions {
         stream: false,
@@ -324,6 +326,7 @@ pub(crate) fn ai_polish_transport_plan(
         stream_event: None,
         session_id: Some(session_id),
         web_search: false,
+        openai_fast_mode: false,
     };
     let nostream_nojson = LlmRequestOptions {
         stream: false,
@@ -332,6 +335,7 @@ pub(crate) fn ai_polish_transport_plan(
         stream_event: None,
         session_id: Some(session_id),
         web_search: false,
+        openai_fast_mode: false,
     };
 
     if prefer_streaming_after_partial {
@@ -361,9 +365,19 @@ async fn send_llm_request_with_transport_fallback(
     app_handle: &tauri::AppHandle,
     session_id: u64,
 ) -> Result<String, String> {
-    let reasoning_mode = state.with_profile(|profile| profile.llm_provider.polish_reasoning_mode());
+    let (reasoning_mode, fast_mode) = state.with_profile(|profile| {
+        (
+            profile.llm_provider.polish_reasoning_mode(),
+            profile.llm_provider.openai_fast_mode,
+        )
+    });
+    let apply_fast = |mut stage: LlmRequestOptions<'static>| -> LlmRequestOptions<'static> {
+        stage.openai_fast_mode = fast_mode;
+        stage
+    };
     let _ = state.take_ai_polish_stream_started(session_id);
     let [stage1, _, _, _] = ai_polish_transport_plan(reasoning_mode, session_id, false);
+    let stage1 = apply_fast(stage1);
     match send_ai_polish_request(
         state,
         endpoint,
@@ -393,7 +407,11 @@ async fn send_llm_request_with_transport_fallback(
     let prefer_streaming_after_partial = state.take_ai_polish_stream_started(session_id);
     let [_, stage2, stage3, stage4] =
         ai_polish_transport_plan(reasoning_mode, session_id, prefer_streaming_after_partial);
-    for (index, stage) in [stage2, stage3, stage4].into_iter().enumerate() {
+    for (index, stage) in [stage2, stage3, stage4]
+        .into_iter()
+        .map(apply_fast)
+        .enumerate()
+    {
         let is_last_stage = index == 2;
         let stage_label = ai_polish_transport_label(&stage);
         match send_ai_polish_request(

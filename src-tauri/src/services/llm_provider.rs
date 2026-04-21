@@ -432,6 +432,7 @@ pub fn endpoint_for_preview(
             validation_provider: None,
             validation_model: None,
             openai_auth_mode: None,
+            openai_fast_mode: false,
         }
     } else {
         LlmProviderConfig {
@@ -455,6 +456,7 @@ pub fn endpoint_for_preview(
             validation_provider: None,
             validation_model: None,
             openai_auth_mode: None,
+            openai_fast_mode: false,
         }
     };
 
@@ -989,7 +991,9 @@ pub fn build_auth_headers(
                     parse(codex_oauth_service::CHATGPT_BEARER_USER_AGENT)?,
                 );
             } else {
-                headers.insert("Authorization", parse(&format!("Bearer {api_key}"))?);
+                let bearer_api_key = codex_oauth_service::decode_oauth_api_key(api_key)
+                    .unwrap_or_else(|| api_key.to_string());
+                headers.insert("Authorization", parse(&format!("Bearer {bearer_api_key}"))?);
             }
             headers.insert("Content-Type", parse("application/json")?);
         }
@@ -1061,6 +1065,7 @@ mod tests {
             validation_provider: None,
             validation_model: None,
             openai_auth_mode: None,
+            openai_fast_mode: false,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1090,6 +1095,7 @@ mod tests {
             validation_provider: None,
             validation_model: None,
             openai_auth_mode: None,
+            openai_fast_mode: false,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1115,6 +1121,7 @@ mod tests {
             validation_provider: None,
             validation_model: None,
             openai_auth_mode: None,
+            openai_fast_mode: false,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1122,6 +1129,25 @@ mod tests {
         assert_eq!(endpoint.provider, CUSTOM);
         assert_eq!(endpoint.api_url, "https://example.com/v1/chat/completions");
         assert_eq!(endpoint.model, "foo-model");
+    }
+
+    #[test]
+    fn wrapped_oauth_openai_api_key_builds_plain_bearer_header() {
+        let wrapped =
+            codex_oauth_service::encode_oauth_api_key("sk-oauth-session").expect("wrapped key");
+
+        let headers = build_auth_headers(&ApiFormat::OpenaiCompat, &wrapped)
+            .expect("headers should build for wrapped OAuth key");
+
+        assert_eq!(
+            headers
+                .get("Authorization")
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer sk-oauth-session")
+        );
+        assert!(headers.get("ChatGPT-Account-ID").is_none());
+        assert!(headers.get("originator").is_none());
+        assert!(headers.get("User-Agent").is_none());
     }
 
     #[test]
@@ -1156,6 +1182,7 @@ mod tests {
             validation_provider: None,
             validation_model: None,
             openai_auth_mode: None,
+            openai_fast_mode: false,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1185,6 +1212,7 @@ mod tests {
             validation_provider: None,
             validation_model: None,
             openai_auth_mode: None,
+            openai_fast_mode: false,
         };
 
         let endpoint = assistant_endpoint_for_config(&config);
@@ -1220,6 +1248,7 @@ mod tests {
             validation_provider: None,
             validation_model: None,
             openai_auth_mode: None,
+            openai_fast_mode: false,
         };
 
         let endpoint = assistant_endpoint_for_config(&config);

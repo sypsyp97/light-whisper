@@ -1,10 +1,11 @@
-# build_llm_body()
+# adapt_body_for_backend()
 
-> God node · 21 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
+> God node · 14 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_client.rs`
 
 ## Connections by Relation
 
 ### calls
+- [[send_llm_request()]] `EXTRACTED`
 - [[chatgpt_backend_injects_service_tier_priority_when_fast_mode_enabled()]] `EXTRACTED`
 - [[injected_service_tier_is_in_the_openai_responses_api_whitelist()]] `EXTRACTED`
 - [[chatgpt_backend_omits_service_tier_when_fast_mode_disabled()]] `EXTRACTED`
@@ -15,16 +16,8 @@
 - [[chatgpt_backend_responses_gpt5_reasoning_off_forces_stream_transport()]] `EXTRACTED`
 - [[plain_openai_api_key_never_gets_service_tier_even_if_fast_mode_true()]] `EXTRACTED`
 - [[uses_responses_api()]] `EXTRACTED`
-- [[chat_body_sets_max_tokens_for_openai_compat()]] `EXTRACTED`
-- [[responses_body_sets_max_output_tokens()]] `EXTRACTED`
-- [[responses_body_uses_stream_without_forcing_reasoning()]] `EXTRACTED`
-- [[chat_body_keeps_provider_default_reasoning()]] `EXTRACTED`
-- [[openai_chat_body_maps_reasoning_mode_to_effort()]] `EXTRACTED`
-- [[volcengine_chat_body_maps_reasoning_mode_to_thinking()]] `EXTRACTED`
-- [[cerebras_json_output_disables_stream_to_preserve_response_format()]] `EXTRACTED`
-- [[cerebras_without_json_output_keeps_stream()]] `EXTRACTED`
-- [[inject_openai_web_search()]] `EXTRACTED`
-- [[inject_anthropic_web_search()]] `EXTRACTED`
+- [[uses_codex_chatgpt_backend()]] `EXTRACTED`
+- [[uses_openai_oauth_origin_auth()]] `EXTRACTED`
 
 ### contains
 - [[llm_client.rs]] `EXTRACTED`

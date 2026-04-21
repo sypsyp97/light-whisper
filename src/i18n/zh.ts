@@ -267,6 +267,8 @@ const zh = {
     codexOauthReauth: "重新登录",
     codexOauthLogout: "退出登录",
     codexOauthWorking: "处理中...",
+    fastModeLabel: "快速模式",
+    fastModeHint: "使用 ChatGPT 优先处理通道——约 1.5 倍速度，消耗约 2 倍额度。仅对 ChatGPT 登录态生效，API Key 请求不受影响。",
     openaiAuthModeLabel: "OpenAI 认证方式",
     openaiAuthModeApiKey: "API Key",
     openaiAuthModeOauth: "OAuth 登录",

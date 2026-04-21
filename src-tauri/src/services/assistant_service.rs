@@ -382,6 +382,7 @@ pub async fn generate_content(
         stream_event: Some("assistant-stream"),
         session_id: Some(session_id),
         web_search: use_native_search,
+        openai_fast_mode: config.openai_fast_mode,
     };
     let body = llm_client::build_llm_body(&endpoint, &system_prompt, &user_input, request_options);
 

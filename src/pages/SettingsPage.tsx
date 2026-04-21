@@ -59,6 +59,7 @@ import {
   getAssistantApiKey,
   loginOpenaiCodexOauth,
   logoutOpenaiCodexOauth,
+  setOpenaiFastMode,
   setWebSearchConfig,
   setWebSearchApiKey,
   getWebSearchApiKey,
@@ -73,6 +74,7 @@ import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
+import { shouldShowFastModeToggle } from "@/lib/fastMode";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { useTranslation } from "react-i18next";
@@ -439,6 +441,7 @@ export default function SettingsPage({
   const [assistantApiKeyState, setAssistantApiKeyState] = useState("");
   // null = 用户未显式选择，effectiveOpenaiAuthMode 会根据 OAuth 登录态给出智能默认
   const [openaiAuthMode, setOpenaiAuthModeState] = useState<OpenaiAuthMode | null>(null);
+  const [openaiFastMode, setOpenaiFastModeState] = useState<boolean>(false);
   const [polishReasoningMode, setPolishReasoningMode] = useState<LlmReasoningMode>("provider_default");
   const [assistantReasoningMode, setAssistantReasoningMode] = useState<LlmReasoningMode>("provider_default");
   const defaultReasoningSupport: LlmReasoningSupport = { supported: false, strategy: null, summary: t("model.reasoningDetecting") };
@@ -678,6 +681,7 @@ export default function SettingsPage({
       setOpenaiAuthModeState(
         storedAuthMode === "api_key" || storedAuthMode === "oauth" ? storedAuthMode : null,
       );
+      setOpenaiFastModeState(Boolean(p.llm_provider.openai_fast_mode));
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
       setTranslationTargetState(p.translation_target ?? null);
       setTranslationHotkeyDisplay(p.translation_hotkey ? formatHotkeyForDisplay(p.translation_hotkey) : "");
@@ -1196,6 +1200,14 @@ export default function SettingsPage({
       setOpenaiCodexOauthLoading(false);
     }
   }, [aiPolishApiKey, assistantApiKeyState, t]);
+  const handleOpenaiFastModeToggle = useCallback((enabled: boolean) => {
+    setOpenaiFastModeState(enabled);
+    setOpenaiFastMode(enabled).catch(() => {
+      setOpenaiFastModeState(!enabled);
+      toast.error(t("toast.invokeFailed", { command: "set_openai_fast_mode" }));
+    });
+  }, [t]);
+
   const handleOpenaiAuthModeChange = useCallback((mode: OpenaiAuthMode) => {
     if (mode === effectiveOpenaiAuthMode && openaiAuthMode !== null) return;
     setOpenaiAuthModeState(mode);
@@ -1308,9 +1320,47 @@ export default function SettingsPage({
             </button>
           ) : null}
         </div>
+        {shouldShowFastModeToggle({
+          scope,
+          loggedIn,
+          authMode: effectiveOpenaiAuthMode,
+          llmProvider,
+          effectiveAssistantProvider,
+        }) ? (
+          <div className="settings-row" style={{ gap: 8, alignItems: "center", marginTop: 4 }}>
+            <div className="settings-column" style={{ gap: 2, flex: 1 }}>
+              <span className="permission-label">{t("settings.fastModeLabel")}</span>
+              <span className="settings-hint" style={{ margin: 0 }}>
+                {t("settings.fastModeHint")}
+              </span>
+            </div>
+            <button
+              role="switch"
+              aria-checked={openaiFastMode}
+              aria-label={t("settings.fastModeLabel")}
+              onClick={() => handleOpenaiFastModeToggle(!openaiFastMode)}
+              className="toggle-switch"
+              style={{
+                background: openaiFastMode
+                  ? "var(--color-accent)"
+                  : "var(--color-bg-tertiary)",
+                flexShrink: 0,
+              }}
+            >
+              <div
+                className="toggle-knob"
+                style={{
+                  transform: openaiFastMode
+                    ? "translateX(20px)"
+                    : "translateX(0)",
+                }}
+              />
+            </button>
+          </div>
+        ) : null}
       </div>
     );
-  }, [effectiveAssistantProvider, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, llmProvider, openaiCodexOauthLoading, openaiCodexOauthStatus, t]);
+  }, [effectiveAssistantProvider, effectiveOpenaiAuthMode, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, handleOpenaiFastModeToggle, llmProvider, openaiCodexOauthLoading, openaiCodexOauthStatus, openaiFastMode, t]);
   const allProviderOptions = useMemo(() => {
     const presets = llmProviderOptions.map((opt) => ({ key: opt.key, label: opt.labelKey ? t(opt.labelKey) : opt.label, desc: t(opt.descKey), baseUrl: opt.baseUrl, isCustom: false as const }));
     const customs = customProviders.map((cp) => ({

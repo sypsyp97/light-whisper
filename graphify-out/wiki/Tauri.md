@@ -1,11 +1,11 @@
 # Tauri
 
-> 52 nodes · cohesion 0.07
+> 53 nodes · cohesion 0.07
 
 ## Key Concepts
 
-- **tauri.ts** (51 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
-- **invokeCommand()** (49 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
+- **tauri.ts** (52 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
+- **invokeCommand()** (50 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **addCustomProvider()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **addHotWord()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **copyToClipboard()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
@@ -29,7 +29,7 @@
 - **removeCustomProvider()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **removeHotWord()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **setAiPolishConfig()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
-- *... and 27 more nodes in this community*
+- *... and 28 more nodes in this community*
 
 ## Relationships
 
@@ -41,7 +41,7 @@
 
 ## Audit Trail
 
-- EXTRACTED: 198 (100%)
+- EXTRACTED: 202 (100%)
 - INFERRED: 0 (0%)
 - AMBIGUOUS: 0 (0%)
 

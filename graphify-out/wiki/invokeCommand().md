@@ -1,6 +1,6 @@
 # invokeCommand()
 
-> God node · 49 connections · `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
+> God node · 50 connections · `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 
 ## Connections by Relation
 

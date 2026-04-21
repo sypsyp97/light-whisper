@@ -448,6 +448,17 @@ pub async fn set_translation_hotkey(
 }
 
 #[tauri::command]
+pub async fn set_openai_fast_mode(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile.llm_provider.openai_fast_mode = enabled;
+    });
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn set_custom_prompt(
     state: tauri::State<'_, AppState>,
     prompt: Option<String>,

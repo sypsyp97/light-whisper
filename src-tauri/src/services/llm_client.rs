@@ -21,6 +21,10 @@ pub struct LlmRequestOptions<'a> {
     pub session_id: Option<u64>,
     /// 注入模型厂商原生联网搜索工具（OpenAI web_search / Anthropic web_search）
     pub web_search: bool,
+    /// OpenAI OAuth 快速模式：OAuth 来源认证时注入 service_tier="priority"
+    /// (ChatGPT bearer 与交换得到的 OAuth API key 都适用；wire 值 "priority"
+    /// 对应官方 Codex CLI 里 ServiceTier::Fast 的重映射)
+    pub openai_fast_mode: bool,
 }
 
 impl Default for LlmRequestOptions<'_> {
@@ -32,6 +36,7 @@ impl Default for LlmRequestOptions<'_> {
             stream_event: None,
             session_id: None,
             web_search: false,
+            openai_fast_mode: false,
         }
     }
 }
@@ -67,20 +72,61 @@ fn uses_codex_chatgpt_backend(endpoint: &LlmEndpoint, api_key: &str) -> bool {
         && codex_oauth_service::decode_chatgpt_bearer_token(api_key).is_some()
 }
 
+fn uses_openai_oauth_origin_auth(endpoint: &LlmEndpoint, api_key: &str) -> bool {
+    endpoint.provider == "openai" && codex_oauth_service::is_oauth_origin_auth(api_key)
+}
+
 fn uses_responses_api(endpoint: &LlmEndpoint) -> bool {
     endpoint.api_format == ApiFormat::OpenaiCompat && endpoint.api_url.contains("/v1/responses")
 }
 
-fn adapt_body_for_backend(endpoint: &LlmEndpoint, api_key: &str, body: &Value) -> Value {
+/// Wire value for OpenAI OAuth fast-mode priority processing.
+///
+/// Why "priority" and not "fast":
+///   The user-facing label ("fast mode" / "快速模式") is the product name, but
+///   the HTTP body value accepted by the OpenAI Responses API is "priority".
+///   Official Codex CLI remaps `ServiceTier::Fast` → `"priority"` before
+///   sending — see openai/codex `codex-rs/core/src/client.rs` (main, line
+///   938-942 as of 2026-04-20):
+///     Some(ServiceTier::Fast) => Some("priority".to_string()),
+///
+/// Accepted `service_tier` values per the current public OpenAI request docs are
+/// `auto | default | flex | priority`. "fast" is NOT a valid wire
+/// value; sending it causes the backend to silently ignore the field (this
+/// was the pre-fix bug, matching openai/codex issue #14204).
+pub(crate) const OPENAI_FAST_MODE_SERVICE_TIER: &str = "priority";
+
+/// OpenAI Responses API `service_tier` wire-level whitelist. Used by tests
+/// to independently verify that whatever we inject is actually a legal value
+/// the backend will accept — not just whatever we happen to have written.
+#[cfg(test)]
+pub(crate) const OPENAI_RESPONSES_SERVICE_TIER_WHITELIST: &[&str] =
+    &["auto", "default", "flex", "priority"];
+
+fn adapt_body_for_backend(
+    endpoint: &LlmEndpoint,
+    api_key: &str,
+    body: &Value,
+    fast_mode: bool,
+) -> Value {
     let mut adapted = body.clone();
-    if !uses_codex_chatgpt_backend(endpoint, api_key) {
+    let uses_chatgpt_backend = uses_codex_chatgpt_backend(endpoint, api_key);
+    if !uses_openai_oauth_origin_auth(endpoint, api_key) {
         return adapted;
     }
 
     if let Some(map) = adapted.as_object_mut() {
-        map.insert("store".to_string(), serde_json::json!(false));
-        if uses_responses_api(endpoint) {
-            map.insert("stream".to_string(), serde_json::json!(true));
+        if uses_chatgpt_backend {
+            map.insert("store".to_string(), serde_json::json!(false));
+            if uses_responses_api(endpoint) {
+                map.insert("stream".to_string(), serde_json::json!(true));
+            }
+        }
+        if fast_mode {
+            map.insert(
+                "service_tier".to_string(),
+                serde_json::json!(OPENAI_FAST_MODE_SERVICE_TIER),
+            );
         }
     }
 
@@ -646,7 +692,7 @@ pub async fn send_llm_request(
         }
     }
     let timeout = dynamic_timeout(endpoint.timeout_secs, text_len);
-    let request_body = adapt_body_for_backend(endpoint, api_key, body);
+    let request_body = adapt_body_for_backend(endpoint, api_key, body, options.openai_fast_mode);
     let transport_stream = request_body
         .get("stream")
         .and_then(Value::as_bool)
@@ -831,8 +877,9 @@ mod tests {
         adapt_body_for_backend, build_llm_body, build_stream_event_payload,
         extract_api_error_message, extract_openai_compat_error_message,
         is_retryable_overload_error, looks_like_max_output_tokens_unsupported_error,
-        LlmRequestOptions, LlmUserInput,
+        LlmRequestOptions, LlmUserInput, OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
     };
+    use crate::services::codex_oauth_service;
     use crate::services::llm_provider::LlmEndpoint;
     use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
     use base64::Engine;
@@ -855,6 +902,10 @@ mod tests {
         )
     }
 
+    fn oauth_wrapped_api_key() -> String {
+        codex_oauth_service::encode_oauth_api_key("sk-oauth-session").expect("wrapped key")
+    }
+
     #[test]
     fn responses_body_uses_stream_without_forcing_reasoning() {
         let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
@@ -869,6 +920,7 @@ mod tests {
                 stream_event: None,
                 session_id: None,
                 web_search: false,
+                openai_fast_mode: false,
             },
         );
 
@@ -895,6 +947,7 @@ mod tests {
                 stream_event: None,
                 session_id: None,
                 web_search: false,
+                openai_fast_mode: false,
             },
         );
 
@@ -923,6 +976,7 @@ mod tests {
                 stream_event: None,
                 session_id: None,
                 web_search: false,
+                openai_fast_mode: false,
             },
         );
 
@@ -945,6 +999,7 @@ mod tests {
                 stream_event: None,
                 session_id: None,
                 web_search: false,
+                openai_fast_mode: false,
             },
         );
 
@@ -1045,7 +1100,7 @@ mod tests {
                 .encode(r#"{"access_token":"test","account_id":"acc"}"#)
         );
 
-        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body);
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, false);
 
         assert_eq!(adapted["max_output_tokens"], serde_json::json!(4096));
         assert_eq!(adapted["store"], serde_json::json!(false));
@@ -1065,11 +1120,12 @@ mod tests {
                 stream_event: None,
                 session_id: None,
                 web_search: false,
+                openai_fast_mode: false,
             },
         );
         let api_key = chatgpt_codex_api_key();
 
-        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body);
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, false);
 
         assert_eq!(adapted["store"], serde_json::json!(false));
         assert_eq!(adapted["stream"], serde_json::json!(true));
@@ -1090,11 +1146,12 @@ mod tests {
                 stream_event: None,
                 session_id: None,
                 web_search: false,
+                openai_fast_mode: false,
             },
         );
         let api_key = chatgpt_codex_api_key();
 
-        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body);
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, false);
 
         assert_eq!(adapted["store"], serde_json::json!(false));
         assert_eq!(adapted["reasoning"]["effort"], serde_json::json!("none"));
@@ -1134,6 +1191,7 @@ mod tests {
                 stream_event: None,
                 session_id: None,
                 web_search: false,
+                openai_fast_mode: false,
             },
         );
 
@@ -1168,10 +1226,209 @@ mod tests {
                 stream_event: None,
                 session_id: None,
                 web_search: false,
+                openai_fast_mode: false,
             },
         );
 
         assert!(body.get("response_format").is_none());
         assert_eq!(body["stream"], serde_json::json!(true));
+    }
+
+    // --- Fast mode tests -------------------------------------------------
+    //
+    // Tests here deliberately do NOT import `OPENAI_FAST_MODE_SERVICE_TIER`.
+    // The wire value is hard-coded as a string literal so that test and
+    // implementation must agree *via* an independent, externally-anchored
+    // ground truth — not via a shared constant that lets a typo slip through
+    // both sides in lockstep (which was the pre-2026-04-20 tautological bug:
+    // test and impl both said "fast", both went green, backend silently
+    // ignored the field).
+    //
+    // Ground truth sources, anchored outside this repo:
+    //   1. openai/codex `codex-rs/core/src/client.rs` main branch, function
+    //      `build_responses_request` — maps `ServiceTier::Fast => "priority"`.
+    //   2. OpenAI public request docs — `service_tier` accepts exactly
+    //      `auto | default | flex | priority` (note: "fast" is NOT
+    //      in this set; sending it is a silent no-op).
+    //
+    // Two independent assertions are used for this reason:
+    //   - Literal-value test pins the current official wire value.
+    //   - Whitelist test catches any future typo that still passes #1 (e.g.
+    //      someone accidentally changes the impl to "priorty" or "urgent").
+
+    #[test]
+    fn chatgpt_backend_injects_service_tier_priority_when_fast_mode_enabled() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let api_key = chatgpt_codex_api_key();
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                openai_fast_mode: true,
+                ..LlmRequestOptions::default()
+            },
+        );
+
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, true);
+
+        // Hard-coded literal — NOT a re-export of OPENAI_FAST_MODE_SERVICE_TIER.
+        // Changing the impl constant without updating this literal must fail.
+        assert_eq!(
+            adapted["service_tier"],
+            serde_json::json!("priority"),
+            "Fast mode must inject service_tier=\"priority\" on the wire. \
+             Source: openai/codex codex-rs/core/src/client.rs (Fast → \"priority\"). \
+             If this fails, either the official CLI changed its mapping or a \
+             regression landed locally — do NOT weaken this test without \
+             re-verifying against the upstream source."
+        );
+    }
+
+    #[test]
+    fn service_tier_whitelist_matches_openai_responses_api_spec() {
+        // Meta-guard: lock the whitelist itself against drift. If someone
+        // "fixes" both impl + literal test by also adding "fast" to the
+        // whitelist to silence the tautology detector, this pin fails first.
+        // Canonical set per OpenAI Responses API public spec.
+        assert_eq!(
+            OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
+            &["auto", "default", "flex", "priority"],
+            "Whitelist drifted. Reconfirm against the current OpenAI Responses \
+             API spec before changing — this pin exists to prevent silent \
+             widening (e.g. adding the product label \"fast\") that would \
+             neutralize the other fast-mode assertions."
+        );
+        assert!(
+            !OPENAI_RESPONSES_SERVICE_TIER_WHITELIST.contains(&"fast"),
+            "\"fast\" is the product label, not a valid API value — it MUST \
+             NOT appear in the whitelist under any circumstance."
+        );
+    }
+
+    #[test]
+    fn injected_service_tier_is_in_the_openai_responses_api_whitelist() {
+        // Independent guard: whatever the impl injects, it must be a value
+        // the OpenAI Responses API will actually accept. "fast" famously
+        // passes a naive string compare but is not in the whitelist — so
+        // this test catches typos / stale labels that the literal-equality
+        // test alone would miss if someone "fixed" both sides the same way.
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let api_key = chatgpt_codex_api_key();
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                openai_fast_mode: true,
+                ..LlmRequestOptions::default()
+            },
+        );
+
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, true);
+
+        let injected = adapted["service_tier"]
+            .as_str()
+            .expect("service_tier must be injected as a JSON string when fast mode is on");
+
+        assert!(
+            OPENAI_RESPONSES_SERVICE_TIER_WHITELIST.contains(&injected),
+            "Injected service_tier={injected:?} is NOT a valid OpenAI Responses \
+             API value. Accepted values (per the public API spec): {:?}. \
+             Note in particular: \"fast\" is the user-facing product label, \
+             not a valid wire value — the backend silently drops it.",
+            OPENAI_RESPONSES_SERVICE_TIER_WHITELIST
+        );
+    }
+
+    #[test]
+    fn chatgpt_backend_omits_service_tier_when_fast_mode_disabled() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let api_key = chatgpt_codex_api_key();
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, false);
+
+        assert!(
+            adapted.get("service_tier").is_none(),
+            "service_tier must NOT be present when fast mode is disabled; got {:?}",
+            adapted.get("service_tier")
+        );
+    }
+
+    #[test]
+    fn plain_openai_api_key_never_gets_service_tier_even_if_fast_mode_true() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let api_key = "sk-test";
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                openai_fast_mode: true,
+                ..LlmRequestOptions::default()
+            },
+        );
+
+        let adapted = adapt_body_for_backend(&endpoint, api_key, &body, true);
+
+        assert!(
+            adapted.get("service_tier").is_none(),
+            "Plain OpenAI API keys must never receive service_tier=fast; that header/body flag is ChatGPT-OAuth only"
+        );
+    }
+
+    #[test]
+    fn wrapped_oauth_api_key_gets_service_tier_without_chatgpt_backend_fields() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let api_key = oauth_wrapped_api_key();
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                openai_fast_mode: true,
+                ..LlmRequestOptions::default()
+            },
+        );
+
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, true);
+
+        assert_eq!(adapted["service_tier"], serde_json::json!("priority"));
+        assert!(
+            adapted.get("store").is_none(),
+            "Wrapped OAuth API keys must stay on the normal OpenAI endpoint path"
+        );
+    }
+
+    #[test]
+    fn chat_completions_chatgpt_backend_also_gets_service_tier_when_enabled() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
+        let api_key = chatgpt_codex_api_key();
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                openai_fast_mode: true,
+                ..LlmRequestOptions::default()
+            },
+        );
+
+        let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, true);
+
+        assert_eq!(
+            adapted["service_tier"],
+            serde_json::json!("priority"),
+            "Fast mode is request-body scoped and must apply to chat/completions \
+             too when ChatGPT-auth is used. Wire value hard-coded here to catch \
+             divergence from openai/codex upstream — see the module-level \
+             comment above these tests for why this literal is not a shared const."
+        );
     }
 }

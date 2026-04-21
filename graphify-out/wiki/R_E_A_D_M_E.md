@@ -1,20 +1,27 @@
 # R E A D M E
 
-> 45 nodes · cohesion 0.06
+> 49 nodes · cohesion 0.07
 
 ## Key Concepts
 
 - **Light-Whisper overview** (18 connections) — `README.md`
-- **web_search_service.rs** (12 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\web_search_service.rs`
+- **window.rs** (12 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\window.rs`
+- **show_subtitle_window()** (7 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\window.rs`
+- **tauri_error()** (7 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\window.rs`
 - **assistant_service.rs** (6 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
 - **Voice assistant** (6 connections) — `README.md`
 - **LLM integration layer** (5 connections) — `README.md`
 - **Hybrid ASR engine layer** (5 connections) — `README.md`
+- **create_subtitle_window()** (5 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\window.rs`
 - **generate_content()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
 - **AI polish** (4 connections) — `README.md`
 - **Screen context capture** (4 connections) — `README.md`
 - **Web search context** (4 connections) — `README.md`
 - **glm_asr_service.rs** (4 connections) — `src-tauri\src\services\glm_asr_service.rs`
+- **apply_subtitle_layout()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\window.rs`
+- **hide_subtitle_window_inner()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\window.rs`
+- **resolve_subtitle_layout()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\window.rs`
+- **set_subtitle_window_interactive()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\window.rs`
 - **build_assistant_user_content_with_selection()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
 - **render_assistant_user_content()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
 - **run_third_party_search()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
@@ -22,14 +29,7 @@
 - **GLM-ASR engine** (3 connections) — `README.md`
 - **SenseVoice engine** (3 connections) — `README.md`
 - **One-key dictation** (3 connections) — `README.md`
-- **Selected text editing** (3 connections) — `README.md`
-- **parse_exa_text_block()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\web_search_service.rs`
-- **Python ASR runtime** (2 connections) — `README.md`
-- **Rust core** (2 connections) — `README.md`
-- **assistant_input_preserves_symbols_and_splits_cdata()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
-- **build_form()** (2 connections) — `src-tauri\src\services\glm_asr_service.rs`
-- **transcribe()** (2 connections) — `src-tauri\src\services\glm_asr_service.rs`
-- *... and 20 more nodes in this community*
+- *... and 24 more nodes in this community*
 
 ## Relationships
 
@@ -37,8 +37,10 @@
 
 ## Source Files
 
+- `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\window.rs`
 - `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\assistant_service.rs`
 - `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\web_search_service.rs`
+- `C:\Users\sun\Downloads\light-whisper\src\pages\SubtitleOverlay.tsx`
 - `README.md`
 - `README.zh-CN.md`
 - `src-tauri\src\main.rs`
@@ -47,8 +49,8 @@
 
 ## Audit Trail
 
-- EXTRACTED: 101 (75%)
-- INFERRED: 34 (25%)
+- EXTRACTED: 135 (78%)
+- INFERRED: 38 (22%)
 - AMBIGUOUS: 0 (0%)
 
 ---

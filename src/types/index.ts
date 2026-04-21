@@ -172,6 +172,7 @@ export interface LlmProviderConfig {
   validation_provider?: string | null;
   validation_model?: string | null;
   openai_auth_mode?: OpenaiAuthMode | null;
+  openai_fast_mode?: boolean;
 }
 
 // 用户画像

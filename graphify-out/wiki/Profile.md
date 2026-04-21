@@ -1,10 +1,10 @@
 # Profile
 
-> 24 nodes · cohesion 0.10
+> 25 nodes · cohesion 0.10
 
 ## Key Concepts
 
-- **profile.rs** (22 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
+- **profile.rs** (23 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
 - **run_correction_validation()** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
 - **Real-time translation** (3 connections) — `README.md`
 - **extract_corrections_via_llm()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
@@ -26,6 +26,7 @@
 - **set_correction_validation_config()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
 - **set_custom_prompt()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
 - **set_llm_provider_config()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
+- **set_openai_fast_mode()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
 - **set_translation_hotkey()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
 - **update_custom_provider()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
 
@@ -40,7 +41,7 @@
 
 ## Audit Trail
 
-- EXTRACTED: 55 (95%)
+- EXTRACTED: 57 (95%)
 - INFERRED: 3 (5%)
 - AMBIGUOUS: 0 (0%)
 

@@ -26,6 +26,7 @@ const SESSION_REFRESH_TOKEN_KEYRING_USER: &str = "openai-codex-oauth-refresh-tok
 const OAUTH_TIMEOUT_SECS: u64 = 5 * 60;
 const REFRESH_SKEW_SECS: u64 = 60;
 const CHATGPT_BEARER_PREFIX: &str = "openai-codex-chatgpt:";
+const OAUTH_API_KEY_PREFIX: &str = "openai-codex-oauth-api-key:";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OpenaiCodexOauthSession {
@@ -283,6 +284,27 @@ pub fn decode_chatgpt_bearer_token(input: &str) -> Option<ChatgptBearerToken> {
         .decode(payload)
         .ok()?;
     serde_json::from_slice::<ChatgptBearerToken>(&raw).ok()
+}
+
+pub fn encode_oauth_api_key(api_key: &str) -> Option<String> {
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
+        return None;
+    }
+
+    Some(format!("{OAUTH_API_KEY_PREFIX}{api_key}"))
+}
+
+pub fn decode_oauth_api_key(input: &str) -> Option<String> {
+    let payload = input.trim().strip_prefix(OAUTH_API_KEY_PREFIX)?;
+    if payload.trim().is_empty() {
+        return None;
+    }
+    Some(payload.to_string())
+}
+
+pub fn is_oauth_origin_auth(input: &str) -> bool {
+    decode_chatgpt_bearer_token(input).is_some() || decode_oauth_api_key(input).is_some()
 }
 
 fn generate_pkce_pair() -> (String, String) {
@@ -873,7 +895,8 @@ pub async fn resolve_api_key_for_provider(
 
             let session = refresh_session_if_needed(app_handle, state, session).await?;
             if !session.api_key.trim().is_empty() {
-                return Ok(session.api_key);
+                return encode_oauth_api_key(&session.api_key)
+                    .ok_or_else(|| "包装 OpenAI OAuth API Key 失败".to_string());
             }
 
             if session.access_token.trim().is_empty() {
