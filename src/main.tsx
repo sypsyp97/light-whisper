@@ -8,6 +8,7 @@ import { useTheme } from "./hooks/useTheme";
 import i18n from "./i18n";
 import "./styles/theme.css";
 import "./styles/pages.css";
+import "./styles/app.css";
 
 type View = "main" | "settings";
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
