@@ -14,11 +14,12 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Tauri 核心
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-log = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut = "2"
 
 # 序列化
 serde = { version = "1", features = ["derive"] }
@@ -77,6 +78,11 @@ windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse",
 uiautomation = "0.24"
 xcap = { version = "0.9", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+core-graphics = "0.24"
 
 [profile.release]
 lto = true

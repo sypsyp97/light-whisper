@@ -2,7 +2,7 @@
 
 # Light-Whisper
 
-**Local & Online Speech-to-Text for Windows**
+**macOS branch · Online Speech-to-Text for Apple Silicon**
 
 [简体中文](README.zh-CN.md) | English
 
@@ -19,7 +19,7 @@
 
 **Press a hotkey, speak, release — text appears at your cursor.**
 
-[Download Installer](https://github.com/sypsyp97/light-whisper/releases/latest)
+Current branch: `codex/apple-silicon-mlx-asr`
 
 </div>
 
@@ -27,12 +27,17 @@
 
 ## Installation
 
+> [!IMPORTANT]
+> This branch is rebuilt on top of the latest `main`, but keeps macOS-specific input, hotkey, and permission flows.
+> ASR on this branch is online-only:
+> - `Alibaba DashScope`
+> - `GLM-ASR`
+>
+> Legacy local engine configs (`local`, `sensevoice`, `whisper`) are migrated to `alibaba-asr`.
+
 ### Option A: Installer (recommended)
 
-Download `轻语.Whisper_x.x.x_x64-setup.exe` from the [Releases](https://github.com/sypsyp97/light-whisper/releases/latest) page. Run the installer — everything is bundled, no Python or build tools needed. ASR models will be downloaded on first use (~1–1.5 GB).
-
-> [!NOTE]
-> **GPU (optional):** NVIDIA GPU with up-to-date driver for CUDA acceleration. No GPU → automatic CPU fallback.
+Build the mac app / dmg from source on this branch. The packaged app does not bundle any local ASR runtime or model payload.
 
 ### Option B: Build from source
 
@@ -47,8 +52,8 @@ See [Quick Start](#quick-start) below.
 **One-key dictation**<br>
 Hold <kbd>F2</kbd> (configurable) to record, release to transcribe & type into the active window.
 
-**Three ASR engines**<br>
-SenseVoice (zh/en/ja/ko/yue) and Faster Whisper (99+ languages) run fully local with CUDA acceleration; GLM-ASR is online — just add an API key, no Python or GPU needed.
+**Two online ASR engines**<br>
+Alibaba DashScope or GLM-ASR. No local model download, no bundled Python runtime, no model directory management.
 
 **AI polish**<br>
 Optional LLM post-processing: fix homophones, punctuation, filler words; adapts tone to the foreground app. Built-in presets (OpenAI / DeepSeek / Cerebras / SiliconFlow) plus OpenAI-compatible and Anthropic API formats.
@@ -83,48 +88,29 @@ Hold-to-talk or toggle mode · input queue · multilingual UI (en/zh) · auto-up
 | Feature | Light-Whisper | Typeless |
 |:--------|:---:|:---:|
 | **Pricing** | Free & open-source | Free tier (4k words/week); $12–30/mo |
-| **Privacy** | Fully offline (local engines) | Cloud-based, zero-data-retention |
+| **Privacy** | Online ASR on this branch | Cloud-based, zero-data-retention |
 | **Open source** | ✅ | ❌ |
-| **Platform** | Windows | Windows, Mac, iOS, Android, Web |
-| **ASR engines** | 3 switchable (local + online) | Cloud proprietary |
+| **Platform** | macOS branch | Windows, Mac, iOS, Android, Web |
+| **ASR engines** | 2 online | Cloud proprietary |
 | **Languages** | 5–99+ (engine dependent) | 100+ |
 | **AI polish** | Multi-backend LLM, bring your own key | Built-in |
 | **Screen-aware assistant + web search** | ✅ | ❌ |
 | **Subtitle overlay** | ✅ | ❌ |
 
-## Engine Comparison
-
-| | SenseVoice (default) | Faster Whisper | GLM-ASR (online) |
-|:--|:---:|:---:|:---:|
-| **Chinese CER** | 2.96 % (AISHELL-1) | 5.14 % | 7.17 % |
-| **English WER** | 3.15 % (LibriSpeech) | 1.82 % | — |
-| **Languages** | 5 (zh/en/ja/ko/yue) | 99+ | Chinese + dialects |
-| **Punctuation** | Built-in ITN | initial_prompt guided | Built-in |
-| **Hot words** | ✅ | ✅ | ✅ (max 100) |
-| **Model size** | ~938 MB | ~1.5 GB | Cloud (no download) |
-| **Requires** | GPU/CPU (bundled) | GPU/CPU (bundled) | API key only |
-| **Cost** | Free (local) | Free (local) | ¥0.06/min |
-
-> [!NOTE]
-> SenseVoice/Whisper CER source: [FunAudioLLM paper](https://arxiv.org/html/2407.04051v1), Table 6. GLM-ASR CER source: Zhipu AI.
-
 ## Build from Source — Requirements
 
 > [!IMPORTANT]
-> **Windows 10/11 (x64) only.** Disk: ~10 GB free. These requirements are only needed for building from source — the [installer](#installation) bundles everything.
+> **macOS 14+ on Apple Silicon.** These requirements are for this branch only.
 
 | Tool | Version | Purpose |
 |:-----|:--------|:--------|
-| [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) | 2019+ | MSVC C++ toolchain |
 | [Rust](https://www.rust-lang.org/tools/install) | >= 1.75 | Backend |
 | [Node.js](https://nodejs.org/) | >= 18 | Frontend build |
 | [pnpm](https://pnpm.io/) | >= 8 | Frontend packages |
-| [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python env (auto-installs Python 3.11) |
-
-**GPU (optional):** NVIDIA GPU with up-to-date driver. No need to install CUDA Toolkit — PyTorch bundles CUDA 12.8.
+| Xcode Command Line Tools | latest | macOS toolchain |
 
 > [!TIP]
-> **GLM-ASR users:** If you only use the online GLM-ASR engine, you only need Rust, Node.js, and pnpm — no Python, uv, or GPU required. Just build and add your API key in Settings.
+> This branch is online-ASR only. Add an Alibaba DashScope or GLM-ASR API key in Settings after launch.
 
 <details>
 <summary><b>Step-by-step tool installation</b></summary>
@@ -161,41 +147,34 @@ git clone https://github.com/sypsyp97/light-whisper.git
 cd light-whisper
 
 pnpm install          # Frontend deps
-uv sync               # Python deps (downloads Python 3.11, PyTorch CUDA, etc. ~5-15 min)
+cargo check --manifest-path src-tauri/Cargo.toml
 ```
-
-### Download ASR models (recommended before first run)
-
-```bash
-# SenseVoice (default, ~938 MB)
-uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/SenseVoiceSmall'); snapshot_download('funasr/fsmn-vad')"
-
-# Faster Whisper (~1.5 GB)
-uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('deepdml/faster-whisper-large-v3-turbo-ct2')"
-```
-
-Models are cached in `~/.cache/huggingface/hub/`.
-
-> [!TIP]
-> **China mainland:** set `$env:HF_ENDPOINT = "https://hf-mirror.com"` before downloading.
 
 ### Build & Run
 
 ```bash
-pnpm tauri build      # First build ~5-15 min (compiles Rust deps)
+pnpm tauri build
 ```
 
-The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/target/release/light-whisper.exe` directly.
+The macOS app bundle is in `src-tauri/target/release/bundle/macos/` and the DMG is in `src-tauri/target/release/bundle/dmg/`.
+
+## macOS Permissions
+
+- Microphone: recording
+- Accessibility + Automation (`System Events`): paste transcribed text into other apps
+- Screen Recording: screen-aware assistant
+
+If paste or screen capture still fails after granting permission, fully quit the app and reopen it.
 
 ## Architecture
 
 ```
-┌──────────────┐                ┌──────────────┐                ┌─────────────────┐
-│   React UI   │  Tauri IPC     │  Rust Core   │  stdin/stdout  │   Python ASR    │
-│  TypeScript  │◄──invoke/emit─►│  (Tauri 2)   │◄────JSON──────►│  SenseVoice /   │
-└──────────────┘                └──────┬───────┘                │  Faster Whisper │
-                                       │                        └─────────────────┘
-                                       ├─── HTTP ──► GLM-ASR API (online ASR)
+┌──────────────┐                ┌──────────────┐
+│   React UI   │  Tauri IPC     │  Rust Core   │
+│  TypeScript  │◄──invoke/emit─►│  (Tauri 2)   │
+└──────────────┘                └──────┬───────┘
+                                       ├─── HTTP ──► GLM-ASR API
+                                       ├─── HTTP ──► Alibaba DashScope ASR
                                        ├─── HTTP ──► LLM API (AI polish / assistant / translation)
                                        ├─── HTTP ──► Web Search (Exa / Tavily) → assistant context
                                        ├─── Screen Capture ──► full-screen screenshots → assistant context
@@ -211,7 +190,6 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 | **Rust commands** | `src-tauri/src/commands/` — audio, assistant, clipboard, funasr, hotkey, ai_polish, profile, updater, window |
 | **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service, screen_capture_service, web_search_service, download_service |
 | **State** | `src-tauri/src/state/` — app_state, user_profile |
-| **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
 
 </details>
 
@@ -219,28 +197,28 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 
 ```bash
 pnpm tauri dev          # Dev mode with hot-reload
-pnpm tauri build        # Production build + installer
+pnpm tauri build        # Production build + mac app/dmg
 pnpm build              # Frontend only
-uv sync                 # Sync Python deps
 cd src-tauri && cargo check   # Rust type check
 ```
 
 ## FAQ
 
 <details>
-<summary><b>PyTorch or model downloads are slow</b></summary>
+<summary><b>Online ASR is slow or requests fail</b></summary>
 
-- PyTorch CUDA (~2.5 GB) downloads from `download.pytorch.org` — use a stable connection or VPN. `uv sync` supports resume.
-- Other Python packages can use a Tsinghua mirror: `$env:UV_INDEX_URL = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"`
-- HuggingFace models: `$env:HF_ENDPOINT = "https://hf-mirror.com"`
+- Confirm the selected provider's API key is configured in Settings.
+- For Alibaba DashScope, verify the region matches the console where your key was created.
+- If requests are timing out, test with a different network or VPN and retry.
 
 </details>
 
 <details>
-<summary><b>GPU not detected</b></summary>
+<summary><b>Permissions-dependent features do not work</b></summary>
 
-Verify: `.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"` should print `True`.
-Requires an up-to-date NVIDIA driver. For CUDA 12.x minor-version compatibility, Windows driver should be >= 528.33. The app falls back to CPU automatically if no GPU is found.
+- Grant Accessibility if hotkeys, selected-text capture, or auto-paste do not work.
+- Grant Screen Recording if assistant/polish screen context is enabled.
+- Grant Automation when the app needs to control other apps for paste actions.
 
 </details>
 
@@ -270,14 +248,14 @@ Default dictation hotkey is F2. If occupied by another program, change it in Set
 <details>
 <summary><b>Log locations</b></summary>
 
-`%APPDATA%\com.light-whisper.app\logs\` — `funasr_server.log` / `whisper_server.log`
+This branch no longer launches local Python ASR servers, so `funasr_server.log` / `whisper_server.log` do not apply.
+Use the app log generated by Tauri and inspect the macOS app data directory under `~/Library/Application Support/com.light-whisper.desktop/` when needed.
 
 </details>
 
 ## Acknowledgements
 
-- [FunASR](https://github.com/modelscope/FunASR) & [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) — Alibaba DAMO Academy
-- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) & [large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2)
+- [Alibaba DashScope](https://www.alibabacloud.com/help/en/model-studio/dashscope-api-reference/) — Qwen ASR / Omni online ASR
 - [GLM-ASR](https://bigmodel.cn/) — Zhipu AI
 - [Tauri](https://tauri.app/) / [React](https://react.dev/)
 

@@ -47,6 +47,12 @@ pub async fn set_assistant_screen_context_enabled(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
+    if enabled {
+        crate::services::permissions_service::ensure_screen_capture_permission_for_assistant()
+            .await
+            .map_err(|err| err.to_string())?;
+    }
+
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.assistant_screen_context_enabled = enabled;
     });

@@ -118,7 +118,8 @@ const zh = {
     codexOauthLogoutFailed: "退出 OpenAI Codex 登录失败",
   },
   model: {
-    engineStartFailed: "语音引擎启动失败，请重试；如仍失败，请查看 %APPDATA%\\com.light-whisper.app\\funasr_stderr.log",
+    engineStartFailed: "语音引擎启动失败，请重试；如仍失败，请检查设置中的在线 ASR 引擎与 API Key。",
+    onlineOnlyNoLocalAsr: "当前 mac 分支仅支持在线 ASR，不提供本地模型下载。",
     slowNetwork: "网络较慢",
     slowNetworkStillDownloading: "网络较慢，仍在下载...",
     needApiKey: "请在设置中配置在线 ASR API Key",

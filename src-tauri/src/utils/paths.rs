@@ -3,13 +3,37 @@ use std::sync::OnceLock;
 
 use tauri::Manager;
 
-const APP_IDENTIFIER: &str = "com.light-whisper.app";
+const APP_IDENTIFIER: &str = "com.light-whisper.desktop";
+const LEGACY_APP_IDENTIFIER: &str = "com.light-whisper.app";
+const DEFAULT_ENGINE: &str = "alibaba-asr";
 
 pub fn get_data_dir() -> &'static PathBuf {
     static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
     DATA_DIR.get_or_init(|| {
         let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from(".light-whisper"));
         let app_dir = base.join(APP_IDENTIFIER);
+        let legacy_dir = base.join(LEGACY_APP_IDENTIFIER);
+
+        if !app_dir.exists() && legacy_dir.exists() {
+            match std::fs::rename(&legacy_dir, &app_dir) {
+                Ok(()) => {
+                    log::info!(
+                        "已将历史数据目录迁移到新的应用标识目录: {} -> {}",
+                        legacy_dir.display(),
+                        app_dir.display()
+                    );
+                }
+                Err(err) => {
+                    log::warn!(
+                        "迁移历史数据目录失败，继续使用新目录: {} -> {} ({})",
+                        legacy_dir.display(),
+                        app_dir.display(),
+                        err
+                    );
+                }
+            }
+        }
+
         let _ = std::fs::create_dir_all(&app_dir);
         app_dir
     })
@@ -34,10 +58,6 @@ pub fn get_whisper_server_path(app: &tauri::AppHandle) -> PathBuf {
     get_resource_script_path(app, "whisper_server.py")
 }
 
-pub fn get_download_script_path(app: &tauri::AppHandle) -> PathBuf {
-    get_resource_script_path(app, "download_models.py")
-}
-
 pub fn strip_win_prefix(path: &std::path::Path) -> String {
     let s = path.to_string_lossy().to_string();
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
@@ -47,14 +67,19 @@ pub fn get_engine_config_path() -> PathBuf {
     get_data_dir().join("engine.json")
 }
 
+fn normalize_engine(engine: &str) -> &'static str {
+    match engine {
+        "glm-asr" => "glm-asr",
+        "alibaba-asr" | "local" | "sensevoice" | "whisper" => DEFAULT_ENGINE,
+        _ => DEFAULT_ENGINE,
+    }
+}
+
 pub fn read_engine_config() -> String {
     if let Some(engine) = read_engine_json().get("engine").and_then(|v| v.as_str()) {
-        match engine {
-            "whisper" | "sensevoice" | "glm-asr" | "alibaba-asr" => return engine.to_string(),
-            _ => {}
-        }
+        return normalize_engine(engine).to_string();
     }
-    "sensevoice".to_string()
+    DEFAULT_ENGINE.to_string()
 }
 
 pub fn is_online_engine(engine: &str) -> bool {
@@ -288,7 +313,7 @@ pub fn get_engine_dir() -> PathBuf {
 }
 
 pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
-    update_engine_json_field("engine", engine)
+    update_engine_json_field("engine", normalize_engine(engine))
 }
 
 /// 读取用户自定义模型目录（None 表示使用默认 HF 缓存）
@@ -298,24 +323,6 @@ pub fn read_models_dir() -> Option<String> {
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-}
-
-/// 写入自定义模型目录（None 表示恢复默认）
-pub fn write_models_dir(dir: Option<&str>) -> Result<(), std::io::Error> {
-    let mut obj = read_engine_json();
-    let map = obj.as_object_mut().unwrap();
-    match dir.filter(|s| !s.is_empty()) {
-        Some(d) => {
-            map.insert(
-                "models_dir".to_string(),
-                serde_json::Value::String(d.to_string()),
-            );
-        }
-        None => {
-            map.remove("models_dir");
-        }
-    }
-    write_engine_json(&obj)
 }
 
 /// 默认 HF 缓存根目录（不考虑自定义配置）

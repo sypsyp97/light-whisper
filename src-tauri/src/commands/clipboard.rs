@@ -1,5 +1,18 @@
 use crate::utils::AppError;
 
+#[cfg(target_os = "macos")]
+use core_foundation::{
+    base::{CFRelease, CFTypeRef, TCFType},
+    string::CFString,
+};
+#[cfg(target_os = "macos")]
+use core_foundation_sys::{
+    base::{Boolean, CFGetTypeID, CFRange},
+    string::{CFStringGetTypeID, CFStringRef},
+};
+#[cfg(target_os = "macos")]
+use std::{ffi::c_void, ptr};
+
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
@@ -11,6 +24,63 @@ extern "system" {
     fn ImmGetDefaultIMEWnd(
         hwnd: windows_sys::Win32::Foundation::HWND,
     ) -> windows_sys::Win32::Foundation::HWND;
+}
+
+#[cfg(target_os = "macos")]
+type AXUIElementRef = *const c_void;
+#[cfg(target_os = "macos")]
+type AXValueRef = *const c_void;
+#[cfg(target_os = "macos")]
+type AXError = i32;
+#[cfg(target_os = "macos")]
+type AXValueType = u32;
+
+#[cfg(target_os = "macos")]
+const K_AX_ERROR_SUCCESS: AXError = 0;
+#[cfg(target_os = "macos")]
+const K_AX_VALUE_CF_RANGE_TYPE: AXValueType = 4;
+
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementCopyAttributeValue(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        value: *mut CFTypeRef,
+    ) -> AXError;
+    fn AXUIElementCopyParameterizedAttributeValue(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        parameter: CFTypeRef,
+        value: *mut CFTypeRef,
+    ) -> AXError;
+    fn AXValueCreate(the_type: AXValueType, value_ptr: *const c_void) -> AXValueRef;
+    fn AXValueGetValue(
+        value: AXValueRef,
+        the_type: AXValueType,
+        value_ptr: *mut c_void,
+    ) -> Boolean;
+}
+
+#[cfg(target_os = "macos")]
+fn ax_focused_ui_element_attribute() -> CFString {
+    CFString::from_static_string("AXFocusedUIElement")
+}
+
+#[cfg(target_os = "macos")]
+fn ax_selected_text_attribute() -> CFString {
+    CFString::from_static_string("AXSelectedText")
+}
+
+#[cfg(target_os = "macos")]
+fn ax_selected_text_range_attribute() -> CFString {
+    CFString::from_static_string("AXSelectedTextRange")
+}
+
+#[cfg(target_os = "macos")]
+fn ax_string_for_range_parameterized_attribute() -> CFString {
+    CFString::from_static_string("AXStringForRange")
 }
 
 #[cfg(target_os = "windows")]
@@ -76,7 +146,12 @@ pub fn grab_selected_text() -> Option<String> {
         grab_selected_text_uia()
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        grab_selected_text_macos()
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         None
     }
@@ -129,6 +204,126 @@ fn try_get_selection(element: &uiautomation::UIElement) -> Option<String> {
         log::info!("UIA 检测到选中文本（{} 字符）", trimmed.len());
         Some(trimmed.to_string())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn grab_selected_text_macos() -> Option<String> {
+    unsafe {
+        let system_wide = AXUIElementCreateSystemWide();
+        if system_wide.is_null() {
+            return None;
+        }
+
+        let focused_attr = ax_focused_ui_element_attribute();
+        let selected_text_attr = ax_selected_text_attribute();
+        let selected_text_range_attr = ax_selected_text_range_attribute();
+        let string_for_range_attr = ax_string_for_range_parameterized_attribute();
+
+        let focused = match copy_ax_attribute(system_wide, focused_attr.as_concrete_TypeRef()) {
+            Some(value) => value,
+            None => {
+                CFRelease(system_wide as CFTypeRef);
+                return None;
+            }
+        };
+        let selected = copy_ax_string_attribute(
+            focused as AXUIElementRef,
+            selected_text_attr.as_concrete_TypeRef(),
+        )
+        .or_else(|| {
+            copy_ax_selected_text_from_range(
+                focused as AXUIElementRef,
+                selected_text_range_attr.as_concrete_TypeRef(),
+                string_for_range_attr.as_concrete_TypeRef(),
+            )
+        });
+
+        CFRelease(focused);
+        CFRelease(system_wide as CFTypeRef);
+
+        let trimmed = selected?.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            log::info!("macOS Accessibility 检测到选中文本（{} 字符）", trimmed.len());
+            Some(trimmed)
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn copy_ax_attribute(element: AXUIElementRef, attribute: CFStringRef) -> Option<CFTypeRef> {
+    let mut value: CFTypeRef = ptr::null_mut();
+    let status = AXUIElementCopyAttributeValue(element, attribute, &mut value);
+    if status == K_AX_ERROR_SUCCESS && !value.is_null() {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn copy_ax_string_attribute(
+    element: AXUIElementRef,
+    attribute: CFStringRef,
+) -> Option<String> {
+    let value = copy_ax_attribute(element, attribute)?;
+    cf_string_from_owned(value)
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn copy_ax_selected_text_from_range(
+    element: AXUIElementRef,
+    range_attribute: CFStringRef,
+    string_for_range_attribute: CFStringRef,
+) -> Option<String> {
+    let range_value = copy_ax_attribute(element, range_attribute)?;
+    let mut range = CFRange {
+        location: 0,
+        length: 0,
+    };
+    let ok = AXValueGetValue(
+        range_value as AXValueRef,
+        K_AX_VALUE_CF_RANGE_TYPE,
+        &mut range as *mut _ as *mut c_void,
+    ) != 0;
+    CFRelease(range_value);
+
+    if !ok || range.length <= 0 {
+        return None;
+    }
+
+    let range_param =
+        AXValueCreate(K_AX_VALUE_CF_RANGE_TYPE, &range as *const _ as *const c_void);
+    if range_param.is_null() {
+        return None;
+    }
+
+    let mut value: CFTypeRef = ptr::null_mut();
+    let status = AXUIElementCopyParameterizedAttributeValue(
+        element,
+        string_for_range_attribute,
+        range_param as CFTypeRef,
+        &mut value,
+    );
+    CFRelease(range_param as CFTypeRef);
+
+    if status != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+
+    cf_string_from_owned(value)
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn cf_string_from_owned(value: CFTypeRef) -> Option<String> {
+    if CFGetTypeID(value) != CFStringGetTypeID() {
+        CFRelease(value);
+        return None;
+    }
+
+    let text = CFString::wrap_under_create_rule(value as CFStringRef).to_string();
+    Some(text)
 }
 
 #[tauri::command]
@@ -269,14 +464,42 @@ pub async fn paste_text_impl(
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = method;
+
+        crate::services::permissions_service::ensure_accessibility_permission_for_input().await?;
+        crate::services::permissions_service::ensure_automation_permission_for_input().await?;
+        write_text_to_clipboard(app_handle, text)?;
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+        let output = tokio::process::Command::new("osascript")
+            .arg("-e")
+            .arg("tell application \"System Events\" to keystroke \"v\" using command down")
+            .output()
+            .await
+            .map_err(|e| AppError::Other(format!("启动 osascript 失败: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let detail = if stderr.is_empty() {
+                "系统没有返回更多错误信息".to_string()
+            } else {
+                stderr
+            };
+            return Err(AppError::Other(format!(
+                "macOS 自动输入失败。请确认“辅助功能”和“自动化 > System Events”都已允许，并在修改权限后彻底退出再重开 app。系统返回: {}",
+                detail
+            )));
+        }
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         let _ = app_handle;
         let _ = text;
         let _ = method;
-        return Err(AppError::Other(
-            "当前平台暂不支持自动输入，仅 Windows 可用".to_string(),
-        ));
+        return Err(AppError::Other("当前平台暂不支持自动输入".to_string()));
     }
 
     log::info!("已输入 {} 个字符", text.len());

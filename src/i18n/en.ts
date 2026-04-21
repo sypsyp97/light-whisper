@@ -120,7 +120,8 @@ const en: TranslationSchema = {
     codexOauthLogoutFailed: "Failed to sign out of OpenAI Codex",
   },
   model: {
-    engineStartFailed: "Voice engine failed to start. Please retry. If it persists, check %APPDATA%\\com.light-whisper.app\\funasr_stderr.log",
+    engineStartFailed: "Voice engine failed to start. Please retry. If it persists, verify the selected online ASR engine and API key in Settings.",
+    onlineOnlyNoLocalAsr: "This mac branch is online-ASR only. Local model downloads are not available.",
     slowNetwork: "Slow network",
     slowNetworkStillDownloading: "Slow network, still downloading...",
     needApiKey: "Please configure the online ASR API Key in settings",

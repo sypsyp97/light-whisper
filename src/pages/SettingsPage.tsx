@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, Sparkles, BookOpen, Plus, X, Minus, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Cloud, Trash2, RotateCcw, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
@@ -46,9 +46,6 @@ import {
   getAlibabaAsrConfig,
   setAlibabaAsrModel,
   listAlibabaAsrModels,
-  getModelsDir,
-  pickFolder,
-  setModelsDir,
   addCustomProvider,
   removeCustomProvider,
   setAssistantHotkey,
@@ -86,8 +83,6 @@ const themeOptions = [
 ] as const;
 
 const engineOptions = [
-  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", labelKey: undefined, descKey: "settings.sensevoiceDesc" },
-  { key: "whisper", icon: Zap, label: "Faster Whisper", labelKey: undefined, descKey: "settings.whisperDesc" },
   { key: "glm-asr", icon: Globe, label: "GLM-ASR", labelKey: undefined, descKey: "settings.glmAsrDesc" },
   { key: "alibaba-asr", icon: Cloud, label: "Alibaba DashScope", labelKey: "settings.alibabaAsrLabel", descKey: "settings.alibabaAsrDesc" },
 ] as const;
@@ -385,7 +380,7 @@ export default function SettingsPage({
   });
 
   // --- Core state ---
-  const [engine, setEngineState] = useState<string>("sensevoice");
+  const [engine, setEngineState] = useState<string>("alibaba-asr");
   const [engineLoading, setEngineLoading] = useState(true);
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);
@@ -413,11 +408,6 @@ export default function SettingsPage({
   const [alibabaAsrModels, setAlibabaAsrModelsState] = useState<readonly string[]>([]);
   const [alibabaAsrModelsSource, setAlibabaAsrModelsSource] = useState<"live" | "fallback">("fallback");
   const [alibabaAsrModelsLoading, setAlibabaAsrModelsLoading] = useState(false);
-  const [modelsDir, setModelsDirState] = useState("");
-  const [modelsDirCustom, setModelsDirCustom] = useState(false);
-  const [modelsDirMigrating, setModelsDirMigrating] = useState(false);
-  const [modelsMigrateMsg, setModelsMigrateMsg] = useState("");
-
   // --- AI models ---
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
   const [assistantModels, setAssistantModels] = useState<AiModelInfo[]>([]);
@@ -733,10 +723,6 @@ export default function SettingsPage({
       setAlibabaAsrModelState(cfg.model);
       setAlibabaAsrModelsState(cfg.models);
     }).catch(() => {});
-    getModelsDir().then(info => {
-      setModelsDirState(info.path);
-      setModelsDirCustom(info.is_custom);
-    }).catch(() => {});
   }, []);
 
   /** 触发一次 DashScope /v1/models 抓取，用于刷新 Alibaba 模型下拉框。 */
@@ -764,21 +750,6 @@ export default function SettingsPage({
     if (!alibabaHasKey) return;
     void refreshAlibabaModels();
   }, [engine, alibabaHasKey, onlineAsrRegion, refreshAlibabaModels]);
-
-  useEffect(() => {
-    const unlisten = listen<{ status: string; message?: string; progress?: number }>(
-      "models-migrate-status",
-      (event) => {
-        const { status, message } = event.payload;
-        if (status === "migrating" && message) {
-          setModelsMigrateMsg(message);
-        } else if (status === "completed") {
-          setModelsMigrateMsg("");
-        }
-      },
-    );
-    return () => { unlisten.then(fn => fn()); };
-  }, []);
 
   const handleEngineSwitch = async (newEngine: string) => {
     if (engineLoading || newEngine === engine) return;
@@ -1947,7 +1918,7 @@ export default function SettingsPage({
             }}
           >
             <div className="settings-section-header">
-              <AudioLines size={15} className="icon-accent" />
+              <Globe size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.engine")}</h2>
             </div>
             {(() => {
@@ -2137,70 +2108,11 @@ export default function SettingsPage({
                 </div>
               </div>
             )}
-            {/* Model Directory */}
-            {!isOnlineEngineKey(engine) && (
-              <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
-                <div className="settings-row" style={{ gap: 6, alignItems: "center" }}>
-                  <HardDrive size={13} style={{ opacity: 0.6, flexShrink: 0 }} />
-                  <span className="settings-option-desc" style={{ flex: 1 }}>{t("settings.modelStorageDir")}</span>
-                  {modelsDirCustom && (
-                    <button
-                      className="theme-btn theme-btn-xs"
-                      disabled={modelsDirMigrating}
-                      onClick={async () => {
-                        try {
-                          setModelsDirMigrating(true);
-                          await setModelsDir(null, false);
-                          const info = await getModelsDir();
-                          setModelsDirState(info.path);
-                          setModelsDirCustom(info.is_custom);
-                          toast.success(t("toast.modelsDirResetDefault"));
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : t("toast.modelsDirResetFailed"));
-                        } finally {
-                          setModelsDirMigrating(false);
-                        }
-                      }}
-                    >
-                      <RotateCcw size={11} />
-                      {t("settings.restoreDefault")}
-                    </button>
-                  )}
-                  <button
-                    className="theme-btn theme-btn-xs"
-                    disabled={modelsDirMigrating}
-                    onClick={async () => {
-                      try {
-                        const folder = await pickFolder();
-                        if (!folder) return;
-                        setModelsDirMigrating(true);
-                        await setModelsDir(folder, true);
-                        const info = await getModelsDir();
-                        setModelsDirState(info.path);
-                        setModelsDirCustom(info.is_custom);
-                        toast.success(t("toast.modelsDirUpdated"));
-                        retryModel();
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : t("toast.modelsDirChangeFailed"));
-                        retryModel();
-                      } finally {
-                        setModelsDirMigrating(false);
-                        setModelsMigrateMsg("");
-                      }
-                    }}
-                  >
-                    <FolderOpen size={11} />
-                    {modelsDirMigrating ? (modelsMigrateMsg || t("settings.migrating")) : t("common.change")}
-                  </button>
-                </div>
-                <span
-                  className="settings-option-desc"
-                  style={{ fontSize: 11, opacity: 0.5, wordBreak: "break-all", userSelect: "text" }}
-                >
-                  {modelsDir || t("common.loading")}
-                </span>
-              </div>
-            )}
+            <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
+              <span className="settings-option-desc" style={{ fontSize: 11, opacity: 0.6 }}>
+                This mac branch is online-ASR only. Legacy local-engine configs are migrated to Alibaba DashScope.
+              </span>
+            </div>
           </section>
 
           {/* Hotkey */}

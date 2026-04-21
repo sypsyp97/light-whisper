@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Cpu, Globe, Loader2, Download } from "lucide-react";
+import { Cpu, Globe, Loader2 } from "lucide-react";
 import type { ModelStage } from "@/hooks/useModelStatus";
 
 interface StatusIndicatorProps {
@@ -12,9 +12,8 @@ interface StatusIndicatorProps {
   gpuName: string | null;
   downloadProgress: number;
   downloadMessage: string | null;
-  isDownloading: boolean;
-  downloadModels: () => void;
   cancelDownload: () => void;
+  error?: string | null;
   children?: ReactNode;
 }
 
@@ -40,6 +39,7 @@ function getStatusText(
   stage: ModelStage,
   downloadProgress: number,
   downloadMessage: string | null,
+  error: string | null | undefined,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): string {
   if (isRecording) return t("status.listening");
@@ -52,6 +52,7 @@ function getStatusText(
   }
   if (stage === "need_download") return t("status.needDownload");
   if (stage === "loading") return downloadMessage || t("status.modelLoading");
+  if (stage === "error") return error || t("model.needApiKey");
   return t("status.preparing");
 }
 
@@ -64,7 +65,7 @@ function getChipLabel(stage: ModelStage, downloadMessage: string | null, t: (key
 export default function StatusIndicator({
   stage, isReady, isRecording, isProcessing,
   device, gpuName, downloadProgress, downloadMessage,
-  isDownloading, downloadModels, cancelDownload, children,
+  cancelDownload, error, children,
 }: StatusIndicatorProps) {
   const { t } = useTranslation();
   const showProgressBar = stage === "downloading" || stage === "loading";
@@ -82,7 +83,7 @@ export default function StatusIndicator({
             {getDeviceLabel(device, gpuName, t)}
           </span>
         )}
-        {!isReady && stage !== "need_download" && (
+        {!isReady && stage !== "need_download" && stage !== "error" && (
           <span className="chip animate-fade-in">
             <Loader2 size={10} className="animate-spin" />
             {getChipLabel(stage, downloadMessage, t)}
@@ -97,20 +98,8 @@ export default function StatusIndicator({
         aria-live="polite"
         className="status-text animate-text-swap"
       >
-        {getStatusText(isRecording, isProcessing, isReady, stage, downloadProgress, downloadMessage, t)}
+        {getStatusText(isRecording, isProcessing, isReady, stage, downloadProgress, downloadMessage, error, t)}
       </p>
-
-      {stage === "need_download" && !isDownloading && (
-        <button onClick={() => downloadModels()} className="btn-primary btn-primary-sm" style={{ marginTop: 4 }}>
-          <Download size={12} /> {t("status.startDownload")}
-        </button>
-      )}
-      {stage === "need_download" && isDownloading && (
-        <div className="download-info">
-          <span>{t("status.anotherDownloading")}</span>
-          <button onClick={() => cancelDownload()} className="btn-ghost-sm">{t("status.cancelDownload")}</button>
-        </div>
-      )}
       {showProgressBar && (
         <div className="download-progress">
           <div

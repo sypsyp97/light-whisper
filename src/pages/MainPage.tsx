@@ -24,8 +24,8 @@ export default function MainPage({ onNavigate, animClass = "" }: {
     recordingError, transcriptionResult, originalAsrText, editBaselineText, setEditBaselineText, setTranscriptionResult,
     durationSec, charCount, detectedLanguage, history, recordingMode, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
-    isDownloading, modelError, hotkeyDisplay,
-    downloadModels: triggerDownload, cancelDownload, retryModel,
+    modelError, hotkeyDisplay,
+    cancelDownload, retryModel,
   } = useRecordingContext();
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -138,9 +138,8 @@ export default function MainPage({ onNavigate, animClass = "" }: {
             gpuName={gpuName}
             downloadProgress={downloadProgress}
             downloadMessage={downloadMessage}
-            isDownloading={isDownloading}
-            downloadModels={triggerDownload}
             cancelDownload={cancelDownload}
+            error={modelError}
           >
             <RecordingButton
               isRecording={isRecording}
