@@ -260,26 +260,29 @@ fn mark_setup_once() -> bool {
 fn spawn_first_launch_permission_prompts(app_handle: tauri::AppHandle) {
     let marker_path = utils::paths::get_data_dir().join(".permissions-prompted");
     if marker_path.exists() {
-        log::info!("首次权限提示标记已存在，跳过");
+        log::info!("首次权限提示标记已存在，跳过权限请求流程");
         return;
     }
 
+    log::info!("首次启动：准备请求所有 macOS 权限");
     let _ = app_handle;
 
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        log::info!("首次权限请求任务已启动");
 
         use crate::services::permissions_service::{
             request_permission, PermissionKind,
         };
 
         let kinds = [
-            ("麦克风", PermissionKind::Microphone),
-            ("辅助功能", PermissionKind::Accessibility),
             ("屏幕录制", PermissionKind::Screen),
+            ("辅助功能", PermissionKind::Accessibility),
             ("自动化", PermissionKind::Automation),
+            ("麦克风", PermissionKind::Microphone),
         ];
         for (label, kind) in kinds {
+            log::info!("请求 {} 权限…", label);
             let status = request_permission(kind).await;
             log::info!(
                 "首次启动权限请求: {} -> granted={}, can_request={}",
