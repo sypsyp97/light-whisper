@@ -1,11 +1,11 @@
 # Graph Report - .  (2026-04-24)
 
 ## Corpus Check
-- 111 files · ~91,331 words
+- 111 files · ~91,479 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1168 nodes · 1952 edges · 99 communities detected
+- 1173 nodes · 1960 edges · 100 communities detected
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 41 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
@@ -16,11 +16,11 @@
 - [[_COMMUNITY_LLM Client|LLM Client]]
 - [[_COMMUNITY_App State|App State]]
 - [[_COMMUNITY_Funasr Service|Funasr Service]]
-- [[_COMMUNITY_Web Search Service|Web Search Service]]
 - [[_COMMUNITY_Tauri|Tauri]]
 - [[_COMMUNITY_Codex OAuth Service|Codex OAuth Service]]
 - [[_COMMUNITY_Profile Service|Profile Service]]
 - [[_COMMUNITY_Paths|Paths]]
+- [[_COMMUNITY_R E A D M E|R E A D M E]]
 - [[_COMMUNITY_User Profile|User Profile]]
 - [[_COMMUNITY_Ai Polish Service|Ai Polish Service]]
 - [[_COMMUNITY_Release Packaging|Release Packaging]]
@@ -31,12 +31,13 @@
 - [[_COMMUNITY_Foreground Context|Foreground Context]]
 - [[_COMMUNITY_Window|Window]]
 - [[_COMMUNITY_Test Download Models Regression|Test Download Models Regression]]
+- [[_COMMUNITY_Web Search Service|Web Search Service]]
+- [[_COMMUNITY_Ai Polish|Ai Polish]]
 - [[_COMMUNITY_Audio|Audio]]
 - [[_COMMUNITY_Clipboard|Clipboard]]
 - [[_COMMUNITY_Rebuild Graphify|Rebuild Graphify]]
 - [[_COMMUNITY_Download Models|Download Models]]
 - [[_COMMUNITY_Lib|Lib]]
-- [[_COMMUNITY_Ai Polish|Ai Polish]]
 - [[_COMMUNITY_HF Cache Utils|HF Cache Utils]]
 - [[_COMMUNITY_Updater|Updater]]
 - [[_COMMUNITY_Download Service|Download Service]]
@@ -116,8 +117,8 @@
 3. `BaseASRServer` - 25 edges
 4. `build_llm_body()` - 21 edges
 5. `Light-Whisper overview` - 18 edges
-6. `openai_endpoint()` - 16 edges
-7. `endpoint_for_preview()` - 16 edges
+6. `endpoint_for_preview()` - 17 edges
+7. `openai_endpoint()` - 16 edges
 8. `register_custom_hotkey()` - 15 edges
 9. `login()` - 15 edges
 10. `adapt_body_for_backend()` - 14 edges
@@ -148,7 +149,7 @@ Nodes (75): all_modifiers_down(), build_hook_state(), build_hook_state_with_back
 
 ### Community 1 - "LLM Provider"
 Cohesion: 0.05
-Nodes (66): apply_reasoning_controls(), assistant_endpoint_for_config(), assistant_endpoint_uses_separate_model_for_builtin_provider(), assistant_endpoint_uses_separate_model_for_custom_provider(), build_auth_headers(), builds_cerebras_image_support_probe_url(), cerebras_glm_reports_reasoning_support(), cerebras_public_model_probe_url() (+58 more)
+Nodes (67): apply_reasoning_controls(), assistant_endpoint_for_config(), assistant_endpoint_uses_separate_model_for_builtin_provider(), assistant_endpoint_uses_separate_model_for_custom_provider(), build_auth_headers(), builds_cerebras_image_support_probe_url(), cerebras_glm_reports_reasoning_support(), cerebras_public_model_probe_url() (+59 more)
 
 ### Community 2 - "Server Common"
 Cohesion: 0.04
@@ -166,25 +167,25 @@ Nodes (16): AppState, DictationOutputMode, DownloadTask, EngineState, FunasrProc
 Cohesion: 0.07
 Nodes (52): check_model_files(), check_status(), create_temp_audio_path(), encode_pcm16_base64(), encode_wav_bytes(), engine_extraction_preserves_existing_engine_until_archive_succeeds(), EngineRuntime, expected_engine_install_fingerprint() (+44 more)
 
-### Community 6 - "Web Search Service"
-Cohesion: 0.05
-Nodes (42): LLM integration layer, Python ASR runtime, React UI, Rust core, assistant_input_preserves_symbols_and_splits_cdata(), build_assistant_user_content_with_selection(), generate_content(), render_assistant_user_content() (+34 more)
-
-### Community 7 - "Tauri"
+### Community 6 - "Tauri"
 Cohesion: 0.07
 Nodes (50): addCustomProvider(), addHotWord(), copyToClipboard(), getAiPolishApiKey(), getAlibabaAsrConfig(), getAssistantApiKey(), getLlmReasoningSupport(), getModelsDir() (+42 more)
 
-### Community 8 - "Codex OAuth Service"
+### Community 7 - "Codex OAuth Service"
 Cohesion: 0.08
 Nodes (49): accept_callback_connection(), AuthClaims, base64_url_encode(), bind_callback_listeners(), build_authorize_url(), callback_html(), CallbackListeners, ChatgptBearerToken (+41 more)
 
-### Community 9 - "Profile Service"
+### Community 8 - "Profile Service"
 Cohesion: 0.11
 Nodes (42): Adaptive learning, add_hot_word(), cleanup_profile(), collect_diff_correction_pairs(), collect_diff_correction_pairs_merges_and_dedupes_baselines(), contains_sentence_punctuation(), extract_diff_segments(), finalize_learning() (+34 more)
 
-### Community 10 - "Paths"
+### Community 9 - "Paths"
 Cohesion: 0.1
 Nodes (34): atomic_write(), default_hf_cache_root(), engine_json_array_normalizes_to_empty_object(), engine_json_object_or_empty(), engine_json_string_normalizes_to_empty_object(), get_data_dir(), get_download_script_path(), get_effective_models_dir() (+26 more)
+
+### Community 10 - "R E A D M E"
+Cohesion: 0.08
+Nodes (29): LLM integration layer, Python ASR runtime, React UI, Rust core, assistant_input_preserves_symbols_and_splits_cdata(), build_assistant_user_content_with_selection(), generate_content(), render_assistant_user_content() (+21 more)
 
 ### Community 11 - "User Profile"
 Cohesion: 0.08
@@ -226,315 +227,319 @@ Nodes (14): Subtitle overlay, SubtitleOverlay(), apply_subtitle_layout(), create
 Cohesion: 0.15
 Nodes (4): FakeCompleteResponse, FakeRangeNotSatisfiableResponse, FakeStreamingResponse, ModelDownloadAtomicityTests
 
-### Community 21 - "Audio"
+### Community 21 - "Web Search Service"
+Cohesion: 0.17
+Nodes (13): exa_search(), extract_final_json_data_line(), JsonRpcResponse, McpContent, McpResult, parse_exa_block_extracts_fields(), parse_exa_text_block(), render_search_context() (+5 more)
+
+### Community 22 - "Ai Polish"
+Cohesion: 0.18
+Nodes (9): AiModelInfo, AiModelListPayload, anthropic_models(), codex_oauth_catalog_includes_gpt_5_5(), codex_oauth_models(), list_ai_models(), set_ai_polish_config(), set_assistant_api_key() (+1 more)
+
+### Community 23 - "Audio"
 Cohesion: 0.21
 Nodes (6): clear_pending_recording_if_current(), start_recording(), start_recording_inner(), stop_microphone_level_monitor(), stop_recording(), stop_recording_inner()
 
-### Community 22 - "Clipboard"
+### Community 24 - "Clipboard"
 Cohesion: 0.27
 Nodes (10): copy_to_clipboard(), grab_selected_text(), grab_selected_text_uia(), make_key_input(), paste_text(), paste_text_impl(), release_stuck_modifiers(), send_inputs() (+2 more)
 
-### Community 23 - "Rebuild Graphify"
+### Community 25 - "Rebuild Graphify"
 Cohesion: 0.3
 Nodes (10): build_ast_extraction(), build_labels(), build_outputs(), build_semantic_layer(), detect_corpus(), main(), make_edge(), make_hyperedge() (+2 more)
 
-### Community 24 - "Download Models"
+### Community 26 - "Download Models"
 Cohesion: 0.35
 Nodes (10): _candidate_endpoints(), _cleanup_locks(), _download_file(), download_model(), _emit(), _get_repo_info(), main(), 清理残留的 .lock 和 .incomplete 文件 (+2 more)
 
-### Community 25 - "Lib"
+### Community 27 - "Lib"
 Cohesion: 0.38
 Nodes (10): focus_main_window(), hide_main_window(), mark_setup_once(), run(), setup_system_tray(), spawn_funasr_startup(), spawn_profile_maintenance(), spawn_subtitle_prewarm() (+2 more)
 
-### Community 26 - "Ai Polish"
-Cohesion: 0.24
-Nodes (7): AiModelInfo, AiModelListPayload, anthropic_models(), codex_oauth_models(), list_ai_models(), set_ai_polish_config(), set_assistant_api_key()
-
-### Community 27 - "HF Cache Utils"
+### Community 28 - "HF Cache Utils"
 Cohesion: 0.29
 Nodes (9): cleanup_incomplete_files(), get_hf_cache_root(), is_hf_repo_ready(), HuggingFace 缓存检测共享工具模块  供 funasr_server.py 和 download_models.py 共同使用， 避免重复实现缓, 返回 HuggingFace 缓存根目录      优先级：HF_HUB_CACHE（由 Rust 设置的自定义路径）> HF_HOME/hub > 默认, 检查 HuggingFace 模型是否已缓存且包含实际模型权重文件。      仅检查目录结构不够——下载中途取消会留下空壳目录（refs/snapshot, 删除某个 repo 缓存目录下残留的 .incomplete 文件，返回删除数量。, _snapshot_matches_completion_manifest() (+1 more)
 
-### Community 28 - "Updater"
+### Community 29 - "Updater"
 Cohesion: 0.33
 Nodes (9): AppUpdateInfo, check_app_update(), fetch_latest_release(), GitHubRelease, is_version_newer(), normalize_version(), open_app_release_page(), open_external_url() (+1 more)
 
-### Community 29 - "Download Service"
+### Community 30 - "Download Service"
 Cohesion: 0.24
 Nodes (4): clear_download_task(), DownloadLine, emit_download_status(), run_download()
 
-### Community 30 - "Capture"
+### Community 31 - "Capture"
 Cohesion: 0.33
 Nodes (8): compute_waveform_bars(), load_best_input_config(), mix_to_mono_f32(), mix_to_mono_i16(), mix_to_mono_u16(), resolve_input_device(), spawn_audio_capture_thread(), spawn_waveform_emitter()
 
-### Community 31 - "Finalize"
+### Community 32 - "Finalize"
 Cohesion: 0.42
 Nodes (8): do_final_asr(), do_paste(), emit_done(), emit_error(), emit_recording_state_if_current(), finalize_recording(), flush_pending_paste(), schedule_hide()
 
-### Community 32 - "Hotkey Normalization"
+### Community 33 - "Hotkey Normalization"
 Cohesion: 0.36
 Nodes (7): collectModifiers(), eventMainKey(), isModifierOnlyCombo(), keyboardEventToHotkey(), modifierFromKeyboardEvent(), normalizeHotkey(), normalizeMainKeyToken()
 
-### Community 33 - "Openai Fast Mode OAuth Tests"
+### Community 34 - "Openai Fast Mode OAuth Tests"
 Cohesion: 0.39
 Nodes (8): build_auth_headers_unwraps_oauth_derived_openai_api_key(), CapturedRequest, find_subsequence(), openai_responses_endpoint(), parse_header_value(), send_llm_request_injects_priority_and_unwraps_oauth_derived_openai_api_key(), spawn_request_capture_server(), wrapped_oauth_derived_api_key()
 
-### Community 34 - "Assistant Commands"
+### Community 35 - "Assistant Commands"
 Cohesion: 0.36
 Nodes (3): get_web_search_api_key(), set_web_search_api_key(), web_search_keyring_user()
 
-### Community 35 - "Monitor"
+### Community 36 - "Monitor"
 Cohesion: 0.43
 Nodes (6): mono_peak_f32(), mono_peak_i16(), mono_peak_u16(), peak_to_meter(), start_microphone_level_monitor(), stop_microphone_level_monitor()
 
-### Community 36 - "Sound"
+### Community 37 - "Sound"
 Cohesion: 0.54
 Nodes (7): generate_double_tone(), generate_tone(), play_assistant_start_sound(), play_assistant_stop_sound(), play_start_sound(), play_stop_sound(), play_wav_async()
 
-### Community 37 - "Engine"
+### Community 38 - "Engine"
 Cohesion: 0.53
 Nodes (5): cmd_download(), cmd_serve(), main(), PyInstaller frozen 环境下，将 _internal/ 加入 sys.path, _setup_frozen_paths()
 
-### Community 38 - "Status Indicator UI"
+### Community 39 - "Status Indicator UI"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 39 - "Model Status Hook"
+### Community 40 - "Model Status Hook"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 40 - "Theme Hook"
+### Community 41 - "Theme Hook"
 Cohesion: 0.5
 Nodes (2): getSystemPrefersDark(), resolveIsDark()
 
-### Community 41 - "Resample"
+### Community 42 - "Resample"
 Cohesion: 0.6
 Nodes (3): f32_to_i16(), invalid_sample_rate_is_not_reported_as_successful_16k_audio(), resample_to_16k()
 
-### Community 42 - "Frontend Entry"
+### Community 43 - "Frontend Entry"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 43 - "Hotkey Storage Hook"
+### Community 44 - "Hotkey Storage Hook"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 44 - "Use Smooth Text"
+### Community 45 - "Use Smooth Text"
 Cohesion: 0.67
 Nodes (2): segmentGraphemes(), useSmoothText()
 
-### Community 45 - "Codex OAuth Commands"
+### Community 46 - "Codex OAuth Commands"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 46 - "Ai Polish Transport Retry Tests"
+### Community 47 - "Ai Polish Transport Retry Tests"
 Cohesion: 0.83
 Nodes (3): ai_polish_transport_plan_uses_nostream_json_before_stream_nojson_without_partial_pref(), ai_polish_transport_plan_uses_stream_nojson_before_nostream_json_with_partial_pref(), assert_plan_stage()
 
-### Community 47 - "Wav"
+### Community 48 - "Wav"
 Cohesion: 0.83
 Nodes (3): encode_wav(), test_encode_wav_handles_empty_samples(), test_encode_wav_returns_ok_for_normal_samples()
 
-### Community 48 - "App Errors"
+### Community 49 - "App Errors"
 Cohesion: 0.5
 Nodes (1): AppError
 
-### Community 49 - "Promo App Window"
+### Community 50 - "Promo App Window"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 50 - "Recording Context"
+### Community 51 - "Recording Context"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 51 - "Use Recording"
+### Community 52 - "Use Recording"
 Cohesion: 1.0
 Nodes (2): useRecording(), useTauriEvent()
 
-### Community 52 - "Local Storage Helpers"
+### Community 53 - "Local Storage Helpers"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 53 - "Interim"
+### Community 54 - "Interim"
 Cohesion: 1.0
 Nodes (2): adjust_interval(), spawn_interim_loop()
 
-### Community 54 - "Audio Service Module"
+### Community 55 - "Audio Service Module"
 Cohesion: 0.67
 Nodes (2): InputDeviceInfo, InputDeviceListPayload
 
-### Community 55 - "Promo Root"
+### Community 56 - "Promo Root"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 56 - "Promo Cursor"
+### Community 57 - "Promo Cursor"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 57 - "Title Bar"
+### Community 58 - "Title Bar"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 58 - "Recording Context.test"
+### Community 59 - "Recording Context.test"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 59 - "Debounced Callback Hook"
+### Community 60 - "Debounced Callback Hook"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 60 - "Exclusive Picker Hook"
+### Community 61 - "Exclusive Picker Hook"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 61 - "Hotkey Capture Hook"
+### Community 62 - "Hotkey Capture Hook"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 62 - "Use Recording.test"
+### Community 63 - "Use Recording.test"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 63 - "Fast Mode"
+### Community 64 - "Fast Mode"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 64 - "Tauri Event Mock"
+### Community 65 - "Tauri Event Mock"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 65 - "Vite Config"
+### Community 66 - "Vite Config"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 66 - "Vitest.config"
+### Community 67 - "Vitest.config"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 67 - "Remotion Config"
+### Community 68 - "Remotion Config"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 68 - "Promo Src Index"
+### Community 69 - "Promo Src Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 69 - "Promo Showcase Video"
+### Community 70 - "Promo Showcase Video"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 70 - "Promo Theme"
+### Community 71 - "Promo Theme"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 71 - "Promo Cinematic Scene"
+### Community 72 - "Promo Cinematic Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 72 - "Promo Mic Button"
+### Community 73 - "Promo Mic Button"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 73 - "Promo Result Card"
+### Community 74 - "Promo Result Card"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 74 - "Promo Subtitle Capsule"
+### Community 75 - "Promo Subtitle Capsule"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 75 - "Promo Assistant Scene"
+### Community 76 - "Promo Assistant Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 76 - "Promo Dictation Scene"
+### Community 77 - "Promo Dictation Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 77 - "Promo Edit Scene"
+### Community 78 - "Promo Edit Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 78 - "Promo Intro Scene"
+### Community 79 - "Promo Intro Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 79 - "Promo Outro Scene"
+### Community 80 - "Promo Outro Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 80 - "Promo Translation Scene"
+### Community 81 - "Promo Translation Scene"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 81 - "Vite Env Types"
+### Community 82 - "Vite Env Types"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 82 - "Tauri.fast Mode.test"
+### Community 83 - "Tauri.fast Mode.test"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 83 - "Kbd"
+### Community 84 - "Kbd"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 84 - "Recording Button UI"
+### Community 85 - "Recording Button UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 85 - "Transcription History UI"
+### Community 86 - "Transcription History UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 86 - "Transcription Result UI"
+### Community 87 - "Transcription Result UI"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 87 - "English I18n"
+### Community 88 - "English I18n"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 88 - "I18n Index"
+### Community 89 - "I18n Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 89 - "Chinese I18n"
+### Community 90 - "Chinese I18n"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 90 - "App Constants"
+### Community 91 - "App Constants"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 91 - "Fast Mode.test"
+### Community 92 - "Fast Mode.test"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 92 - "Main Page"
+### Community 93 - "Main Page"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 93 - "Setup"
+### Community 94 - "Setup"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 94 - "Types Index"
+### Community 95 - "Types Index"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 95 - "Commands Module"
+### Community 96 - "Commands Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 96 - "Services Module"
+### Community 97 - "Services Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 97 - "State Module"
+### Community 98 - "State Module"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 98 - "Utils Module"
+### Community 99 - "Utils Module"
 Cohesion: 1.0
 Nodes (0): 
 
@@ -633,11 +638,11 @@ Nodes (0):
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Light-Whisper overview` connect `Web Search Service` to `Profile Service`, `Window`, `Profile`?**
-  _High betweenness centrality (0.134) - this node is a cross-community bridge._
-- **Why does `LLM integration layer` connect `Web Search Service` to `LLM Provider`, `LLM Client`?**
+- **Why does `Light-Whisper overview` connect `R E A D M E` to `Profile Service`, `Window`, `Profile`?**
+  _High betweenness centrality (0.133) - this node is a cross-community bridge._
+- **Why does `LLM integration layer` connect `R E A D M E` to `LLM Provider`, `LLM Client`?**
   _High betweenness centrality (0.096) - this node is a cross-community bridge._
-- **Why does `polish_text()` connect `Ai Polish Service` to `Release Packaging`, `Web Search Service`?**
+- **Why does `polish_text()` connect `Ai Polish Service` to `R E A D M E`, `Release Packaging`?**
   _High betweenness centrality (0.070) - this node is a cross-community bridge._
 - **Are the 9 inferred relationships involving `BaseASRServer` (e.g. with `FunASRServer` and `Skip FunASR's model-side pip auto-install in bundled runtime.      Some FunASR`) actually correct?**
   _`BaseASRServer` has 9 INFERRED edges - model-reasoned connections that need verification._

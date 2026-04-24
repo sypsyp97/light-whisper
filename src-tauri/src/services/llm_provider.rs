@@ -578,6 +578,7 @@ pub fn is_cerebras_like_endpoint(endpoint: &LlmEndpoint) -> bool {
 const GPT5_EFFORTS: &[&str] = &["minimal", "low", "medium", "high"];
 const GPT5_1_EFFORTS: &[&str] = &["none", "low", "medium", "high"];
 const GPT5_2_54_EFFORTS: &[&str] = &["none", "low", "medium", "high", "xhigh"];
+const GPT5_5_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const GPT5_PRO_EFFORTS: &[&str] = &["high"];
 const GPT5_2_54_PRO_EFFORTS: &[&str] = &["medium", "high", "xhigh"];
 const GPT5_2_3_CODEX_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
@@ -589,8 +590,11 @@ fn openai_gpt5_reasoning_efforts(model: &str) -> Option<&'static [&'static str]>
     match tail {
         "gpt-5-pro" => Some(GPT5_PRO_EFFORTS),
         _ if tail.starts_with("gpt-5-pro-") => Some(GPT5_PRO_EFFORTS),
-        "gpt-5.2-pro" | "gpt-5.4-pro" => Some(GPT5_2_54_PRO_EFFORTS),
-        _ if tail.starts_with("gpt-5.2-pro-") || tail.starts_with("gpt-5.4-pro-") => {
+        "gpt-5.2-pro" | "gpt-5.4-pro" | "gpt-5.5-pro" => Some(GPT5_2_54_PRO_EFFORTS),
+        _ if tail.starts_with("gpt-5.2-pro-")
+            || tail.starts_with("gpt-5.4-pro-")
+            || tail.starts_with("gpt-5.5-pro-") =>
+        {
             Some(GPT5_2_54_PRO_EFFORTS)
         }
         "gpt-5.2-codex" | "gpt-5.3-codex" => Some(GPT5_2_3_CODEX_EFFORTS),
@@ -609,6 +613,8 @@ fn openai_gpt5_reasoning_efforts(model: &str) -> Option<&'static [&'static str]>
         _ if tail.starts_with("gpt-5.2-") || tail.starts_with("gpt-5.4-") => {
             Some(GPT5_2_54_EFFORTS)
         }
+        "gpt-5.5" => Some(GPT5_5_EFFORTS),
+        _ if tail.starts_with("gpt-5.5-") => Some(GPT5_5_EFFORTS),
         "gpt-5" => Some(GPT5_EFFORTS),
         _ if tail.starts_with("gpt-5-") => Some(GPT5_EFFORTS),
         _ => None,
@@ -1482,6 +1488,20 @@ mod tests {
         assert_eq!(
             reasoning_efforts_for_modes(&endpoint),
             strings(&["low", "medium", "high", "xhigh"])
+        );
+    }
+
+    #[test]
+    fn openai_gpt5_5_reaches_xhigh() {
+        let endpoint = endpoint_for_preview(OPENAI, None, Some("gpt-5.5"), ApiFormat::OpenaiCompat);
+
+        assert_eq!(
+            reasoning_efforts_for_modes(&endpoint),
+            strings(&["low", "medium", "high", "xhigh"])
+        );
+        assert_eq!(
+            reasoning_support(&endpoint, true).strategy.as_deref(),
+            Some("openai_reasoning_effort")
         );
     }
 

@@ -94,6 +94,7 @@ fn anthropic_models() -> Vec<AiModelInfo> {
 
 fn codex_oauth_models() -> Vec<AiModelInfo> {
     [
+        "gpt-5.5",
         "gpt-5.1-codex",
         "gpt-5.1-codex-max",
         "gpt-5.1-codex-mini",
@@ -109,6 +110,10 @@ fn codex_oauth_models() -> Vec<AiModelInfo> {
         owned_by: Some("openai".to_string()),
     })
     .collect()
+}
+
+fn uses_codex_oauth_model_catalog(provider: &str, api_key: &str) -> bool {
+    provider == "openai" && codex_oauth_service::is_oauth_origin_auth(api_key)
 }
 
 #[tauri::command]
@@ -130,8 +135,7 @@ pub async fn list_ai_models(
         return Err("请先填写 API Key 或完成 OpenAI Codex 登录".to_string());
     }
 
-    if provider == "openai" && codex_oauth_service::decode_chatgpt_bearer_token(&api_key).is_some()
-    {
+    if uses_codex_oauth_model_catalog(&provider, &api_key) {
         return Ok(AiModelListPayload {
             models: codex_oauth_models(),
             source_url: codex_oauth_service::CHATGPT_CODEX_RESPONSES_URL.to_string(),
@@ -216,6 +220,43 @@ pub async fn list_ai_models(
     models.dedup_by(|a, b| a.id == b.id);
 
     Ok(AiModelListPayload { models, source_url })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_oauth_catalog_includes_gpt_5_5() {
+        let ids = codex_oauth_models()
+            .into_iter()
+            .map(|model| model.id)
+            .collect::<Vec<_>>();
+
+        assert!(
+            ids.iter().any(|id| id == "gpt-5.5"),
+            "OpenAI OAuth model catalog should include GPT-5.5 so it appears immediately after login"
+        );
+    }
+
+    #[test]
+    fn oauth_derived_api_key_uses_codex_oauth_catalog() {
+        let wrapped = codex_oauth_service::encode_oauth_api_key("sk-oauth-derived")
+            .expect("test API key should be wrapped");
+
+        assert!(
+            uses_codex_oauth_model_catalog("openai", &wrapped),
+            "OAuth-derived OpenAI API keys should use the Codex/OAuth model catalog instead of /v1/models"
+        );
+    }
+
+    #[test]
+    fn plain_openai_api_key_uses_live_models_endpoint() {
+        assert!(
+            !uses_codex_oauth_model_catalog("openai", "sk-plain-api-key"),
+            "Plain OpenAI API keys should keep using the live /v1/models endpoint"
+        );
+    }
 }
 
 #[tauri::command]

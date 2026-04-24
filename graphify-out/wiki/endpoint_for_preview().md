@@ -1,6 +1,6 @@
 # endpoint_for_preview()
 
-> God node · 16 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
+> God node · 17 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\llm_provider.rs`
 
 ## Connections by Relation
 
@@ -19,6 +19,7 @@
 - [[openai_gpt5_2_off_maps_reasoning_effort_to_none()]] `EXTRACTED`
 - [[openai_gpt5_pro_uses_high_only()]] `EXTRACTED`
 - [[openai_gpt5_2_codex_clamps_to_low_then_rises()]] `EXTRACTED`
+- [[openai_gpt5_5_reaches_xhigh()]] `EXTRACTED`
 - [[openai_gpt5_1_codex_max_reaches_xhigh()]] `EXTRACTED`
 
 ### contains

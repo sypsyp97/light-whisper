@@ -1,6 +1,6 @@
 [package]
 name = "light-whisper"
-version = "1.3.3"
+version = "1.3.4"
 description = "轻语 - 基于FunASR的中文语音转文字应用"
 authors = ["sun"]
 edition = "2021"
