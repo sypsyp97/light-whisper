@@ -63,6 +63,7 @@
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\resources\\funasr_server.py",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\resources\\hf_cache_utils.py",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\resources\\server_common.py",
+      "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\resources\\test_download_models_regression.py",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\resources\\whisper_server.py",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\lib.rs",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\main.rs",
@@ -118,8 +119,8 @@
     "image": [],
     "video": []
   },
-  "total_files": 110,
-  "total_words": 88309,
+  "total_files": 111,
+  "total_words": 91331,
   "needs_graph": true,
   "warning": null,
   "skipped_sensitive": [

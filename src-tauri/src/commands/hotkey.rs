@@ -633,6 +633,17 @@ fn unified_hook_state_slot() -> &'static Mutex<UnifiedHookBundle> {
 }
 
 #[cfg(target_os = "windows")]
+fn unified_hook_state_snapshot() -> &'static arc_swap::ArcSwap<UnifiedHookBundle> {
+    static SNAPSHOT: OnceLock<arc_swap::ArcSwap<UnifiedHookBundle>> = OnceLock::new();
+    SNAPSHOT.get_or_init(|| arc_swap::ArcSwap::from_pointee(UnifiedHookBundle::default()))
+}
+
+#[cfg(target_os = "windows")]
+fn publish_unified_hook_state_snapshot(bundle: &UnifiedHookBundle) {
+    unified_hook_state_snapshot().store(Arc::new(bundle.clone()));
+}
+
+#[cfg(target_os = "windows")]
 fn set_unified_hook_state(
     kind: HotkeyKind,
     state: Option<Arc<UnifiedHookState>>,
@@ -646,7 +657,9 @@ fn set_unified_hook_state(
         HotkeyKind::Translation => &mut guard.translation,
         HotkeyKind::Assistant => &mut guard.assistant,
     };
-    std::mem::replace(slot, state)
+    let previous = std::mem::replace(slot, state);
+    publish_unified_hook_state_snapshot(&guard);
+    previous
 }
 
 #[cfg(target_os = "windows")]
@@ -793,7 +806,7 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
         return pass_through();
     }
 
-    let bundle = get_unified_hook_states();
+    let bundle = unified_hook_state_snapshot().load_full();
     if bundle.is_empty() {
         return pass_through();
     }
@@ -2096,4 +2109,27 @@ pub async fn get_hotkey_diagnostic(
     state: tauri::State<'_, AppState>,
 ) -> Result<crate::state::HotkeyDiagnosticState, AppError> {
     Ok(state.hotkey_diagnostic_snapshot())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn low_level_hook_callback_does_not_lock_state_slot() {
+        let source = include_str!("hotkey.rs");
+        let hook_start = source
+            .find("fn unified_low_level_keyboard_proc")
+            .expect("low-level hook callback should exist");
+        let hook_rest = &source[hook_start..];
+        let hook_end = hook_rest
+            .find("/// Returns `true` if the event should be swallowed")
+            .expect("hook callback section should end before helper docs");
+        let hook_body = &hook_rest[..hook_end];
+
+        assert!(
+            !hook_body.contains("get_unified_hook_states()")
+                && !hook_body.contains("unified_hook_state_slot()")
+                && !hook_body.contains(".lock()"),
+            "WH_KEYBOARD_LL callback must read lock-free state only; mutex locking in the hook path can stall global keyboard input"
+        );
+    }
 }

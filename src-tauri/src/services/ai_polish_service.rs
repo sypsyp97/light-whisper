@@ -842,7 +842,7 @@ async fn build_polish_user_input(
     let effective_image_support = cached_image_support.or(probed_image_support);
 
     let images = if screen_context_enabled && effective_image_support != Some(false) {
-        match screen_capture_service::capture_full_screen_context() {
+        match screen_capture_service::capture_full_screen_context_async().await {
             Ok(captured) => {
                 if !captured.is_empty() {
                     let labels = captured

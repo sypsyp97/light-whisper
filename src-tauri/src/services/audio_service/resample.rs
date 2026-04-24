@@ -19,9 +19,12 @@ pub(super) fn u16_to_i16(s: u16) -> i16 {
 
 // ---------- 重采样（rubato sinc 插值） ----------
 
-pub(super) fn resample_to_16k(input: &[i16], input_rate: u32) -> Cow<'_, [i16]> {
-    if input.is_empty() || input_rate == 0 || input_rate == TARGET_SAMPLE_RATE {
-        return Cow::Borrowed(input);
+pub(super) fn resample_to_16k(input: &[i16], input_rate: u32) -> Result<Cow<'_, [i16]>, String> {
+    if input.is_empty() || input_rate == TARGET_SAMPLE_RATE {
+        return Ok(Cow::Borrowed(input));
+    }
+    if input_rate == 0 {
+        return Err("输入采样率为 0，无法重采样".to_string());
     }
 
     use rubato::{FastFixedIn, PolynomialDegree, Resampler};
@@ -33,8 +36,7 @@ pub(super) fn resample_to_16k(input: &[i16], input_rate: u32) -> Cow<'_, [i16]> 
         match FastFixedIn::<f32>::new(ratio, 1.1, PolynomialDegree::Cubic, chunk_size, 1) {
             Ok(r) => r,
             Err(e) => {
-                log::warn!("rubato 初始化失败，跳过重采样: {}", e);
-                return Cow::Borrowed(input);
+                return Err(format!("rubato 初始化失败: {}", e));
             }
         };
 
@@ -43,11 +45,21 @@ pub(super) fn resample_to_16k(input: &[i16], input_rate: u32) -> Cow<'_, [i16]> 
     match resampler.process(&[&input_f32], None) {
         Ok(output) => {
             let resampled: Vec<i16> = output[0].iter().map(|&s| f32_to_i16(s)).collect();
-            Cow::Owned(resampled)
+            Ok(Cow::Owned(resampled))
         }
-        Err(e) => {
-            log::warn!("rubato 重采样失败，跳过: {}", e);
-            Cow::Borrowed(input)
-        }
+        Err(e) => Err(format!("rubato 重采样失败: {}", e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resample_to_16k;
+
+    #[test]
+    fn invalid_sample_rate_is_not_reported_as_successful_16k_audio() {
+        let input = [1_i16, -1, 2, -2];
+        let output = resample_to_16k(&input, 0);
+
+        assert!(output.is_err());
     }
 }

@@ -10,6 +10,7 @@ use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
 use crate::state::AppState;
 
 const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
+const STREAM_TOTAL_TIMEOUT_SECS: u64 = 24 * 60 * 60;
 const RETRYABLE_429_DELAYS_MS: &[u64] = &[600, 1200];
 
 #[derive(Debug, Clone, Copy)]
@@ -62,9 +63,37 @@ impl From<&str> for LlmUserInput {
     }
 }
 
-fn dynamic_timeout(base_secs: u64, text_len: usize) -> Duration {
+fn dynamic_timeout(base_secs: u64, text_len: usize, body: &Value, web_search: bool) -> Duration {
     let extra = (text_len / 200) as u64;
-    Duration::from_secs(base_secs.saturating_add(extra).min(120))
+    let image_context_len = estimate_image_context_len(body);
+    let image_extra = (image_context_len / (512 * 1024)) as u64 * 10;
+    let tool_extra = if web_search { 45 } else { 0 };
+    let total = base_secs
+        .saturating_add(extra)
+        .saturating_add(image_extra)
+        .saturating_add(tool_extra);
+    Duration::from_secs(total.min(base_secs.max(240)))
+}
+
+fn estimate_image_context_len(value: &Value) -> usize {
+    fn visit(key: Option<&str>, value: &Value) -> usize {
+        match value {
+            Value::String(s) => match key {
+                Some("image_url") if s.starts_with("data:image/") => s.len(),
+                Some("url") if s.starts_with("data:image/") => s.len(),
+                Some("data") if s.len() > 1024 => s.len(),
+                _ => 0,
+            },
+            Value::Array(items) => items.iter().map(|item| visit(None, item)).sum(),
+            Value::Object(map) => map
+                .iter()
+                .map(|(key, value)| visit(Some(key.as_str()), value))
+                .sum(),
+            _ => 0,
+        }
+    }
+
+    visit(None, value)
 }
 
 fn uses_codex_chatgpt_backend(endpoint: &LlmEndpoint, api_key: &str) -> bool {
@@ -353,6 +382,44 @@ fn emit_stream_event(
     }
 }
 
+fn emit_stream_error_event(
+    app_handle: Option<&tauri::AppHandle>,
+    event_name: Option<&str>,
+    session_id: Option<u64>,
+    message: &str,
+) {
+    if let (Some(app_handle), Some(event_name)) = (app_handle, event_name) {
+        let mut payload = serde_json::json!({
+            "status": "error",
+            "message": message,
+        });
+        if let Some(session_id) = session_id {
+            payload["sessionId"] = serde_json::json!(session_id);
+        }
+        let _ = app_handle.emit(event_name, payload);
+    }
+}
+
+fn stream_read_budget(
+    started_at: tokio::time::Instant,
+    event_timeout: Duration,
+    total_timeout: Duration,
+) -> Result<Duration, String> {
+    let elapsed = started_at.elapsed();
+    let remaining = total_timeout
+        .checked_sub(elapsed)
+        .ok_or_else(|| format!("流式读取超过总预算（{} 秒）", total_timeout.as_secs()))?;
+    Ok(event_timeout.min(remaining))
+}
+
+fn stream_timeout_error(started_at: tokio::time::Instant, total_timeout: Duration) -> String {
+    if started_at.elapsed() >= total_timeout {
+        format!("流式读取超过总预算（{} 秒）", total_timeout.as_secs())
+    } else {
+        format!("流式读取超时（{} 秒无数据）", STREAM_EVENT_TIMEOUT_SECS)
+    }
+}
+
 fn anthropic_output_tokens(json: &Value) -> Option<usize> {
     json["usage"]["output_tokens"]
         .as_u64()
@@ -372,16 +439,30 @@ pub async fn read_sse_stream(
     let mut accumulated = String::new();
     let mut token_count: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
+    let total_timeout = Duration::from_secs(STREAM_TOTAL_TIMEOUT_SECS);
+    let started_at = tokio::time::Instant::now();
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        match tokio::time::timeout(event_timeout, stream.next()).await {
+        let read_budget = match stream_read_budget(started_at, event_timeout, total_timeout) {
+            Ok(budget) => budget,
+            Err(message) => {
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
+        };
+        match tokio::time::timeout(read_budget, stream.next()).await {
             Ok(Some(Ok(event))) => {
                 let data = event.data.trim();
                 if data == "[DONE]" {
                     return Ok(accumulated);
                 }
                 if let Ok(json) = serde_json::from_str::<Value>(data) {
+                    if let Some(message) = json["error"]["message"].as_str() {
+                        let message = format!("OpenAI 流式错误: {}", message);
+                        emit_stream_error_event(app_handle, event_name, session_id, &message);
+                        return Err(message);
+                    }
                     if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                         accumulated.push_str(content);
                         token_count += 1;
@@ -395,13 +476,16 @@ pub async fn read_sse_stream(
                     }
                 }
             }
-            Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
+            Ok(Some(Err(e))) => {
+                let message = format!("流式读取失败: {}", e);
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
             Ok(None) => return Ok(accumulated),
             Err(_) => {
-                return Err(format!(
-                    "流式读取超时（{} 秒无数据）",
-                    STREAM_EVENT_TIMEOUT_SECS
-                ))
+                let message = stream_timeout_error(started_at, total_timeout);
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
             }
         }
     }
@@ -421,10 +505,19 @@ pub async fn read_openai_responses_sse_stream(
     let mut fallback_content: Option<String> = None;
     let mut token_count: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
+    let total_timeout = Duration::from_secs(STREAM_TOTAL_TIMEOUT_SECS);
+    let started_at = tokio::time::Instant::now();
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        match tokio::time::timeout(event_timeout, stream.next()).await {
+        let read_budget = match stream_read_budget(started_at, event_timeout, total_timeout) {
+            Ok(budget) => budget,
+            Err(message) => {
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
+        };
+        match tokio::time::timeout(read_budget, stream.next()).await {
             Ok(Some(Ok(event))) => {
                 let data = event.data.trim();
                 if data.is_empty() {
@@ -490,12 +583,18 @@ pub async fn read_openai_responses_sse_stream(
                             .or_else(|| json["error"]["message"].as_str())
                             .or_else(|| json["message"].as_str())
                             .unwrap_or(data);
-                        return Err(format!("Responses 流式错误: {}", message));
+                        let message = format!("Responses 流式错误: {}", message);
+                        emit_stream_error_event(app_handle, event_name, session_id, &message);
+                        return Err(message);
                     }
                     _ => {}
                 }
             }
-            Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
+            Ok(Some(Err(e))) => {
+                let message = format!("流式读取失败: {}", e);
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
             Ok(None) => {
                 if !accumulated.is_empty() {
                     return Ok(accumulated);
@@ -506,10 +605,9 @@ pub async fn read_openai_responses_sse_stream(
                 return Err("Responses 流式结束，但未收到可解析内容".to_string());
             }
             Err(_) => {
-                return Err(format!(
-                    "流式读取超时（{} 秒无数据）",
-                    STREAM_EVENT_TIMEOUT_SECS
-                ))
+                let message = stream_timeout_error(started_at, total_timeout);
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
             }
         }
     }
@@ -527,10 +625,19 @@ pub async fn read_anthropic_sse_stream(
     let mut accumulated = String::new();
     let mut output_tokens: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
+    let total_timeout = Duration::from_secs(STREAM_TOTAL_TIMEOUT_SECS);
+    let started_at = tokio::time::Instant::now();
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        match tokio::time::timeout(event_timeout, stream.next()).await {
+        let read_budget = match stream_read_budget(started_at, event_timeout, total_timeout) {
+            Ok(budget) => budget,
+            Err(message) => {
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
+        };
+        match tokio::time::timeout(read_budget, stream.next()).await {
             Ok(Some(Ok(event))) => match event.event.as_str() {
                 "message_start" | "message_delta" => {
                     if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
@@ -570,17 +677,22 @@ pub async fn read_anthropic_sse_stream(
                         .ok()
                         .and_then(|json| json["error"]["message"].as_str().map(String::from))
                         .unwrap_or_else(|| event.data.clone());
-                    return Err(format!("Anthropic 流式错误: {}", message));
+                    let message = format!("Anthropic 流式错误: {}", message);
+                    emit_stream_error_event(app_handle, event_name, session_id, &message);
+                    return Err(message);
                 }
                 _ => {}
             },
-            Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
+            Ok(Some(Err(e))) => {
+                let message = format!("流式读取失败: {}", e);
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
             Ok(None) => return Ok(accumulated),
             Err(_) => {
-                return Err(format!(
-                    "流式读取超时（{} 秒无数据）",
-                    STREAM_EVENT_TIMEOUT_SECS
-                ))
+                let message = stream_timeout_error(started_at, total_timeout);
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
             }
         }
     }
@@ -691,8 +803,13 @@ pub async fn send_llm_request(
             }
         }
     }
-    let timeout = dynamic_timeout(endpoint.timeout_secs, text_len);
     let request_body = adapt_body_for_backend(endpoint, api_key, body, options.openai_fast_mode);
+    let timeout = dynamic_timeout(
+        endpoint.timeout_secs,
+        text_len,
+        &request_body,
+        options.web_search,
+    );
     let transport_stream = request_body
         .get("stream")
         .and_then(Value::as_bool)
@@ -874,7 +991,7 @@ pub async fn send_llm_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        adapt_body_for_backend, build_llm_body, build_stream_event_payload,
+        adapt_body_for_backend, build_llm_body, build_stream_event_payload, dynamic_timeout,
         extract_api_error_message, extract_openai_compat_error_message,
         is_retryable_overload_error, looks_like_max_output_tokens_unsupported_error,
         LlmRequestOptions, LlmUserInput, OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
@@ -1057,6 +1174,38 @@ mod tests {
         assert_eq!(payload["tokens"], serde_json::json!(3));
         assert_eq!(payload["sessionId"], serde_json::json!(7));
         assert!(payload.get("partialText").is_none());
+    }
+
+    #[test]
+    fn timeout_budget_accounts_for_images_and_tool_context() {
+        let plain = dynamic_timeout(10, 0, &serde_json::json!({}), false);
+        let image_body = serde_json::json!({
+            "messages": [{
+                "content": [{
+                    "type": "image_url",
+                    "image_url": {
+                        "url": format!("data:image/jpeg;base64,{}", "a".repeat(600_000))
+                    }
+                }]
+            }]
+        });
+        let with_context = dynamic_timeout(10, 0, &image_body, true);
+
+        assert!(with_context > plain);
+    }
+
+    #[test]
+    fn stream_readers_have_total_budget_and_error_chunks() {
+        let source = include_str!("llm_client.rs");
+
+        assert!(
+            source.contains("STREAM_TOTAL_TIMEOUT") || source.contains("total_stream_budget"),
+            "SSE readers need a total stream budget in addition to per-event idle timeouts"
+        );
+        assert!(
+            source.contains("\"status\": \"error\"") || source.contains("\"status\":\"error\""),
+            "streaming failures and total-budget timeouts should emit an error chunk/status to the UI"
+        );
     }
 
     #[test]

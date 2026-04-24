@@ -59,6 +59,7 @@ rubato = "0.16"
 
 # 无 poison 的高性能互斥锁
 parking_lot = "0.12"
+arc-swap = "1.7"
 
 # WAV 编解码
 hound = "3.5"
@@ -73,7 +74,7 @@ rfd = "0.15"
 
 # Windows 键盘模拟
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Media_Audio"] }
+windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Media_Audio", "Win32_Storage_FileSystem"] }
 uiautomation = "0.24"
 xcap = { version = "0.9", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }

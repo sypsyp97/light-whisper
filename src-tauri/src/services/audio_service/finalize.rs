@@ -316,18 +316,35 @@ async fn do_final_asr(
     sample_rate: u32,
 ) -> Result<funasr_service::TranscriptionResult, String> {
     let data = samples.lock().clone();
-    let resampled = resample_to_16k(&data, sample_rate);
+    let resampled = match resample_to_16k(&data, sample_rate) {
+        Ok(samples) => samples,
+        Err(err) => {
+            log::warn!(
+                "最终音频重采样失败，保留原始采样率 {}Hz: {}",
+                sample_rate,
+                err
+            );
+            std::borrow::Cow::Borrowed(data.as_slice())
+        }
+    };
+    let asr_sample_rate = if sample_rate == TARGET_SAMPLE_RATE {
+        TARGET_SAMPLE_RATE
+    } else if matches!(resampled, std::borrow::Cow::Owned(_)) {
+        TARGET_SAMPLE_RATE
+    } else {
+        sample_rate
+    };
 
     let engine = paths::read_engine_config();
     let result = if paths::is_online_engine(&engine) {
-        let wav = encode_wav(&resampled, TARGET_SAMPLE_RATE)
-            .map_err(|e| format!("WAV 编码失败: {}", e))?;
+        let wav =
+            encode_wav(&resampled, asr_sample_rate).map_err(|e| format!("WAV 编码失败: {}", e))?;
         match engine.as_str() {
             "alibaba-asr" => alibaba_asr_service::transcribe(state, wav).await,
             _ => glm_asr_service::transcribe(state, wav).await,
         }
     } else {
-        funasr_service::transcribe_pcm16(state, &resampled, TARGET_SAMPLE_RATE, app_handle).await
+        funasr_service::transcribe_pcm16(state, &resampled, asr_sample_rate, app_handle).await
     };
 
     match result {

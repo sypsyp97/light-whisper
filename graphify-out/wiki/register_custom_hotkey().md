@@ -5,9 +5,9 @@
 ## Connections by Relation
 
 ### calls
+- [[set_unified_hook_state()]] `EXTRACTED`
 - [[sync_hotkey_monitor_lifecycle()]] `EXTRACTED`
 - [[unregister_via_reg_hotkey()]] `EXTRACTED`
-- [[set_unified_hook_state()]] `EXTRACTED`
 - [[force_release_hotkey()]] `EXTRACTED`
 - [[register_on_chosen_backend()]] `EXTRACTED`
 - [[now_unix_ms()]] `EXTRACTED`

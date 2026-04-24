@@ -1,12 +1,13 @@
 # Resample
 
-> 4 nodes · cohesion 0.67
+> 5 nodes · cohesion 0.60
 
 ## Key Concepts
 
-- **resample.rs** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service\resample.rs`
+- **resample.rs** (4 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service\resample.rs`
+- **resample_to_16k()** (3 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service\resample.rs`
 - **f32_to_i16()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service\resample.rs`
-- **resample_to_16k()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service\resample.rs`
+- **invalid_sample_rate_is_not_reported_as_successful_16k_audio()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service\resample.rs`
 - **u16_to_i16()** (1 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\services\audio_service\resample.rs`
 
 ## Relationships
@@ -19,7 +20,7 @@
 
 ## Audit Trail
 
-- EXTRACTED: 8 (100%)
+- EXTRACTED: 12 (100%)
 - INFERRED: 0 (0%)
 - AMBIGUOUS: 0 (0%)
 

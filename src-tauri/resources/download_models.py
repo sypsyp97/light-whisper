@@ -10,13 +10,21 @@ import json
 import os
 import requests
 
-from hf_cache_utils import is_hf_repo_ready, get_hf_cache_root, ASR_REPO_ID, VAD_REPO_ID, WHISPER_REPO_ID
+from hf_cache_utils import (
+    is_hf_repo_ready,
+    get_hf_cache_root,
+    cleanup_incomplete_files,
+    ASR_REPO_ID,
+    VAD_REPO_ID,
+    WHISPER_REPO_ID,
+)
 
 DEFAULT_HF_ENDPOINT = "https://huggingface.co"
 DEFAULT_HF_FALLBACK_ENDPOINT = "https://hf-mirror.com"
 
 HF_ENDPOINT = os.environ.get("HF_ENDPOINT", DEFAULT_HF_ENDPOINT).rstrip("/")
 HF_FALLBACK_ENDPOINT = os.environ.get("HF_FALLBACK_ENDPOINT", DEFAULT_HF_FALLBACK_ENDPOINT).rstrip("/")
+COMPLETE_MANIFEST_NAME = ".light_whisper_complete.json"
 
 _progress = {}
 _completed_count = 0
@@ -70,21 +78,66 @@ def _get_repo_info(repo_id, endpoint):
     info = resp.json()
     commit_hash = info.get("sha", "main")
     siblings = info.get("siblings", [])
-    files = [s["rfilename"] for s in siblings]
+    files = [
+        {"rfilename": s["rfilename"], "size": s.get("size")}
+        for s in siblings
+        if s.get("rfilename")
+    ]
     return commit_hash, files
 
 
-def _download_file(repo_id, filename, dest_path, model_type, file_idx, file_total, endpoint):
+def _remote_file_size(url):
+    try:
+        resp = requests.head(url, timeout=30, allow_redirects=True)
+        resp.raise_for_status()
+        value = resp.headers.get("Content-Length")
+        return int(value) if value else None
+    except Exception:
+        return None
+
+
+def _download_file(
+    repo_id,
+    filename,
+    dest_path,
+    model_type,
+    file_idx,
+    file_total,
+    endpoint,
+    expected_size=None,
+):
     """下载单个文件，支持断点续传和进度上报"""
     url = f"{endpoint}/{repo_id}/resolve/main/{filename}"
 
     dest_dir = os.path.dirname(dest_path)
     os.makedirs(dest_dir, exist_ok=True)
 
+    if expected_size is None:
+        expected_size = _remote_file_size(url)
+    if os.path.exists(dest_path):
+        final_size = os.path.getsize(dest_path)
+        if expected_size is None and final_size > 0:
+            return
+        if expected_size is not None and final_size == expected_size:
+            return
+        stale_path = dest_path + ".incomplete"
+        try:
+            if not os.path.exists(stale_path) or os.path.getsize(stale_path) < final_size:
+                os.replace(dest_path, stale_path)
+            else:
+                os.remove(dest_path)
+        except OSError:
+            os.remove(dest_path)
+
+    tmp_path = dest_path + ".incomplete"
+
     # 断点续传
     downloaded = 0
-    if os.path.exists(dest_path):
-        downloaded = os.path.getsize(dest_path)
+    if os.path.exists(tmp_path):
+        downloaded = os.path.getsize(tmp_path)
+        if expected_size is not None and downloaded > expected_size:
+            os.remove(tmp_path)
+            downloaded = 0
 
     headers = {}
     if downloaded > 0:
@@ -93,22 +146,37 @@ def _download_file(repo_id, filename, dest_path, model_type, file_idx, file_tota
     resp = requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True)
 
     if resp.status_code == 416:
-        # 已经下完了
-        return
+        if expected_size is not None and downloaded == expected_size:
+            os.replace(tmp_path, dest_path)
+            return
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        downloaded = 0
+        headers = {}
+        resp = requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True)
 
     resp.raise_for_status()
 
-    total_size = downloaded
-    content_length = resp.headers.get("Content-Length")
-    if content_length:
-        total_size += int(content_length)
+    if downloaded > 0 and resp.status_code == 200:
+        # 服务器没有接受 Range，从头开始写临时文件。
+        downloaded = 0
 
-    mode = "ab" if downloaded > 0 else "wb"
+    total_size = expected_size or 0
+    content_length = resp.headers.get("Content-Length")
+    if total_size == 0 and content_length:
+        body_size = int(content_length)
+        total_size = downloaded + body_size if resp.status_code == 206 else body_size
+
+    mode = "ab" if downloaded > 0 and resp.status_code == 206 else "wb"
     current = downloaded
     last_pct = -1
 
-    with open(dest_path, mode) as f:
+    with open(tmp_path, mode) as f:
         for chunk in resp.iter_content(chunk_size=1024 * 1024):
+            if not chunk:
+                continue
             f.write(chunk)
             current += len(chunk)
             if total_size > 0:
@@ -117,6 +185,42 @@ def _download_file(repo_id, filename, dest_path, model_type, file_idx, file_tota
                     last_pct = pct
                     _emit(model_type, "downloading", pct,
                           message=f"[{file_idx}/{file_total}] {filename} {pct}%")
+        f.flush()
+        os.fsync(f.fileno())
+
+    if expected_size is not None and current != expected_size:
+        raise RuntimeError(f"{filename} 下载不完整: got={current}, expected={expected_size}")
+    if total_size > 0 and current != total_size:
+        raise RuntimeError(f"{filename} 下载不完整: got={current}, expected={total_size}")
+
+    os.replace(tmp_path, dest_path)
+
+
+def _write_completion_manifest(snapshot_dir, repo_id, commit_hash, files):
+    manifest_files = []
+    for item in files:
+        filename = item["rfilename"]
+        path = os.path.join(snapshot_dir, filename.replace("/", os.sep))
+        size = item.get("size")
+        if size is None:
+            size = os.path.getsize(path)
+        actual_size = os.path.getsize(path)
+        if actual_size != size:
+            raise RuntimeError(f"{filename} 文件大小校验失败: got={actual_size}, expected={size}")
+        manifest_files.append({"path": filename, "size": size})
+
+    manifest = {
+        "repo_id": repo_id,
+        "commit_hash": commit_hash,
+        "files": manifest_files,
+    }
+    tmp_path = os.path.join(snapshot_dir, COMPLETE_MANIFEST_NAME + ".tmp")
+    final_path = os.path.join(snapshot_dir, COMPLETE_MANIFEST_NAME)
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, final_path)
 
 
 def _cleanup_locks(repo_id):
@@ -125,13 +229,7 @@ def _cleanup_locks(repo_id):
     dir_name = "models--" + repo_id.replace("/", "--")
 
     import glob
-    blobs_dir = os.path.join(cache_root, dir_name, "blobs")
-    if os.path.isdir(blobs_dir):
-        for f in glob.glob(os.path.join(blobs_dir, "*.incomplete")):
-            try:
-                os.remove(f)
-            except OSError:
-                pass
+    cleanup_incomplete_files(repo_id)
 
     locks_dir = os.path.join(cache_root, ".locks", dir_name)
     if os.path.isdir(locks_dir):
@@ -185,12 +283,9 @@ def download_model(model_config):
                 f.write(commit_hash)
 
             file_total = len(files)
-            for file_idx, filename in enumerate(files, 1):
+            for file_idx, file_info in enumerate(files, 1):
+                filename = file_info["rfilename"]
                 dest_path = os.path.join(snapshot_dir, filename.replace("/", os.sep))
-
-                # 跳过已存在且非空的文件
-                if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
-                    continue
 
                 _download_file(
                     model_name,
@@ -200,8 +295,10 @@ def download_model(model_config):
                     file_idx,
                     file_total,
                     endpoint,
+                    expected_size=file_info.get("size"),
                 )
 
+            _write_completion_manifest(snapshot_dir, model_name, commit_hash, files)
             _emit(model_type, "completed", 100, message=f"{model_name} 下载完成")
             return {"success": True, "model": model_type, "endpoint": endpoint}
         except Exception as e:

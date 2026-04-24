@@ -31,15 +31,24 @@ fn make_key_input(vk: u16, scan: u16, flags: u32) -> INPUT {
 
 #[cfg(target_os = "windows")]
 fn send_inputs(inputs: &[INPUT]) -> Result<(), AppError> {
-    let sent = unsafe {
-        SendInput(
-            inputs.len() as u32,
-            inputs.as_ptr(),
-            std::mem::size_of::<INPUT>() as i32,
-        )
-    };
-    if sent == 0 {
-        return Err(AppError::Other("SendInput 调用失败".to_string()));
+    const SENDINPUT_CHUNK_SIZE: usize = 128;
+
+    for chunk in inputs.chunks(SENDINPUT_CHUNK_SIZE) {
+        let sent = unsafe {
+            SendInput(
+                chunk.len() as u32,
+                chunk.as_ptr(),
+                std::mem::size_of::<INPUT>() as i32,
+            )
+        };
+        if sent as usize != chunk.len() {
+            return Err(AppError::Other(format!(
+                "SendInput 调用失败：只发送了 {}/{} 个输入事件（{}）",
+                sent,
+                chunk.len(),
+                std::io::Error::last_os_error()
+            )));
+        }
     }
     Ok(())
 }
@@ -281,4 +290,29 @@ pub async fn paste_text_impl(
 
     log::info!("已输入 {} 个字符", text.len());
     Ok("已输入".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sendinput_wrapper_treats_partial_sends_as_failure() {
+        let source = include_str!("clipboard.rs");
+
+        assert!(
+            source.contains("sent != inputs.len() as u32")
+                || source.contains("sent as usize != inputs.len()")
+                || source.contains("sent as usize != chunk.len()"),
+            "SendInput returning fewer events than requested must fail so text is not reported as pasted after a partial send"
+        );
+    }
+
+    #[test]
+    fn sendinput_unicode_path_chunks_long_text() {
+        let source = include_str!("clipboard.rs");
+
+        assert!(
+            source.contains("chunks(") || source.contains("SENDINPUT_CHUNK"),
+            "long Unicode paste text must be chunked before SendInput to avoid oversized input arrays"
+        );
+    }
 }

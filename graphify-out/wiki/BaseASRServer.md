@@ -1,6 +1,6 @@
 # BaseASRServer
 
-> God node · 25 connections · `src-tauri\resources\server_common.py`
+> God node · 25 connections · `C:\Users\sun\Downloads\light-whisper\src-tauri\resources\server_common.py`
 
 ## Connections by Relation
 
