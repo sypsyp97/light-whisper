@@ -1,10 +1,10 @@
 # Tauri
 
-> 53 nodes · cohesion 0.07
+> 55 nodes · cohesion 0.07
 
 ## Key Concepts
 
-- **tauri.ts** (52 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
+- **tauri.ts** (53 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **invokeCommand()** (50 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **addCustomProvider()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **addHotWord()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
@@ -18,6 +18,7 @@
 - **getOnlineAsrEndpoint()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **getWebSearchApiKey()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **importUserProfile()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
+- **IpcError** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **listAiModels()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **listAlibabaAsrModels()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **openAppReleasePage()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
@@ -28,8 +29,7 @@
 - **removeCorrection()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **removeCustomProvider()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
 - **removeHotWord()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
-- **setAiPolishConfig()** (2 connections) — `C:\Users\sun\Downloads\light-whisper\src\api\tauri.ts`
-- *... and 28 more nodes in this community*
+- *... and 30 more nodes in this community*
 
 ## Relationships
 
@@ -41,7 +41,7 @@
 
 ## Audit Trail
 
-- EXTRACTED: 202 (100%)
+- EXTRACTED: 206 (100%)
 - INFERRED: 0 (0%)
 - AMBIGUOUS: 0 (0%)
 

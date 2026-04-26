@@ -26,6 +26,7 @@
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\vite-env.d.ts",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\api\\tauri.fastMode.test.ts",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\api\\tauri.ts",
+      "C:\\Users\\sun\\Downloads\\light-whisper\\src\\api\\__tests__\\tauri.test.ts",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\components\\Kbd.tsx",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\components\\RecordingButton.tsx",
       "C:\\Users\\sun\\Downloads\\light-whisper\\src\\components\\StatusIndicator.tsx",
@@ -119,8 +120,8 @@
     "image": [],
     "video": []
   },
-  "total_files": 111,
-  "total_words": 91479,
+  "total_files": 112,
+  "total_words": 94842,
   "needs_graph": true,
   "warning": null,
   "skipped_sensitive": [

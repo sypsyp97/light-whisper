@@ -1,6 +1,6 @@
 # Hotkey
 
-> 81 nodes · cohesion 0.07
+> 83 nodes · cohesion 0.07
 
 ## Key Concepts
 
@@ -29,7 +29,7 @@
 - **try_register_hotkey_backend()** (7 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs`
 - **ensure_hotkey_not_conflicting()** (6 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs`
 - **ensure_unified_hotkey_monitor()** (6 connections) — `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs`
-- *... and 56 more nodes in this community*
+- *... and 58 more nodes in this community*
 
 ## Relationships
 
@@ -38,11 +38,13 @@
 ## Source Files
 
 - `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\hotkey.rs`
+- `C:\Users\sun\Downloads\light-whisper\src-tauri\src\commands\profile.rs`
+- `README.md`
 
 ## Audit Trail
 
-- EXTRACTED: 452 (99%)
-- INFERRED: 3 (1%)
+- EXTRACTED: 454 (99%)
+- INFERRED: 6 (1%)
 - AMBIGUOUS: 0 (0%)
 
 ---

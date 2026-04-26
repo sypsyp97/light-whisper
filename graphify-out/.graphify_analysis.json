@@ -2,6 +2,7 @@
   "communities": {
     "0": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_hotkey_rs",
+      "feature_real_time_translation",
       "hotkey_all_modifiers_down",
       "hotkey_build_hook_state",
       "hotkey_build_hook_state_with_backend",
@@ -81,7 +82,8 @@
       "hotkey_update_hotkey_diagnostic",
       "hotkey_update_hotkey_diagnostic_for_trigger",
       "hotkey_vk_matches_required",
-      "hotkey_vk_to_required_index"
+      "hotkey_vk_to_required_index",
+      "profile_set_translation_target"
     ],
     "1": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_provider_rs",
@@ -166,6 +168,83 @@
       "llm_provider_wrapped_oauth_openai_api_key_builds_plain_bearer_header"
     ],
     "2": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_client_rs",
+      "llm_client_adapt_body_for_backend",
+      "llm_client_anthropic_output_tokens",
+      "llm_client_anthropic_user_content",
+      "llm_client_api_error_message_falls_back_to_openai_compat_parser",
+      "llm_client_build_llm_body",
+      "llm_client_build_stream_event_payload",
+      "llm_client_cerebras_json_output_disables_stream_to_preserve_response_format",
+      "llm_client_cerebras_without_json_output_keeps_stream",
+      "llm_client_chat_body_keeps_provider_default_reasoning",
+      "llm_client_chat_body_sets_max_tokens_for_openai_compat",
+      "llm_client_chat_completions_chatgpt_backend_also_gets_service_tier_when_enabled",
+      "llm_client_chatgpt_backend_injects_service_tier_priority_when_fast_mode_enabled",
+      "llm_client_chatgpt_backend_keeps_max_output_tokens_by_default",
+      "llm_client_chatgpt_backend_omits_service_tier_when_fast_mode_disabled",
+      "llm_client_chatgpt_backend_responses_gpt5_reasoning_off_forces_stream_transport",
+      "llm_client_chatgpt_backend_responses_json_output_forces_stream_transport",
+      "llm_client_chatgpt_codex_api_key",
+      "llm_client_dynamic_timeout",
+      "llm_client_emit_stream_error_event",
+      "llm_client_emit_stream_event",
+      "llm_client_ensure_non_empty_llm_content",
+      "llm_client_ensure_non_empty_llm_content_error_message_includes_provider_and_model",
+      "llm_client_ensure_non_empty_llm_content_error_message_includes_source_label",
+      "llm_client_ensure_non_empty_llm_content_passes_real_text",
+      "llm_client_ensure_non_empty_llm_content_preserves_internal_whitespace",
+      "llm_client_ensure_non_empty_llm_content_rejects_empty_string",
+      "llm_client_ensure_non_empty_llm_content_rejects_whitespace_only",
+      "llm_client_estimate_image_context_len",
+      "llm_client_extract_api_error_message",
+      "llm_client_extract_content",
+      "llm_client_extract_openai_compat_error_message",
+      "llm_client_inject_anthropic_web_search",
+      "llm_client_inject_openai_web_search",
+      "llm_client_injected_service_tier_is_in_the_openai_responses_api_whitelist",
+      "llm_client_is_empty_llm_response_error",
+      "llm_client_is_empty_llm_response_error_matches_each_documented_source",
+      "llm_client_is_empty_llm_response_error_matches_fresh_helper_output",
+      "llm_client_is_empty_llm_response_error_prefix_constant_is_load_bearing",
+      "llm_client_is_empty_llm_response_error_rejects_unrelated_errors",
+      "llm_client_is_retryable_overload_error",
+      "llm_client_llmimageinput",
+      "llm_client_llmrequestoptions",
+      "llm_client_llmrequestoptions_default",
+      "llm_client_llmuserinput",
+      "llm_client_llmuserinput_from",
+      "llm_client_looks_like_max_output_tokens_unsupported_error",
+      "llm_client_make_test_endpoint",
+      "llm_client_oauth_wrapped_api_key",
+      "llm_client_openai_chat_body_maps_reasoning_mode_to_effort",
+      "llm_client_openai_chat_user_content",
+      "llm_client_openai_endpoint",
+      "llm_client_openai_responses_user_content",
+      "llm_client_parses_openai_compat_top_level_error_message",
+      "llm_client_plain_openai_api_key_never_gets_service_tier_even_if_fast_mode_true",
+      "llm_client_read_anthropic_sse_stream",
+      "llm_client_read_openai_responses_sse_stream",
+      "llm_client_read_sse_stream",
+      "llm_client_recognizes_max_output_tokens_unsupported_errors",
+      "llm_client_recognizes_retryable_queue_exceeded_errors",
+      "llm_client_responses_body_sets_max_output_tokens",
+      "llm_client_responses_body_uses_stream_without_forcing_reasoning",
+      "llm_client_send_llm_request",
+      "llm_client_service_tier_whitelist_matches_openai_responses_api_spec",
+      "llm_client_stream_event_payload_omits_partial_text",
+      "llm_client_stream_read_budget",
+      "llm_client_stream_readers_have_total_budget_and_error_chunks",
+      "llm_client_stream_timeout_error",
+      "llm_client_strip_max_output_tokens",
+      "llm_client_timeout_budget_accounts_for_images_and_tool_context",
+      "llm_client_uses_codex_chatgpt_backend",
+      "llm_client_uses_openai_oauth_origin_auth",
+      "llm_client_uses_responses_api",
+      "llm_client_volcengine_chat_body_maps_reasoning_mode_to_thinking",
+      "llm_client_wrapped_oauth_api_key_gets_service_tier_without_chatgpt_backend_fields"
+    ],
+    "3": [
       "baseasrserver",
       "c_users_sun_downloads_light_whisper_src_tauri_resources_funasr_server_py",
       "c_users_sun_downloads_light_whisper_src_tauri_resources_server_common_py",
@@ -207,11 +286,11 @@
       "server_common_rationale_127",
       "server_common_rationale_150",
       "server_common_rationale_20",
-      "server_common_rationale_201",
-      "server_common_rationale_231",
-      "server_common_rationale_282",
-      "server_common_rationale_289",
-      "server_common_rationale_307",
+      "server_common_rationale_206",
+      "server_common_rationale_236",
+      "server_common_rationale_287",
+      "server_common_rationale_294",
+      "server_common_rationale_312",
       "server_common_rationale_39",
       "server_common_rationale_59",
       "server_common_rationale_65",
@@ -235,70 +314,6 @@
       "whisper_server_whisperserver_load_model",
       "whisper_server_whisperserver_transcribe_audio",
       "whisper_server_whisperserver_warmup_inference"
-    ],
-    "3": [
-      "c_users_sun_downloads_light_whisper_src_tauri_src_services_llm_client_rs",
-      "llm_client_adapt_body_for_backend",
-      "llm_client_anthropic_output_tokens",
-      "llm_client_anthropic_user_content",
-      "llm_client_api_error_message_falls_back_to_openai_compat_parser",
-      "llm_client_build_llm_body",
-      "llm_client_build_stream_event_payload",
-      "llm_client_cerebras_json_output_disables_stream_to_preserve_response_format",
-      "llm_client_cerebras_without_json_output_keeps_stream",
-      "llm_client_chat_body_keeps_provider_default_reasoning",
-      "llm_client_chat_body_sets_max_tokens_for_openai_compat",
-      "llm_client_chat_completions_chatgpt_backend_also_gets_service_tier_when_enabled",
-      "llm_client_chatgpt_backend_injects_service_tier_priority_when_fast_mode_enabled",
-      "llm_client_chatgpt_backend_keeps_max_output_tokens_by_default",
-      "llm_client_chatgpt_backend_omits_service_tier_when_fast_mode_disabled",
-      "llm_client_chatgpt_backend_responses_gpt5_reasoning_off_forces_stream_transport",
-      "llm_client_chatgpt_backend_responses_json_output_forces_stream_transport",
-      "llm_client_chatgpt_codex_api_key",
-      "llm_client_dynamic_timeout",
-      "llm_client_emit_stream_error_event",
-      "llm_client_emit_stream_event",
-      "llm_client_estimate_image_context_len",
-      "llm_client_extract_api_error_message",
-      "llm_client_extract_content",
-      "llm_client_extract_openai_compat_error_message",
-      "llm_client_inject_anthropic_web_search",
-      "llm_client_inject_openai_web_search",
-      "llm_client_injected_service_tier_is_in_the_openai_responses_api_whitelist",
-      "llm_client_is_retryable_overload_error",
-      "llm_client_llmimageinput",
-      "llm_client_llmrequestoptions",
-      "llm_client_llmrequestoptions_default",
-      "llm_client_llmuserinput",
-      "llm_client_llmuserinput_from",
-      "llm_client_looks_like_max_output_tokens_unsupported_error",
-      "llm_client_oauth_wrapped_api_key",
-      "llm_client_openai_chat_body_maps_reasoning_mode_to_effort",
-      "llm_client_openai_chat_user_content",
-      "llm_client_openai_endpoint",
-      "llm_client_openai_responses_user_content",
-      "llm_client_parses_openai_compat_top_level_error_message",
-      "llm_client_plain_openai_api_key_never_gets_service_tier_even_if_fast_mode_true",
-      "llm_client_read_anthropic_sse_stream",
-      "llm_client_read_openai_responses_sse_stream",
-      "llm_client_read_sse_stream",
-      "llm_client_recognizes_max_output_tokens_unsupported_errors",
-      "llm_client_recognizes_retryable_queue_exceeded_errors",
-      "llm_client_responses_body_sets_max_output_tokens",
-      "llm_client_responses_body_uses_stream_without_forcing_reasoning",
-      "llm_client_send_llm_request",
-      "llm_client_service_tier_whitelist_matches_openai_responses_api_spec",
-      "llm_client_stream_event_payload_omits_partial_text",
-      "llm_client_stream_read_budget",
-      "llm_client_stream_readers_have_total_budget_and_error_chunks",
-      "llm_client_stream_timeout_error",
-      "llm_client_strip_max_output_tokens",
-      "llm_client_timeout_budget_accounts_for_images_and_tool_context",
-      "llm_client_uses_codex_chatgpt_backend",
-      "llm_client_uses_openai_oauth_origin_auth",
-      "llm_client_uses_responses_api",
-      "llm_client_volcengine_chat_body_maps_reasoning_mode_to_thinking",
-      "llm_client_wrapped_oauth_api_key_gets_service_tier_without_chatgpt_backend_fields"
     ],
     "4": [
       "app_state_appstate",
@@ -361,6 +376,63 @@
       "c_users_sun_downloads_light_whisper_src_tauri_src_state_app_state_rs"
     ],
     "5": [
+      "c_users_sun_downloads_light_whisper_src_api_tauri_ts",
+      "tauri_addcustomprovider",
+      "tauri_addhotword",
+      "tauri_copytoclipboard",
+      "tauri_createnoargcommand",
+      "tauri_getaipolishapikey",
+      "tauri_getalibabaasrconfig",
+      "tauri_getassistantapikey",
+      "tauri_getllmreasoningsupport",
+      "tauri_getmodelsdir",
+      "tauri_getonlineasrapikey",
+      "tauri_getonlineasrendpoint",
+      "tauri_getwebsearchapikey",
+      "tauri_importuserprofile",
+      "tauri_invokecommand",
+      "tauri_ipcerror",
+      "tauri_ipcerror_constructor",
+      "tauri_listaimodels",
+      "tauri_listalibabaasrmodels",
+      "tauri_normalizeinvokeerror",
+      "tauri_openappreleasepage",
+      "tauri_pastetext",
+      "tauri_pickfolder",
+      "tauri_registerassistanthotkey",
+      "tauri_registercustomhotkey",
+      "tauri_removecorrection",
+      "tauri_removecustomprovider",
+      "tauri_removehotword",
+      "tauri_setaipolishconfig",
+      "tauri_setaipolishscreencontextenabled",
+      "tauri_setalibabaasrmodel",
+      "tauri_setassistantapikey",
+      "tauri_setassistanthotkey",
+      "tauri_setassistantscreencontextenabled",
+      "tauri_setassistantsystemprompt",
+      "tauri_setcorrectionvalidationconfig",
+      "tauri_setcustomprompt",
+      "tauri_setengine",
+      "tauri_setinputdevice",
+      "tauri_setinputmethodcommand",
+      "tauri_setllmproviderconfig",
+      "tauri_setmodelsdir",
+      "tauri_setonlineasrapikey",
+      "tauri_setonlineasrendpoint",
+      "tauri_setopenaifastmode",
+      "tauri_setrecordingmode",
+      "tauri_setsoundenabled",
+      "tauri_settranslationhotkey",
+      "tauri_settranslationtarget",
+      "tauri_setwebsearchapikey",
+      "tauri_setwebsearchconfig",
+      "tauri_submitusercorrection",
+      "tauri_transcribeaudio",
+      "tauri_updatecustomprovider",
+      "tauri_validatecorrections"
+    ],
+    "6": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_funasr_service_rs",
       "funasr_service_check_model_files",
       "funasr_service_check_status",
@@ -417,62 +489,63 @@
       "funasr_service_transcriptionresult",
       "funasr_service_try_send_exit_command"
     ],
-    "6": [
-      "c_users_sun_downloads_light_whisper_src_api_tauri_ts",
-      "tauri_addcustomprovider",
-      "tauri_addhotword",
-      "tauri_copytoclipboard",
-      "tauri_createnoargcommand",
-      "tauri_getaipolishapikey",
-      "tauri_getalibabaasrconfig",
-      "tauri_getassistantapikey",
-      "tauri_getllmreasoningsupport",
-      "tauri_getmodelsdir",
-      "tauri_getonlineasrapikey",
-      "tauri_getonlineasrendpoint",
-      "tauri_getwebsearchapikey",
-      "tauri_importuserprofile",
-      "tauri_invokecommand",
-      "tauri_listaimodels",
-      "tauri_listalibabaasrmodels",
-      "tauri_normalizeinvokeerror",
-      "tauri_openappreleasepage",
-      "tauri_pastetext",
-      "tauri_pickfolder",
-      "tauri_registerassistanthotkey",
-      "tauri_registercustomhotkey",
-      "tauri_removecorrection",
-      "tauri_removecustomprovider",
-      "tauri_removehotword",
-      "tauri_setaipolishconfig",
-      "tauri_setaipolishscreencontextenabled",
-      "tauri_setalibabaasrmodel",
-      "tauri_setassistantapikey",
-      "tauri_setassistanthotkey",
-      "tauri_setassistantscreencontextenabled",
-      "tauri_setassistantsystemprompt",
-      "tauri_setcorrectionvalidationconfig",
-      "tauri_setcustomprompt",
-      "tauri_setengine",
-      "tauri_setinputdevice",
-      "tauri_setinputmethodcommand",
-      "tauri_setllmproviderconfig",
-      "tauri_setmodelsdir",
-      "tauri_setonlineasrapikey",
-      "tauri_setonlineasrendpoint",
-      "tauri_setopenaifastmode",
-      "tauri_setrecordingmode",
-      "tauri_setsoundenabled",
-      "tauri_settranslationhotkey",
-      "tauri_settranslationtarget",
-      "tauri_setwebsearchapikey",
-      "tauri_setwebsearchconfig",
-      "tauri_submitusercorrection",
-      "tauri_transcribeaudio",
-      "tauri_updatecustomprovider",
-      "tauri_validatecorrections"
-    ],
     "7": [
+      "architecture_llm_integration",
+      "architecture_python_asr_runtime",
+      "architecture_react_ui",
+      "architecture_rust_core",
+      "assistant_service_assistant_input_preserves_symbols_and_splits_cdata",
+      "assistant_service_build_assistant_system_prompt",
+      "assistant_service_build_assistant_user_content_with_selection",
+      "assistant_service_generate_content",
+      "assistant_service_render_assistant_user_content",
+      "assistant_service_run_third_party_search",
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_assistant_service_rs",
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_screen_capture_service_rs",
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_web_search_service_rs",
+      "doc_light_whisper_overview",
+      "doc_light_whisper_overview_zh",
+      "engine_faster_whisper",
+      "engine_glm_asr",
+      "engine_sensevoice",
+      "feature_ai_polish",
+      "feature_local_online_asr",
+      "feature_one_key_dictation",
+      "feature_screen_context",
+      "feature_selected_text_editing",
+      "feature_voice_assistant",
+      "feature_web_search_context",
+      "glm_asr_service_build_form",
+      "glm_asr_service_glmresponse",
+      "glm_asr_service_transcribe",
+      "main_main",
+      "screen_capture_service_async_screen_capture_callers_use_blocking_offload",
+      "screen_capture_service_capture_full_screen_context",
+      "screen_capture_service_capture_full_screen_context_async",
+      "screen_capture_service_capture_full_screen_context_with_options",
+      "screen_capture_service_capturedscreen",
+      "screen_capture_service_screen_context_has_testable_byte_budget_helper",
+      "screen_capture_service_screencaptureoptions",
+      "screen_capture_service_screencaptureoptions_default",
+      "src_tauri_src_main_rs",
+      "src_tauri_src_services_glm_asr_service_rs",
+      "web_search_service_exa_search",
+      "web_search_service_exa_sse_parser_uses_final_json_data_line_not_done_marker",
+      "web_search_service_extract_final_json_data_line",
+      "web_search_service_jsonrpcresponse",
+      "web_search_service_mcpcontent",
+      "web_search_service_mcpresult",
+      "web_search_service_parse_exa_block_extracts_fields",
+      "web_search_service_parse_exa_text_block",
+      "web_search_service_render_search_context",
+      "web_search_service_render_search_context_caps_prompt_contribution",
+      "web_search_service_searchresult",
+      "web_search_service_tavily_search",
+      "web_search_service_tavilyhit",
+      "web_search_service_tavilyresponse",
+      "web_search_service_truncate_str"
+    ],
+    "8": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_codex_oauth_service_rs",
       "codex_oauth_service_accept_callback_connection",
       "codex_oauth_service_authclaims",
@@ -524,7 +597,7 @@
       "codex_oauth_service_wait_for_callback",
       "codex_oauth_service_write_session_meta"
     ],
-    "8": [
+    "9": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_profile_service_rs",
       "feature_adaptive_learning",
       "profile_service_add_hot_word",
@@ -569,7 +642,7 @@
       "profile_service_upsert_correction",
       "profile_service_write_profile_async"
     ],
-    "9": [
+    "10": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_utils_paths_rs",
       "paths_alibaba_model_uses_omni_chat",
       "paths_atomic_write",
@@ -611,46 +684,6 @@
       "paths_write_glm_region",
       "paths_write_models_dir",
       "paths_write_online_asr_endpoint"
-    ],
-    "10": [
-      "architecture_llm_integration",
-      "architecture_python_asr_runtime",
-      "architecture_react_ui",
-      "architecture_rust_core",
-      "assistant_service_assistant_input_preserves_symbols_and_splits_cdata",
-      "assistant_service_build_assistant_system_prompt",
-      "assistant_service_build_assistant_user_content_with_selection",
-      "assistant_service_generate_content",
-      "assistant_service_render_assistant_user_content",
-      "assistant_service_run_third_party_search",
-      "c_users_sun_downloads_light_whisper_src_tauri_src_services_assistant_service_rs",
-      "c_users_sun_downloads_light_whisper_src_tauri_src_services_screen_capture_service_rs",
-      "doc_light_whisper_overview",
-      "doc_light_whisper_overview_zh",
-      "engine_faster_whisper",
-      "engine_glm_asr",
-      "engine_sensevoice",
-      "feature_ai_polish",
-      "feature_local_online_asr",
-      "feature_one_key_dictation",
-      "feature_screen_context",
-      "feature_selected_text_editing",
-      "feature_voice_assistant",
-      "feature_web_search_context",
-      "glm_asr_service_build_form",
-      "glm_asr_service_glmresponse",
-      "glm_asr_service_transcribe",
-      "main_main",
-      "screen_capture_service_async_screen_capture_callers_use_blocking_offload",
-      "screen_capture_service_capture_full_screen_context",
-      "screen_capture_service_capture_full_screen_context_async",
-      "screen_capture_service_capture_full_screen_context_with_options",
-      "screen_capture_service_capturedscreen",
-      "screen_capture_service_screen_context_has_testable_byte_budget_helper",
-      "screen_capture_service_screencaptureoptions",
-      "screen_capture_service_screencaptureoptions_default",
-      "src_tauri_src_main_rs",
-      "src_tauri_src_services_glm_asr_service_rs"
     ],
     "11": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_state_user_profile_rs",
@@ -756,6 +789,37 @@
       "src_tauri_build_rs"
     ],
     "14": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_capture_rs",
+      "capture_compute_waveform_bars",
+      "capture_list_input_devices_sync",
+      "capture_load_best_input_config",
+      "capture_max_record_samples_constant_value",
+      "capture_mix_to_mono_capped_f32",
+      "capture_mix_to_mono_capped_f32_at_cap_appends_zero",
+      "capture_mix_to_mono_capped_f32_partial_fit_truncates",
+      "capture_mix_to_mono_capped_f32_stereo_downmix",
+      "capture_mix_to_mono_capped_f32_stereo_partial_fit",
+      "capture_mix_to_mono_capped_f32_under_cap_appends_all",
+      "capture_mix_to_mono_capped_f32_zero_cap_appends_zero",
+      "capture_mix_to_mono_capped_i16",
+      "capture_mix_to_mono_capped_i16_at_cap_appends_zero",
+      "capture_mix_to_mono_capped_i16_partial_fit_truncates",
+      "capture_mix_to_mono_capped_i16_stereo_downmix",
+      "capture_mix_to_mono_capped_i16_stereo_partial_fit",
+      "capture_mix_to_mono_capped_i16_under_cap_appends_all",
+      "capture_mix_to_mono_capped_i16_zero_cap_appends_zero",
+      "capture_mix_to_mono_capped_u16",
+      "capture_mix_to_mono_capped_u16_at_cap_appends_zero",
+      "capture_mix_to_mono_capped_u16_partial_fit_truncates",
+      "capture_mix_to_mono_capped_u16_stereo_downmix",
+      "capture_mix_to_mono_capped_u16_stereo_partial_fit",
+      "capture_mix_to_mono_capped_u16_under_cap_appends_all",
+      "capture_mix_to_mono_capped_u16_zero_cap_appends_zero",
+      "capture_resolve_input_device",
+      "capture_spawn_audio_capture_thread",
+      "capture_spawn_waveform_emitter"
+    ],
+    "15": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_funasr_rs",
       "funasr_active_online_keyring_user",
       "funasr_cancel_model_download",
@@ -782,9 +846,8 @@
       "funasr_start_funasr",
       "funasr_transcribe_audio"
     ],
-    "15": [
+    "16": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_profile_rs",
-      "feature_real_time_translation",
       "profile_add_custom_provider",
       "profile_add_hot_word",
       "profile_export_user_profile",
@@ -792,6 +855,7 @@
       "profile_get_llm_reasoning_support",
       "profile_get_user_profile",
       "profile_import_user_profile",
+      "profile_normalize_custom_provider_fields",
       "profile_parse_correction_pairs",
       "profile_parse_invalid_indices",
       "profile_remove_correction",
@@ -803,13 +867,12 @@
       "profile_set_llm_provider_config",
       "profile_set_openai_fast_mode",
       "profile_set_translation_hotkey",
-      "profile_set_translation_target",
       "profile_submit_user_correction",
       "profile_update_custom_provider",
       "profile_update_validation_timestamp",
       "profile_validate_corrections"
     ],
-    "16": [
+    "17": [
       "c_users_sun_downloads_light_whisper_src_pages_settingspage_tsx",
       "settingspage_async",
       "settingspage_findllmpreset",
@@ -831,7 +894,7 @@
       "settingspage_startmonitor",
       "settingspage_writellmproviderdrafts"
     ],
-    "17": [
+    "18": [
       "alibaba_asr_service_b64",
       "alibaba_asr_service_dashscopeasrchoice",
       "alibaba_asr_service_dashscopeasrcontent",
@@ -851,7 +914,7 @@
       "alibaba_asr_service_transcribe_via_omni_chat",
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_alibaba_asr_service_rs"
     ],
-    "18": [
+    "19": [
       "foreground_escape_cdata_text",
       "foreground_foregroundapp",
       "foreground_format_prompt_context",
@@ -870,7 +933,7 @@
       "foreground_wraps_xml_cdata_helper",
       "src_tauri_src_utils_foreground_rs"
     ],
-    "19": [
+    "20": [
       "c_users_sun_downloads_light_whisper_src_pages_subtitleoverlay_tsx",
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_window_rs",
       "feature_subtitle_overlay",
@@ -888,7 +951,7 @@
       "window_show_subtitle_window",
       "window_tauri_error"
     ],
-    "20": [
+    "21": [
       "c_users_sun_downloads_light_whisper_src_tauri_resources_test_download_models_regression_py",
       "test_download_models_regression_fakecompleteresponse",
       "test_download_models_regression_fakecompleteresponse_iter_content",
@@ -906,25 +969,25 @@
       "test_download_models_regression_modeldownloadatomicitytests_test_interrupted_download_does_not_leave_partial_final_file",
       "test_download_models_regression_modeldownloadatomicitytests_test_stale_incomplete_416_retries_from_scratch_when_size_unknown"
     ],
-    "21": [
-      "c_users_sun_downloads_light_whisper_src_tauri_src_services_web_search_service_rs",
-      "web_search_service_exa_search",
-      "web_search_service_exa_sse_parser_uses_final_json_data_line_not_done_marker",
-      "web_search_service_extract_final_json_data_line",
-      "web_search_service_jsonrpcresponse",
-      "web_search_service_mcpcontent",
-      "web_search_service_mcpresult",
-      "web_search_service_parse_exa_block_extracts_fields",
-      "web_search_service_parse_exa_text_block",
-      "web_search_service_render_search_context",
-      "web_search_service_render_search_context_caps_prompt_contribution",
-      "web_search_service_searchresult",
-      "web_search_service_tavily_search",
-      "web_search_service_tavilyhit",
-      "web_search_service_tavilyresponse",
-      "web_search_service_truncate_str"
-    ],
     "22": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_utils_error_rs",
+      "error_app_error_asr_code_and_category",
+      "error_app_error_audio_code_and_category",
+      "error_app_error_download_uses_network_category",
+      "error_app_error_io_uses_system_category",
+      "error_app_error_other_code_and_category",
+      "error_app_error_serialized_code_and_category_match_methods",
+      "error_app_error_serialized_details_is_null",
+      "error_app_error_serialized_message_matches_to_string",
+      "error_app_error_serializes_to_object_with_required_keys",
+      "error_apperror",
+      "error_apperror_category",
+      "error_apperror_code",
+      "error_apperror_from",
+      "error_apperror_serialize",
+      "error_structuredapperror"
+    ],
+    "23": [
       "ai_polish_aimodelinfo",
       "ai_polish_aimodellistpayload",
       "ai_polish_anthropic_models",
@@ -941,7 +1004,7 @@
       "ai_polish_uses_codex_oauth_model_catalog",
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_ai_polish_rs"
     ],
-    "23": [
+    "24": [
       "audio_clear_pending_recording_if_current",
       "audio_list_input_devices",
       "audio_set_input_device",
@@ -956,7 +1019,7 @@
       "audio_test_microphone",
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_audio_rs"
     ],
-    "24": [
+    "25": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_commands_clipboard_rs",
       "clipboard_copy_to_clipboard",
       "clipboard_grab_selected_text",
@@ -971,7 +1034,7 @@
       "clipboard_try_get_selection",
       "clipboard_write_text_to_clipboard"
     ],
-    "25": [
+    "26": [
       "c_users_sun_downloads_light_whisper_scripts_rebuild_graphify_py",
       "rebuild_graphify_build_ast_extraction",
       "rebuild_graphify_build_labels",
@@ -985,7 +1048,7 @@
       "rebuild_graphify_merge_extractions",
       "rebuild_graphify_titleize"
     ],
-    "26": [
+    "27": [
       "c_users_sun_downloads_light_whisper_src_tauri_resources_download_models_py",
       "download_models_candidate_endpoints",
       "download_models_cleanup_locks",
@@ -998,7 +1061,7 @@
       "download_models_remote_file_size",
       "download_models_write_completion_manifest"
     ],
-    "27": [
+    "28": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_lib_rs",
       "lib_focus_main_window",
       "lib_hide_main_window",
@@ -1011,7 +1074,20 @@
       "lib_stop_funasr_on_exit",
       "lib_toggle_main_window"
     ],
-    "28": [
+    "29": [
+      "c_users_sun_downloads_light_whisper_src_tauri_src_commands_updater_rs",
+      "updater_appupdateinfo",
+      "updater_check_app_update",
+      "updater_fetch_latest_release",
+      "updater_githubrelease",
+      "updater_is_version_newer",
+      "updater_normalize_version",
+      "updater_open_app_release_page",
+      "updater_open_external_url",
+      "updater_parse_version",
+      "updater_validate_release_url"
+    ],
+    "30": [
       "c_users_sun_downloads_light_whisper_src_tauri_resources_hf_cache_utils_py",
       "hf_cache_utils_cleanup_incomplete_files",
       "hf_cache_utils_get_hf_cache_root",
@@ -1023,19 +1099,7 @@
       "hf_cache_utils_snapshot_matches_completion_manifest",
       "hf_cache_utils_snapshot_matches_legacy_weight_check"
     ],
-    "29": [
-      "c_users_sun_downloads_light_whisper_src_tauri_src_commands_updater_rs",
-      "updater_appupdateinfo",
-      "updater_check_app_update",
-      "updater_fetch_latest_release",
-      "updater_githubrelease",
-      "updater_is_version_newer",
-      "updater_normalize_version",
-      "updater_open_app_release_page",
-      "updater_open_external_url",
-      "updater_parse_version"
-    ],
-    "30": [
+    "31": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_download_service_rs",
       "download_service_clear_download_task",
       "download_service_downloadline",
@@ -1046,18 +1110,6 @@
       "download_service_parse_download_line_rejects_non_json_noise",
       "download_service_parse_json_line_with_recovery",
       "download_service_run_download"
-    ],
-    "31": [
-      "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_capture_rs",
-      "capture_compute_waveform_bars",
-      "capture_list_input_devices_sync",
-      "capture_load_best_input_config",
-      "capture_mix_to_mono_f32",
-      "capture_mix_to_mono_i16",
-      "capture_mix_to_mono_u16",
-      "capture_resolve_input_device",
-      "capture_spawn_audio_capture_thread",
-      "capture_spawn_waveform_emitter"
     ],
     "32": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_finalize_rs",
@@ -1196,134 +1248,131 @@
       "wav_test_encode_wav_returns_ok_for_normal_samples"
     ],
     "49": [
-      "error_apperror",
-      "error_apperror_from",
-      "error_apperror_serialize",
-      "src_tauri_src_utils_error_rs"
-    ],
-    "50": [
       "appwindow_appwindow",
       "appwindow_circle",
       "promo_src_components_appwindow_tsx"
     ],
-    "51": [
+    "50": [
       "c_users_sun_downloads_light_whisper_src_contexts_recordingcontext_tsx",
       "recordingcontext_recordingprovider",
       "recordingcontext_userecordingcontext"
     ],
-    "52": [
+    "51": [
       "c_users_sun_downloads_light_whisper_src_hooks_userecording_ts",
       "userecording_userecording",
       "userecording_usetaurievent"
     ],
-    "53": [
+    "52": [
       "src_lib_storage_ts",
       "storage_readlocalstorage",
       "storage_writelocalstorage"
     ],
-    "54": [
+    "53": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_interim_rs",
       "interim_adjust_interval",
       "interim_spawn_interim_loop"
     ],
-    "55": [
+    "54": [
       "c_users_sun_downloads_light_whisper_src_tauri_src_services_audio_service_mod_rs",
       "mod_inputdeviceinfo",
       "mod_inputdevicelistpayload"
     ],
-    "56": [
+    "55": [
       "promo_src_root_tsx",
       "root_remotionroot"
     ],
-    "57": [
+    "56": [
       "cursor_blinkingcursor",
       "promo_src_components_cursor_tsx"
     ],
-    "58": [
+    "57": [
       "src_components_titlebar_tsx",
       "titlebar_startdrag"
     ],
-    "59": [
+    "58": [
       "c_users_sun_downloads_light_whisper_src_contexts_tests_recordingcontext_test_tsx",
       "recordingcontext_test_flushpromises"
     ],
-    "60": [
+    "59": [
       "src_hooks_usedebouncedcallback_ts",
       "usedebouncedcallback_usedebouncedcallback"
     ],
-    "61": [
+    "60": [
       "src_hooks_useexclusivepicker_ts",
       "useexclusivepicker_useexclusivepicker"
     ],
-    "62": [
+    "61": [
       "src_hooks_usehotkeycapture_ts",
       "usehotkeycapture_usehotkeycapture"
     ],
-    "63": [
+    "62": [
       "c_users_sun_downloads_light_whisper_src_hooks_tests_userecording_test_tsx",
       "userecording_test_flushmicrotasks"
     ],
-    "64": [
+    "63": [
       "c_users_sun_downloads_light_whisper_src_lib_fastmode_ts",
       "fastmode_shouldshowfastmodetoggle"
     ],
-    "65": [
+    "64": [
       "c_users_sun_downloads_light_whisper_src_test_taurieventmock_ts",
       "taurieventmock_createtaurieventcontroller"
     ],
-    "66": [
+    "65": [
       "vite_config_ts"
     ],
-    "67": [
+    "66": [
       "c_users_sun_downloads_light_whisper_vitest_config_ts"
     ],
-    "68": [
+    "67": [
       "promo_remotion_config_ts"
     ],
-    "69": [
+    "68": [
       "promo_src_index_ts"
     ],
-    "70": [
+    "69": [
       "promo_src_showcasevideo_tsx"
     ],
-    "71": [
+    "70": [
       "promo_src_theme_ts"
     ],
-    "72": [
+    "71": [
       "promo_src_components_cinematic_tsx"
     ],
-    "73": [
+    "72": [
       "promo_src_components_micbutton_tsx"
     ],
-    "74": [
+    "73": [
       "promo_src_components_resultcard_tsx"
     ],
-    "75": [
+    "74": [
       "promo_src_components_subtitlecapsule_tsx"
     ],
-    "76": [
+    "75": [
       "promo_src_scenes_assistant_tsx"
     ],
-    "77": [
+    "76": [
       "promo_src_scenes_dictation_tsx"
     ],
-    "78": [
+    "77": [
       "promo_src_scenes_editmode_tsx"
     ],
-    "79": [
+    "78": [
       "promo_src_scenes_intro_tsx"
     ],
-    "80": [
+    "79": [
       "promo_src_scenes_outro_tsx"
     ],
-    "81": [
+    "80": [
       "promo_src_scenes_translation_tsx"
     ],
-    "82": [
+    "81": [
       "src_vite_env_d_ts"
     ],
-    "83": [
+    "82": [
       "c_users_sun_downloads_light_whisper_src_api_tauri_fastmode_test_ts"
+    ],
+    "83": [
+      "c_users_sun_downloads_light_whisper_src_api_tests_tauri_test_ts"
     ],
     "84": [
       "c_users_sun_downloads_light_whisper_src_components_kbd_tsx"
@@ -1377,36 +1426,36 @@
   "cohesion": {
     "0": 0.07,
     "1": 0.05,
-    "2": 0.04,
-    "3": 0.09,
+    "2": 0.07,
+    "3": 0.04,
     "4": 0.04,
     "5": 0.07,
     "6": 0.07,
-    "7": 0.08,
-    "8": 0.11,
-    "9": 0.1,
-    "10": 0.08,
+    "7": 0.05,
+    "8": 0.08,
+    "9": 0.11,
+    "10": 0.1,
     "11": 0.08,
     "12": 0.12,
     "13": 0.1,
-    "14": 0.11,
-    "15": 0.1,
-    "16": 0.13,
-    "17": 0.15,
-    "18": 0.2,
-    "19": 0.27,
-    "20": 0.15,
-    "21": 0.17,
-    "22": 0.18,
-    "23": 0.21,
-    "24": 0.27,
-    "25": 0.3,
-    "26": 0.35,
-    "27": 0.38,
-    "28": 0.29,
-    "29": 0.33,
-    "30": 0.24,
-    "31": 0.33,
+    "14": 0.13,
+    "15": 0.11,
+    "16": 0.11,
+    "17": 0.13,
+    "18": 0.15,
+    "19": 0.2,
+    "20": 0.27,
+    "21": 0.15,
+    "22": 0.16,
+    "23": 0.18,
+    "24": 0.21,
+    "25": 0.27,
+    "26": 0.3,
+    "27": 0.35,
+    "28": 0.38,
+    "29": 0.31,
+    "30": 0.29,
+    "31": 0.24,
     "32": 0.42,
     "33": 0.36,
     "34": 0.39,
@@ -1424,13 +1473,13 @@
     "46": 0.5,
     "47": 0.83,
     "48": 0.83,
-    "49": 0.5,
+    "49": 0.67,
     "50": 0.67,
-    "51": 0.67,
-    "52": 1.0,
-    "53": 0.67,
-    "54": 1.0,
-    "55": 0.67,
+    "51": 1.0,
+    "52": 0.67,
+    "53": 1.0,
+    "54": 0.67,
+    "55": 1.0,
     "56": 1.0,
     "57": 1.0,
     "58": 1.0,
@@ -1523,9 +1572,9 @@
       "edges": 15
     },
     {
-      "id": "llm_client_adapt_body_for_backend",
-      "label": "adapt_body_for_backend()",
-      "edges": 14
+      "id": "llm_client_send_llm_request",
+      "label": "send_llm_request()",
+      "edges": 15
     }
   ],
   "surprises": [
@@ -1574,8 +1623,8 @@
       "why": "inferred connection - not explicitly stated in source; crosses file types (code ↔ doc); connects across different repos/directories; bridges separate communities"
     },
     {
-      "source": "register_translation_hotkey()",
-      "target": "Real-time translation",
+      "source": "register_assistant_hotkey()",
+      "target": "Voice assistant",
       "source_files": [
         "C:\\Users\\sun\\Downloads\\light-whisper\\src-tauri\\src\\commands\\hotkey.rs",
         "README.md"
@@ -1588,18 +1637,18 @@
   "questions": [
     {
       "type": "bridge_node",
-      "question": "Why does `Light-Whisper overview` connect `R E A D M E` to `Profile Service`, `Window`, `Profile`?",
-      "why": "High betweenness centrality (0.133) - this node is a cross-community bridge."
+      "question": "Why does `Light-Whisper overview` connect `Web Search Service` to `Hotkey`, `Profile Service`, `Window`?",
+      "why": "High betweenness centrality (0.127) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `LLM integration layer` connect `R E A D M E` to `LLM Provider`, `LLM Client`?",
-      "why": "High betweenness centrality (0.096) - this node is a cross-community bridge."
+      "question": "Why does `LLM integration layer` connect `Web Search Service` to `LLM Provider`, `LLM Client`?",
+      "why": "High betweenness centrality (0.098) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `polish_text()` connect `Ai Polish Service` to `R E A D M E`, `Release Packaging`?",
-      "why": "High betweenness centrality (0.070) - this node is a cross-community bridge."
+      "question": "Why does `polish_text()` connect `Ai Polish Service` to `Release Packaging`, `Web Search Service`?",
+      "why": "High betweenness centrality (0.066) - this node is a cross-community bridge."
     },
     {
       "type": "verify_inferred",
@@ -1609,7 +1658,7 @@
     {
       "type": "isolated_nodes",
       "question": "What connects `删除目录；在 Windows 文件句柄尚未释放时做有限重试。`, `删除可安全裁剪的 CUDA DLL，返回节省的 MB 数`, `删除运行时不需要的链接/调试产物，返回节省的 MB 数。` to the rest of the system?",
-      "why": "103 weakly-connected nodes found - possible documentation gaps or missing edges."
+      "why": "104 weakly-connected nodes found - possible documentation gaps or missing edges."
     },
     {
       "type": "low_cohesion",
