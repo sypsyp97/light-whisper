@@ -428,6 +428,7 @@ fn anthropic_output_tokens(json: &Value) -> Option<usize> {
 }
 
 pub async fn read_sse_stream(
+    endpoint: &LlmEndpoint,
     response: reqwest::Response,
     app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
@@ -455,7 +456,7 @@ pub async fn read_sse_stream(
             Ok(Some(Ok(event))) => {
                 let data = event.data.trim();
                 if data == "[DONE]" {
-                    return Ok(accumulated);
+                    return ensure_non_empty_llm_content(accumulated, endpoint, "openai_chat_sse_done");
                 }
                 if let Ok(json) = serde_json::from_str::<Value>(data) {
                     if let Some(message) = json["error"]["message"].as_str() {
@@ -481,7 +482,7 @@ pub async fn read_sse_stream(
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
                 return Err(message);
             }
-            Ok(None) => return Ok(accumulated),
+            Ok(None) => return ensure_non_empty_llm_content(accumulated, endpoint, "openai_chat_sse_eos"),
             Err(_) => {
                 let message = stream_timeout_error(started_at, total_timeout);
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
@@ -524,13 +525,12 @@ pub async fn read_openai_responses_sse_stream(
                     continue;
                 }
                 if data == "[DONE]" {
-                    if !accumulated.is_empty() {
-                        return Ok(accumulated);
-                    }
-                    if let Some(content) = fallback_content.filter(|content| !content.is_empty()) {
-                        return Ok(content);
-                    }
-                    return Err("Responses 流式结束，但未收到可解析内容".to_string());
+                    return finalize_responses_sse_accumulated(
+                        accumulated,
+                        fallback_content,
+                        endpoint,
+                        "openai_responses_sse_done",
+                    );
                 }
 
                 let Ok(json) = serde_json::from_str::<Value>(data) else {
@@ -575,7 +575,11 @@ pub async fn read_openai_responses_sse_stream(
                                 .or_else(|| fallback_content.clone())
                                 .unwrap_or_default();
                         }
-                        return Ok(accumulated);
+                        return ensure_non_empty_llm_content(
+                            accumulated,
+                            endpoint,
+                            "openai_responses_sse_completed",
+                        );
                     }
                     Some("response.failed") | Some("error") => {
                         let message = json["response"]["error"]["message"]
@@ -596,13 +600,12 @@ pub async fn read_openai_responses_sse_stream(
                 return Err(message);
             }
             Ok(None) => {
-                if !accumulated.is_empty() {
-                    return Ok(accumulated);
-                }
-                if let Some(content) = fallback_content.filter(|content| !content.is_empty()) {
-                    return Ok(content);
-                }
-                return Err("Responses 流式结束，但未收到可解析内容".to_string());
+                return finalize_responses_sse_accumulated(
+                    accumulated,
+                    fallback_content,
+                    endpoint,
+                    "openai_responses_sse_eos",
+                );
             }
             Err(_) => {
                 let message = stream_timeout_error(started_at, total_timeout);
@@ -614,6 +617,7 @@ pub async fn read_openai_responses_sse_stream(
 }
 
 pub async fn read_anthropic_sse_stream(
+    endpoint: &LlmEndpoint,
     response: reqwest::Response,
     app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
@@ -671,7 +675,7 @@ pub async fn read_anthropic_sse_stream(
                     }
                 }
                 "ping" => {}
-                "message_stop" => return Ok(accumulated),
+                "message_stop" => return ensure_non_empty_llm_content(accumulated, endpoint, "anthropic_sse_message_stop"),
                 "error" => {
                     let message = serde_json::from_str::<Value>(&event.data)
                         .ok()
@@ -688,7 +692,7 @@ pub async fn read_anthropic_sse_stream(
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
                 return Err(message);
             }
-            Ok(None) => return Ok(accumulated),
+            Ok(None) => return ensure_non_empty_llm_content(accumulated, endpoint, "anthropic_sse_eos"),
             Err(_) => {
                 let message = stream_timeout_error(started_at, total_timeout);
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
@@ -696,6 +700,65 @@ pub async fn read_anthropic_sse_stream(
             }
         }
     }
+}
+
+/// `ensure_non_empty_llm_content` 产生的错误消息的稳定前缀。
+/// 调用方（例如 polish 4 段 transport fallback）需要识别这条错误来决定
+/// 是否短路重试——同一个 prompt 在另一个 transport stage 通常也会回空，
+/// 没必要再花 3 次 LLM 请求。
+pub(crate) const EMPTY_LLM_RESPONSE_ERROR_PREFIX: &str = "LLM 响应为空（";
+
+/// 把"HTTP 成功但没产生任何可用文本"统一映射为错误，并把 provider/model
+/// 信息塞到错误里便于诊断。`source` 用于区分调用栈
+/// （例如 "non_stream"、"openai_chat_sse_done"、"openai_chat_sse_eos"、
+/// "anthropic_sse_message_stop"、"anthropic_sse_eos"）。
+///
+/// 注：reasoning-only / tool-call-only 等"合法的空文本"响应不走这个路径。
+/// OpenAI Responses SSE 在 `read_openai_responses_sse_stream` 中独立处理。
+pub(crate) fn ensure_non_empty_llm_content(
+    content: String,
+    endpoint: &LlmEndpoint,
+    source: &str,
+) -> Result<String, String> {
+    if content.trim().is_empty() {
+        Err(format!(
+            "{}{}）：provider={}，model={}",
+            EMPTY_LLM_RESPONSE_ERROR_PREFIX, source, endpoint.provider, endpoint.model
+        ))
+    } else {
+        Ok(content)
+    }
+}
+
+/// 识别 `ensure_non_empty_llm_content` 产生的"空响应"错误。其它来源的错误
+/// 字符串里只要不是手工拼接 EMPTY_LLM_RESPONSE_ERROR_PREFIX，就不会撞这个
+/// 前缀（中文 + 全角括号的组合在错误信息里很罕见）。
+pub(crate) fn is_empty_llm_response_error(err: &str) -> bool {
+    err.starts_with(EMPTY_LLM_RESPONSE_ERROR_PREFIX)
+}
+
+/// 把 Responses SSE 流读到尾时的 "是否为空" 判定统一到一处。
+/// 优先级：accumulated 非空 → fallback_content 非空 → 委托
+/// `ensure_non_empty_llm_content` 让上层短路 transport fallback。
+///
+/// 注：这里沿用 [DONE] / Ok(None) / response.completed 三个分支原本的
+/// `!is_empty()` 语义（不做 trim），避免改变现有行为；真正的 trim 检查由
+/// 下游 `ensure_non_empty_llm_content` 在最终 Err 路径上负责。
+pub(crate) fn finalize_responses_sse_accumulated(
+    accumulated: String,
+    fallback_content: Option<String>,
+    endpoint: &LlmEndpoint,
+    source: &str,
+) -> Result<String, String> {
+    if !accumulated.is_empty() {
+        return Ok(accumulated);
+    }
+    if let Some(content) = fallback_content {
+        if !content.is_empty() {
+            return Ok(content);
+        }
+    }
+    ensure_non_empty_llm_content(String::new(), endpoint, source)
 }
 
 fn extract_content(endpoint: &LlmEndpoint, json: &Value) -> Option<String> {
@@ -951,6 +1014,7 @@ pub async fn send_llm_request(
         match endpoint.api_format {
             ApiFormat::Anthropic => {
                 read_anthropic_sse_stream(
+                    endpoint,
                     response,
                     stream_app_handle,
                     options.stream_event,
@@ -970,6 +1034,7 @@ pub async fn send_llm_request(
                     .await
                 } else {
                     read_sse_stream(
+                        endpoint,
                         response,
                         stream_app_handle,
                         options.stream_event,
@@ -984,7 +1049,11 @@ pub async fn send_llm_request(
             .json()
             .await
             .map_err(|e| format!("响应解析失败: {}", e))?;
-        Ok(extract_content(endpoint, &json).unwrap_or_default())
+        ensure_non_empty_llm_content(
+            extract_content(endpoint, &json).unwrap_or_default(),
+            endpoint,
+            "non_stream",
+        )
     }
 }
 
@@ -992,7 +1061,8 @@ pub async fn send_llm_request(
 mod tests {
     use super::{
         adapt_body_for_backend, build_llm_body, build_stream_event_payload, dynamic_timeout,
-        extract_api_error_message, extract_openai_compat_error_message,
+        ensure_non_empty_llm_content, extract_api_error_message,
+        extract_openai_compat_error_message, finalize_responses_sse_accumulated,
         is_retryable_overload_error, looks_like_max_output_tokens_unsupported_error,
         LlmRequestOptions, LlmUserInput, OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
     };
@@ -1000,6 +1070,16 @@ mod tests {
     use crate::services::llm_provider::LlmEndpoint;
     use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
     use base64::Engine;
+
+    fn make_test_endpoint() -> crate::services::llm_provider::LlmEndpoint {
+        crate::services::llm_provider::LlmEndpoint {
+            provider: "test-provider".to_string(),
+            api_url: "https://test.example.com/v1/chat/completions".to_string(),
+            model: "test-model-x".to_string(),
+            timeout_secs: 10,
+            api_format: crate::state::user_profile::ApiFormat::OpenaiCompat,
+        }
+    }
 
     fn openai_endpoint(api_url: &str) -> LlmEndpoint {
         LlmEndpoint {
@@ -1578,6 +1658,321 @@ mod tests {
              too when ChatGPT-auth is used. Wire value hard-coded here to catch \
              divergence from openai/codex upstream — see the module-level \
              comment above these tests for why this literal is not a shared const."
+        );
+    }
+
+    // --- ensure_non_empty_llm_content tests ------------------------------
+    //
+    // Contract:
+    //   - Returns Err(...) when content.trim().is_empty()
+    //   - Error message contains endpoint.provider, endpoint.model, and source
+    //   - Otherwise returns Ok(content) — content is NOT trimmed
+
+    #[test]
+    fn ensure_non_empty_llm_content_rejects_empty_string() {
+        let endpoint = make_test_endpoint();
+        let result = ensure_non_empty_llm_content(String::new(), &endpoint, "polish");
+
+        assert!(
+            result.is_err(),
+            "empty content must produce Err; got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_rejects_whitespace_only() {
+        let endpoint = make_test_endpoint();
+        let result =
+            ensure_non_empty_llm_content("   \n\t".to_string(), &endpoint, "polish");
+
+        assert!(
+            result.is_err(),
+            "whitespace-only content must produce Err; got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_passes_real_text() {
+        let endpoint = make_test_endpoint();
+        let result =
+            ensure_non_empty_llm_content("hello world".to_string(), &endpoint, "polish");
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("hello world"),
+            "real text must pass through verbatim, NOT trimmed"
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_preserves_internal_whitespace() {
+        let endpoint = make_test_endpoint();
+        let result =
+            ensure_non_empty_llm_content("  hi  ".to_string(), &endpoint, "polish");
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("  hi  "),
+            "leading/trailing whitespace must be preserved when content has \
+             non-whitespace characters — the function checks emptiness via \
+             trim() but must NOT mutate the returned string"
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_error_message_includes_provider_and_model() {
+        let endpoint = make_test_endpoint();
+        let result = ensure_non_empty_llm_content(String::new(), &endpoint, "polish");
+
+        let err = result.expect_err("empty content must produce Err");
+        assert!(
+            err.contains("test-provider"),
+            "error message must mention provider {:?}; got {:?}",
+            endpoint.provider,
+            err
+        );
+        assert!(
+            err.contains("test-model-x"),
+            "error message must mention model {:?}; got {:?}",
+            endpoint.model,
+            err
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_error_message_includes_source_label() {
+        let endpoint = make_test_endpoint();
+        let result =
+            ensure_non_empty_llm_content("   ".to_string(), &endpoint, "ai-polish");
+
+        let err = result.expect_err("whitespace-only content must produce Err");
+        assert!(
+            err.contains("ai-polish"),
+            "error message must mention source label {:?} verbatim; got {:?}",
+            "ai-polish",
+            err
+        );
+    }
+
+    // --- is_empty_llm_response_error tests --------------------------------
+    //
+    // 这条识别函数是 polish/assistant fallback 决定是否短路重试的依据。
+    // 如果识别失稳（漏判 → 多花 3 次请求；误判 → 把无关错误当空响应丢弃），
+    // 就退回到原始浪费/错失的状态。
+
+    #[test]
+    fn is_empty_llm_response_error_matches_fresh_helper_output() {
+        let endpoint = make_test_endpoint();
+        let err = ensure_non_empty_llm_content(String::new(), &endpoint, "non_stream")
+            .expect_err("empty content must produce Err");
+        assert!(
+            super::is_empty_llm_response_error(&err),
+            "recognizer must accept the very error string the helper produces; got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn is_empty_llm_response_error_matches_each_documented_source() {
+        // 每个 callsite 都要被识别——任何一个漏掉就意味着那条路径上的空
+        // 响应仍会触发 polish 4 段 fallback 全跑。
+        let endpoint = make_test_endpoint();
+        for source in [
+            "non_stream",
+            "openai_chat_sse_done",
+            "openai_chat_sse_eos",
+            "anthropic_sse_message_stop",
+            "anthropic_sse_eos",
+            "openai_responses_sse_completed",
+            // 新增的 Responses SSE finalize 路径：done 事件结束流，
+            // eos 是流意外终止后由 finalize 兜底。两条分支都必须被
+            // recognizer 识别，否则 polish/assistant fallback 链路会
+            // 误以为是真正的 transport 错误而连跑 4 段。
+            "openai_responses_sse_done",
+            "openai_responses_sse_eos",
+        ] {
+            let err = ensure_non_empty_llm_content(String::new(), &endpoint, source)
+                .expect_err("empty content must produce Err");
+            assert!(
+                super::is_empty_llm_response_error(&err),
+                "recognizer missed source={:?}; err={:?}",
+                source,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn is_empty_llm_response_error_rejects_unrelated_errors() {
+        // 未来加新错误时不应该误命中。这里也防止前缀被改成"空响应"等更通用
+        // 的措辞导致与 anthropic / openai 自带的错误文案撞车。
+        for unrelated in [
+            "HTTP 500: internal server error",
+            "流式读取失败: connection reset",
+            "Anthropic 流式错误: rate_limit_exceeded",
+            "Responses 流式错误: invalid_request",
+            "API 返回错误 401: invalid api key",
+            "响应解析失败: expected ident at column 5",
+            "",
+        ] {
+            assert!(
+                !super::is_empty_llm_response_error(unrelated),
+                "recognizer must NOT match unrelated error; got match for {:?}",
+                unrelated
+            );
+        }
+    }
+
+    #[test]
+    fn is_empty_llm_response_error_prefix_constant_is_load_bearing() {
+        // EMPTY_LLM_RESPONSE_ERROR_PREFIX 是 helper 与 recognizer 共用的契约
+        // 字符串。把它改了就要同步改两边——这条断言是个 wake-up，提醒读者
+        // 这个常量不是装饰品。
+        assert_eq!(super::EMPTY_LLM_RESPONSE_ERROR_PREFIX, "LLM 响应为空（");
+    }
+
+    // --- finalize_responses_sse_accumulated tests --------------------------
+    //
+    // OpenAI Responses SSE 在 stream 结束（done）或意外断流（eos）时，
+    // 我们手里同时握有：
+    //   - accumulated：从 delta 事件里逐段拼起来的正文
+    //   - fallback_content：completed/done 事件里附带的最终 content（可选）
+    // finalizer 的合同是：
+    //   1) accumulated 优先（含义最权威，且包含逐 token 流出的内容），
+    //      非空就直接返回，且**不** trim——和 ensure_non_empty_llm_content
+    //      对齐：只校验 trim 后是否为空，但返回原始字符串以保留前后空白。
+    //   2) accumulated 为空才退回到事件里挂的 fallback_content；同样要求非空。
+    //   3) 两者皆空再走 ensure_non_empty_llm_content，借它统一拼出
+    //      EMPTY_LLM_RESPONSE_ERROR_PREFIX 起头的错误，让 recognizer 能识别。
+
+    #[test]
+    fn finalize_responses_sse_accumulated_returns_accumulated_when_non_empty() {
+        // accumulated 存在就赢——即使 fallback 也非空也要被忽略。否则会出现
+        // 流式内容被 done 事件的截断 fallback 覆盖，丢字。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            "hello".to_string(),
+            Some("ignored".to_string()),
+            &endpoint,
+            "openai_responses_sse_done",
+        );
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("hello"),
+            "accumulated 非空时必须直接返回 accumulated 原值，忽略 fallback"
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_preserves_accumulated_whitespace() {
+        // 与 ensure_non_empty_llm_content 行为一致：判空用 trim，但返回原字符串。
+        // 流式拼接出来的前后空白可能是有意义的（例如续写场景）。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            "  hi  ".to_string(),
+            None,
+            &endpoint,
+            "openai_responses_sse_done",
+        );
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("  hi  "),
+            "accumulated 必须 verbatim 返回，不允许被 trim 改写"
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_falls_back_when_accumulated_empty() {
+        // 部分 provider 在 delta 里只丢 reasoning，正文只在 completed/done
+        // 事件里给一次。accumulated 为空时必须用 fallback 兜底。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            String::new(),
+            Some("from_event".to_string()),
+            &endpoint,
+            "openai_responses_sse_done",
+        );
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("from_event"),
+            "accumulated 为空、fallback 非空时必须返回 fallback 原值"
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_ignores_empty_fallback() {
+        // fallback 是 Some 但内容为空，等价于没有 fallback。要走空响应错误，
+        // 而不是返回 Ok("")——后者会让上游误以为模型给了空字符串答案。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            String::new(),
+            Some(String::new()),
+            &endpoint,
+            "openai_responses_sse_done",
+        );
+
+        let err = result.expect_err("accumulated 与 fallback 都为空时必须 Err");
+        assert!(
+            super::is_empty_llm_response_error(&err),
+            "错误必须能被 is_empty_llm_response_error 识别，否则 polish fallback 短路失效；got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_ignores_none_fallback() {
+        // 完全没有 fallback 也是常见场景（流被中断、只能用 eos 兜底）。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            String::new(),
+            None,
+            &endpoint,
+            "openai_responses_sse_eos",
+        );
+
+        let err = result.expect_err("accumulated 空、fallback None 时必须 Err");
+        assert!(
+            super::is_empty_llm_response_error(&err),
+            "错误必须能被 is_empty_llm_response_error 识别；got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_error_carries_provider_model_and_source() {
+        // 错误信息要能在日志里直接定位是哪个 provider/model/调用点出问题的。
+        // 这条断言把三段都钉死，避免有人把 source 标签替换成更"通用"的措辞
+        // 而让 grep 失效。
+        let endpoint = make_test_endpoint();
+        let err = finalize_responses_sse_accumulated(
+            String::new(),
+            None,
+            &endpoint,
+            "openai_responses_sse_done",
+        )
+        .expect_err("空响应必须 Err");
+
+        assert!(
+            err.contains(&endpoint.provider),
+            "错误必须包含 provider {:?}; got {:?}",
+            endpoint.provider,
+            err
+        );
+        assert!(
+            err.contains(&endpoint.model),
+            "错误必须包含 model {:?}; got {:?}",
+            endpoint.model,
+            err
+        );
+        assert!(
+            err.contains("openai_responses_sse_done"),
+            "错误必须包含 source 标签 verbatim，方便日志/grep 定位; got {:?}",
+            err
         );
     }
 }

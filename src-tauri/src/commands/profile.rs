@@ -313,6 +313,65 @@ pub async fn get_llm_reasoning_support(
     ))
 }
 
+/// 校验单个 provider 字段：name。trim 后非空、字符数不超过 128。
+/// 拆出来是为了让 `update_custom_provider` 的 Optional 校验复用同一份语义。
+fn validate_provider_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("provider 名称不能为空".into());
+    }
+    if name.chars().count() > 128 {
+        return Err("provider 名称过长（最多 128 字符）".into());
+    }
+    Ok(name.to_string())
+}
+
+/// 校验单个 provider 字段：base_url。trim 后非空、是合法 URL、scheme 仅 http/https。
+/// 末尾斜杠归一化掉，避免 "https://x/" 与 "https://x" 在后续比较时不一致。
+fn validate_provider_base_url(base_url: &str) -> Result<String, String> {
+    let url = base_url.trim();
+    if url.is_empty() {
+        return Err("base_url 不能为空".into());
+    }
+    let parsed = reqwest::Url::parse(url).map_err(|err| format!("非法 base_url: {}", err))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => {
+            return Err(format!(
+                "base_url 仅支持 http/https，收到 scheme: {}",
+                other
+            ))
+        }
+    }
+    Ok(url.trim_end_matches('/').to_string())
+}
+
+/// 校验单个 provider 字段：model。trim 后非空。
+fn validate_provider_model(model: &str) -> Result<String, String> {
+    let model = model.trim();
+    if model.is_empty() {
+        return Err("model 不能为空".into());
+    }
+    Ok(model.to_string())
+}
+
+/// 校验并归一化自定义 provider 字段。
+///
+/// 这里不卡白名单 host（自托管 OpenAI 兼容服务很常见），但要求：
+/// - name/model trim 后非空，name 控制在 128 字符内（防止前端 UI 撑爆）
+/// - base_url 是合法 URL，scheme 仅允许 http/https
+/// - 末尾斜杠归一化掉，避免 "https://x/" 与 "https://x" 在后续比较时不一致
+fn normalize_custom_provider_fields(
+    name: &str,
+    base_url: &str,
+    model: &str,
+) -> Result<(String, String, String), String> {
+    let normalized_name = validate_provider_name(name)?;
+    let normalized_url = validate_provider_base_url(base_url)?;
+    let normalized_model = validate_provider_model(model)?;
+    Ok((normalized_name, normalized_url, normalized_model))
+}
+
 #[tauri::command]
 pub async fn add_custom_provider(
     state: tauri::State<'_, AppState>,
@@ -321,24 +380,41 @@ pub async fn add_custom_provider(
     model: String,
     api_format: ApiFormat,
 ) -> Result<String, String> {
-    let id = format!(
-        "custom_{}",
+    let (name, base_url, model) =
+        normalize_custom_provider_fields(&name, &base_url, &model)?;
+    // 用毫秒时间戳生成 id 在 UI 快速点击时可能撞 ID（同一毫秒两次添加）；
+    // 拼一段随机后缀 + 在 push 前查重，确保 id 唯一。
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let mut id = format!(
+        "custom_{}_{:08x}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_millis()
+            .as_millis(),
+        rng.gen::<u32>()
     );
-    let provider = CustomProvider {
-        id: id.clone(),
-        name,
-        base_url,
-        model,
-        api_format,
-    };
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    let assigned_id = profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        // 极小概率撞 ID 时再随机一次。
+        while profile
+            .llm_provider
+            .custom_providers
+            .iter()
+            .any(|p| p.id == id)
+        {
+            id = format!("custom_{:016x}", rng.gen::<u64>());
+        }
+        let provider = CustomProvider {
+            id: id.clone(),
+            name: name.clone(),
+            base_url: base_url.clone(),
+            model: model.clone(),
+            api_format,
+        };
         profile.llm_provider.custom_providers.push(provider);
+        id.clone()
     });
-    Ok(id)
+    Ok(assigned_id)
 }
 
 #[tauri::command]
@@ -350,6 +426,20 @@ pub async fn update_custom_provider(
     model: Option<String>,
     api_format: Option<ApiFormat>,
 ) -> Result<(), String> {
+    // 先校验入参，再进 profile 闭包。这样校验失败不会污染 profile 状态。
+    let normalized_name = match name.as_deref() {
+        Some(n) => Some(validate_provider_name(n)?),
+        None => None,
+    };
+    let normalized_url = match base_url.as_deref() {
+        Some(u) => Some(validate_provider_base_url(u)?),
+        None => None,
+    };
+    let normalized_model = match model.as_deref() {
+        Some(m) => Some(validate_provider_model(m)?),
+        None => None,
+    };
+
     let found = profile_service::update_profile_and_schedule(state.inner(), |profile| {
         if let Some(cp) = profile
             .llm_provider
@@ -357,14 +447,14 @@ pub async fn update_custom_provider(
             .iter_mut()
             .find(|p| p.id == id)
         {
-            if let Some(n) = name {
-                cp.name = n;
+            if let Some(n) = &normalized_name {
+                cp.name = n.clone();
             }
-            if let Some(u) = base_url {
-                cp.base_url = u;
+            if let Some(u) = &normalized_url {
+                cp.base_url = u.clone();
             }
-            if let Some(m) = model {
-                cp.model = m;
+            if let Some(m) = &normalized_model {
+                cp.model = m.clone();
             }
             if let Some(f) = api_format {
                 cp.api_format = f;
