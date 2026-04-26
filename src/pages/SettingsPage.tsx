@@ -74,7 +74,7 @@ import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
-import { shouldShowFastModeToggle } from "@/lib/fastMode";
+import { resolveEffectiveAssistantProvider, shouldShowFastModeToggle } from "@/lib/fastMode";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { useTranslation } from "react-i18next";
@@ -454,7 +454,11 @@ export default function SettingsPage({
   const [newProviderModel, setNewProviderModel] = useState("");
   const [newProviderFormat, setNewProviderFormat] = useState<ApiFormat>("openai_compat");
   const providerSupportsCustomEndpoint = llmProvider === "custom" || customProviders.some((p) => p.id === llmProvider);
-  const effectiveAssistantProvider = assistantProvider || llmProvider;
+  const effectiveAssistantProvider = resolveEffectiveAssistantProvider({
+    assistantUseSeparateModel,
+    assistantProvider,
+    llmProvider,
+  });
   const polishManualApiKey = aiPolishApiKey.trim();
   const assistantManualApiKey =
     assistantApiKeyState.trim()

@@ -13,6 +13,22 @@ export interface FastModeToggleGate {
   effectiveAssistantProvider: string;
 }
 
+export interface EffectiveAssistantProviderGate {
+  assistantUseSeparateModel: boolean;
+  assistantProvider?: string | null;
+  llmProvider: string;
+}
+
+export function resolveEffectiveAssistantProvider(gate: EffectiveAssistantProviderGate): string {
+  const assistantProvider = gate.assistantProvider?.trim();
+
+  if (gate.assistantUseSeparateModel && assistantProvider) {
+    return assistantProvider;
+  }
+
+  return gate.llmProvider;
+}
+
 /**
  * Decide whether the Fast-mode toggle should render inside a given Codex OAuth
  * block.
