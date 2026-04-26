@@ -10,6 +10,16 @@ use super::{AUDIO_CAPTURE_INIT_TIMEOUT_SECS, TARGET_SAMPLE_RATE};
 use crate::services::audio_service::{InputDeviceInfo, InputDeviceListPayload};
 use crate::utils::AppError;
 
+/// 录音缓冲硬上限（单位：i16 样本，单声道，post mix-down）。即使 stop 信号
+/// 丢失或某条异常路径漏掉了停止逻辑，缓冲也不会无限增长。
+///
+/// 30min × 48kHz mono = 86_400_000 samples = 172.8MB。覆盖任何合理录音
+/// 时长；超过 30 分钟应分段录制。这是兜底安全阀，正常路径不应该触到。
+pub(crate) const MAX_RECORD_SAMPLES: usize = 30 * 60 * 48_000;
+
+/// 一次性的"已触达录音缓冲硬上限"警告标志。仅在第一次撞上限时打日志。
+static RECORD_CAP_WARNED: AtomicBool = AtomicBool::new(false);
+
 // ---------- cpal 设备管理 ----------
 
 pub(super) fn resolve_input_device(
@@ -101,37 +111,88 @@ pub fn list_input_devices_sync(
     })
 }
 
-// ---------- 多声道混音到单声道 i16 ----------
+// ---------- 多声道混音到单声道 i16（带硬上限） ----------
 
-fn mix_to_mono_i16(data: &[i16], channels: usize, out: &mut Vec<i16>) {
-    if channels <= 1 {
-        out.extend_from_slice(data);
+pub(crate) fn mix_to_mono_capped_i16(
+    data: &[i16],
+    channels: usize,
+    out: &mut Vec<i16>,
+    cap: usize,
+) {
+    let chans = channels.max(1);
+    let allowed_mono_samples = cap.saturating_sub(out.len());
+    if allowed_mono_samples == 0 {
+        return;
+    }
+    // mono input: 1 input sample == 1 output sample
+    // multi-channel: chans input samples == 1 output sample
+    let frame_count = data.len() / chans;
+    let take_frames = frame_count.min(allowed_mono_samples);
+    if take_frames == 0 {
+        return;
+    }
+    let limited = &data[..take_frames * chans];
+    if chans <= 1 {
+        out.extend_from_slice(limited);
     } else {
-        out.extend(data.chunks_exact(channels).map(|frame| {
+        out.extend(limited.chunks_exact(chans).map(|frame| {
             let sum: i32 = frame.iter().map(|&s| s as i32).sum();
-            (sum / channels as i32) as i16
+            (sum / chans as i32) as i16
         }));
     }
 }
 
-fn mix_to_mono_f32(data: &[f32], channels: usize, out: &mut Vec<i16>) {
-    if channels <= 1 {
-        out.extend(data.iter().map(|&s| f32_to_i16(s)));
+pub(crate) fn mix_to_mono_capped_f32(
+    data: &[f32],
+    channels: usize,
+    out: &mut Vec<i16>,
+    cap: usize,
+) {
+    let chans = channels.max(1);
+    let allowed_mono_samples = cap.saturating_sub(out.len());
+    if allowed_mono_samples == 0 {
+        return;
+    }
+    let frame_count = data.len() / chans;
+    let take_frames = frame_count.min(allowed_mono_samples);
+    if take_frames == 0 {
+        return;
+    }
+    let limited = &data[..take_frames * chans];
+    if chans <= 1 {
+        out.extend(limited.iter().map(|&s| f32_to_i16(s)));
     } else {
         out.extend(
-            data.chunks_exact(channels)
-                .map(|frame| f32_to_i16(frame.iter().sum::<f32>() / channels as f32)),
+            limited
+                .chunks_exact(chans)
+                .map(|frame| f32_to_i16(frame.iter().sum::<f32>() / chans as f32)),
         );
     }
 }
 
-fn mix_to_mono_u16(data: &[u16], channels: usize, out: &mut Vec<i16>) {
-    if channels <= 1 {
-        out.extend(data.iter().map(|&s| u16_to_i16(s)));
+pub(crate) fn mix_to_mono_capped_u16(
+    data: &[u16],
+    channels: usize,
+    out: &mut Vec<i16>,
+    cap: usize,
+) {
+    let chans = channels.max(1);
+    let allowed_mono_samples = cap.saturating_sub(out.len());
+    if allowed_mono_samples == 0 {
+        return;
+    }
+    let frame_count = data.len() / chans;
+    let take_frames = frame_count.min(allowed_mono_samples);
+    if take_frames == 0 {
+        return;
+    }
+    let limited = &data[..take_frames * chans];
+    if chans <= 1 {
+        out.extend(limited.iter().map(|&s| u16_to_i16(s)));
     } else {
-        out.extend(data.chunks_exact(channels).map(|frame| {
+        out.extend(limited.chunks_exact(chans).map(|frame| {
             let sum: u64 = frame.iter().map(|&s| s as u64).sum();
-            u16_to_i16((sum / channels as u64) as u16)
+            u16_to_i16((sum / chans as u64) as u16)
         }));
     }
 }
@@ -200,6 +261,10 @@ pub fn spawn_audio_capture_thread(
     samples: Arc<parking_lot::Mutex<Vec<i16>>>,
     selected_device_name: Option<String>,
 ) -> Result<(std::thread::JoinHandle<()>, u32), AppError> {
+    // 每个新录音会话重置警告 latch；否则进程级一次警告之后，后续会话即便
+    // 再次撞上限也不会写日志，丢失诊断信息。
+    RECORD_CAP_WARNED.store(false, Ordering::Relaxed);
+
     let (rate_tx, rate_rx) = std::sync::mpsc::sync_channel::<Result<u32, String>>(1);
     let stop = stop_flag.clone();
 
@@ -246,7 +311,16 @@ pub fn spawn_audio_capture_thread(
                     if stop.load(Ordering::Relaxed) {
                         return;
                     }
-                    mix_to_mono_i16(data, channels, &mut buf.lock());
+                    let mut locked = buf.lock();
+                    if locked.len() >= MAX_RECORD_SAMPLES
+                        && !RECORD_CAP_WARNED.swap(true, Ordering::Relaxed)
+                    {
+                        log::warn!(
+                            "录音缓冲触达硬上限 {} 个 i16 样本，后续输入将被丢弃",
+                            MAX_RECORD_SAMPLES
+                        );
+                    }
+                    mix_to_mono_capped_i16(data, channels, &mut locked, MAX_RECORD_SAMPLES);
                 }
             };
             let mk_f32 = {
@@ -256,7 +330,16 @@ pub fn spawn_audio_capture_thread(
                     if stop.load(Ordering::Relaxed) {
                         return;
                     }
-                    mix_to_mono_f32(data, channels, &mut buf.lock());
+                    let mut locked = buf.lock();
+                    if locked.len() >= MAX_RECORD_SAMPLES
+                        && !RECORD_CAP_WARNED.swap(true, Ordering::Relaxed)
+                    {
+                        log::warn!(
+                            "录音缓冲触达硬上限 {} 个 i16 样本，后续输入将被丢弃",
+                            MAX_RECORD_SAMPLES
+                        );
+                    }
+                    mix_to_mono_capped_f32(data, channels, &mut locked, MAX_RECORD_SAMPLES);
                 }
             };
             let mk_u16 = {
@@ -266,7 +349,16 @@ pub fn spawn_audio_capture_thread(
                     if stop.load(Ordering::Relaxed) {
                         return;
                     }
-                    mix_to_mono_u16(data, channels, &mut buf.lock());
+                    let mut locked = buf.lock();
+                    if locked.len() >= MAX_RECORD_SAMPLES
+                        && !RECORD_CAP_WARNED.swap(true, Ordering::Relaxed)
+                    {
+                        log::warn!(
+                            "录音缓冲触达硬上限 {} 个 i16 样本，后续输入将被丢弃",
+                            MAX_RECORD_SAMPLES
+                        );
+                    }
+                    mix_to_mono_capped_u16(data, channels, &mut locked, MAX_RECORD_SAMPLES);
                 }
             };
 
@@ -315,4 +407,216 @@ pub fn spawn_audio_capture_thread(
     };
 
     Ok((handle, sample_rate))
+}
+
+#[cfg(test)]
+mod cap_tests {
+    //! Tests for the capped mix-to-mono helpers and the buffer hard cap.
+    //!
+    //! Contract:
+    //!   - `mix_to_mono_capped_<T>(data, channels, out, cap)` mixes multi-channel
+    //!     audio down to mono i16 (averaging across channels per frame),
+    //!     same as the existing private `mix_to_mono_<T>` helpers, **but**
+    //!     `out.len()` MUST NOT exceed `cap` after the call.
+    //!   - If `out.len() >= cap` already, append zero.
+    //!   - If a partial frame fits, append only the frames that fit.
+    //!
+    //!   - `MAX_RECORD_SAMPLES` is 30 minutes of 48 kHz mono and must be
+    //!     large enough to cover at least an hour of 16 kHz mono.
+    use super::{
+        mix_to_mono_capped_f32, mix_to_mono_capped_i16, mix_to_mono_capped_u16,
+        MAX_RECORD_SAMPLES,
+    };
+
+    // ----- MAX_RECORD_SAMPLES constant -----------------------------------
+
+    #[test]
+    fn max_record_samples_constant_value() {
+        assert_eq!(MAX_RECORD_SAMPLES, 30 * 60 * 48_000);
+        assert!(
+            MAX_RECORD_SAMPLES >= 60 * 60 * 16_000,
+            "MAX_RECORD_SAMPLES must cover at least an hour of 16 kHz mono; \
+             got {}",
+            MAX_RECORD_SAMPLES
+        );
+    }
+
+    // ----- mix_to_mono_capped_i16 ----------------------------------------
+
+    #[test]
+    fn mix_to_mono_capped_i16_under_cap_appends_all() {
+        let data = vec![1i16; 50];
+        let mut out: Vec<i16> = Vec::new();
+        mix_to_mono_capped_i16(&data, 1, &mut out, 100);
+        assert_eq!(out.len(), 50);
+    }
+
+    #[test]
+    fn mix_to_mono_capped_i16_at_cap_appends_zero() {
+        let data = vec![1i16; 50];
+        let mut out: Vec<i16> = vec![0; 100];
+        mix_to_mono_capped_i16(&data, 1, &mut out, 100);
+        assert_eq!(out.len(), 100);
+    }
+
+    #[test]
+    fn mix_to_mono_capped_i16_partial_fit_truncates() {
+        let data = vec![2i16; 50];
+        let mut out: Vec<i16> = vec![0; 90];
+        mix_to_mono_capped_i16(&data, 1, &mut out, 100);
+        assert_eq!(out.len(), 100, "should fill exactly up to cap, no overflow");
+    }
+
+    #[test]
+    fn mix_to_mono_capped_i16_stereo_downmix() {
+        // 10 stereo frames of (1, 2) -> 10 mono samples after mixing
+        let data: Vec<i16> = (0..10).flat_map(|_| [1i16, 2i16]).collect();
+        assert_eq!(data.len(), 20);
+        let mut out: Vec<i16> = Vec::new();
+        mix_to_mono_capped_i16(&data, 2, &mut out, 100);
+        assert_eq!(out.len(), 10);
+    }
+
+    #[test]
+    fn mix_to_mono_capped_i16_stereo_partial_fit() {
+        // 10 stereo frames -> at most 10 mono frames; only 5 should fit.
+        let data: Vec<i16> = (0..10).flat_map(|_| [1i16, 2i16]).collect();
+        let mut out: Vec<i16> = vec![0; 95];
+        mix_to_mono_capped_i16(&data, 2, &mut out, 100);
+        assert_eq!(
+            out.len(),
+            100,
+            "5 frames fit into the remaining 5 slots, no overflow"
+        );
+    }
+
+    #[test]
+    fn mix_to_mono_capped_i16_zero_cap_appends_zero() {
+        let data = vec![1i16; 50];
+        let mut out: Vec<i16> = Vec::new();
+        mix_to_mono_capped_i16(&data, 1, &mut out, 0);
+        assert_eq!(out.len(), 0);
+
+        let mut out2: Vec<i16> = vec![0; 30];
+        mix_to_mono_capped_i16(&data, 1, &mut out2, 0);
+        assert_eq!(out2.len(), 30, "cap=0 must never shrink existing buffer");
+    }
+
+    // ----- mix_to_mono_capped_f32 ----------------------------------------
+
+    #[test]
+    fn mix_to_mono_capped_f32_under_cap_appends_all() {
+        let data = vec![0.5f32; 50];
+        let mut out: Vec<i16> = Vec::new();
+        mix_to_mono_capped_f32(&data, 1, &mut out, 100);
+        assert_eq!(out.len(), 50);
+    }
+
+    #[test]
+    fn mix_to_mono_capped_f32_at_cap_appends_zero() {
+        let data = vec![0.5f32; 50];
+        let mut out: Vec<i16> = vec![0; 100];
+        mix_to_mono_capped_f32(&data, 1, &mut out, 100);
+        assert_eq!(out.len(), 100);
+    }
+
+    #[test]
+    fn mix_to_mono_capped_f32_partial_fit_truncates() {
+        let data = vec![-0.5f32; 50];
+        let mut out: Vec<i16> = vec![0; 90];
+        mix_to_mono_capped_f32(&data, 1, &mut out, 100);
+        assert_eq!(out.len(), 100, "should fill exactly up to cap, no overflow");
+    }
+
+    #[test]
+    fn mix_to_mono_capped_f32_stereo_downmix() {
+        let data: Vec<f32> = (0..10).flat_map(|_| [0.5f32, -0.5f32]).collect();
+        assert_eq!(data.len(), 20);
+        let mut out: Vec<i16> = Vec::new();
+        mix_to_mono_capped_f32(&data, 2, &mut out, 100);
+        assert_eq!(out.len(), 10);
+    }
+
+    #[test]
+    fn mix_to_mono_capped_f32_stereo_partial_fit() {
+        let data: Vec<f32> = (0..10).flat_map(|_| [0.5f32, -0.5f32]).collect();
+        let mut out: Vec<i16> = vec![0; 95];
+        mix_to_mono_capped_f32(&data, 2, &mut out, 100);
+        assert_eq!(
+            out.len(),
+            100,
+            "5 frames fit into the remaining 5 slots, no overflow"
+        );
+    }
+
+    #[test]
+    fn mix_to_mono_capped_f32_zero_cap_appends_zero() {
+        let data = vec![0.5f32; 50];
+        let mut out: Vec<i16> = Vec::new();
+        mix_to_mono_capped_f32(&data, 1, &mut out, 0);
+        assert_eq!(out.len(), 0);
+
+        let mut out2: Vec<i16> = vec![0; 30];
+        mix_to_mono_capped_f32(&data, 1, &mut out2, 0);
+        assert_eq!(out2.len(), 30, "cap=0 must never shrink existing buffer");
+    }
+
+    // ----- mix_to_mono_capped_u16 ----------------------------------------
+
+    #[test]
+    fn mix_to_mono_capped_u16_under_cap_appends_all() {
+        let data = vec![32768u16; 50];
+        let mut out: Vec<i16> = Vec::new();
+        mix_to_mono_capped_u16(&data, 1, &mut out, 100);
+        assert_eq!(out.len(), 50);
+    }
+
+    #[test]
+    fn mix_to_mono_capped_u16_at_cap_appends_zero() {
+        let data = vec![40000u16; 50];
+        let mut out: Vec<i16> = vec![0; 100];
+        mix_to_mono_capped_u16(&data, 1, &mut out, 100);
+        assert_eq!(out.len(), 100);
+    }
+
+    #[test]
+    fn mix_to_mono_capped_u16_partial_fit_truncates() {
+        let data = vec![32768u16; 50];
+        let mut out: Vec<i16> = vec![0; 90];
+        mix_to_mono_capped_u16(&data, 1, &mut out, 100);
+        assert_eq!(out.len(), 100, "should fill exactly up to cap, no overflow");
+    }
+
+    #[test]
+    fn mix_to_mono_capped_u16_stereo_downmix() {
+        let data: Vec<u16> = (0..10).flat_map(|_| [32768u16, 40000u16]).collect();
+        assert_eq!(data.len(), 20);
+        let mut out: Vec<i16> = Vec::new();
+        mix_to_mono_capped_u16(&data, 2, &mut out, 100);
+        assert_eq!(out.len(), 10);
+    }
+
+    #[test]
+    fn mix_to_mono_capped_u16_stereo_partial_fit() {
+        let data: Vec<u16> = (0..10).flat_map(|_| [32768u16, 40000u16]).collect();
+        let mut out: Vec<i16> = vec![0; 95];
+        mix_to_mono_capped_u16(&data, 2, &mut out, 100);
+        assert_eq!(
+            out.len(),
+            100,
+            "5 frames fit into the remaining 5 slots, no overflow"
+        );
+    }
+
+    #[test]
+    fn mix_to_mono_capped_u16_zero_cap_appends_zero() {
+        let data = vec![32768u16; 50];
+        let mut out: Vec<i16> = Vec::new();
+        mix_to_mono_capped_u16(&data, 1, &mut out, 0);
+        assert_eq!(out.len(), 0);
+
+        let mut out2: Vec<i16> = vec![0; 30];
+        mix_to_mono_capped_u16(&data, 1, &mut out2, 0);
+        assert_eq!(out2.len(), 30, "cap=0 must never shrink existing buffer");
+    }
 }

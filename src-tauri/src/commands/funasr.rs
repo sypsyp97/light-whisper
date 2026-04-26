@@ -15,6 +15,16 @@ pub async fn start_funasr(
     Ok("FunASR 服务器启动成功".to_string())
 }
 
+/// IPC 音频上限。前端是受信任的（同进程渲染器），但仍统一卡上限：
+/// 1) 防御异常路径（漏网录音、bug、未来其他调用方）一次性吃光内存。
+/// 2) 在线引擎本身就有更严的上限（DashScope 10MB、GLM 类似），统一卡口
+///    让本地引擎也享受同一份保护。base64 比原始字节大 4/3，按 64MB 原始
+///    对应 ~85MB base64，对 16kHz/16bit 单声道相当于约 33 分钟，足够覆盖
+///    常规交互式录音；超长音频应走分段方案。
+const MAX_TRANSCRIBE_AUDIO_BYTES: usize = 64 * 1024 * 1024;
+const MAX_TRANSCRIBE_AUDIO_BASE64_BYTES: usize =
+    MAX_TRANSCRIBE_AUDIO_BYTES.saturating_mul(4) / 3 + 4;
+
 #[tauri::command]
 pub async fn transcribe_audio(
     app_handle: tauri::AppHandle,
@@ -22,9 +32,23 @@ pub async fn transcribe_audio(
     audio_base64: String,
 ) -> Result<funasr_service::TranscriptionResult, AppError> {
     use base64::Engine;
+    if audio_base64.len() > MAX_TRANSCRIBE_AUDIO_BASE64_BYTES {
+        return Err(AppError::Asr(format!(
+            "音频过大：base64 {} 字节超过上限 {} 字节",
+            audio_base64.len(),
+            MAX_TRANSCRIBE_AUDIO_BASE64_BYTES
+        )));
+    }
     let audio_data = base64::engine::general_purpose::STANDARD
         .decode(&audio_base64)
         .map_err(|e| AppError::Asr(format!("Base64 解码失败: {}", e)))?;
+    if audio_data.len() > MAX_TRANSCRIBE_AUDIO_BYTES {
+        return Err(AppError::Asr(format!(
+            "音频过大：解码后 {} 字节超过上限 {} 字节",
+            audio_data.len(),
+            MAX_TRANSCRIBE_AUDIO_BYTES
+        )));
+    }
     funasr_service::transcribe(state.inner(), audio_data, &app_handle).await
 }
 

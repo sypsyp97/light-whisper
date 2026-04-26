@@ -395,6 +395,18 @@ async fn send_llm_request_with_transport_fallback(
             return Ok(content);
         }
         Err(err) => {
+            // 空响应是模型/prompt 层面的问题，换 transport 大概率仍然回空——
+            // 直接抛错，省下 3 次 LLM 请求；用户能从错误里看到 provider/model
+            // 诊断信息。
+            if llm_client::is_empty_llm_response_error(&err) {
+                let _ = state.take_ai_polish_stream_started(session_id);
+                log::warn!(
+                    "AI 润色 {} 收到空响应，跳过 transport fallback: {}",
+                    ai_polish_transport_label(&stage1),
+                    err
+                );
+                return Err(err);
+            }
             log::warn!(
                 "AI 润色 {} 失败: {}",
                 ai_polish_transport_label(&stage1),
@@ -429,6 +441,15 @@ async fn send_llm_request_with_transport_fallback(
             Ok(content) => {
                 let _ = state.take_ai_polish_stream_started(session_id);
                 return Ok(content);
+            }
+            Err(err) if llm_client::is_empty_llm_response_error(&err) => {
+                let _ = state.take_ai_polish_stream_started(session_id);
+                log::warn!(
+                    "AI 润色 {} 收到空响应，停止剩余 fallback: {}",
+                    stage_label,
+                    err
+                );
+                return Err(err);
             }
             Err(err) if stage.json_output => {
                 if !llm_provider::looks_like_json_output_unsupported_error(&err) {
@@ -588,11 +609,10 @@ pub async fn polish_text(
         emit_polish_status(app_handle, "error", text, text, e, session_id);
     })?;
 
+    // `send_llm_request` 已经把"HTTP 成功但 trim 后为空"作为 Err 抛出，
+    // 所以走到这里 raw_content 至少有一个非空白字符，trim 后必然非空——
+    // 旧的 `is_empty() => return Ok(text)` 兜底已不可达，移除。
     let raw_content = raw_content.trim();
-
-    if raw_content.is_empty() {
-        return Ok(text.to_string());
-    }
 
     let elapsed_ms = start.elapsed().as_millis();
     log::info!(

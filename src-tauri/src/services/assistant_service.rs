@@ -478,10 +478,11 @@ pub async fn generate_content(
         Err(err) => return Err(AppError::Other(err)),
     };
 
+    // `send_llm_request` 已经在内部把空响应统一映射成 Err（带 provider/
+    // model 诊断信息），上面的 match 把所有 Err 分支都 return 了，所以走到
+    // 这里 content trim 后必然非空。旧的 "AI 助手返回了空内容" 兜底已
+    // 不可达，移除。
     let trimmed = content.trim().to_string();
-    if trimmed.is_empty() {
-        return Err(AppError::Other("AI 助手返回了空内容".to_string()));
-    }
 
     let _ = app_handle.emit(
         "assistant-stream",

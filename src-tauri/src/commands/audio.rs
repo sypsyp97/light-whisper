@@ -323,6 +323,17 @@ pub async fn set_input_method(
     state: tauri::State<'_, AppState>,
     method: String,
 ) -> Result<(), AppError> {
-    *state.ui.input_method.lock() = method;
-    Ok(())
+    // 仅允许这两个取值。clipboard.rs 的 paste_text_impl 把 "clipboard" 单独
+    // 分支处理，其余值都走 SendInput，所以"任意 String"等于把所有未知值悄悄
+    // 解释为 sendInput。这里在入口卡死，避免 UI 错位/typo 写入静默退化。
+    match method.as_str() {
+        "sendInput" | "clipboard" => {
+            *state.ui.input_method.lock() = method;
+            Ok(())
+        }
+        other => Err(AppError::Other(format!(
+            "未知的输入方式: {}，可选值: sendInput, clipboard",
+            other
+        ))),
+    }
 }
