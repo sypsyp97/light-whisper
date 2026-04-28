@@ -309,6 +309,7 @@ pub(crate) fn ai_polish_transport_plan(
         session_id: Some(session_id),
         web_search: false,
         openai_fast_mode: false,
+        stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
     };
     let stream_nojson = LlmRequestOptions {
         stream: true,
@@ -318,6 +319,7 @@ pub(crate) fn ai_polish_transport_plan(
         session_id: Some(session_id),
         web_search: false,
         openai_fast_mode: false,
+        stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
     };
     let nostream_json = LlmRequestOptions {
         stream: false,
@@ -327,6 +329,7 @@ pub(crate) fn ai_polish_transport_plan(
         session_id: Some(session_id),
         web_search: false,
         openai_fast_mode: false,
+        stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
     };
     let nostream_nojson = LlmRequestOptions {
         stream: false,
@@ -336,6 +339,7 @@ pub(crate) fn ai_polish_transport_plan(
         session_id: Some(session_id),
         web_search: false,
         openai_fast_mode: false,
+        stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
     };
 
     if prefer_streaming_after_partial {

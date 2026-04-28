@@ -327,13 +327,12 @@ async fn do_final_asr(
             std::borrow::Cow::Borrowed(data.as_slice())
         }
     };
-    let asr_sample_rate = if sample_rate == TARGET_SAMPLE_RATE {
-        TARGET_SAMPLE_RATE
-    } else if matches!(resampled, std::borrow::Cow::Owned(_)) {
-        TARGET_SAMPLE_RATE
-    } else {
-        sample_rate
-    };
+    let asr_sample_rate =
+        if sample_rate == TARGET_SAMPLE_RATE || matches!(resampled, std::borrow::Cow::Owned(_)) {
+            TARGET_SAMPLE_RATE
+        } else {
+            sample_rate
+        };
 
     let engine = paths::read_engine_config();
     let result = if paths::is_online_engine(&engine) {

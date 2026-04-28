@@ -11,6 +11,7 @@ use crate::state::AppState;
 
 const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
 const STREAM_TOTAL_TIMEOUT_SECS: u64 = 24 * 60 * 60;
+pub(crate) const AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS: u64 = 45;
 const RETRYABLE_429_DELAYS_MS: &[u64] = &[600, 1200];
 
 #[derive(Debug, Clone, Copy)]
@@ -26,6 +27,9 @@ pub struct LlmRequestOptions<'a> {
     /// (ChatGPT bearer 与交换得到的 OAuth API key 都适用；wire 值 "priority"
     /// 对应官方 Codex CLI 里 ServiceTier::Fast 的重映射)
     pub openai_fast_mode: bool,
+    /// 流式响应中可见输出停滞多久后中止。用于 AI 润色这类短任务，避免
+    /// provider 持续发送非文本 SSE 事件时让 UI 一直卡在某个 token 数。
+    pub stream_progress_timeout_secs: Option<u64>,
 }
 
 impl Default for LlmRequestOptions<'_> {
@@ -38,6 +42,7 @@ impl Default for LlmRequestOptions<'_> {
             session_id: None,
             web_search: false,
             openai_fast_mode: false,
+            stream_progress_timeout_secs: None,
         }
     }
 }
@@ -400,24 +405,79 @@ fn emit_stream_error_event(
     }
 }
 
-fn stream_read_budget(
+fn stream_read_budget_at(
+    now: tokio::time::Instant,
     started_at: tokio::time::Instant,
+    last_progress_at: tokio::time::Instant,
     event_timeout: Duration,
     total_timeout: Duration,
+    progress_timeout: Option<Duration>,
 ) -> Result<Duration, String> {
-    let elapsed = started_at.elapsed();
+    let elapsed = now.duration_since(started_at);
     let remaining = total_timeout
         .checked_sub(elapsed)
         .ok_or_else(|| format!("流式读取超过总预算（{} 秒）", total_timeout.as_secs()))?;
-    Ok(event_timeout.min(remaining))
+
+    let mut budget = event_timeout.min(remaining);
+    if let Some(progress_timeout) = progress_timeout {
+        let progress_elapsed = now.duration_since(last_progress_at);
+        let progress_remaining = progress_timeout
+            .checked_sub(progress_elapsed)
+            .ok_or_else(|| stream_progress_timeout_error(progress_timeout))?;
+        budget = budget.min(progress_remaining);
+    }
+
+    Ok(budget)
 }
 
-fn stream_timeout_error(started_at: tokio::time::Instant, total_timeout: Duration) -> String {
-    if started_at.elapsed() >= total_timeout {
+fn stream_read_budget(
+    started_at: tokio::time::Instant,
+    last_progress_at: tokio::time::Instant,
+    event_timeout: Duration,
+    total_timeout: Duration,
+    progress_timeout: Option<Duration>,
+) -> Result<Duration, String> {
+    stream_read_budget_at(
+        tokio::time::Instant::now(),
+        started_at,
+        last_progress_at,
+        event_timeout,
+        total_timeout,
+        progress_timeout,
+    )
+}
+
+fn stream_progress_timeout_error(progress_timeout: Duration) -> String {
+    format!(
+        "流式输出停滞（{} 秒无新增内容）",
+        progress_timeout.as_secs()
+    )
+}
+
+fn stream_timeout_error(
+    started_at: tokio::time::Instant,
+    last_progress_at: tokio::time::Instant,
+    total_timeout: Duration,
+    progress_timeout: Option<Duration>,
+) -> String {
+    let now = tokio::time::Instant::now();
+    if now.duration_since(started_at) >= total_timeout {
         format!("流式读取超过总预算（{} 秒）", total_timeout.as_secs())
+    } else if let Some(progress_timeout) = progress_timeout {
+        if now.duration_since(last_progress_at) >= progress_timeout {
+            stream_progress_timeout_error(progress_timeout)
+        } else {
+            format!("流式读取超时（{} 秒无数据）", STREAM_EVENT_TIMEOUT_SECS)
+        }
     } else {
         format!("流式读取超时（{} 秒无数据）", STREAM_EVENT_TIMEOUT_SECS)
     }
+}
+
+fn stream_progress_timeout(options: LlmRequestOptions<'_>) -> Option<Duration> {
+    options
+        .stream_progress_timeout_secs
+        .map(Duration::from_secs)
 }
 
 fn anthropic_output_tokens(json: &Value) -> Option<usize> {
@@ -433,6 +493,7 @@ pub async fn read_sse_stream(
     app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
+    progress_timeout: Option<Duration>,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -442,10 +503,17 @@ pub async fn read_sse_stream(
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let total_timeout = Duration::from_secs(STREAM_TOTAL_TIMEOUT_SECS);
     let started_at = tokio::time::Instant::now();
+    let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        let read_budget = match stream_read_budget(started_at, event_timeout, total_timeout) {
+        let read_budget = match stream_read_budget(
+            started_at,
+            last_progress_at,
+            event_timeout,
+            total_timeout,
+            progress_timeout,
+        ) {
             Ok(budget) => budget,
             Err(message) => {
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
@@ -456,7 +524,11 @@ pub async fn read_sse_stream(
             Ok(Some(Ok(event))) => {
                 let data = event.data.trim();
                 if data == "[DONE]" {
-                    return ensure_non_empty_llm_content(accumulated, endpoint, "openai_chat_sse_done");
+                    return ensure_non_empty_llm_content(
+                        accumulated,
+                        endpoint,
+                        "openai_chat_sse_done",
+                    );
                 }
                 if let Ok(json) = serde_json::from_str::<Value>(data) {
                     if let Some(message) = json["error"]["message"].as_str() {
@@ -464,9 +536,13 @@ pub async fn read_sse_stream(
                         emit_stream_error_event(app_handle, event_name, session_id, &message);
                         return Err(message);
                     }
-                    if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                    if let Some(content) = json["choices"][0]["delta"]["content"]
+                        .as_str()
+                        .filter(|content| !content.is_empty())
+                    {
                         accumulated.push_str(content);
                         token_count += 1;
+                        last_progress_at = tokio::time::Instant::now();
                         emit_stream_event(
                             app_handle,
                             event_name,
@@ -482,9 +558,16 @@ pub async fn read_sse_stream(
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
                 return Err(message);
             }
-            Ok(None) => return ensure_non_empty_llm_content(accumulated, endpoint, "openai_chat_sse_eos"),
+            Ok(None) => {
+                return ensure_non_empty_llm_content(accumulated, endpoint, "openai_chat_sse_eos")
+            }
             Err(_) => {
-                let message = stream_timeout_error(started_at, total_timeout);
+                let message = stream_timeout_error(
+                    started_at,
+                    last_progress_at,
+                    total_timeout,
+                    progress_timeout,
+                );
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
                 return Err(message);
             }
@@ -498,6 +581,7 @@ pub async fn read_openai_responses_sse_stream(
     app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
+    progress_timeout: Option<Duration>,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -508,10 +592,17 @@ pub async fn read_openai_responses_sse_stream(
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let total_timeout = Duration::from_secs(STREAM_TOTAL_TIMEOUT_SECS);
     let started_at = tokio::time::Instant::now();
+    let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        let read_budget = match stream_read_budget(started_at, event_timeout, total_timeout) {
+        let read_budget = match stream_read_budget(
+            started_at,
+            last_progress_at,
+            event_timeout,
+            total_timeout,
+            progress_timeout,
+        ) {
             Ok(budget) => budget,
             Err(message) => {
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
@@ -544,9 +635,12 @@ pub async fn read_openai_responses_sse_stream(
 
                 match json["type"].as_str() {
                     Some("response.output_text.delta") => {
-                        if let Some(delta) = json["delta"].as_str() {
+                        if let Some(delta) =
+                            json["delta"].as_str().filter(|delta| !delta.is_empty())
+                        {
                             accumulated.push_str(delta);
                             token_count += 1;
+                            last_progress_at = tokio::time::Instant::now();
                             emit_stream_event(
                                 app_handle,
                                 event_name,
@@ -556,17 +650,23 @@ pub async fn read_openai_responses_sse_stream(
                             );
                         }
                     }
-                    Some("response.output_text.done") if accumulated.is_empty() => {
+                    Some("response.output_text.done") => {
                         if let Some(text) = json["text"].as_str() {
-                            accumulated.push_str(text);
-                            token_count += 1;
-                            emit_stream_event(
-                                app_handle,
-                                event_name,
-                                session_id,
-                                Some(text),
-                                token_count,
-                            );
+                            let (should_emit, progressed) =
+                                apply_responses_done_text(&mut accumulated, text);
+                            if progressed {
+                                last_progress_at = tokio::time::Instant::now();
+                            }
+                            if should_emit {
+                                token_count += 1;
+                                emit_stream_event(
+                                    app_handle,
+                                    event_name,
+                                    session_id,
+                                    Some(text),
+                                    token_count,
+                                );
+                            }
                         }
                     }
                     Some("response.completed") => {
@@ -608,7 +708,12 @@ pub async fn read_openai_responses_sse_stream(
                 );
             }
             Err(_) => {
-                let message = stream_timeout_error(started_at, total_timeout);
+                let message = stream_timeout_error(
+                    started_at,
+                    last_progress_at,
+                    total_timeout,
+                    progress_timeout,
+                );
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
                 return Err(message);
             }
@@ -622,6 +727,7 @@ pub async fn read_anthropic_sse_stream(
     app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
+    progress_timeout: Option<Duration>,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -631,10 +737,17 @@ pub async fn read_anthropic_sse_stream(
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let total_timeout = Duration::from_secs(STREAM_TOTAL_TIMEOUT_SECS);
     let started_at = tokio::time::Instant::now();
+    let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        let read_budget = match stream_read_budget(started_at, event_timeout, total_timeout) {
+        let read_budget = match stream_read_budget(
+            started_at,
+            last_progress_at,
+            event_timeout,
+            total_timeout,
+            progress_timeout,
+        ) {
             Ok(budget) => budget,
             Err(message) => {
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
@@ -646,14 +759,17 @@ pub async fn read_anthropic_sse_stream(
                 "message_start" | "message_delta" => {
                     if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
                         if let Some(tokens) = anthropic_output_tokens(&json) {
-                            output_tokens = tokens;
-                            emit_stream_event(
-                                app_handle,
-                                event_name,
-                                session_id,
-                                None,
-                                output_tokens,
-                            );
+                            if tokens > output_tokens {
+                                output_tokens = tokens;
+                                last_progress_at = tokio::time::Instant::now();
+                                emit_stream_event(
+                                    app_handle,
+                                    event_name,
+                                    session_id,
+                                    None,
+                                    output_tokens,
+                                );
+                            }
                         }
                     }
                 }
@@ -661,8 +777,12 @@ pub async fn read_anthropic_sse_stream(
                     if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
                         let delta_type = json["delta"]["type"].as_str();
                         if matches!(delta_type, Some("text_delta") | None) {
-                            if let Some(text) = json["delta"]["text"].as_str() {
+                            if let Some(text) = json["delta"]["text"]
+                                .as_str()
+                                .filter(|text| !text.is_empty())
+                            {
                                 accumulated.push_str(text);
+                                last_progress_at = tokio::time::Instant::now();
                                 emit_stream_event(
                                     app_handle,
                                     event_name,
@@ -675,7 +795,13 @@ pub async fn read_anthropic_sse_stream(
                     }
                 }
                 "ping" => {}
-                "message_stop" => return ensure_non_empty_llm_content(accumulated, endpoint, "anthropic_sse_message_stop"),
+                "message_stop" => {
+                    return ensure_non_empty_llm_content(
+                        accumulated,
+                        endpoint,
+                        "anthropic_sse_message_stop",
+                    )
+                }
                 "error" => {
                     let message = serde_json::from_str::<Value>(&event.data)
                         .ok()
@@ -692,9 +818,16 @@ pub async fn read_anthropic_sse_stream(
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
                 return Err(message);
             }
-            Ok(None) => return ensure_non_empty_llm_content(accumulated, endpoint, "anthropic_sse_eos"),
+            Ok(None) => {
+                return ensure_non_empty_llm_content(accumulated, endpoint, "anthropic_sse_eos")
+            }
             Err(_) => {
-                let message = stream_timeout_error(started_at, total_timeout);
+                let message = stream_timeout_error(
+                    started_at,
+                    last_progress_at,
+                    total_timeout,
+                    progress_timeout,
+                );
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
                 return Err(message);
             }
@@ -761,6 +894,24 @@ pub(crate) fn finalize_responses_sse_accumulated(
     ensure_non_empty_llm_content(String::new(), endpoint, source)
 }
 
+fn apply_responses_done_text(accumulated: &mut String, text: &str) -> (bool, bool) {
+    if text.is_empty() {
+        return (false, false);
+    }
+
+    if accumulated.is_empty() {
+        accumulated.push_str(text);
+        return (true, true);
+    }
+
+    if text.len() > accumulated.len() && text.starts_with(accumulated.as_str()) {
+        accumulated.clear();
+        accumulated.push_str(text);
+        return (false, true);
+    }
+    (false, false)
+}
+
 fn extract_content(endpoint: &LlmEndpoint, json: &Value) -> Option<String> {
     match endpoint.api_format {
         ApiFormat::Anthropic => json["content"].as_array().and_then(|items| {
@@ -772,11 +923,14 @@ fn extract_content(endpoint: &LlmEndpoint, json: &Value) -> Option<String> {
             if uses_responses_api(endpoint) {
                 json["output"].as_array().and_then(|outputs| {
                     outputs.iter().find_map(|item| {
-                        if item["type"].as_str() == Some("message") {
-                            item["content"][0]["text"].as_str().map(String::from)
-                        } else {
-                            None
-                        }
+                        (item["type"].as_str() == Some("message")).then_some(())?;
+                        item["content"].as_array()?.iter().find_map(|part| {
+                            if part["type"].as_str() == Some("output_text") {
+                                part["text"].as_str().map(String::from)
+                            } else {
+                                None
+                            }
+                        })
                     })
                 })
             } else {
@@ -1011,6 +1165,7 @@ pub async fn send_llm_request(
             return Err("流式请求缺少 app_handle".to_string());
         }
         let stream_app_handle = if requested_stream { app_handle } else { None };
+        let progress_timeout = stream_progress_timeout(options);
         match endpoint.api_format {
             ApiFormat::Anthropic => {
                 read_anthropic_sse_stream(
@@ -1019,6 +1174,7 @@ pub async fn send_llm_request(
                     stream_app_handle,
                     options.stream_event,
                     options.session_id,
+                    progress_timeout,
                 )
                 .await
             }
@@ -1030,6 +1186,7 @@ pub async fn send_llm_request(
                         stream_app_handle,
                         options.stream_event,
                         options.session_id,
+                        progress_timeout,
                     )
                     .await
                 } else {
@@ -1039,6 +1196,7 @@ pub async fn send_llm_request(
                         stream_app_handle,
                         options.stream_event,
                         options.session_id,
+                        progress_timeout,
                     )
                     .await
                 }
@@ -1060,16 +1218,18 @@ pub async fn send_llm_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        adapt_body_for_backend, build_llm_body, build_stream_event_payload, dynamic_timeout,
-        ensure_non_empty_llm_content, extract_api_error_message,
-        extract_openai_compat_error_message, finalize_responses_sse_accumulated,
-        is_retryable_overload_error, looks_like_max_output_tokens_unsupported_error,
-        LlmRequestOptions, LlmUserInput, OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
+        adapt_body_for_backend, apply_responses_done_text, build_llm_body,
+        build_stream_event_payload, dynamic_timeout, ensure_non_empty_llm_content,
+        extract_api_error_message, extract_content, extract_openai_compat_error_message,
+        finalize_responses_sse_accumulated, is_retryable_overload_error,
+        looks_like_max_output_tokens_unsupported_error, stream_read_budget_at, LlmRequestOptions,
+        LlmUserInput, OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
     };
     use crate::services::codex_oauth_service;
     use crate::services::llm_provider::LlmEndpoint;
     use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
     use base64::Engine;
+    use std::time::Duration;
 
     fn make_test_endpoint() -> crate::services::llm_provider::LlmEndpoint {
         crate::services::llm_provider::LlmEndpoint {
@@ -1118,6 +1278,7 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
             },
         );
 
@@ -1145,6 +1306,7 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
             },
         );
 
@@ -1174,6 +1336,7 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
             },
         );
 
@@ -1197,6 +1360,7 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
             },
         );
 
@@ -1289,6 +1453,103 @@ mod tests {
     }
 
     #[test]
+    fn stream_budget_times_out_when_visible_progress_stalls() {
+        let now = tokio::time::Instant::now();
+        let started_at = now - Duration::from_secs(20);
+        let last_progress_at = now - Duration::from_secs(11);
+
+        let result = stream_read_budget_at(
+            now,
+            started_at,
+            last_progress_at,
+            Duration::from_secs(90),
+            Duration::from_secs(300),
+            Some(Duration::from_secs(10)),
+        );
+
+        let err = result.expect_err("stalled visible output must trip progress timeout");
+        assert!(err.contains("流式输出停滞"));
+    }
+
+    #[test]
+    fn stream_budget_uses_nearest_deadline() {
+        let now = tokio::time::Instant::now();
+        let started_at = now - Duration::from_secs(20);
+        let last_progress_at = now - Duration::from_secs(7);
+
+        let budget = stream_read_budget_at(
+            now,
+            started_at,
+            last_progress_at,
+            Duration::from_secs(90),
+            Duration::from_secs(300),
+            Some(Duration::from_secs(10)),
+        )
+        .expect("progress timeout still has 3s remaining");
+
+        assert_eq!(budget, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn responses_done_text_replaces_partial_delta_buffer() {
+        let mut accumulated = "{\"polished\":\"半".to_string();
+
+        let (should_emit, progressed) = apply_responses_done_text(
+            &mut accumulated,
+            "{\"polished\":\"半句话\",\"corrections\":[],\"key_terms\":[]}",
+        );
+
+        assert!(!should_emit);
+        assert!(progressed);
+        assert_eq!(
+            accumulated,
+            "{\"polished\":\"半句话\",\"corrections\":[],\"key_terms\":[]}"
+        );
+    }
+
+    #[test]
+    fn responses_done_empty_text_preserves_partial_delta_buffer() {
+        let mut accumulated = "{\"polished\":\"半".to_string();
+
+        let (should_emit, progressed) = apply_responses_done_text(&mut accumulated, "");
+
+        assert!(!should_emit);
+        assert!(!progressed);
+        assert_eq!(accumulated, "{\"polished\":\"半");
+    }
+
+    #[test]
+    fn responses_done_unrelated_text_preserves_existing_buffer() {
+        let mut accumulated = "first-block".to_string();
+
+        let (should_emit, progressed) = apply_responses_done_text(&mut accumulated, "second-block");
+
+        assert!(!should_emit);
+        assert!(!progressed);
+        assert_eq!(accumulated, "first-block");
+    }
+
+    #[test]
+    fn responses_extract_content_reads_output_text_parts() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let json = serde_json::json!({
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {"type": "reasoning_text", "text": "internal"},
+                        {"type": "output_text", "text": "{\"polished\":\"ok\"}"}
+                    ]
+                }
+            ]
+        });
+
+        let content = extract_content(&endpoint, &json);
+
+        assert_eq!(content.as_deref(), Some("{\"polished\":\"ok\"}"));
+    }
+
+    #[test]
     fn chat_body_sets_max_tokens_for_openai_compat() {
         let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
         let body = build_llm_body(
@@ -1350,6 +1611,7 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
             },
         );
         let api_key = chatgpt_codex_api_key();
@@ -1376,6 +1638,7 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
             },
         );
         let api_key = chatgpt_codex_api_key();
@@ -1421,6 +1684,7 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
             },
         );
 
@@ -1456,6 +1720,7 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
             },
         );
 
@@ -1683,8 +1948,7 @@ mod tests {
     #[test]
     fn ensure_non_empty_llm_content_rejects_whitespace_only() {
         let endpoint = make_test_endpoint();
-        let result =
-            ensure_non_empty_llm_content("   \n\t".to_string(), &endpoint, "polish");
+        let result = ensure_non_empty_llm_content("   \n\t".to_string(), &endpoint, "polish");
 
         assert!(
             result.is_err(),
@@ -1696,8 +1960,7 @@ mod tests {
     #[test]
     fn ensure_non_empty_llm_content_passes_real_text() {
         let endpoint = make_test_endpoint();
-        let result =
-            ensure_non_empty_llm_content("hello world".to_string(), &endpoint, "polish");
+        let result = ensure_non_empty_llm_content("hello world".to_string(), &endpoint, "polish");
 
         assert_eq!(
             result.as_deref(),
@@ -1709,8 +1972,7 @@ mod tests {
     #[test]
     fn ensure_non_empty_llm_content_preserves_internal_whitespace() {
         let endpoint = make_test_endpoint();
-        let result =
-            ensure_non_empty_llm_content("  hi  ".to_string(), &endpoint, "polish");
+        let result = ensure_non_empty_llm_content("  hi  ".to_string(), &endpoint, "polish");
 
         assert_eq!(
             result.as_deref(),
@@ -1744,8 +2006,7 @@ mod tests {
     #[test]
     fn ensure_non_empty_llm_content_error_message_includes_source_label() {
         let endpoint = make_test_endpoint();
-        let result =
-            ensure_non_empty_llm_content("   ".to_string(), &endpoint, "ai-polish");
+        let result = ensure_non_empty_llm_content("   ".to_string(), &endpoint, "ai-polish");
 
         let err = result.expect_err("whitespace-only content must produce Err");
         assert!(

@@ -1,5 +1,5 @@
 use super::ai_polish_service::ai_polish_transport_plan;
-use super::llm_client::LlmRequestOptions;
+use super::llm_client::{LlmRequestOptions, AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS};
 use crate::state::user_profile::LlmReasoningMode;
 
 fn assert_plan_stage(
@@ -16,6 +16,10 @@ fn assert_plan_stage(
     assert_eq!(stage.reasoning_mode, reasoning_mode);
     assert_eq!(stage.session_id, Some(session_id));
     assert!(!stage.web_search);
+    assert_eq!(
+        stage.stream_progress_timeout_secs,
+        Some(AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS)
+    );
 }
 
 #[test]

@@ -380,8 +380,7 @@ pub async fn add_custom_provider(
     model: String,
     api_format: ApiFormat,
 ) -> Result<String, String> {
-    let (name, base_url, model) =
-        normalize_custom_provider_fields(&name, &base_url, &model)?;
+    let (name, base_url, model) = normalize_custom_provider_fields(&name, &base_url, &model)?;
     // 用毫秒时间戳生成 id 在 UI 快速点击时可能撞 ID（同一毫秒两次添加）；
     // 拼一段随机后缀 + 在 push 前查重，确保 id 唯一。
     use rand::Rng;
@@ -830,11 +829,7 @@ mod validator_tests {
         // 返回值必须是 trim 后的字符串。否则保存进去的名字会带前后空格，
         // 后续比较/显示会出现幽灵空白。
         let result = validate_provider_name("  abc  ");
-        assert_eq!(
-            result.as_deref(),
-            Ok("abc"),
-            "返回值必须是 trim 后的字符串"
-        );
+        assert_eq!(result.as_deref(), Ok("abc"), "返回值必须是 trim 后的字符串");
     }
 
     #[test]
@@ -882,8 +877,8 @@ mod validator_tests {
     #[test]
     fn validate_provider_base_url_rejects_garbage_string() {
         // 不能解析为 URL 时必须用"非法 base_url:"前缀，方便前端 grep 错误类型。
-        let err = validate_provider_base_url("not a url at all")
-            .expect_err("非 URL 字符串必须 Err");
+        let err =
+            validate_provider_base_url("not a url at all").expect_err("非 URL 字符串必须 Err");
         assert!(
             err.starts_with("非法 base_url: "),
             "错误必须以 \"非法 base_url: \" 开头；got {:?}",
@@ -895,8 +890,7 @@ mod validator_tests {
     fn validate_provider_base_url_rejects_ftp_scheme() {
         // ftp 是合法 URL scheme 但我们不支持。错误必须显式提示 scheme 名称，
         // 否则用户很难懂为什么"看起来像 URL"的字符串被拒了。
-        let err = validate_provider_base_url("ftp://example.com")
-            .expect_err("ftp scheme 必须 Err");
+        let err = validate_provider_base_url("ftp://example.com").expect_err("ftp scheme 必须 Err");
         assert!(
             err.contains("仅支持 http/https"),
             "错误必须包含\"仅支持 http/https\"；got {:?}",

@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn test_encode_wav_returns_ok_for_normal_samples() -> Result<(), AppError> {
         let bytes = encode_wav(&[0i16, 1, -1, 32767, -32768], 16000)?;
-        assert!(bytes.len() > 0, "encoded WAV bytes must be non-empty");
+        assert!(!bytes.is_empty(), "encoded WAV bytes must be non-empty");
         assert!(
             bytes.len() >= 4,
             "encoded WAV must include at least the RIFF header"

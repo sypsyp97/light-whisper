@@ -161,30 +161,6 @@ fn render_assistant_user_content(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::render_assistant_user_content;
-
-    #[test]
-    fn assistant_input_preserves_symbols_and_splits_cdata() {
-        let content = render_assistant_user_content(
-            Some("<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"),
-            "如果 a > b 并且文本里有 ]]> 这个片段",
-            Some("原文里有 <tag> 和 >"),
-            true,
-        );
-
-        assert!(content.contains(
-            "<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"
-        ));
-        assert!(content.contains("<selected_text><![CDATA[原文里有 <tag> 和 >]]></selected_text>"));
-        assert!(content.contains("<screen_context><![CDATA[已附带当前整屏截图，仅在与用户请求相关时参考其中信息。]]></screen_context>"));
-        assert!(content.contains(
-            "<user_request><![CDATA[如果 a > b 并且文本里有 ]]]]><![CDATA[> 这个片段]]></user_request>"
-        ));
-    }
-}
-
 /// 执行第三方搜索（Exa / Tavily）
 async fn run_third_party_search(
     state: &AppState,
@@ -383,6 +359,7 @@ pub async fn generate_content(
         session_id: Some(session_id),
         web_search: use_native_search,
         openai_fast_mode: config.openai_fast_mode,
+        stream_progress_timeout_secs: None,
     };
     let body = llm_client::build_llm_body(&endpoint, &system_prompt, &user_input, request_options);
 
@@ -501,4 +478,28 @@ pub async fn generate_content(
     }
 
     Ok(trimmed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_assistant_user_content;
+
+    #[test]
+    fn assistant_input_preserves_symbols_and_splits_cdata() {
+        let content = render_assistant_user_content(
+            Some("<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"),
+            "如果 a > b 并且文本里有 ]]> 这个片段",
+            Some("原文里有 <tag> 和 >"),
+            true,
+        );
+
+        assert!(content.contains(
+            "<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"
+        ));
+        assert!(content.contains("<selected_text><![CDATA[原文里有 <tag> 和 >]]></selected_text>"));
+        assert!(content.contains("<screen_context><![CDATA[已附带当前整屏截图，仅在与用户请求相关时参考其中信息。]]></screen_context>"));
+        assert!(content.contains(
+            "<user_request><![CDATA[如果 a > b 并且文本里有 ]]]]><![CDATA[> 这个片段]]></user_request>"
+        ));
+    }
 }

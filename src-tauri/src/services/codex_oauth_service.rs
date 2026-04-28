@@ -319,8 +319,7 @@ fn generate_state() -> String {
     let bytes = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(48)
-        .map(|ch| ch as u8)
-        .collect::<Vec<_>>();
+        .collect::<Vec<u8>>();
     base64_url_encode(&bytes)
 }
 

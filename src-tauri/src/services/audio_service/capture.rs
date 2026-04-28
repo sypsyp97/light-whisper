@@ -424,21 +424,17 @@ mod cap_tests {
     //!   - `MAX_RECORD_SAMPLES` is 30 minutes of 48 kHz mono and must be
     //!     large enough to cover at least an hour of 16 kHz mono.
     use super::{
-        mix_to_mono_capped_f32, mix_to_mono_capped_i16, mix_to_mono_capped_u16,
-        MAX_RECORD_SAMPLES,
+        mix_to_mono_capped_f32, mix_to_mono_capped_i16, mix_to_mono_capped_u16, MAX_RECORD_SAMPLES,
     };
+
+    const MIN_ONE_HOUR_16K_SAMPLES: usize = 60 * 60 * 16_000;
+    const _: () = assert!(MAX_RECORD_SAMPLES >= MIN_ONE_HOUR_16K_SAMPLES);
 
     // ----- MAX_RECORD_SAMPLES constant -----------------------------------
 
     #[test]
     fn max_record_samples_constant_value() {
         assert_eq!(MAX_RECORD_SAMPLES, 30 * 60 * 48_000);
-        assert!(
-            MAX_RECORD_SAMPLES >= 60 * 60 * 16_000,
-            "MAX_RECORD_SAMPLES must cover at least an hour of 16 kHz mono; \
-             got {}",
-            MAX_RECORD_SAMPLES
-        );
     }
 
     // ----- mix_to_mono_capped_i16 ----------------------------------------

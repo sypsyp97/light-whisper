@@ -115,8 +115,7 @@ mod tests {
 
     #[test]
     fn app_error_io_uses_system_category() {
-        let err: AppError =
-            std::io::Error::new(std::io::ErrorKind::Other, "x").into();
+        let err: AppError = std::io::Error::other("x").into();
         assert_eq!(err.code(), "IO_ERROR");
         assert_eq!(err.category(), "system");
     }

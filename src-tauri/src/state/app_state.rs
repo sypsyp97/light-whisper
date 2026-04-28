@@ -202,6 +202,7 @@ impl Default for RecordingState {
 }
 
 /// 用户配置 + 各类 AI / ASR API key + 能力缓存
+#[derive(Default)]
 pub struct ProfileState {
     pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
     pub ai_polish_enabled: Arc<AtomicBool>,
@@ -212,22 +213,6 @@ pub struct ProfileState {
     pub web_search_api_key: Arc<parking_lot::Mutex<String>>,
     pub assistant_image_support_cache: Arc<parking_lot::Mutex<HashMap<String, bool>>>,
     pub ai_polish_stream_started_sessions: Arc<parking_lot::Mutex<HashSet<u64>>>,
-}
-
-impl Default for ProfileState {
-    fn default() -> Self {
-        Self {
-            user_profile: Default::default(),
-            ai_polish_enabled: Default::default(),
-            ai_polish_api_key: Default::default(),
-            assistant_api_key: Default::default(),
-            openai_codex_oauth_session: Default::default(),
-            online_asr_api_key: Default::default(),
-            web_search_api_key: Default::default(),
-            assistant_image_support_cache: Default::default(),
-            ai_polish_stream_started_sessions: Default::default(),
-        }
-    }
 }
 
 /// UI / 交互类偏好 + 诊断
