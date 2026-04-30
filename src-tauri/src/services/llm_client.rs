@@ -30,6 +30,8 @@ pub struct LlmRequestOptions<'a> {
     /// 流式响应中可见输出停滞多久后中止。用于 AI 润色这类短任务，避免
     /// provider 持续发送非文本 SSE 事件时让 UI 一直卡在某个 token 数。
     pub stream_progress_timeout_secs: Option<u64>,
+    /// 单次流式请求的总预算。未设置时沿用历史 24h 兜底。
+    pub stream_total_timeout_secs: Option<u64>,
 }
 
 impl Default for LlmRequestOptions<'_> {
@@ -43,6 +45,7 @@ impl Default for LlmRequestOptions<'_> {
             web_search: false,
             openai_fast_mode: false,
             stream_progress_timeout_secs: None,
+            stream_total_timeout_secs: None,
         }
     }
 }
@@ -480,6 +483,14 @@ fn stream_progress_timeout(options: LlmRequestOptions<'_>) -> Option<Duration> {
         .map(Duration::from_secs)
 }
 
+fn stream_total_timeout(options: LlmRequestOptions<'_>) -> Duration {
+    let secs = options
+        .stream_total_timeout_secs
+        .map(|value| value.min(600))
+        .unwrap_or(STREAM_TOTAL_TIMEOUT_SECS);
+    Duration::from_secs(secs)
+}
+
 fn anthropic_output_tokens(json: &Value) -> Option<usize> {
     json["usage"]["output_tokens"]
         .as_u64()
@@ -494,6 +505,7 @@ pub async fn read_sse_stream(
     event_name: Option<&str>,
     session_id: Option<u64>,
     progress_timeout: Option<Duration>,
+    total_timeout: Duration,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -501,7 +513,6 @@ pub async fn read_sse_stream(
     let mut accumulated = String::new();
     let mut token_count: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
-    let total_timeout = Duration::from_secs(STREAM_TOTAL_TIMEOUT_SECS);
     let started_at = tokio::time::Instant::now();
     let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
@@ -582,6 +593,7 @@ pub async fn read_openai_responses_sse_stream(
     event_name: Option<&str>,
     session_id: Option<u64>,
     progress_timeout: Option<Duration>,
+    total_timeout: Duration,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -590,7 +602,6 @@ pub async fn read_openai_responses_sse_stream(
     let mut fallback_content: Option<String> = None;
     let mut token_count: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
-    let total_timeout = Duration::from_secs(STREAM_TOTAL_TIMEOUT_SECS);
     let started_at = tokio::time::Instant::now();
     let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
@@ -728,6 +739,7 @@ pub async fn read_anthropic_sse_stream(
     event_name: Option<&str>,
     session_id: Option<u64>,
     progress_timeout: Option<Duration>,
+    total_timeout: Duration,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -735,7 +747,6 @@ pub async fn read_anthropic_sse_stream(
     let mut accumulated = String::new();
     let mut output_tokens: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
-    let total_timeout = Duration::from_secs(STREAM_TOTAL_TIMEOUT_SECS);
     let started_at = tokio::time::Instant::now();
     let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
@@ -1166,6 +1177,7 @@ pub async fn send_llm_request(
         }
         let stream_app_handle = if requested_stream { app_handle } else { None };
         let progress_timeout = stream_progress_timeout(options);
+        let total_timeout = stream_total_timeout(options);
         match endpoint.api_format {
             ApiFormat::Anthropic => {
                 read_anthropic_sse_stream(
@@ -1175,6 +1187,7 @@ pub async fn send_llm_request(
                     options.stream_event,
                     options.session_id,
                     progress_timeout,
+                    total_timeout,
                 )
                 .await
             }
@@ -1187,6 +1200,7 @@ pub async fn send_llm_request(
                         options.stream_event,
                         options.session_id,
                         progress_timeout,
+                        total_timeout,
                     )
                     .await
                 } else {
@@ -1197,6 +1211,7 @@ pub async fn send_llm_request(
                         options.stream_event,
                         options.session_id,
                         progress_timeout,
+                        total_timeout,
                     )
                     .await
                 }
@@ -1279,6 +1294,7 @@ mod tests {
                 web_search: false,
                 openai_fast_mode: false,
                 stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -1307,6 +1323,7 @@ mod tests {
                 web_search: false,
                 openai_fast_mode: false,
                 stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -1337,6 +1354,7 @@ mod tests {
                 web_search: false,
                 openai_fast_mode: false,
                 stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -1361,6 +1379,7 @@ mod tests {
                 web_search: false,
                 openai_fast_mode: false,
                 stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -1491,6 +1510,34 @@ mod tests {
     }
 
     #[test]
+    fn request_options_carry_per_request_stream_total_timeout() {
+        let options = LlmRequestOptions {
+            stream: true,
+            stream_total_timeout_secs: Some(300),
+            ..LlmRequestOptions::default()
+        };
+
+        assert_eq!(
+            super::stream_total_timeout(options),
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test]
+    fn stream_total_timeout_rejects_legacy_twenty_four_hour_budget() {
+        let options = LlmRequestOptions {
+            stream: true,
+            stream_total_timeout_secs: Some(24 * 60 * 60),
+            ..LlmRequestOptions::default()
+        };
+
+        assert!(
+            super::stream_total_timeout(options) <= Duration::from_secs(600),
+            "stream total timeout must be task-scoped, not the old 24h reader budget"
+        );
+    }
+
+    #[test]
     fn responses_done_text_replaces_partial_delta_buffer() {
         let mut accumulated = "{\"polished\":\"半".to_string();
 
@@ -1612,6 +1659,7 @@ mod tests {
                 web_search: false,
                 openai_fast_mode: false,
                 stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
         let api_key = chatgpt_codex_api_key();
@@ -1639,6 +1687,7 @@ mod tests {
                 web_search: false,
                 openai_fast_mode: false,
                 stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
         let api_key = chatgpt_codex_api_key();
@@ -1685,6 +1734,7 @@ mod tests {
                 web_search: false,
                 openai_fast_mode: false,
                 stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -1721,6 +1771,7 @@ mod tests {
                 web_search: false,
                 openai_fast_mode: false,
                 stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 

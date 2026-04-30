@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import i18n from "@/i18n";
 import { startRecording as invokeStartRecording, stopRecording as invokeStopRecording } from "@/api/tauri";
-import type { HistoryItem, RecordingMode } from "@/types";
+import type { EditGrabStatus, HistoryItem, RecordingMode } from "@/types";
 
 interface UseRecordingReturn {
   isRecording: boolean;
@@ -19,6 +19,7 @@ interface UseRecordingReturn {
   durationSec: number | null;
   charCount: number | null;
   detectedLanguage: string | null;
+  editGrabStatus: EditGrabStatus | null;
   history: HistoryItem[];
   resultMode: RecordingMode;
 }
@@ -40,6 +41,7 @@ interface TranscriptionPayload {
   language?: string;
   mode?: RecordingMode;
   originalText?: string;
+  editGrabStatus?: EditGrabStatus;
 }
 
 /** 封装 Tauri 事件监听的 useEffect 样板 */
@@ -74,6 +76,7 @@ export function useRecording(): UseRecordingReturn {
   const [durationSec, setDurationSec] = useState<number | null>(null);
   const [charCount, setCharCount] = useState<number | null>(null);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
+  const [editGrabStatus, setEditGrabStatus] = useState<EditGrabStatus | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [resultMode, setResultMode] = useState<RecordingMode>("dictation");
   const latestSessionIdRef = useRef(0);
@@ -115,6 +118,7 @@ export function useRecording(): UseRecordingReturn {
       setDurationSec(payload.durationSec ?? null);
       setCharCount(payload.charCount ?? null);
       setDetectedLanguage(payload.language ?? null);
+      setEditGrabStatus(payload.editGrabStatus ?? null);
       setResultMode(payload.mode ?? "dictation");
     }
 
@@ -126,6 +130,7 @@ export function useRecording(): UseRecordingReturn {
             text,
             originalText: rawText,
             timestamp: now, timeDisplay: new Date(now).toLocaleTimeString(),
+            editGrabStatus: payload.editGrabStatus,
           },
           ...prev.filter((item) => item.id !== historyId),
         ].slice(0, 20)
@@ -167,7 +172,7 @@ export function useRecording(): UseRecordingReturn {
     isRecording, isProcessing, startRecording, stopRecording,
     error, transcriptionResult, setTranscriptionResult,
     originalAsrText, editBaselineText, setEditBaselineText,
-    durationSec, charCount, detectedLanguage, history,
+    durationSec, charCount, detectedLanguage, editGrabStatus, history,
     resultMode,
   };
 }

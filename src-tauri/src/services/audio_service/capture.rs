@@ -1,6 +1,6 @@
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    mpsc, Arc,
 };
 
 use tauri::Emitter;
@@ -16,9 +16,34 @@ use crate::utils::AppError;
 /// 30min × 48kHz mono = 86_400_000 samples = 172.8MB。覆盖任何合理录音
 /// 时长；超过 30 分钟应分段录制。这是兜底安全阀，正常路径不应该触到。
 pub(crate) const MAX_RECORD_SAMPLES: usize = 30 * 60 * 48_000;
+const AUDIO_CAPTURE_TIMEOUT_JOIN_MS: u64 = 500;
 
 /// 一次性的"已触达录音缓冲硬上限"警告标志。仅在第一次撞上限时打日志。
 static RECORD_CAP_WARNED: AtomicBool = AtomicBool::new(false);
+
+fn confirm_audio_thread_exit(handle: std::thread::JoinHandle<()>, wait: std::time::Duration) {
+    let (done_tx, done_rx) = mpsc::sync_channel(1);
+    let joiner = std::thread::Builder::new()
+        .name("audio-capture-timeout-join".into())
+        .spawn(move || {
+            let result = handle.join();
+            if result.is_err() {
+                log::warn!("录音线程启动超时后退出时发生 panic");
+            }
+            let _ = done_tx.send(());
+        });
+
+    match joiner {
+        Ok(_) => {
+            if done_rx.recv_timeout(wait).is_err() {
+                log::warn!("录音线程启动超时后仍未完成退出，后台 join 将继续等待");
+            }
+        }
+        Err(err) => {
+            log::warn!("创建录音线程退出确认 helper 失败: {}", err);
+        }
+    }
+}
 
 // ---------- cpal 设备管理 ----------
 
@@ -398,6 +423,10 @@ pub fn spawn_audio_capture_thread(
         Ok(r) => r.map_err(AppError::Audio)?,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             stop_flag.store(true, Ordering::Relaxed);
+            confirm_audio_thread_exit(
+                handle,
+                std::time::Duration::from_millis(AUDIO_CAPTURE_TIMEOUT_JOIN_MS),
+            );
             return Err(AppError::Audio(format!(
                 "录音线程启动超时（{} 秒）",
                 AUDIO_CAPTURE_INIT_TIMEOUT_SECS

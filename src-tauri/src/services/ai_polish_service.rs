@@ -11,6 +11,8 @@ use crate::services::{
 use crate::state::user_profile::{CorrectionSource, LlmReasoningMode};
 use crate::state::AppState;
 
+const AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS: u64 = 120;
+
 /// LLM 结构化输出
 #[derive(Deserialize)]
 struct StructuredResponse {
@@ -310,6 +312,7 @@ pub(crate) fn ai_polish_transport_plan(
         web_search: false,
         openai_fast_mode: false,
         stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
+        stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
     let stream_nojson = LlmRequestOptions {
         stream: true,
@@ -320,6 +323,7 @@ pub(crate) fn ai_polish_transport_plan(
         web_search: false,
         openai_fast_mode: false,
         stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
+        stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
     let nostream_json = LlmRequestOptions {
         stream: false,
@@ -330,6 +334,7 @@ pub(crate) fn ai_polish_transport_plan(
         web_search: false,
         openai_fast_mode: false,
         stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
+        stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
     let nostream_nojson = LlmRequestOptions {
         stream: false,
@@ -340,6 +345,7 @@ pub(crate) fn ai_polish_transport_plan(
         web_search: false,
         openai_fast_mode: false,
         stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
+        stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
 
     if prefer_streaming_after_partial {
@@ -1069,9 +1075,10 @@ fn emit_polish_status(
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_edit_result, parse_structured_response, render_polish_user_content,
-        BASE_SYSTEM_PROMPT,
+        ai_polish_transport_plan, extract_edit_result, parse_structured_response,
+        render_polish_user_content, BASE_SYSTEM_PROMPT,
     };
+    use crate::state::user_profile::LlmReasoningMode;
 
     #[test]
     fn polish_input_preserves_symbols_and_splits_cdata() {
@@ -1171,5 +1178,20 @@ mod tests {
     fn base_prompt_includes_translation_target_self_repair_example() {
         assert!(BASE_SYSTEM_PROMPT.contains("你把这句话翻译成日语 不对 翻译成英语"));
         assert!(BASE_SYSTEM_PROMPT.contains("你把这句话翻译成英语。"));
+    }
+
+    #[test]
+    fn ai_polish_stream_stages_use_short_total_stream_budget() {
+        let stages = ai_polish_transport_plan(LlmReasoningMode::ProviderDefault, 42, false);
+
+        for stage in stages.iter().filter(|stage| stage.stream) {
+            let timeout = stage
+                .stream_total_timeout_secs
+                .expect("AI polish streaming stages must carry a total timeout");
+            assert!(
+                (60..=120).contains(&timeout),
+                "AI polish stream total timeout should be a short task budget, got {timeout}s"
+            );
+        }
     }
 }

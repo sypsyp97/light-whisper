@@ -8,6 +8,7 @@ ASR 模型下载脚本
 import sys
 import json
 import os
+import hashlib
 import requests
 
 from hf_cache_utils import (
@@ -78,11 +79,16 @@ def _get_repo_info(repo_id, endpoint):
     info = resp.json()
     commit_hash = info.get("sha", "main")
     siblings = info.get("siblings", [])
-    files = [
-        {"rfilename": s["rfilename"], "size": s.get("size")}
-        for s in siblings
-        if s.get("rfilename")
-    ]
+    files = []
+    for sibling in siblings:
+        filename = sibling.get("rfilename")
+        if not filename:
+            continue
+        item = {"rfilename": filename, "size": sibling.get("size")}
+        sha256 = sibling.get("lfs", {}).get("sha256")
+        if sha256:
+            item["sha256"] = sha256
+        files.append(item)
     return commit_hash, files
 
 
@@ -96,6 +102,10 @@ def _remote_file_size(url):
         return None
 
 
+def _resolve_download_url(endpoint, repo_id, filename, revision):
+    return f"{endpoint}/{repo_id}/resolve/{revision}/{filename}"
+
+
 def _download_file(
     repo_id,
     filename,
@@ -105,9 +115,10 @@ def _download_file(
     file_total,
     endpoint,
     expected_size=None,
+    revision="main",
 ):
     """下载单个文件，支持断点续传和进度上报"""
-    url = f"{endpoint}/{repo_id}/resolve/main/{filename}"
+    url = _resolve_download_url(endpoint, repo_id, filename, revision)
 
     dest_dir = os.path.dirname(dest_path)
     os.makedirs(dest_dir, exist_ok=True)
@@ -196,6 +207,14 @@ def _download_file(
     os.replace(tmp_path, dest_path)
 
 
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _write_completion_manifest(snapshot_dir, repo_id, commit_hash, files):
     manifest_files = []
     for item in files:
@@ -207,7 +226,16 @@ def _write_completion_manifest(snapshot_dir, repo_id, commit_hash, files):
         actual_size = os.path.getsize(path)
         if actual_size != size:
             raise RuntimeError(f"{filename} 文件大小校验失败: got={actual_size}, expected={size}")
-        manifest_files.append({"path": filename, "size": size})
+        manifest_item = {"path": filename, "size": size}
+        expected_sha256 = item.get("sha256")
+        if expected_sha256:
+            actual_sha256 = _sha256_file(path)
+            if actual_sha256.lower() != expected_sha256.lower():
+                raise RuntimeError(
+                    f"{filename} SHA256 校验失败: got={actual_sha256}, expected={expected_sha256}"
+                )
+            manifest_item["sha256"] = expected_sha256
+        manifest_files.append(manifest_item)
 
     manifest = {
         "repo_id": repo_id,
@@ -296,6 +324,7 @@ def download_model(model_config):
                     file_total,
                     endpoint,
                     expected_size=file_info.get("size"),
+                    revision=commit_hash,
                 )
 
             _write_completion_manifest(snapshot_dir, model_name, commit_hash, files)

@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Copy, Check } from "lucide-react";
+import type { EditGrabStatus } from "@/types";
 
 interface TranscriptionResultProps {
   text: string | null;
@@ -13,6 +14,7 @@ interface TranscriptionResultProps {
   durationSec: number | null;
   charCount: number | null;
   detectedLanguage?: string | null;
+  editGrabStatus?: EditGrabStatus | null;
 }
 
 export default function TranscriptionResult({
@@ -26,12 +28,18 @@ export default function TranscriptionResult({
   durationSec,
   charCount,
   detectedLanguage,
+  editGrabStatus,
 }: TranscriptionResultProps) {
   const { t } = useTranslation();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [draftText, setDraftText] = useState(text ?? "");
   const hasResult = text !== null;
-  const showStats = !!text && durationSec && durationSec > 0 && charCount;
+  const hasStats = !!text && durationSec && durationSec > 0 && charCount;
+  const editGrabHintKey =
+    editGrabStatus === "timeout" || editGrabStatus === "empty"
+      ? `result.editGrab.${editGrabStatus}`
+      : null;
+  const showMeta = hasStats || editGrabHintKey;
 
   useEffect(() => {
     setDraftText(text ?? "");
@@ -81,12 +89,15 @@ export default function TranscriptionResult({
               onBlur={handleBlur}
               spellCheck={false}
             />
-            {showStats && (
+            {showMeta && (
               <p className="result-card-stats">
-                {detectedLanguage && (
+                {hasStats && detectedLanguage && (
                   <span className="result-lang-tag">{detectedLanguage}</span>
                 )}
-                {t("result.stats", { chars: charCount, duration: durationSec.toFixed(1), cpm: Math.round((charCount / durationSec) * 60) })}
+                {hasStats && t("result.stats", { chars: charCount, duration: durationSec.toFixed(1), cpm: Math.round((charCount / durationSec) * 60) })}
+                {editGrabHintKey && (
+                  <span className="result-edit-grab-hint">{t(editGrabHintKey)}</span>
+                )}
               </p>
             )}
           </div>

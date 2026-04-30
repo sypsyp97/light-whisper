@@ -10,6 +10,9 @@ use crate::state::user_profile::{UserProfile, WebSearchConfig, WebSearchProvider
 use crate::state::AppState;
 use crate::utils::AppError;
 
+const ASSISTANT_SIMPLE_STREAM_TOTAL_TIMEOUT_SECS: u64 = 240;
+const ASSISTANT_EXTENDED_STREAM_TOTAL_TIMEOUT_SECS: u64 = 600;
+
 const ASSISTANT_SYSTEM_PROMPT: &str = r#"
 <role>
 你是用户的语音助手，负责理解用户的语音指令并生成对应的目标文本。用户通过语音告诉你要做什么，你直接输出完成后的结果。
@@ -158,6 +161,31 @@ fn render_assistant_user_content(
         )
     } else {
         crate::utils::foreground::wrap_xml_cdata("user_request", asr_text)
+    }
+}
+
+fn build_assistant_request_options(
+    reasoning_mode: crate::state::user_profile::LlmReasoningMode,
+    session_id: u64,
+    use_native_search: bool,
+    has_image_context: bool,
+) -> LlmRequestOptions<'static> {
+    let stream_total_timeout_secs = if use_native_search || has_image_context {
+        ASSISTANT_EXTENDED_STREAM_TOTAL_TIMEOUT_SECS
+    } else {
+        ASSISTANT_SIMPLE_STREAM_TOTAL_TIMEOUT_SECS
+    };
+
+    LlmRequestOptions {
+        stream: true,
+        json_output: false,
+        reasoning_mode,
+        stream_event: Some("assistant-stream"),
+        session_id: Some(session_id),
+        web_search: use_native_search,
+        openai_fast_mode: false,
+        stream_progress_timeout_secs: None,
+        stream_total_timeout_secs: Some(stream_total_timeout_secs),
     }
 }
 
@@ -350,16 +378,16 @@ pub async fn generate_content(
         text: user_content.clone(),
         images,
     };
+    let has_image_context = !user_input.images.is_empty();
 
     let request_options = LlmRequestOptions {
-        stream: true,
-        json_output: false,
-        reasoning_mode: config.assistant_reasoning_mode(),
-        stream_event: Some("assistant-stream"),
-        session_id: Some(session_id),
-        web_search: use_native_search,
         openai_fast_mode: config.openai_fast_mode,
-        stream_progress_timeout_secs: None,
+        ..build_assistant_request_options(
+            config.assistant_reasoning_mode(),
+            session_id,
+            use_native_search,
+            has_image_context,
+        )
     };
     let body = llm_client::build_llm_body(&endpoint, &system_prompt, &user_input, request_options);
 
@@ -482,7 +510,8 @@ pub async fn generate_content(
 
 #[cfg(test)]
 mod tests {
-    use super::render_assistant_user_content;
+    use super::{build_assistant_request_options, render_assistant_user_content};
+    use crate::state::user_profile::LlmReasoningMode;
 
     #[test]
     fn assistant_input_preserves_symbols_and_splits_cdata() {
@@ -501,5 +530,33 @@ mod tests {
         assert!(content.contains(
             "<user_request><![CDATA[如果 a > b 并且文本里有 ]]]]><![CDATA[> 这个片段]]></user_request>"
         ));
+    }
+
+    #[test]
+    fn assistant_stream_uses_bounded_total_budget() {
+        let options =
+            build_assistant_request_options(LlmReasoningMode::ProviderDefault, 42, false, false);
+
+        let timeout = options
+            .stream_total_timeout_secs
+            .expect("assistant streaming requests must carry a total timeout");
+        assert!(
+            (240..=600).contains(&timeout),
+            "assistant stream total timeout should be bounded for normal tasks, got {timeout}s"
+        );
+    }
+
+    #[test]
+    fn native_web_search_assistant_stream_may_use_upper_budget() {
+        let options =
+            build_assistant_request_options(LlmReasoningMode::ProviderDefault, 42, true, false);
+
+        let timeout = options
+            .stream_total_timeout_secs
+            .expect("web-search assistant streaming requests must carry a total timeout");
+        assert!(
+            (480..=600).contains(&timeout),
+            "web-search assistant stream budget should be near the upper bounded range, got {timeout}s"
+        );
     }
 }

@@ -58,6 +58,10 @@ const zh = {
     recognizingSpeech: "正在识别语音...",
     stats: "{{chars}}字 · {{duration}}秒 · {{cpm}}字/分钟",
     editableTranscription: "识别结果，可编辑",
+    editGrab: {
+      timeout: "选中文本读取超时",
+      empty: "未检测到选中文本",
+    },
   },
   subtitle: {
     aiListening: "AI 助手聆听中...",
@@ -148,6 +152,10 @@ const zh = {
     glmAsrDesc: "智谱在线语音识别",
     alibabaAsrDesc: "阿里 DashScope Qwen ASR / Omni",
     alibabaAsrLabel: "阿里 DashScope",
+    capabilityLocal: "本地",
+    capabilityCloud: "云端",
+    capabilityFinalInterim: "最终 + 实时",
+    capabilityFinalOnly: "仅最终",
     alibabaModelLabel: "模型",
     alibabaApiKeyPlaceholder: "输入阿里 DashScope API Key",
     alibabaModelsLoading: "刷新中…",

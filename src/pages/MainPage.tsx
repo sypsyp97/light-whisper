@@ -22,7 +22,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
   const {
     isRecording, isProcessing, startRecording, stopRecording,
     recordingError, transcriptionResult, originalAsrText, editBaselineText, setEditBaselineText, setTranscriptionResult,
-    durationSec, charCount, detectedLanguage, history, recordingMode, stage, isReady,
+    durationSec, charCount, detectedLanguage, editGrabStatus, history, recordingMode, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError, hotkeyDisplay,
     downloadModels: triggerDownload, cancelDownload, retryModel,
@@ -179,6 +179,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
             durationSec={durationSec}
             charCount={charCount}
             detectedLanguage={detectedLanguage}
+            editGrabStatus={editGrabStatus}
           />
           <TranscriptionHistory
             history={history}

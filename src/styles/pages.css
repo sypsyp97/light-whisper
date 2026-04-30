@@ -157,6 +157,12 @@
   vertical-align: 1px;
 }
 
+.result-edit-grab-hint {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--color-text-secondary);
+}
+
 /* Error banner container */
 .error-banner {
   border-radius: var(--radius-md);
@@ -948,6 +954,27 @@
 
 .picker-option-copy code {
   font-size: 10px;
+}
+
+.asr-capability-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.asr-capability-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-tertiary, rgba(128, 128, 128, 0.12));
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .picker-empty {

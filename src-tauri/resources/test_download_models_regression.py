@@ -1,4 +1,6 @@
 import os
+import hashlib
+import json
 import sys
 import tempfile
 import unittest
@@ -33,6 +35,17 @@ class FakeCompleteResponse:
         yield b"xyz"
 
 
+class FakeRepoInfoResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
 class FakeRangeNotSatisfiableResponse:
     status_code = 416
     headers = {}
@@ -45,6 +58,111 @@ class FakeRangeNotSatisfiableResponse:
 
 
 class ModelDownloadAtomicityTests(unittest.TestCase):
+    def test_get_repo_info_preserves_lfs_sha256_metadata(self):
+        sha256 = "a" * 64
+        payload = {
+            "sha": "commit123",
+            "siblings": [
+                {
+                    "rfilename": "model.safetensors",
+                    "size": 3,
+                    "lfs": {"sha256": sha256},
+                }
+            ],
+        }
+
+        with mock.patch.object(download_models.requests, "get", return_value=FakeRepoInfoResponse(payload)):
+            commit, files = download_models._get_repo_info("org/model", "https://hf.example")
+
+        self.assertEqual(commit, "commit123")
+        self.assertEqual(files[0]["sha256"], sha256)
+
+    def test_write_completion_manifest_records_and_verifies_sha256(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = b"model-bytes"
+            expected_sha256 = hashlib.sha256(data).hexdigest()
+            path = os.path.join(tmp, "model.safetensors")
+            with open(path, "wb") as f:
+                f.write(data)
+
+            download_models._write_completion_manifest(
+                tmp,
+                "org/model",
+                "commit123",
+                [
+                    {
+                        "rfilename": "model.safetensors",
+                        "size": len(data),
+                        "sha256": expected_sha256,
+                    }
+                ],
+            )
+
+            manifest_path = os.path.join(tmp, download_models.COMPLETE_MANIFEST_NAME)
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            self.assertEqual(manifest["files"][0]["sha256"], expected_sha256)
+
+    def test_write_completion_manifest_rejects_sha256_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "model.safetensors")
+            with open(path, "wb") as f:
+                f.write(b"actual")
+
+            with self.assertRaisesRegex(RuntimeError, "sha256|hash|校验"):
+                download_models._write_completion_manifest(
+                    tmp,
+                    "org/model",
+                    "commit123",
+                    [
+                        {
+                            "rfilename": "model.safetensors",
+                            "size": len(b"actual"),
+                            "sha256": hashlib.sha256(b"expected").hexdigest(),
+                        }
+                    ],
+                )
+
+    def test_snapshot_matches_completion_manifest_checks_sha256(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = b"x" * 1_000_000
+            expected_sha256 = hashlib.sha256(data).hexdigest()
+            path = os.path.join(tmp, "model.safetensors")
+            with open(path, "wb") as f:
+                f.write(data)
+            manifest = {
+                "repo_id": "org/model",
+                "commit_hash": "commit123",
+                "files": [
+                    {
+                        "path": "model.safetensors",
+                        "size": len(data),
+                        "sha256": expected_sha256,
+                    }
+                ],
+            }
+            manifest_path = os.path.join(tmp, hf_cache_utils.COMPLETE_MANIFEST_NAME)
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f)
+
+            self.assertTrue(hf_cache_utils._snapshot_matches_completion_manifest(tmp))
+
+            manifest["files"][0]["sha256"] = hashlib.sha256(b"different").hexdigest()
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f)
+
+            self.assertFalse(hf_cache_utils._snapshot_matches_completion_manifest(tmp))
+
+    def test_download_file_uses_resolved_commit_in_url_when_helper_is_available(self):
+        helper = getattr(download_models, "_resolve_download_url", None)
+        if helper is None:
+            self.skipTest("_resolve_download_url helper is not implemented yet")
+
+        self.assertEqual(
+            helper("https://hf.example", "org/model", "nested/model.bin", "commit123"),
+            "https://hf.example/org/model/resolve/commit123/nested/model.bin",
+        )
+
     def test_interrupted_download_does_not_leave_partial_final_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             dest_path = os.path.join(tmp, "snapshot", "model.bin")

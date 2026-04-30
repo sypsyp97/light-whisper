@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use tauri::{Emitter, Manager};
 
-use super::resample::resample_to_16k;
+use super::resample::ChunkedResampler;
 use super::wav::encode_wav;
 use super::{
     EDIT_GRAB_WAIT_MS, EMPTY_RESULT_HIDE_DELAY_MS, INTERIM_MAX_AUDIO_WINDOW_SEC,
@@ -15,6 +15,25 @@ use crate::state::{AppState, DictationOutputMode, RecordingMode, RecordingSessio
 use crate::utils::paths;
 
 // ---------- 最终转写 + 粘贴 ----------
+
+#[derive(Clone, Copy)]
+enum EditGrabStatus {
+    Ok,
+    Timeout,
+    Empty,
+    Unsupported,
+}
+
+impl EditGrabStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Timeout => "timeout",
+            Self::Empty => "empty",
+            Self::Unsupported => "unsupported",
+        }
+    }
+}
 
 pub async fn finalize_recording(app_handle: tauri::AppHandle, session: RecordingSession) {
     let RecordingSession {
@@ -50,26 +69,36 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     // 选中文本保留在本地变量里，不写全局。两个 finalize 并发时也彼此隔离：
     // edit_grab 来自各自 session 的 RecordingSession，edit_context 只在本函数
     // 作用域存活，不存在跨会话串位的机会。
-    let edit_context: Option<String> = match edit_grab {
+    let (edit_context, edit_grab_status): (Option<String>, EditGrabStatus) = match edit_grab {
         Some(handle) => {
             let abort_handle = handle.abort_handle();
             match tokio::time::timeout(std::time::Duration::from_millis(EDIT_GRAB_WAIT_MS), handle)
                 .await
             {
-                Ok(Ok(Some(selected))) => Some(selected),
-                Ok(Ok(None)) => None,
+                Ok(Ok(Some(selected))) => (Some(selected), EditGrabStatus::Ok),
+                Ok(Ok(None)) => {
+                    log::debug!("选中文本抓取完成：当前没有选中文本");
+                    (None, EditGrabStatus::Empty)
+                }
                 Ok(Err(join_err)) => {
                     log::debug!("选中文本抓取任务 join 失败: {}", join_err);
-                    None
+                    (None, EditGrabStatus::Unsupported)
                 }
                 Err(_) => {
-                    log::debug!("选中文本抓取超过 {}ms，按普通听写处理", EDIT_GRAB_WAIT_MS);
+                    log::warn!(
+                        "选中文本抓取超过 {}ms，按普通听写处理 (session {})",
+                        EDIT_GRAB_WAIT_MS,
+                        session_id
+                    );
                     abort_handle.abort();
-                    None
+                    (None, EditGrabStatus::Timeout)
                 }
             }
         }
-        None => None,
+        None => {
+            log::debug!("当前会话没有选中文本抓取任务");
+            (None, EditGrabStatus::Unsupported)
+        }
     };
 
     let state = app_handle.state::<AppState>();
@@ -90,6 +119,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             duration_sec,
             false,
             None,
+            edit_grab_status,
         );
         flush_pending_paste(&app_handle);
         return;
@@ -148,6 +178,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             duration_sec,
             false,
             lang_ref,
+            edit_grab_status,
         );
         flush_pending_paste(&app_handle);
         return;
@@ -180,6 +211,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     duration_sec,
                     true,
                     lang_ref,
+                    edit_grab_status,
                 );
                 if !result.is_empty() {
                     let app = app_handle.clone();
@@ -206,6 +238,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     duration_sec,
                     false,
                     lang_ref,
+                    edit_grab_status,
                 );
                 flush_pending_paste(&app_handle);
             }
@@ -230,6 +263,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     duration_sec,
                     false,
                     lang_ref,
+                    edit_grab_status,
                 );
                 if let Err(err) =
                     crate::commands::window::set_subtitle_window_interactive(&app_handle, true)
@@ -271,6 +305,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             duration_sec,
             polished,
             lang_ref,
+            edit_grab_status,
         );
 
         if !text.is_empty() {
@@ -315,35 +350,55 @@ async fn do_final_asr(
     samples: &parking_lot::Mutex<Vec<i16>>,
     sample_rate: u32,
 ) -> Result<funasr_service::TranscriptionResult, String> {
-    let data = samples.lock().clone();
-    let resampled = match resample_to_16k(&data, sample_rate) {
-        Ok(samples) => samples,
+    let data = std::mem::take(&mut *samples.lock());
+    let (asr_audio, asr_sample_rate) = match ChunkedResampler::new(sample_rate) {
+        Ok(mut resampler) => {
+            let mut output = Vec::with_capacity(
+                ((data.len() as f64 * TARGET_SAMPLE_RATE as f64 / sample_rate as f64).ceil()
+                    as usize)
+                    + 8,
+            );
+            match resampler
+                .process_chunk(&data, &mut output)
+                .and_then(|_| resampler.finish(&mut output))
+            {
+                Ok(()) => {
+                    if sample_rate == TARGET_SAMPLE_RATE {
+                        (std::borrow::Cow::Borrowed(data.as_slice()), sample_rate)
+                    } else {
+                        (std::borrow::Cow::Owned(output), TARGET_SAMPLE_RATE)
+                    }
+                }
+                Err(err) => {
+                    log::warn!(
+                        "最终音频重采样失败，保留原始采样率 {}Hz: {}",
+                        sample_rate,
+                        err
+                    );
+                    (std::borrow::Cow::Borrowed(data.as_slice()), sample_rate)
+                }
+            }
+        }
         Err(err) => {
             log::warn!(
                 "最终音频重采样失败，保留原始采样率 {}Hz: {}",
                 sample_rate,
                 err
             );
-            std::borrow::Cow::Borrowed(data.as_slice())
+            (std::borrow::Cow::Borrowed(data.as_slice()), sample_rate)
         }
     };
-    let asr_sample_rate =
-        if sample_rate == TARGET_SAMPLE_RATE || matches!(resampled, std::borrow::Cow::Owned(_)) {
-            TARGET_SAMPLE_RATE
-        } else {
-            sample_rate
-        };
 
     let engine = paths::read_engine_config();
     let result = if paths::is_online_engine(&engine) {
         let wav =
-            encode_wav(&resampled, asr_sample_rate).map_err(|e| format!("WAV 编码失败: {}", e))?;
+            encode_wav(&asr_audio, asr_sample_rate).map_err(|e| format!("WAV 编码失败: {}", e))?;
         match engine.as_str() {
             "alibaba-asr" => alibaba_asr_service::transcribe(state, wav).await,
             _ => glm_asr_service::transcribe(state, wav).await,
         }
     } else {
-        funasr_service::transcribe_pcm16(state, &resampled, asr_sample_rate, app_handle).await
+        funasr_service::transcribe_pcm16(state, &asr_audio, asr_sample_rate, app_handle).await
     };
 
     match result {
@@ -365,6 +420,7 @@ fn emit_done(
     dur: f64,
     polished: bool,
     language: Option<&str>,
+    edit_grab_status: EditGrabStatus,
 ) {
     let delay = if text.is_empty() {
         EMPTY_RESULT_HIDE_DELAY_MS
@@ -378,6 +434,7 @@ fn emit_done(
             "sessionId": sid, "text": text, "interim": false,
             "durationSec": dur, "charCount": text.chars().count(), "polished": polished,
             "language": language, "mode": mode.as_str(), "originalText": original_text,
+            "editGrabStatus": edit_grab_status.as_str(),
         }),
     );
     if mode != RecordingMode::Assistant || text.is_empty() {

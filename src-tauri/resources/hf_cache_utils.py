@@ -6,6 +6,7 @@
 
 import os
 import json
+import hashlib
 
 ASR_REPO_ID = "FunAudioLLM/SenseVoiceSmall"
 VAD_REPO_ID = "funasr/fsmn-vad"
@@ -99,7 +100,10 @@ def _snapshot_matches_completion_manifest(snapshot_path):
             return False
         rel_path = item.get("path")
         expected_size = item.get("size")
+        expected_sha256 = item.get("sha256")
         if not isinstance(rel_path, str) or not isinstance(expected_size, int):
+            return False
+        if expected_sha256 is not None and not isinstance(expected_sha256, str):
             return False
         if os.path.isabs(rel_path) or ".." in rel_path.replace("\\", "/").split("/"):
             return False
@@ -110,10 +114,20 @@ def _snapshot_matches_completion_manifest(snapshot_path):
             return False
         if actual_size != expected_size:
             return False
+        if expected_sha256 and _sha256_file(path).lower() != expected_sha256.lower():
+            return False
         if rel_path.endswith(_WEIGHT_EXTS) and actual_size >= _MIN_WEIGHT_SIZE:
             has_weight = True
 
     return has_weight
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _snapshot_matches_legacy_weight_check(snapshot_path):

@@ -60,6 +60,10 @@ const en: TranslationSchema = {
     recognizingSpeech: "Recognizing speech...",
     stats: "{{chars}} chars · {{duration}}s · {{cpm}} chars/min",
     editableTranscription: "Transcription result, editable",
+    editGrab: {
+      timeout: "Selected text lookup timed out",
+      empty: "No selected text detected",
+    },
   },
   subtitle: {
     aiListening: "AI assistant listening...",
@@ -150,6 +154,10 @@ const en: TranslationSchema = {
     glmAsrDesc: "Zhipu online ASR",
     alibabaAsrDesc: "Alibaba DashScope Qwen ASR / Omni",
     alibabaAsrLabel: "Alibaba DashScope",
+    capabilityLocal: "Local",
+    capabilityCloud: "Cloud",
+    capabilityFinalInterim: "Final + interim",
+    capabilityFinalOnly: "Final only",
     alibabaModelLabel: "Model",
     alibabaApiKeyPlaceholder: "Enter Alibaba DashScope API Key",
     alibabaModelsLoading: "Refreshing…",

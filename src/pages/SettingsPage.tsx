@@ -74,6 +74,7 @@ import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
+import { getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 import { resolveEffectiveAssistantProvider, shouldShowFastModeToggle } from "@/lib/fastMode";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
@@ -94,6 +95,15 @@ const engineOptions = [
 
 const ONLINE_ENGINES: ReadonlySet<string> = new Set(["glm-asr", "alibaba-asr"]);
 const isOnlineEngineKey = (engine: string) => ONLINE_ENGINES.has(engine);
+
+const asrCapabilityTagKeys = (engineKey: string) => {
+  const capability = getAsrEngineCapability(engineKey);
+  if (!capability) return [];
+  return [
+    capability.execution === "local" ? "settings.capabilityLocal" : "settings.capabilityCloud",
+    capability.interim ? "settings.capabilityFinalInterim" : "settings.capabilityFinalOnly",
+  ];
+};
 
 const inputOptions = [
   { key: "sendInput" as const, icon: Keyboard, labelKey: "settings.directInput", descKey: "settings.directInputDesc" },
@@ -1958,6 +1968,7 @@ export default function SettingsPage({
               const currentOption = engineOptions.find((o) => o.key === engine) ?? engineOptions[0];
               const CurrentIcon = currentOption.icon;
               const currentLabel = currentOption.labelKey ? t(currentOption.labelKey) : currentOption.label;
+              const currentCapabilityTags = asrCapabilityTagKeys(currentOption.key);
               return (
                 <div ref={picker.setRef("engine")} style={{ position: "relative" }}>
                   <button
@@ -1974,7 +1985,16 @@ export default function SettingsPage({
                       <CurrentIcon size={18} strokeWidth={1.5} style={{ flexShrink: 0, color: "var(--color-accent)" }} />
                       <span className="picker-trigger-copy">
                         <strong>{currentLabel}</strong>
-                        <span>{t(currentOption.descKey)}</span>
+                        <span>
+                          {t(currentOption.descKey)}
+                          {currentCapabilityTags.length > 0 && (
+                            <span className="asr-capability-tags">
+                              {currentCapabilityTags.map((tagKey) => (
+                                <span key={tagKey} className="asr-capability-tag">{t(tagKey)}</span>
+                              ))}
+                            </span>
+                          )}
+                        </span>
                       </span>
                     </span>
                     <ChevronsUpDown size={14} style={{ flexShrink: 0, opacity: 0.6 }} />
@@ -1985,6 +2005,7 @@ export default function SettingsPage({
                         {engineOptions.map(({ key, icon: Icon, label, labelKey, descKey }) => {
                           const displayLabel = labelKey ? t(labelKey) : label;
                           const selected = engine === key;
+                          const capabilityTags = asrCapabilityTagKeys(key);
                           return (
                             <button
                               key={key}
@@ -2002,6 +2023,13 @@ export default function SettingsPage({
                                 <span className="picker-option-copy">
                                   <strong>{displayLabel}</strong>
                                   <span>{t(descKey)}</span>
+                                  {capabilityTags.length > 0 && (
+                                    <span className="asr-capability-tags">
+                                      {capabilityTags.map((tagKey) => (
+                                        <span key={tagKey} className="asr-capability-tag">{t(tagKey)}</span>
+                                      ))}
+                                    </span>
+                                  )}
                                 </span>
                               </span>
                               {selected && <Check size={13} style={{ flexShrink: 0, opacity: 0.7 }} />}
