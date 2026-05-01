@@ -26,6 +26,10 @@ interface TranscriptionResult {
 
 type Phase = "idle" | "recording" | "processing" | "searching" | "polishing" | "result";
 const RESULT_FADE_DELAY_MS = 2000;
+// Fade animation is ~300ms; add ~100ms buffer. Total ~2400ms — fires before the
+// backend hides the subtitle window at 2500ms, so we clear stale state in time
+// to prevent a one-frame flash of previous text on the next recording.
+const RESULT_CLEANUP_DELAY_MS = RESULT_FADE_DELAY_MS + 400;
 
 export default function SubtitleOverlay() {
   // 初始 "idle"：窗口预创建后隐藏，等待录音事件时切换状态
@@ -41,6 +45,7 @@ export default function SubtitleOverlay() {
   const smoothText = useSmoothText(text);
   const latestSessionIdRef = useRef(0);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const assistantTextRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const assistantPanelActive = mode === "assistant" && (phase === "searching" || phase === "polishing" || phase === "result");
@@ -51,6 +56,12 @@ export default function SubtitleOverlay() {
     if (fadeTimerRef.current) {
       clearTimeout(fadeTimerRef.current);
       fadeTimerRef.current = null;
+    }
+    // Also cancel the post-fade cleanup so a newer session / assistant takeover
+    // doesn't get its fresh state stomped by the old cleanup firing late.
+    if (cleanupTimerRef.current) {
+      clearTimeout(cleanupTimerRef.current);
+      cleanupTimerRef.current = null;
     }
   }, []);
 
@@ -323,6 +334,19 @@ export default function SubtitleOverlay() {
               setFadingOut(true);
               fadeTimerRef.current = null;
             }, RESULT_FADE_DELAY_MS);
+            // After the fade animation finishes, clear stale state so the next
+            // recording does not flash the previous result for one frame when
+            // the still-alive subtitle window is re-shown.
+            cleanupTimerRef.current = setTimeout(() => {
+              if (latestSessionIdRef.current !== expectedSessionId) return;
+              setText("");
+              setPhase("idle");
+              setFadingOut(false);
+              setPolishFlash(false);
+              setStreamTokens(0);
+              setWaveformBars([]);
+              cleanupTimerRef.current = null;
+            }, RESULT_CLEANUP_DELAY_MS);
           }
         });
 
