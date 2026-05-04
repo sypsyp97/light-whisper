@@ -862,12 +862,16 @@ pub fn apply_reasoning_controls(
         }
         (ReasoningControlKind::SiliconFlowThinkingBudget, _) => {
             let thinking_budget = match mode {
-                LlmReasoningMode::Off => return,
+                LlmReasoningMode::Off => {
+                    body["enable_thinking"] = serde_json::json!(false);
+                    return;
+                }
                 LlmReasoningMode::Light => 1024,
                 LlmReasoningMode::Balanced => 4096,
                 LlmReasoningMode::Deep => 8192,
                 LlmReasoningMode::ProviderDefault => return,
             };
+            body["enable_thinking"] = serde_json::json!(true);
             body["thinking_budget"] = serde_json::json!(thinking_budget);
         }
         (ReasoningControlKind::CerebrasReasoningEffort, _) => {
@@ -1533,6 +1537,38 @@ mod tests {
 
         assert!(support.supported);
         assert_eq!(support.strategy.as_deref(), Some("deepseek_thinking"));
+    }
+
+    #[test]
+    fn siliconflow_off_sends_enable_thinking_false() {
+        let endpoint = endpoint_for_preview(
+            SILICONFLOW,
+            None,
+            Some("Qwen/Qwen3-32B"),
+            ApiFormat::OpenaiCompat,
+        );
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Off);
+
+        assert_eq!(body["enable_thinking"], serde_json::json!(false));
+        assert!(body.get("thinking_budget").is_none());
+    }
+
+    #[test]
+    fn siliconflow_reasoning_budget_enables_thinking() {
+        let endpoint = endpoint_for_preview(
+            SILICONFLOW,
+            None,
+            Some("Qwen/Qwen3-32B"),
+            ApiFormat::OpenaiCompat,
+        );
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Balanced);
+
+        assert_eq!(body["enable_thinking"], serde_json::json!(true));
+        assert_eq!(body["thinking_budget"], serde_json::json!(4096));
     }
 
     #[test]

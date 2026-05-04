@@ -117,6 +117,22 @@ fn uses_responses_api(endpoint: &LlmEndpoint) -> bool {
     endpoint.api_format == ApiFormat::OpenaiCompat && endpoint.api_url.contains("/v1/responses")
 }
 
+fn uses_openai_chat_completions_api(endpoint: &LlmEndpoint) -> bool {
+    endpoint.api_format == ApiFormat::OpenaiCompat
+        && endpoint.api_url.contains("/chat/completions")
+        && (endpoint.provider == "openai" || endpoint.api_url.contains("api.openai.com"))
+}
+
+fn chat_output_token_limit_key(endpoint: &LlmEndpoint) -> &'static str {
+    if uses_openai_chat_completions_api(endpoint)
+        || llm_provider::is_cerebras_like_endpoint(endpoint)
+    {
+        "max_completion_tokens"
+    } else {
+        "max_tokens"
+    }
+}
+
 /// Wire value for OpenAI OAuth fast-mode priority processing.
 ///
 /// Why "priority" and not "fast":
@@ -150,6 +166,12 @@ fn adapt_body_for_backend(
     let uses_chatgpt_backend = uses_codex_chatgpt_backend(endpoint, api_key);
     if !uses_openai_oauth_origin_auth(endpoint, api_key) {
         return adapted;
+    }
+
+    if uses_chatgpt_backend {
+        // The ChatGPT Codex backend rejects this Responses API field, so avoid
+        // a guaranteed failed first request before the compatibility retry.
+        strip_max_output_tokens(&mut adapted);
     }
 
     if let Some(map) = adapted.as_object_mut() {
@@ -243,7 +265,7 @@ pub fn build_llm_body(
             if is_responses_api {
                 body["max_output_tokens"] = serde_json::json!(4096);
             } else {
-                body["max_tokens"] = serde_json::json!(4096);
+                body[chat_output_token_limit_key(endpoint)] = serde_json::json!(4096);
             }
 
             // Cerebras json_object 与 stream 不兼容：结构化输出优先，放弃流式
@@ -1597,8 +1619,8 @@ mod tests {
     }
 
     #[test]
-    fn chat_body_sets_max_tokens_for_openai_compat() {
-        let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
+    fn generic_openai_compat_chat_body_sets_max_tokens() {
+        let endpoint = make_test_endpoint();
         let body = build_llm_body(
             &endpoint,
             "system",
@@ -1607,6 +1629,46 @@ mod tests {
         );
 
         assert_eq!(body["max_tokens"], serde_json::json!(4096));
+    }
+
+    #[test]
+    fn openai_chat_body_sets_max_completion_tokens() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+
+        assert_eq!(body["max_completion_tokens"], serde_json::json!(4096));
+        assert!(
+            body.get("max_tokens").is_none(),
+            "OpenAI Chat Completions deprecates max_tokens and requires max_completion_tokens for current reasoning models"
+        );
+    }
+
+    #[test]
+    fn cerebras_chat_body_sets_max_completion_tokens() {
+        let endpoint = LlmEndpoint {
+            provider: "cerebras".to_string(),
+            api_url: "https://api.cerebras.ai/v1/chat/completions".to_string(),
+            model: "gpt-oss-120b".to_string(),
+            timeout_secs: 5,
+            api_format: ApiFormat::OpenaiCompat,
+        };
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+
+        assert_eq!(body["max_completion_tokens"], serde_json::json!(4096));
+        assert!(
+            body.get("max_tokens").is_none(),
+            "Cerebras Chat Completions documents max_completion_tokens, not max_tokens"
+        );
     }
 
     #[test]
@@ -1623,7 +1685,7 @@ mod tests {
     }
 
     #[test]
-    fn chatgpt_backend_keeps_max_output_tokens_by_default() {
+    fn chatgpt_backend_omits_max_output_tokens_before_first_request() {
         let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
         let body = build_llm_body(
             &endpoint,
@@ -1639,7 +1701,10 @@ mod tests {
 
         let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, false);
 
-        assert_eq!(adapted["max_output_tokens"], serde_json::json!(4096));
+        assert!(
+            adapted.get("max_output_tokens").is_none(),
+            "ChatGPT Codex backend rejects max_output_tokens; it must be removed before dispatch"
+        );
         assert_eq!(adapted["store"], serde_json::json!(false));
     }
 

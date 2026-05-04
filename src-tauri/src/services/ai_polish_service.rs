@@ -577,33 +577,66 @@ pub async fn polish_text(
         return Ok(text.to_string());
     }
 
+    let start = std::time::Instant::now();
+    emit_polish_status(app_handle, "auth", text, "", "", session_id);
+
+    let active_provider = state.active_llm_provider();
+    let manual_api_key = state.read_ai_polish_api_key();
+    let auth_start = std::time::Instant::now();
     let api_key = codex_oauth_service::resolve_api_key_for_provider(
         app_handle,
         state,
-        &state.active_llm_provider(),
-        &state.read_ai_polish_api_key(),
+        &active_provider,
+        &manual_api_key,
     )
-    .await?;
+    .await
+    .inspect_err(|e| {
+        emit_polish_status(app_handle, "error", text, text, e, session_id);
+    })?;
+    let auth_elapsed_ms = auth_start.elapsed().as_millis();
+    log::info!(
+        "AI 润色认证解析完成 ({}ms): provider={}, has_auth={}",
+        auth_elapsed_ms,
+        active_provider,
+        !api_key.is_empty()
+    );
 
     if api_key.is_empty() {
-        log::warn!("AI 润色已启用但未配置 API Key，也未完成 OpenAI Codex 登录，跳过润色");
+        log::warn!(
+            "AI 润色已启用但未配置 API Key，也未完成 OpenAI Codex 登录，跳过润色 (auth{}ms)",
+            auth_elapsed_ms
+        );
         return Ok(text.to_string());
     }
 
+    emit_polish_status(app_handle, "polishing", text, "", "", session_id);
+
     let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
+    emit_polish_status(app_handle, "prompt", text, "", "", session_id);
+    let prompt_start = std::time::Instant::now();
     let system_prompt = build_system_prompt(state, text, translation_target_override);
+    let prompt_elapsed_ms = prompt_start.elapsed().as_millis();
+
+    emit_polish_status(app_handle, "user_input", text, "", "", session_id);
+    let user_input_start = std::time::Instant::now();
     let user_input = build_polish_user_input(state, &endpoint, &api_key, text).await;
     let user_content_len = user_input.text.len();
+    let image_count = user_input.images.len();
+    let user_input_elapsed_ms = user_input_start.elapsed().as_millis();
 
     log::info!(
-        "AI 润色请求: 文本长度={}, format={:?}",
+        "AI 润色请求准备完成: auth={}ms, prompt={}ms, user_input={}ms, 文本长度={}, 请求文本长度={}, 图片={}张, format={:?}",
+        auth_elapsed_ms,
+        prompt_elapsed_ms,
+        user_input_elapsed_ms,
         text.len(),
+        user_content_len,
+        image_count,
         endpoint.api_format
     );
 
-    let start = std::time::Instant::now();
-    emit_polish_status(app_handle, "polishing", text, "", "", session_id);
-
+    emit_polish_status(app_handle, "request", text, "", "", session_id);
+    let request_start = std::time::Instant::now();
     let raw_content = send_llm_request_with_fallback(
         state,
         &endpoint,
@@ -624,9 +657,11 @@ pub async fn polish_text(
     // 旧的 `is_empty() => return Ok(text)` 兜底已不可达，移除。
     let raw_content = raw_content.trim();
 
+    let request_elapsed_ms = request_start.elapsed().as_millis();
     let elapsed_ms = start.elapsed().as_millis();
     log::info!(
-        "AI 润色原始返回 ({}ms): {}",
+        "AI 润色原始返回 (请求{}ms, 总{}ms): {}",
+        request_elapsed_ms,
         elapsed_ms,
         &raw_content[..raw_content.len().min(500)]
     );
@@ -850,19 +885,29 @@ async fn build_polish_user_input(
     let cache_key = llm_provider::image_support_cache_key(endpoint);
     let cached_image_support = state.assistant_image_support(&cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
+        let probe_start = std::time::Instant::now();
         let support = llm_provider::probe_image_support_from_provider_metadata(
             &state.http_client,
             endpoint,
             api_key,
         )
         .await;
+        let probe_elapsed_ms = probe_start.elapsed().as_millis();
         if let Some(supported) = support {
             state.set_assistant_image_support(cache_key.clone(), supported);
             log::info!(
-                "根据模型元数据识别 AI 润色图片输入支持: provider={}, model={}, supported={}",
+                "根据模型元数据识别 AI 润色图片输入支持 ({}ms): provider={}, model={}, supported={}",
+                probe_elapsed_ms,
                 endpoint.provider,
                 endpoint.model,
                 supported
+            );
+        } else {
+            log::info!(
+                "AI 润色图片输入支持探测未得到结论 ({}ms): provider={}, model={}",
+                probe_elapsed_ms,
+                endpoint.provider,
+                endpoint.model
             );
         }
         support
@@ -872,8 +917,10 @@ async fn build_polish_user_input(
     let effective_image_support = cached_image_support.or(probed_image_support);
 
     let images = if screen_context_enabled && effective_image_support != Some(false) {
+        let capture_start = std::time::Instant::now();
         match screen_capture_service::capture_full_screen_context_async().await {
             Ok(captured) => {
+                let capture_elapsed_ms = capture_start.elapsed().as_millis();
                 if !captured.is_empty() {
                     let labels = captured
                         .iter()
@@ -881,9 +928,15 @@ async fn build_polish_user_input(
                         .collect::<Vec<_>>()
                         .join(", ");
                     log::info!(
-                        "AI 润色已附带屏幕截图上下文: {} 张 ({})",
+                        "AI 润色已附带屏幕截图上下文 ({}ms): {} 张 ({})",
+                        capture_elapsed_ms,
                         captured.len(),
                         labels
+                    );
+                } else {
+                    log::info!(
+                        "AI 润色屏幕截图上下文为空 ({}ms)，继续纯文本请求",
+                        capture_elapsed_ms
                     );
                 }
                 captured
