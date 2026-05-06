@@ -249,19 +249,6 @@ pub async fn ensure_accessibility_permission_for_input() -> Result<(), AppError>
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn ensure_accessibility_permission_for_selection_sync() -> bool {
-    if accessibility_trusted_with_prompt(false) {
-        return true;
-    }
-    accessibility_trusted_with_prompt(true)
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn ensure_accessibility_permission_for_selection_sync() -> bool {
-    true
-}
-
-#[cfg(target_os = "macos")]
 pub async fn ensure_automation_permission_for_input() -> Result<(), AppError> {
     let output = tokio::process::Command::new("osascript")
         .arg("-e")

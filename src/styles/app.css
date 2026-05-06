@@ -1,8 +1,8 @@
 :root {
-  --lw-radius-sm: 6px;
-  --lw-radius-md: 10px;
-  --lw-radius-lg: 14px;
-  --lw-radius-xl: 20px;
+  --lw-radius-sm: 8px;
+  --lw-radius-md: 11px;
+  --lw-radius-lg: 18px;
+  --lw-radius-xl: 22px;
   --lw-radius-full: 9999px;
   --lw-accent: var(--color-accent);
   --lw-accent-hover: var(--color-accent-hover);
@@ -24,6 +24,7 @@
   --lw-shadow-sm: var(--shadow-sm);
   --lw-shadow-md: var(--shadow-md);
   --lw-shadow-lg: var(--shadow-lg);
+  --lw-shadow-product: var(--shadow-product);
   --lw-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
   --lw-transition: 160ms cubic-bezier(0.2, 0, 0, 1);
   --lw-transition-slow: 240ms cubic-bezier(0.2, 0, 0, 1);
@@ -58,7 +59,7 @@
   white-space: nowrap;
 }
 .lw-button:hover:not(:disabled) { background: var(--lw-bg-secondary); }
-.lw-button:active:not(:disabled) { transform: scale(0.97); }
+.lw-button:active:not(:disabled) { transform: scale(0.95); }
 .lw-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .lw-button--sm { height: 26px; padding: 0 10px; font-size: 12px; }
 .lw-button--lg { height: 40px; padding: 0 18px; font-size: 14px; }
@@ -66,6 +67,8 @@
   background: var(--lw-accent);
   color: #fff;
   border-color: transparent;
+  border-radius: var(--lw-radius-full);
+  letter-spacing: -0.01em;
 }
 .lw-button--primary:hover:not(:disabled) { background: var(--lw-accent-hover); }
 .lw-button--primary:active:not(:disabled) { background: var(--lw-accent-active); }
@@ -497,11 +500,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--lw-shadow-md);
+  /* Apple's single signature drop-shadow — reserved for the "product" surface. */
+  box-shadow: var(--lw-shadow-product);
   transition: transform var(--lw-transition-slow), background var(--lw-transition), box-shadow var(--lw-transition);
   z-index: 2;
 }
-.lw-record-btn:hover:not(:disabled) { transform: scale(1.04); box-shadow: var(--lw-shadow-lg); }
+.lw-record-btn:hover:not(:disabled) { transform: scale(1.04); }
 .lw-record-btn:active:not(:disabled) { transform: scale(0.95); }
 .lw-record-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .lw-record-btn--recording {

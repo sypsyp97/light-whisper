@@ -1656,10 +1656,6 @@ fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
     }
 }
 
-pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
-    Ok(inspect_model_files_for_engine(&paths::read_engine_config()))
-}
-
 // 需要引入 Emitter trait 才能使用 emit 方法
 use tauri::Emitter;
 

@@ -422,28 +422,6 @@ pub fn read_models_dir() -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// 写入自定义模型目录（None 表示恢复默认）
-pub fn write_models_dir(dir: Option<&str>) -> Result<(), std::io::Error> {
-    let mut obj = read_engine_json();
-    if !obj.is_object() {
-        obj = serde_json::json!({});
-    }
-    if let Some(map) = obj.as_object_mut() {
-        match dir.filter(|s| !s.is_empty()) {
-            Some(d) => {
-                map.insert(
-                    "models_dir".to_string(),
-                    serde_json::Value::String(d.to_string()),
-                );
-            }
-            None => {
-                map.remove("models_dir");
-            }
-        }
-    }
-    write_engine_json(&obj)
-}
-
 /// 默认 HF 缓存根目录（不考虑自定义配置）
 fn default_hf_cache_root() -> PathBuf {
     if let Ok(hf_home) = std::env::var("HF_HOME") {

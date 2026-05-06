@@ -1,74 +1,77 @@
 /* ============================================================
-   轻语 Whisper Design System
-   Aesthetic: Claude.ai — warm terracotta, cream surfaces,
-   serif typography, humanistic & refined.
+   Light Whisper Design System
+   Aesthetic: Apple — photography-first, premium white space,
+   SF Pro typography, single Action Blue accent, hairline UI.
+   Reference: voltagent/awesome-design-md (apple/DESIGN.md).
    ============================================================ */
 
 /* ---------- Light theme (default) ---------- */
 :root {
-  /* Surfaces — harmonious subtle layers like dark mode */
-  --color-bg-primary: #F5F5F0;
-  --color-bg-secondary: #F0EEE8;
-  --color-bg-tertiary: #EAE8E2;
-  --color-bg-elevated: #FDFCFA;
-  --color-bg-overlay: rgba(245, 245, 240, 0.92);
-  --color-bg-sunken: #EDEAE4;
+  /* Surfaces — Apple's white canvas + parchment + pearl */
+  --color-bg-primary: #ffffff;          /* canvas */
+  --color-bg-secondary: #f5f5f7;        /* parchment — signature off-white */
+  --color-bg-tertiary: #fafafc;         /* pearl — secondary fill */
+  --color-bg-elevated: #ffffff;
+  --color-bg-overlay: rgba(255, 255, 255, 0.80);  /* frosted glass over content */
+  --color-bg-sunken: #f5f5f7;
 
-  /* Text — Claude.ai product ramp (clear hierarchy), enhanced contrast */
-  --color-text-primary: #1a1a18;
-  --color-text-secondary: #5a5854;
-  --color-text-tertiary: #6e6c67;
-  --color-text-inverse: #F5F5F0;
-  --color-text-brand: #d97757;
+  /* Text — Apple ink ramp; near-black instead of pure black for photographic feel */
+  --color-text-primary: #1d1d1f;        /* ink */
+  --color-text-secondary: #333333;      /* ink-muted-80 */
+  --color-text-tertiary: #6e6e73;       /* ink-muted ~57% — readable secondary */
+  --color-text-inverse: #ffffff;
+  --color-text-brand: #0066cc;
 
-  /* Brand accent — Claude.ai send-button terracotta */
-  --color-accent: #ae5630;
-  --color-accent-hover: #c4633a;
-  --color-accent-active: #943f22;
-  --color-accent-subtle: rgba(174, 86, 48, 0.10);
-  --color-accent-muted: rgba(174, 86, 48, 0.05);
-  --color-accent-rgb: 174, 86, 48;
+  /* Brand accent — Action Blue (the single interactive color) */
+  --color-accent: #0066cc;
+  --color-accent-hover: #0071e3;        /* focus blue */
+  --color-accent-active: #004f9e;       /* pressed */
+  --color-accent-subtle: rgba(0, 102, 204, 0.10);
+  --color-accent-muted: rgba(0, 102, 204, 0.05);
+  --color-accent-rgb: 0, 102, 204;
 
-  /* Borders — Claude Cloud ramp, enhanced for light mode visibility */
-  --color-border: #a8a59a;
+  /* Borders — hairlines, no hard lines */
+  --color-border: #d2d2d7;              /* visible-but-quiet */
   --color-border-subtle: rgba(0, 0, 0, 0.08);
-  --color-border-accent: rgba(174, 86, 48, 0.30);
+  --color-border-accent: rgba(0, 102, 204, 0.35);
 
-  /* Status */
-  --color-success: #2E8B57;
-  --color-success-bg: rgba(46, 139, 87, 0.08);
-  --color-error: #bf4d43;
-  --color-error-bg: rgba(191, 77, 67, 0.08);
-  --color-warning: #D4890A;
-  --color-warning-bg: rgba(212, 137, 10, 0.08);
-  --color-info: #2C6FBB;
-  --color-info-bg: rgba(44, 111, 187, 0.08);
+  /* Status — measured, not punchy */
+  --color-success: #248a3d;
+  --color-success-bg: rgba(36, 138, 61, 0.08);
+  --color-error: #d70015;
+  --color-error-bg: rgba(215, 0, 21, 0.07);
+  --color-warning: #b25000;
+  --color-warning-bg: rgba(178, 80, 0, 0.07);
+  --color-info: #0066cc;
+  --color-info-bg: rgba(0, 102, 204, 0.07);
 
   /* Semantic — assistant / learned */
-  --color-assistant: #8b5cf6;
-  --color-assistant-glow: rgba(139, 92, 246, 0.6);
-  --color-learned: #10b981;
+  --color-assistant: #5e5ce6;           /* iOS indigo */
+  --color-assistant-glow: rgba(94, 92, 230, 0.45);
+  --color-learned: #248a3d;
 
-  /* Shadows — enhanced for subtle background distinction */
-  --shadow-xs: 0 1px 2px rgba(45, 40, 32, 0.06);
-  --shadow-sm: 0 2px 4px rgba(45, 40, 32, 0.08), 0 1px 2px rgba(45, 40, 32, 0.04);
-  --shadow-md: 0 4px 12px rgba(45, 40, 32, 0.12), 0 2px 4px rgba(45, 40, 32, 0.06);
-  --shadow-lg: 0 8px 24px rgba(45, 40, 32, 0.14), 0 4px 8px rgba(45, 40, 32, 0.08);
-  --shadow-xl: 0 16px 40px rgba(45, 40, 32, 0.18), 0 6px 12px rgba(45, 40, 32, 0.10);
-  --shadow-glow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.15);
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-record-ring: 0 0 0 4px rgba(var(--color-accent-rgb), 0.20);
+  /* Shadows — Apple uses one product-shadow; UI is hairline only */
+  --shadow-xs: 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 16px 40px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 0 4px rgba(var(--color-accent-rgb), 0.18);  /* focus ring */
+  --shadow-card: 0 0 0 1px rgba(0, 0, 0, 0.06);
+  /* The single signature drop — reserved for the record button (the "product") */
+  --shadow-product: rgba(0, 0, 0, 0.16) 3px 5px 30px 0;
+  --shadow-record-ring: 0 0 0 4px rgba(var(--color-accent-rgb), 0.16);
 
-  /* Radii */
-  --radius-xs: 4px;
+  /* Radii — Apple scale: 5 / 8 / 11 / 18 / pill */
+  --radius-xs: 5px;
   --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
+  --radius-md: 11px;
+  --radius-lg: 18px;
+  --radius-xl: 22px;
   --radius-2xl: 28px;
   --radius-full: 9999px;
 
-  /* Spacing */
+  /* Spacing — 8-base; 17/24/32/48/80 mirrors Apple section rhythm */
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 16px;
@@ -97,28 +100,35 @@
   --transition-slow: var(--dur-5) var(--ease-out-quart);
   --transition-spring: 450ms var(--ease-spring);
 
-  /* Typography — serif for Claude's literary feel */
-  --font-serif: "Georgia", "Noto Serif SC",
-    "Source Han Serif SC", "Songti SC", serif;
-  --font-sans: "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
-  --font-mono: "Cascadia Code", "Fira Code", ui-monospace,
-    SFMono-Regular, Menlo, Consolas, monospace;
-  --font-display: var(--font-serif);
+  /* Typography — SF Pro Display for headlines, SF Pro Text for body */
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans SC", system-ui, sans-serif;
+  --font-serif: "New York", "Source Han Serif SC", "Songti SC",
+    Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono",
+    "Cascadia Code", "Fira Code", SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* Text sizes */
-  --text-xs: 0.75rem;     /* 12px */
-  --text-sm: 0.8125rem;   /* 13px */
-  --text-base: 0.875rem;  /* 14px */
-  --text-md: 1rem;        /* 16px */
-  --text-lg: 1.125rem;    /* 18px */
-  --text-xl: 1.25rem;     /* 20px */
-  --text-2xl: 1.5rem;     /* 24px */
-  --text-3xl: 2rem;       /* 32px */
+  /* Text sizes — keep desktop-compact (14px body) but offer a 17px reading mode */
+  --text-xs: 0.75rem;      /* 12px */
+  --text-sm: 0.8125rem;    /* 13px */
+  --text-base: 0.875rem;   /* 14px */
+  --text-md: 1rem;         /* 16px */
+  --text-lg: 1.0625rem;    /* 17px — Apple body */
+  --text-xl: 1.3125rem;    /* 21px — Apple tagline */
+  --text-2xl: 1.5rem;      /* 24px — Apple lead-airy */
+  --text-3xl: 2.125rem;    /* 34px — Apple display-md */
 
-  --leading-tight: 1.3;
-  --leading-normal: 1.6;
+  --leading-tight: 1.10;   /* Apple display */
+  --leading-normal: 1.47;  /* Apple body */
   --leading-relaxed: 1.8;
+
+  /* Letter-spacing tokens — negative tracking is the "Apple tight" headline cadence */
+  --tracking-display: -0.022em;   /* ≈ -0.374px @ 17px */
+  --tracking-tight: -0.014em;
+  --tracking-normal: 0;
 
   /* Z-index */
   --z-base: 0;
@@ -128,66 +138,62 @@
   --z-toast: 400;
   --z-tooltip: 500;
 
-  /* Ambient background — subtle like dark mode */
-  --bg-gradient:
-    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(var(--color-accent-rgb), 0.05), transparent 60%),
-    radial-gradient(ellipse 800px 450px at 0% 100%, rgba(212, 137, 10, 0.03), transparent 60%),
-    linear-gradient(175deg, rgba(245, 245, 240, 0.85) 0%, rgba(240, 238, 232, 0.85) 100%);
+  /* Canvas — flat white. Apple has zero decorative gradients. */
+  --bg-gradient: var(--color-bg-primary);
 }
 
-/* ---------- Dark theme — evening warmth, not cold terminal ---------- */
+/* ---------- Dark theme — Apple "ink" canvas with tile micro-steps ---------- */
 [data-theme="dark"],
 .dark {
-  --color-bg-primary: #1A1917;
-  --color-bg-secondary: #232220;
-  --color-bg-tertiary: #2E2D2A;
-  --color-bg-elevated: #232220;
-  --color-bg-overlay: rgba(26, 25, 23, 0.94);
-  --color-bg-sunken: #141312;
+  --color-bg-primary: #1d1d1f;          /* ink as canvas */
+  --color-bg-secondary: #272729;        /* tile-1 */
+  --color-bg-tertiary: #2a2a2c;         /* tile-2 */
+  --color-bg-elevated: #272729;
+  --color-bg-overlay: rgba(29, 29, 31, 0.80);
+  --color-bg-sunken: #000000;           /* true void — nav, video frames */
 
-  --color-text-primary: #eeeeee;
-  --color-text-secondary: #b0aea5;
-  --color-text-tertiary: #9a9893;
-  --color-text-inverse: #1A1917;
-  --color-text-brand: #d97757;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #f5f5f7;
+  --color-text-tertiary: #cccccc;       /* body-muted */
+  --color-text-inverse: #1d1d1f;
+  --color-text-brand: #2997ff;
 
-  --color-accent: #d97757;
-  --color-accent-hover: #e08b5a;
-  --color-accent-active: #eca06e;
-  --color-accent-subtle: rgba(217, 119, 87, 0.14);
-  --color-accent-muted: rgba(217, 119, 87, 0.07);
-  --color-accent-rgb: 217, 119, 87;
+  /* Sky Link Blue — brighter for legibility on dark tiles */
+  --color-accent: #2997ff;
+  --color-accent-hover: #5cb1ff;
+  --color-accent-active: #1a7fdb;
+  --color-accent-subtle: rgba(41, 151, 255, 0.16);
+  --color-accent-muted: rgba(41, 151, 255, 0.08);
+  --color-accent-rgb: 41, 151, 255;
 
-  --color-border: #3D3B37;
-  --color-border-subtle: rgba(255, 255, 255, 0.06);
-  --color-border-accent: rgba(217, 119, 87, 0.30);
+  --color-border: #424245;
+  --color-border-subtle: rgba(255, 255, 255, 0.10);
+  --color-border-accent: rgba(41, 151, 255, 0.40);
 
-  --color-success: #5DB86A;
-  --color-success-bg: rgba(93, 184, 106, 0.10);
-  --color-error: #E05D50;
-  --color-error-bg: rgba(224, 93, 80, 0.10);
-  --color-warning: #E0A030;
-  --color-warning-bg: rgba(224, 160, 48, 0.10);
-  --color-info: #5A9BD5;
-  --color-info-bg: rgba(90, 155, 213, 0.10);
+  --color-success: #30d158;
+  --color-success-bg: rgba(48, 209, 88, 0.12);
+  --color-error: #ff453a;
+  --color-error-bg: rgba(255, 69, 58, 0.12);
+  --color-warning: #ff9f0a;
+  --color-warning-bg: rgba(255, 159, 10, 0.12);
+  --color-info: #2997ff;
+  --color-info-bg: rgba(41, 151, 255, 0.12);
 
   --color-assistant: #a78bfa;
   --color-assistant-glow: rgba(167, 139, 250, 0.5);
-  --color-learned: #34d399;
+  --color-learned: #30d158;
 
-  --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.15);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.20), 0 1px 2px rgba(0, 0, 0, 0.12);
-  --shadow-md: 0 6px 14px rgba(0, 0, 0, 0.25), 0 2px 6px rgba(0, 0, 0, 0.15);
-  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.32), 0 4px 12px rgba(0, 0, 0, 0.18);
-  --shadow-xl: 0 24px 50px rgba(0, 0, 0, 0.40), 0 8px 22px rgba(0, 0, 0, 0.22);
-  --shadow-glow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.20);
-  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
-  --shadow-record-ring: 0 0 0 4px rgba(var(--color-accent-rgb), 0.12);
+  --shadow-xs: 0 0 0 0.5px rgba(255, 255, 255, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.32), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.45);
+  --shadow-xl: 0 24px 50px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 0 0 4px rgba(var(--color-accent-rgb), 0.24);
+  --shadow-card: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-product: rgba(0, 0, 0, 0.55) 3px 5px 30px 0;
+  --shadow-record-ring: 0 0 0 4px rgba(var(--color-accent-rgb), 0.20);
 
-  --bg-gradient:
-    radial-gradient(ellipse 1100px 550px at 100% 0%, rgba(var(--color-accent-rgb), 0.08), transparent 60%),
-    radial-gradient(ellipse 800px 450px at 0% 100%, rgba(212, 137, 10, 0.05), transparent 60%),
-    linear-gradient(175deg, rgba(26, 25, 23, 0.82) 0%, rgba(20, 19, 18, 0.82) 100%);
+  --bg-gradient: var(--color-bg-primary);
 }
 
 /* ============================================================
@@ -668,44 +674,45 @@ textarea,
   transition: transform 60ms ease-out;
 }
 
-/* Claude-style primary button */
+/* Apple-style primary button — pill, single Action Blue, scale(0.95) press */
 .btn-primary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 8px 18px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-full);
   border: none;
   background: var(--color-accent);
   color: var(--color-text-inverse);
   font-size: var(--text-sm);
-  font-weight: 500;
+  font-weight: 400;
   font-family: var(--font-sans);
+  letter-spacing: var(--tracking-tight);
   cursor: pointer;
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,0.12);
   transition: background 0.2s var(--ease-out-expo),
-              box-shadow 0.25s var(--ease-out-expo),
-              transform 0.3s var(--ease-spring-soft);
+              transform 0.2s var(--ease-micro);
 }
 
 .btn-primary:hover {
   background: var(--color-accent-hover);
-  box-shadow: var(--shadow-md), var(--shadow-glow), inset 0 1px 0 rgba(255,255,255,0.12);
-  transform: translateY(-1px);
 }
 
 .btn-primary:active {
   background: var(--color-accent-active);
-  transform: translateY(0) scale(0.97);
-  box-shadow: var(--shadow-xs);
-  transition: transform 60ms ease-out, background 60ms ease-out;
+  transform: scale(0.95);
+  transition: transform 60ms var(--ease-micro), background 60ms ease-out;
+}
+
+.btn-primary:focus-visible {
+  outline: 2px solid var(--color-accent-hover);
+  outline-offset: 2px;
 }
 
 /* Compact primary button — settings download, etc. */
 .btn-primary-sm {
   padding: 6px 14px;
   font-size: var(--text-xs);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
 }
 
 /* Ghost button size variants */

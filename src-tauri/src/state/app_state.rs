@@ -7,7 +7,6 @@ use std::sync::{
 use std::thread::JoinHandle;
 use tokio::io::BufReader;
 use tokio::process::{Child, ChildStdin, ChildStdout};
-use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 
 use super::user_profile::{LlmProviderConfig, UserProfile};
@@ -153,14 +152,14 @@ impl Default for HotkeyDiagnosticState {
 
 // ---------- AppState 按领域分组的子结构 ----------
 
-/// ASR 引擎生命周期 + 下载 + 传输能力探测
+/// ASR 引擎生命周期 + 传输能力探测。
+/// Apple 分支不提供本地模型下载，因此没有 download task 字段。
 pub struct EngineState {
     pub funasr_process: Arc<Mutex<Option<FunasrProcess>>>,
     pub funasr_ready: Arc<AtomicBool>,
     pub funasr_starting: Arc<AtomicBool>,
     /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
     pub funasr_generation: AtomicU64,
-    pub download_task: Arc<Mutex<Option<DownloadTask>>>,
     /// 内存音频传输支持状态：0=未知, 1=支持, 2=不支持
     pub inline_audio_transport: AtomicU8,
 }
@@ -172,7 +171,6 @@ impl Default for EngineState {
             funasr_ready: Default::default(),
             funasr_starting: Default::default(),
             funasr_generation: AtomicU64::new(0),
-            download_task: Default::default(),
             inline_audio_transport: AtomicU8::new(0),
         }
     }
@@ -253,10 +251,6 @@ impl Default for AppState {
                 .unwrap_or_default(),
         }
     }
-}
-
-pub struct DownloadTask {
-    pub cancel: oneshot::Sender<()>,
 }
 
 pub struct FunasrProcess {

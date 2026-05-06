@@ -5,6 +5,7 @@ pub struct CapturedScreen {
     pub data_base64: String,
 }
 
+#[cfg(target_os = "windows")]
 #[derive(Debug, Clone, Copy)]
 pub struct ScreenCaptureOptions {
     pub max_edge: u32,
@@ -13,6 +14,7 @@ pub struct ScreenCaptureOptions {
     pub max_total_base64_bytes: usize,
 }
 
+#[cfg(target_os = "windows")]
 impl Default for ScreenCaptureOptions {
     fn default() -> Self {
         Self {
@@ -158,13 +160,6 @@ pub fn capture_full_screen_context() -> Result<Vec<CapturedScreen>, String> {
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 pub fn capture_full_screen_context() -> Result<Vec<CapturedScreen>, String> {
-    Ok(Vec::new())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn capture_full_screen_context_with_options(
-    _options: ScreenCaptureOptions,
-) -> Result<Vec<CapturedScreen>, String> {
     Ok(Vec::new())
 }
 

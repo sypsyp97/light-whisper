@@ -42,9 +42,10 @@ const PROBE_HOTKEY_ID: i32 = 0x4C57; // "LW"
 static IGNORED_INJECTED_COUNT: AtomicU64 = AtomicU64::new(0);
 
 // ---------------------------------------------------------------------------
-// HotkeyBackend — selects between RegisterHotKey and low-level hook
+// HotkeyBackend — selects between RegisterHotKey and low-level hook (Windows only)
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HotkeyBackend {
     /// Standard Windows RegisterHotKey — most stable, toggle-only
@@ -53,6 +54,7 @@ enum HotkeyBackend {
     LowLevelHook,
 }
 
+#[cfg(target_os = "windows")]
 fn classify_backend(spec: &HotkeySpec) -> HotkeyBackend {
     if is_toggle_mode() {
         match spec {
@@ -166,12 +168,18 @@ enum HotkeySpec {
     /// Pure modifier-key combination (e.g. Ctrl+Win, Alt alone)
     ModifierOnly {
         label: String,
+        // Read by the Windows hook implementation; non-windows only matches the
+        // discriminant via `..` patterns, so the field is unused on macOS.
+        #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
         required_vks: Vec<u16>,
     },
     /// Modifier(s) + a main key (e.g. F2, Ctrl+Space)
     Standard {
         label: String,
         modifiers: ShortcutModifiers,
+        // Read by the Windows hook + RegisterHotKey paths; non-windows lives off
+        // the `main_key` label and never inspects the VK code.
+        #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
         main_vk: u16,
         main_key: String,
     },
@@ -611,6 +619,7 @@ struct UnifiedHookBundle {
     assistant: Option<Arc<UnifiedHookState>>,
 }
 
+#[cfg(target_os = "windows")]
 impl UnifiedHookBundle {
     fn is_empty(&self) -> bool {
         self.dictation.is_none() && self.translation.is_none() && self.assistant.is_none()
@@ -1451,11 +1460,6 @@ fn force_release_hotkey(state: &UnifiedHookState) {
     reset_hotkey_event_gate(&state.gate);
 }
 
-#[cfg(not(target_os = "windows"))]
-fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), AppError> {
-    Ok(())
-}
-
 #[cfg(target_os = "windows")]
 fn build_hook_state(
     app_handle: tauri::AppHandle,
@@ -1533,11 +1537,6 @@ fn sync_hotkey_monitor_lifecycle(app_handle: tauri::AppHandle) -> Result<(), App
         stop_unified_hotkey_monitor();
         Ok(())
     }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn sync_hotkey_monitor_lifecycle(app_handle: tauri::AppHandle) -> Result<(), AppError> {
-    ensure_unified_hotkey_monitor(app_handle)
 }
 
 // ---------------------------------------------------------------------------
