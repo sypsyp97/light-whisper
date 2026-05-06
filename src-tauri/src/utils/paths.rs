@@ -1,5 +1,8 @@
-use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    OnceLock,
+};
 
 use tauri::Manager;
 
@@ -10,31 +13,38 @@ const DEFAULT_ENGINE: &str = "alibaba-asr";
 pub fn get_data_dir() -> &'static PathBuf {
     static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
     DATA_DIR.get_or_init(|| {
-        let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from(".light-whisper"));
-        let app_dir = base.join(APP_IDENTIFIER);
-        let legacy_dir = base.join(LEGACY_APP_IDENTIFIER);
+        let app_dir = std::env::var_os("LIGHT_WHISPER_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from(".light-whisper"));
+                base.join(APP_IDENTIFIER)
+            });
 
-        if !app_dir.exists() && legacy_dir.exists() {
-            match std::fs::rename(&legacy_dir, &app_dir) {
-                Ok(()) => {
-                    log::info!(
-                        "已将历史数据目录迁移到新的应用标识目录: {} -> {}",
-                        legacy_dir.display(),
-                        app_dir.display()
-                    );
-                }
-                Err(err) => {
-                    log::warn!(
-                        "迁移历史数据目录失败，继续使用新目录: {} -> {} ({})",
-                        legacy_dir.display(),
-                        app_dir.display(),
-                        err
-                    );
+        // Migrate legacy app-identifier directory once, only when using the default location.
+        if std::env::var_os("LIGHT_WHISPER_DATA_DIR").is_none() {
+            if let Some(base) = dirs::data_dir() {
+                let legacy_dir = base.join(LEGACY_APP_IDENTIFIER);
+                if !app_dir.exists() && legacy_dir.exists() {
+                    match std::fs::rename(&legacy_dir, &app_dir) {
+                        Ok(()) => log::info!(
+                            "已将历史数据目录迁移到新的应用标识目录: {} -> {}",
+                            legacy_dir.display(),
+                            app_dir.display()
+                        ),
+                        Err(err) => log::warn!(
+                            "迁移历史数据目录失败，继续使用新目录: {} -> {} ({})",
+                            legacy_dir.display(),
+                            app_dir.display(),
+                            err
+                        ),
+                    }
                 }
             }
         }
 
-        let _ = std::fs::create_dir_all(&app_dir);
+        if let Err(err) = std::fs::create_dir_all(&app_dir) {
+            log::warn!("创建应用数据目录失败 {}: {}", app_dir.display(), err);
+        }
         app_dir
     })
 }
@@ -150,11 +160,96 @@ pub fn alibaba_model_uses_omni_chat(model: &str) -> bool {
     model.contains("omni")
 }
 
+fn engine_json_object_or_empty(value: serde_json::Value) -> serde_json::Value {
+    if value.is_object() {
+        value
+    } else {
+        serde_json::json!({})
+    }
+}
+
 fn read_engine_json() -> serde_json::Value {
-    std::fs::read_to_string(get_engine_config_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| serde_json::json!({}))
+    let path = get_engine_config_path();
+    match std::fs::read_to_string(path) {
+        Ok(data) => match serde_json::from_str::<serde_json::Value>(&data) {
+            Ok(value) => {
+                if !value.is_object() {
+                    log::warn!("engine.json 是有效 JSON 但不是对象，已按空配置处理");
+                }
+                engine_json_object_or_empty(value)
+            }
+            Err(err) => {
+                log::warn!("engine.json 解析失败，已按空配置处理: {}", err);
+                serde_json::json!({})
+            }
+        },
+        Err(_) => serde_json::json!({}),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn replace_file_atomic(from: &Path, to: &Path) -> Result<(), std::io::Error> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let mut from_wide: Vec<u16> = from.as_os_str().encode_wide().collect();
+    let mut to_wide: Vec<u16> = to.as_os_str().encode_wide().collect();
+    from_wide.push(0);
+    to_wide.push(0);
+    let ok = unsafe {
+        MoveFileExW(
+            from_wide.as_ptr(),
+            to_wide.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_file_atomic(from: &Path, to: &Path) -> Result<(), std::io::Error> {
+    std::fs::rename(from, to)
+}
+
+pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), std::io::Error> {
+    use std::io::Write;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    static ATOMIC_WRITE_COUNTER: AtomicU64 = AtomicU64::new(1);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("atomic");
+    let tmp_path = parent.join(format!(
+        ".{}.{}.{}.tmp",
+        file_name,
+        std::process::id(),
+        ATOMIC_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+
+    let write_result = (|| -> Result<(), std::io::Error> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp_path)?;
+        file.write_all(data)?;
+        file.sync_all()?;
+        replace_file_atomic(&tmp_path, path)
+    })();
+
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    write_result
 }
 
 fn write_engine_json(obj: &serde_json::Value) -> Result<(), std::io::Error> {
@@ -165,10 +260,7 @@ fn write_engine_json(obj: &serde_json::Value) -> Result<(), std::io::Error> {
             format!("序列化配置失败: {}", e),
         )
     })?;
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&config_path, serialized)
+    atomic_write(&config_path, serialized.as_bytes())
 }
 
 fn read_region_field(field: &str) -> String {
@@ -235,10 +327,15 @@ pub fn read_alibaba_endpoint() -> String {
 
 fn update_engine_json_field(key: &str, value: &str) -> Result<(), std::io::Error> {
     let mut obj = read_engine_json();
-    obj.as_object_mut().unwrap().insert(
-        key.to_string(),
-        serde_json::Value::String(value.to_string()),
-    );
+    if !obj.is_object() {
+        obj = serde_json::json!({});
+    }
+    if let Some(map) = obj.as_object_mut() {
+        map.insert(
+            key.to_string(),
+            serde_json::Value::String(value.to_string()),
+        );
+    }
     write_engine_json(&obj)
 }
 
@@ -325,6 +422,28 @@ pub fn read_models_dir() -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// 写入自定义模型目录（None 表示恢复默认）
+pub fn write_models_dir(dir: Option<&str>) -> Result<(), std::io::Error> {
+    let mut obj = read_engine_json();
+    if !obj.is_object() {
+        obj = serde_json::json!({});
+    }
+    if let Some(map) = obj.as_object_mut() {
+        match dir.filter(|s| !s.is_empty()) {
+            Some(d) => {
+                map.insert(
+                    "models_dir".to_string(),
+                    serde_json::Value::String(d.to_string()),
+                );
+            }
+            None => {
+                map.remove("models_dir");
+            }
+        }
+    }
+    write_engine_json(&obj)
+}
+
 /// 默认 HF 缓存根目录（不考虑自定义配置）
 fn default_hf_cache_root() -> PathBuf {
     if let Ok(hf_home) = std::env::var("HF_HOME") {
@@ -342,4 +461,27 @@ pub fn get_effective_models_dir() -> PathBuf {
         return PathBuf::from(custom);
     }
     default_hf_cache_root()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::engine_json_object_or_empty;
+
+    #[test]
+    fn engine_json_string_normalizes_to_empty_object() {
+        let value = serde_json::json!("legacy-string");
+        let normalized = engine_json_object_or_empty(value);
+
+        assert!(normalized.is_object());
+        assert!(normalized.as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn engine_json_array_normalizes_to_empty_object() {
+        let value = serde_json::json!(["legacy-array"]);
+        let normalized = engine_json_object_or_empty(value);
+
+        assert!(normalized.is_object());
+        assert!(normalized.as_object().unwrap().is_empty());
+    }
 }

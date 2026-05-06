@@ -10,6 +10,8 @@ use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
 use crate::state::AppState;
 
 const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
+const STREAM_TOTAL_TIMEOUT_SECS: u64 = 24 * 60 * 60;
+pub(crate) const AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS: u64 = 45;
 const RETRYABLE_429_DELAYS_MS: &[u64] = &[600, 1200];
 
 #[derive(Debug, Clone, Copy)]
@@ -25,6 +27,11 @@ pub struct LlmRequestOptions<'a> {
     /// (ChatGPT bearer 与交换得到的 OAuth API key 都适用；wire 值 "priority"
     /// 对应官方 Codex CLI 里 ServiceTier::Fast 的重映射)
     pub openai_fast_mode: bool,
+    /// 流式响应中可见输出停滞多久后中止。用于 AI 润色这类短任务，避免
+    /// provider 持续发送非文本 SSE 事件时让 UI 一直卡在某个 token 数。
+    pub stream_progress_timeout_secs: Option<u64>,
+    /// 单次流式请求的总预算。未设置时沿用历史 24h 兜底。
+    pub stream_total_timeout_secs: Option<u64>,
 }
 
 impl Default for LlmRequestOptions<'_> {
@@ -37,6 +44,8 @@ impl Default for LlmRequestOptions<'_> {
             session_id: None,
             web_search: false,
             openai_fast_mode: false,
+            stream_progress_timeout_secs: None,
+            stream_total_timeout_secs: None,
         }
     }
 }
@@ -62,9 +71,37 @@ impl From<&str> for LlmUserInput {
     }
 }
 
-fn dynamic_timeout(base_secs: u64, text_len: usize) -> Duration {
+fn dynamic_timeout(base_secs: u64, text_len: usize, body: &Value, web_search: bool) -> Duration {
     let extra = (text_len / 200) as u64;
-    Duration::from_secs(base_secs.saturating_add(extra).min(120))
+    let image_context_len = estimate_image_context_len(body);
+    let image_extra = (image_context_len / (512 * 1024)) as u64 * 10;
+    let tool_extra = if web_search { 45 } else { 0 };
+    let total = base_secs
+        .saturating_add(extra)
+        .saturating_add(image_extra)
+        .saturating_add(tool_extra);
+    Duration::from_secs(total.min(base_secs.max(240)))
+}
+
+fn estimate_image_context_len(value: &Value) -> usize {
+    fn visit(key: Option<&str>, value: &Value) -> usize {
+        match value {
+            Value::String(s) => match key {
+                Some("image_url") if s.starts_with("data:image/") => s.len(),
+                Some("url") if s.starts_with("data:image/") => s.len(),
+                Some("data") if s.len() > 1024 => s.len(),
+                _ => 0,
+            },
+            Value::Array(items) => items.iter().map(|item| visit(None, item)).sum(),
+            Value::Object(map) => map
+                .iter()
+                .map(|(key, value)| visit(Some(key.as_str()), value))
+                .sum(),
+            _ => 0,
+        }
+    }
+
+    visit(None, value)
 }
 
 fn uses_codex_chatgpt_backend(endpoint: &LlmEndpoint, api_key: &str) -> bool {
@@ -78,6 +115,22 @@ fn uses_openai_oauth_origin_auth(endpoint: &LlmEndpoint, api_key: &str) -> bool 
 
 fn uses_responses_api(endpoint: &LlmEndpoint) -> bool {
     endpoint.api_format == ApiFormat::OpenaiCompat && endpoint.api_url.contains("/v1/responses")
+}
+
+fn uses_openai_chat_completions_api(endpoint: &LlmEndpoint) -> bool {
+    endpoint.api_format == ApiFormat::OpenaiCompat
+        && endpoint.api_url.contains("/chat/completions")
+        && (endpoint.provider == "openai" || endpoint.api_url.contains("api.openai.com"))
+}
+
+fn chat_output_token_limit_key(endpoint: &LlmEndpoint) -> &'static str {
+    if uses_openai_chat_completions_api(endpoint)
+        || llm_provider::is_cerebras_like_endpoint(endpoint)
+    {
+        "max_completion_tokens"
+    } else {
+        "max_tokens"
+    }
 }
 
 /// Wire value for OpenAI OAuth fast-mode priority processing.
@@ -113,6 +166,12 @@ fn adapt_body_for_backend(
     let uses_chatgpt_backend = uses_codex_chatgpt_backend(endpoint, api_key);
     if !uses_openai_oauth_origin_auth(endpoint, api_key) {
         return adapted;
+    }
+
+    if uses_chatgpt_backend {
+        // The ChatGPT Codex backend rejects this Responses API field, so avoid
+        // a guaranteed failed first request before the compatibility retry.
+        strip_max_output_tokens(&mut adapted);
     }
 
     if let Some(map) = adapted.as_object_mut() {
@@ -206,7 +265,7 @@ pub fn build_llm_body(
             if is_responses_api {
                 body["max_output_tokens"] = serde_json::json!(4096);
             } else {
-                body["max_tokens"] = serde_json::json!(4096);
+                body[chat_output_token_limit_key(endpoint)] = serde_json::json!(4096);
             }
 
             // Cerebras json_object 与 stream 不兼容：结构化输出优先，放弃流式
@@ -353,6 +412,107 @@ fn emit_stream_event(
     }
 }
 
+fn emit_stream_error_event(
+    app_handle: Option<&tauri::AppHandle>,
+    event_name: Option<&str>,
+    session_id: Option<u64>,
+    message: &str,
+) {
+    if let (Some(app_handle), Some(event_name)) = (app_handle, event_name) {
+        let mut payload = serde_json::json!({
+            "status": "error",
+            "message": message,
+        });
+        if let Some(session_id) = session_id {
+            payload["sessionId"] = serde_json::json!(session_id);
+        }
+        let _ = app_handle.emit(event_name, payload);
+    }
+}
+
+fn stream_read_budget_at(
+    now: tokio::time::Instant,
+    started_at: tokio::time::Instant,
+    last_progress_at: tokio::time::Instant,
+    event_timeout: Duration,
+    total_timeout: Duration,
+    progress_timeout: Option<Duration>,
+) -> Result<Duration, String> {
+    let elapsed = now.duration_since(started_at);
+    let remaining = total_timeout
+        .checked_sub(elapsed)
+        .ok_or_else(|| format!("流式读取超过总预算（{} 秒）", total_timeout.as_secs()))?;
+
+    let mut budget = event_timeout.min(remaining);
+    if let Some(progress_timeout) = progress_timeout {
+        let progress_elapsed = now.duration_since(last_progress_at);
+        let progress_remaining = progress_timeout
+            .checked_sub(progress_elapsed)
+            .ok_or_else(|| stream_progress_timeout_error(progress_timeout))?;
+        budget = budget.min(progress_remaining);
+    }
+
+    Ok(budget)
+}
+
+fn stream_read_budget(
+    started_at: tokio::time::Instant,
+    last_progress_at: tokio::time::Instant,
+    event_timeout: Duration,
+    total_timeout: Duration,
+    progress_timeout: Option<Duration>,
+) -> Result<Duration, String> {
+    stream_read_budget_at(
+        tokio::time::Instant::now(),
+        started_at,
+        last_progress_at,
+        event_timeout,
+        total_timeout,
+        progress_timeout,
+    )
+}
+
+fn stream_progress_timeout_error(progress_timeout: Duration) -> String {
+    format!(
+        "流式输出停滞（{} 秒无新增内容）",
+        progress_timeout.as_secs()
+    )
+}
+
+fn stream_timeout_error(
+    started_at: tokio::time::Instant,
+    last_progress_at: tokio::time::Instant,
+    total_timeout: Duration,
+    progress_timeout: Option<Duration>,
+) -> String {
+    let now = tokio::time::Instant::now();
+    if now.duration_since(started_at) >= total_timeout {
+        format!("流式读取超过总预算（{} 秒）", total_timeout.as_secs())
+    } else if let Some(progress_timeout) = progress_timeout {
+        if now.duration_since(last_progress_at) >= progress_timeout {
+            stream_progress_timeout_error(progress_timeout)
+        } else {
+            format!("流式读取超时（{} 秒无数据）", STREAM_EVENT_TIMEOUT_SECS)
+        }
+    } else {
+        format!("流式读取超时（{} 秒无数据）", STREAM_EVENT_TIMEOUT_SECS)
+    }
+}
+
+fn stream_progress_timeout(options: LlmRequestOptions<'_>) -> Option<Duration> {
+    options
+        .stream_progress_timeout_secs
+        .map(Duration::from_secs)
+}
+
+fn stream_total_timeout(options: LlmRequestOptions<'_>) -> Duration {
+    let secs = options
+        .stream_total_timeout_secs
+        .map(|value| value.min(600))
+        .unwrap_or(STREAM_TOTAL_TIMEOUT_SECS);
+    Duration::from_secs(secs)
+}
+
 fn anthropic_output_tokens(json: &Value) -> Option<usize> {
     json["usage"]["output_tokens"]
         .as_u64()
@@ -361,10 +521,13 @@ fn anthropic_output_tokens(json: &Value) -> Option<usize> {
 }
 
 pub async fn read_sse_stream(
+    endpoint: &LlmEndpoint,
     response: reqwest::Response,
     app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
+    progress_timeout: Option<Duration>,
+    total_timeout: Duration,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -372,19 +535,47 @@ pub async fn read_sse_stream(
     let mut accumulated = String::new();
     let mut token_count: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
+    let started_at = tokio::time::Instant::now();
+    let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        match tokio::time::timeout(event_timeout, stream.next()).await {
+        let read_budget = match stream_read_budget(
+            started_at,
+            last_progress_at,
+            event_timeout,
+            total_timeout,
+            progress_timeout,
+        ) {
+            Ok(budget) => budget,
+            Err(message) => {
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
+        };
+        match tokio::time::timeout(read_budget, stream.next()).await {
             Ok(Some(Ok(event))) => {
                 let data = event.data.trim();
                 if data == "[DONE]" {
-                    return Ok(accumulated);
+                    return ensure_non_empty_llm_content(
+                        accumulated,
+                        endpoint,
+                        "openai_chat_sse_done",
+                    );
                 }
                 if let Ok(json) = serde_json::from_str::<Value>(data) {
-                    if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                    if let Some(message) = json["error"]["message"].as_str() {
+                        let message = format!("OpenAI 流式错误: {}", message);
+                        emit_stream_error_event(app_handle, event_name, session_id, &message);
+                        return Err(message);
+                    }
+                    if let Some(content) = json["choices"][0]["delta"]["content"]
+                        .as_str()
+                        .filter(|content| !content.is_empty())
+                    {
                         accumulated.push_str(content);
                         token_count += 1;
+                        last_progress_at = tokio::time::Instant::now();
                         emit_stream_event(
                             app_handle,
                             event_name,
@@ -395,13 +586,23 @@ pub async fn read_sse_stream(
                     }
                 }
             }
-            Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
-            Ok(None) => return Ok(accumulated),
+            Ok(Some(Err(e))) => {
+                let message = format!("流式读取失败: {}", e);
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
+            Ok(None) => {
+                return ensure_non_empty_llm_content(accumulated, endpoint, "openai_chat_sse_eos")
+            }
             Err(_) => {
-                return Err(format!(
-                    "流式读取超时（{} 秒无数据）",
-                    STREAM_EVENT_TIMEOUT_SECS
-                ))
+                let message = stream_timeout_error(
+                    started_at,
+                    last_progress_at,
+                    total_timeout,
+                    progress_timeout,
+                );
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
             }
         }
     }
@@ -413,6 +614,8 @@ pub async fn read_openai_responses_sse_stream(
     app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
+    progress_timeout: Option<Duration>,
+    total_timeout: Duration,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -421,23 +624,37 @@ pub async fn read_openai_responses_sse_stream(
     let mut fallback_content: Option<String> = None;
     let mut token_count: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
+    let started_at = tokio::time::Instant::now();
+    let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        match tokio::time::timeout(event_timeout, stream.next()).await {
+        let read_budget = match stream_read_budget(
+            started_at,
+            last_progress_at,
+            event_timeout,
+            total_timeout,
+            progress_timeout,
+        ) {
+            Ok(budget) => budget,
+            Err(message) => {
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
+        };
+        match tokio::time::timeout(read_budget, stream.next()).await {
             Ok(Some(Ok(event))) => {
                 let data = event.data.trim();
                 if data.is_empty() {
                     continue;
                 }
                 if data == "[DONE]" {
-                    if !accumulated.is_empty() {
-                        return Ok(accumulated);
-                    }
-                    if let Some(content) = fallback_content.filter(|content| !content.is_empty()) {
-                        return Ok(content);
-                    }
-                    return Err("Responses 流式结束，但未收到可解析内容".to_string());
+                    return finalize_responses_sse_accumulated(
+                        accumulated,
+                        fallback_content,
+                        endpoint,
+                        "openai_responses_sse_done",
+                    );
                 }
 
                 let Ok(json) = serde_json::from_str::<Value>(data) else {
@@ -451,9 +668,12 @@ pub async fn read_openai_responses_sse_stream(
 
                 match json["type"].as_str() {
                     Some("response.output_text.delta") => {
-                        if let Some(delta) = json["delta"].as_str() {
+                        if let Some(delta) =
+                            json["delta"].as_str().filter(|delta| !delta.is_empty())
+                        {
                             accumulated.push_str(delta);
                             token_count += 1;
+                            last_progress_at = tokio::time::Instant::now();
                             emit_stream_event(
                                 app_handle,
                                 event_name,
@@ -463,17 +683,23 @@ pub async fn read_openai_responses_sse_stream(
                             );
                         }
                     }
-                    Some("response.output_text.done") if accumulated.is_empty() => {
+                    Some("response.output_text.done") => {
                         if let Some(text) = json["text"].as_str() {
-                            accumulated.push_str(text);
-                            token_count += 1;
-                            emit_stream_event(
-                                app_handle,
-                                event_name,
-                                session_id,
-                                Some(text),
-                                token_count,
-                            );
+                            let (should_emit, progressed) =
+                                apply_responses_done_text(&mut accumulated, text);
+                            if progressed {
+                                last_progress_at = tokio::time::Instant::now();
+                            }
+                            if should_emit {
+                                token_count += 1;
+                                emit_stream_event(
+                                    app_handle,
+                                    event_name,
+                                    session_id,
+                                    Some(text),
+                                    token_count,
+                                );
+                            }
                         }
                     }
                     Some("response.completed") => {
@@ -482,7 +708,11 @@ pub async fn read_openai_responses_sse_stream(
                                 .or_else(|| fallback_content.clone())
                                 .unwrap_or_default();
                         }
-                        return Ok(accumulated);
+                        return ensure_non_empty_llm_content(
+                            accumulated,
+                            endpoint,
+                            "openai_responses_sse_completed",
+                        );
                     }
                     Some("response.failed") | Some("error") => {
                         let message = json["response"]["error"]["message"]
@@ -490,36 +720,48 @@ pub async fn read_openai_responses_sse_stream(
                             .or_else(|| json["error"]["message"].as_str())
                             .or_else(|| json["message"].as_str())
                             .unwrap_or(data);
-                        return Err(format!("Responses 流式错误: {}", message));
+                        let message = format!("Responses 流式错误: {}", message);
+                        emit_stream_error_event(app_handle, event_name, session_id, &message);
+                        return Err(message);
                     }
                     _ => {}
                 }
             }
-            Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
+            Ok(Some(Err(e))) => {
+                let message = format!("流式读取失败: {}", e);
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
             Ok(None) => {
-                if !accumulated.is_empty() {
-                    return Ok(accumulated);
-                }
-                if let Some(content) = fallback_content.filter(|content| !content.is_empty()) {
-                    return Ok(content);
-                }
-                return Err("Responses 流式结束，但未收到可解析内容".to_string());
+                return finalize_responses_sse_accumulated(
+                    accumulated,
+                    fallback_content,
+                    endpoint,
+                    "openai_responses_sse_eos",
+                );
             }
             Err(_) => {
-                return Err(format!(
-                    "流式读取超时（{} 秒无数据）",
-                    STREAM_EVENT_TIMEOUT_SECS
-                ))
+                let message = stream_timeout_error(
+                    started_at,
+                    last_progress_at,
+                    total_timeout,
+                    progress_timeout,
+                );
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
             }
         }
     }
 }
 
 pub async fn read_anthropic_sse_stream(
+    endpoint: &LlmEndpoint,
     response: reqwest::Response,
     app_handle: Option<&tauri::AppHandle>,
     event_name: Option<&str>,
     session_id: Option<u64>,
+    progress_timeout: Option<Duration>,
+    total_timeout: Duration,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -527,22 +769,40 @@ pub async fn read_anthropic_sse_stream(
     let mut accumulated = String::new();
     let mut output_tokens: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
+    let started_at = tokio::time::Instant::now();
+    let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
 
     loop {
-        match tokio::time::timeout(event_timeout, stream.next()).await {
+        let read_budget = match stream_read_budget(
+            started_at,
+            last_progress_at,
+            event_timeout,
+            total_timeout,
+            progress_timeout,
+        ) {
+            Ok(budget) => budget,
+            Err(message) => {
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
+        };
+        match tokio::time::timeout(read_budget, stream.next()).await {
             Ok(Some(Ok(event))) => match event.event.as_str() {
                 "message_start" | "message_delta" => {
                     if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
                         if let Some(tokens) = anthropic_output_tokens(&json) {
-                            output_tokens = tokens;
-                            emit_stream_event(
-                                app_handle,
-                                event_name,
-                                session_id,
-                                None,
-                                output_tokens,
-                            );
+                            if tokens > output_tokens {
+                                output_tokens = tokens;
+                                last_progress_at = tokio::time::Instant::now();
+                                emit_stream_event(
+                                    app_handle,
+                                    event_name,
+                                    session_id,
+                                    None,
+                                    output_tokens,
+                                );
+                            }
                         }
                     }
                 }
@@ -550,8 +810,12 @@ pub async fn read_anthropic_sse_stream(
                     if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
                         let delta_type = json["delta"]["type"].as_str();
                         if matches!(delta_type, Some("text_delta") | None) {
-                            if let Some(text) = json["delta"]["text"].as_str() {
+                            if let Some(text) = json["delta"]["text"]
+                                .as_str()
+                                .filter(|text| !text.is_empty())
+                            {
                                 accumulated.push_str(text);
+                                last_progress_at = tokio::time::Instant::now();
                                 emit_stream_event(
                                     app_handle,
                                     event_name,
@@ -564,26 +828,121 @@ pub async fn read_anthropic_sse_stream(
                     }
                 }
                 "ping" => {}
-                "message_stop" => return Ok(accumulated),
+                "message_stop" => {
+                    return ensure_non_empty_llm_content(
+                        accumulated,
+                        endpoint,
+                        "anthropic_sse_message_stop",
+                    )
+                }
                 "error" => {
                     let message = serde_json::from_str::<Value>(&event.data)
                         .ok()
                         .and_then(|json| json["error"]["message"].as_str().map(String::from))
                         .unwrap_or_else(|| event.data.clone());
-                    return Err(format!("Anthropic 流式错误: {}", message));
+                    let message = format!("Anthropic 流式错误: {}", message);
+                    emit_stream_error_event(app_handle, event_name, session_id, &message);
+                    return Err(message);
                 }
                 _ => {}
             },
-            Ok(Some(Err(e))) => return Err(format!("流式读取失败: {}", e)),
-            Ok(None) => return Ok(accumulated),
+            Ok(Some(Err(e))) => {
+                let message = format!("流式读取失败: {}", e);
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
+            }
+            Ok(None) => {
+                return ensure_non_empty_llm_content(accumulated, endpoint, "anthropic_sse_eos")
+            }
             Err(_) => {
-                return Err(format!(
-                    "流式读取超时（{} 秒无数据）",
-                    STREAM_EVENT_TIMEOUT_SECS
-                ))
+                let message = stream_timeout_error(
+                    started_at,
+                    last_progress_at,
+                    total_timeout,
+                    progress_timeout,
+                );
+                emit_stream_error_event(app_handle, event_name, session_id, &message);
+                return Err(message);
             }
         }
     }
+}
+
+/// `ensure_non_empty_llm_content` 产生的错误消息的稳定前缀。
+/// 调用方（例如 polish 4 段 transport fallback）需要识别这条错误来决定
+/// 是否短路重试——同一个 prompt 在另一个 transport stage 通常也会回空，
+/// 没必要再花 3 次 LLM 请求。
+pub(crate) const EMPTY_LLM_RESPONSE_ERROR_PREFIX: &str = "LLM 响应为空（";
+
+/// 把"HTTP 成功但没产生任何可用文本"统一映射为错误，并把 provider/model
+/// 信息塞到错误里便于诊断。`source` 用于区分调用栈
+/// （例如 "non_stream"、"openai_chat_sse_done"、"openai_chat_sse_eos"、
+/// "anthropic_sse_message_stop"、"anthropic_sse_eos"）。
+///
+/// 注：reasoning-only / tool-call-only 等"合法的空文本"响应不走这个路径。
+/// OpenAI Responses SSE 在 `read_openai_responses_sse_stream` 中独立处理。
+pub(crate) fn ensure_non_empty_llm_content(
+    content: String,
+    endpoint: &LlmEndpoint,
+    source: &str,
+) -> Result<String, String> {
+    if content.trim().is_empty() {
+        Err(format!(
+            "{}{}）：provider={}，model={}",
+            EMPTY_LLM_RESPONSE_ERROR_PREFIX, source, endpoint.provider, endpoint.model
+        ))
+    } else {
+        Ok(content)
+    }
+}
+
+/// 识别 `ensure_non_empty_llm_content` 产生的"空响应"错误。其它来源的错误
+/// 字符串里只要不是手工拼接 EMPTY_LLM_RESPONSE_ERROR_PREFIX，就不会撞这个
+/// 前缀（中文 + 全角括号的组合在错误信息里很罕见）。
+pub(crate) fn is_empty_llm_response_error(err: &str) -> bool {
+    err.starts_with(EMPTY_LLM_RESPONSE_ERROR_PREFIX)
+}
+
+/// 把 Responses SSE 流读到尾时的 "是否为空" 判定统一到一处。
+/// 优先级：accumulated 非空 → fallback_content 非空 → 委托
+/// `ensure_non_empty_llm_content` 让上层短路 transport fallback。
+///
+/// 注：这里沿用 [DONE] / Ok(None) / response.completed 三个分支原本的
+/// `!is_empty()` 语义（不做 trim），避免改变现有行为；真正的 trim 检查由
+/// 下游 `ensure_non_empty_llm_content` 在最终 Err 路径上负责。
+pub(crate) fn finalize_responses_sse_accumulated(
+    accumulated: String,
+    fallback_content: Option<String>,
+    endpoint: &LlmEndpoint,
+    source: &str,
+) -> Result<String, String> {
+    if !accumulated.is_empty() {
+        return Ok(accumulated);
+    }
+    if let Some(content) = fallback_content {
+        if !content.is_empty() {
+            return Ok(content);
+        }
+    }
+    ensure_non_empty_llm_content(String::new(), endpoint, source)
+}
+
+fn apply_responses_done_text(accumulated: &mut String, text: &str) -> (bool, bool) {
+    if text.is_empty() {
+        return (false, false);
+    }
+
+    if accumulated.is_empty() {
+        accumulated.push_str(text);
+        return (true, true);
+    }
+
+    if text.len() > accumulated.len() && text.starts_with(accumulated.as_str()) {
+        accumulated.clear();
+        accumulated.push_str(text);
+        return (false, true);
+    }
+    (false, false)
 }
 
 fn extract_content(endpoint: &LlmEndpoint, json: &Value) -> Option<String> {
@@ -597,11 +956,14 @@ fn extract_content(endpoint: &LlmEndpoint, json: &Value) -> Option<String> {
             if uses_responses_api(endpoint) {
                 json["output"].as_array().and_then(|outputs| {
                     outputs.iter().find_map(|item| {
-                        if item["type"].as_str() == Some("message") {
-                            item["content"][0]["text"].as_str().map(String::from)
-                        } else {
-                            None
-                        }
+                        (item["type"].as_str() == Some("message")).then_some(())?;
+                        item["content"].as_array()?.iter().find_map(|part| {
+                            if part["type"].as_str() == Some("output_text") {
+                                part["text"].as_str().map(String::from)
+                            } else {
+                                None
+                            }
+                        })
                     })
                 })
             } else {
@@ -691,8 +1053,13 @@ pub async fn send_llm_request(
             }
         }
     }
-    let timeout = dynamic_timeout(endpoint.timeout_secs, text_len);
     let request_body = adapt_body_for_backend(endpoint, api_key, body, options.openai_fast_mode);
+    let timeout = dynamic_timeout(
+        endpoint.timeout_secs,
+        text_len,
+        &request_body,
+        options.web_search,
+    );
     let transport_stream = request_body
         .get("stream")
         .and_then(Value::as_bool)
@@ -831,13 +1198,18 @@ pub async fn send_llm_request(
             return Err("流式请求缺少 app_handle".to_string());
         }
         let stream_app_handle = if requested_stream { app_handle } else { None };
+        let progress_timeout = stream_progress_timeout(options);
+        let total_timeout = stream_total_timeout(options);
         match endpoint.api_format {
             ApiFormat::Anthropic => {
                 read_anthropic_sse_stream(
+                    endpoint,
                     response,
                     stream_app_handle,
                     options.stream_event,
                     options.session_id,
+                    progress_timeout,
+                    total_timeout,
                 )
                 .await
             }
@@ -849,14 +1221,19 @@ pub async fn send_llm_request(
                         stream_app_handle,
                         options.stream_event,
                         options.session_id,
+                        progress_timeout,
+                        total_timeout,
                     )
                     .await
                 } else {
                     read_sse_stream(
+                        endpoint,
                         response,
                         stream_app_handle,
                         options.stream_event,
                         options.session_id,
+                        progress_timeout,
+                        total_timeout,
                     )
                     .await
                 }
@@ -867,22 +1244,39 @@ pub async fn send_llm_request(
             .json()
             .await
             .map_err(|e| format!("响应解析失败: {}", e))?;
-        Ok(extract_content(endpoint, &json).unwrap_or_default())
+        ensure_non_empty_llm_content(
+            extract_content(endpoint, &json).unwrap_or_default(),
+            endpoint,
+            "non_stream",
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        adapt_body_for_backend, build_llm_body, build_stream_event_payload,
-        extract_api_error_message, extract_openai_compat_error_message,
-        is_retryable_overload_error, looks_like_max_output_tokens_unsupported_error,
-        LlmRequestOptions, LlmUserInput, OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
+        adapt_body_for_backend, apply_responses_done_text, build_llm_body,
+        build_stream_event_payload, dynamic_timeout, ensure_non_empty_llm_content,
+        extract_api_error_message, extract_content, extract_openai_compat_error_message,
+        finalize_responses_sse_accumulated, is_retryable_overload_error,
+        looks_like_max_output_tokens_unsupported_error, stream_read_budget_at, LlmRequestOptions,
+        LlmUserInput, OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
     };
     use crate::services::codex_oauth_service;
     use crate::services::llm_provider::LlmEndpoint;
     use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
     use base64::Engine;
+    use std::time::Duration;
+
+    fn make_test_endpoint() -> crate::services::llm_provider::LlmEndpoint {
+        crate::services::llm_provider::LlmEndpoint {
+            provider: "test-provider".to_string(),
+            api_url: "https://test.example.com/v1/chat/completions".to_string(),
+            model: "test-model-x".to_string(),
+            timeout_secs: 10,
+            api_format: crate::state::user_profile::ApiFormat::OpenaiCompat,
+        }
+    }
 
     fn openai_endpoint(api_url: &str) -> LlmEndpoint {
         LlmEndpoint {
@@ -921,6 +1315,8 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -948,6 +1344,8 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -977,6 +1375,8 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -1000,6 +1400,8 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -1060,8 +1462,165 @@ mod tests {
     }
 
     #[test]
-    fn chat_body_sets_max_tokens_for_openai_compat() {
-        let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
+    fn timeout_budget_accounts_for_images_and_tool_context() {
+        let plain = dynamic_timeout(10, 0, &serde_json::json!({}), false);
+        let image_body = serde_json::json!({
+            "messages": [{
+                "content": [{
+                    "type": "image_url",
+                    "image_url": {
+                        "url": format!("data:image/jpeg;base64,{}", "a".repeat(600_000))
+                    }
+                }]
+            }]
+        });
+        let with_context = dynamic_timeout(10, 0, &image_body, true);
+
+        assert!(with_context > plain);
+    }
+
+    #[test]
+    fn stream_readers_have_total_budget_and_error_chunks() {
+        let source = include_str!("llm_client.rs");
+
+        assert!(
+            source.contains("STREAM_TOTAL_TIMEOUT") || source.contains("total_stream_budget"),
+            "SSE readers need a total stream budget in addition to per-event idle timeouts"
+        );
+        assert!(
+            source.contains("\"status\": \"error\"") || source.contains("\"status\":\"error\""),
+            "streaming failures and total-budget timeouts should emit an error chunk/status to the UI"
+        );
+    }
+
+    #[test]
+    fn stream_budget_times_out_when_visible_progress_stalls() {
+        let now = tokio::time::Instant::now();
+        let started_at = now - Duration::from_secs(20);
+        let last_progress_at = now - Duration::from_secs(11);
+
+        let result = stream_read_budget_at(
+            now,
+            started_at,
+            last_progress_at,
+            Duration::from_secs(90),
+            Duration::from_secs(300),
+            Some(Duration::from_secs(10)),
+        );
+
+        let err = result.expect_err("stalled visible output must trip progress timeout");
+        assert!(err.contains("流式输出停滞"));
+    }
+
+    #[test]
+    fn stream_budget_uses_nearest_deadline() {
+        let now = tokio::time::Instant::now();
+        let started_at = now - Duration::from_secs(20);
+        let last_progress_at = now - Duration::from_secs(7);
+
+        let budget = stream_read_budget_at(
+            now,
+            started_at,
+            last_progress_at,
+            Duration::from_secs(90),
+            Duration::from_secs(300),
+            Some(Duration::from_secs(10)),
+        )
+        .expect("progress timeout still has 3s remaining");
+
+        assert_eq!(budget, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn request_options_carry_per_request_stream_total_timeout() {
+        let options = LlmRequestOptions {
+            stream: true,
+            stream_total_timeout_secs: Some(300),
+            ..LlmRequestOptions::default()
+        };
+
+        assert_eq!(
+            super::stream_total_timeout(options),
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test]
+    fn stream_total_timeout_rejects_legacy_twenty_four_hour_budget() {
+        let options = LlmRequestOptions {
+            stream: true,
+            stream_total_timeout_secs: Some(24 * 60 * 60),
+            ..LlmRequestOptions::default()
+        };
+
+        assert!(
+            super::stream_total_timeout(options) <= Duration::from_secs(600),
+            "stream total timeout must be task-scoped, not the old 24h reader budget"
+        );
+    }
+
+    #[test]
+    fn responses_done_text_replaces_partial_delta_buffer() {
+        let mut accumulated = "{\"polished\":\"半".to_string();
+
+        let (should_emit, progressed) = apply_responses_done_text(
+            &mut accumulated,
+            "{\"polished\":\"半句话\",\"corrections\":[],\"key_terms\":[]}",
+        );
+
+        assert!(!should_emit);
+        assert!(progressed);
+        assert_eq!(
+            accumulated,
+            "{\"polished\":\"半句话\",\"corrections\":[],\"key_terms\":[]}"
+        );
+    }
+
+    #[test]
+    fn responses_done_empty_text_preserves_partial_delta_buffer() {
+        let mut accumulated = "{\"polished\":\"半".to_string();
+
+        let (should_emit, progressed) = apply_responses_done_text(&mut accumulated, "");
+
+        assert!(!should_emit);
+        assert!(!progressed);
+        assert_eq!(accumulated, "{\"polished\":\"半");
+    }
+
+    #[test]
+    fn responses_done_unrelated_text_preserves_existing_buffer() {
+        let mut accumulated = "first-block".to_string();
+
+        let (should_emit, progressed) = apply_responses_done_text(&mut accumulated, "second-block");
+
+        assert!(!should_emit);
+        assert!(!progressed);
+        assert_eq!(accumulated, "first-block");
+    }
+
+    #[test]
+    fn responses_extract_content_reads_output_text_parts() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let json = serde_json::json!({
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {"type": "reasoning_text", "text": "internal"},
+                        {"type": "output_text", "text": "{\"polished\":\"ok\"}"}
+                    ]
+                }
+            ]
+        });
+
+        let content = extract_content(&endpoint, &json);
+
+        assert_eq!(content.as_deref(), Some("{\"polished\":\"ok\"}"));
+    }
+
+    #[test]
+    fn generic_openai_compat_chat_body_sets_max_tokens() {
+        let endpoint = make_test_endpoint();
         let body = build_llm_body(
             &endpoint,
             "system",
@@ -1070,6 +1629,46 @@ mod tests {
         );
 
         assert_eq!(body["max_tokens"], serde_json::json!(4096));
+    }
+
+    #[test]
+    fn openai_chat_body_sets_max_completion_tokens() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+
+        assert_eq!(body["max_completion_tokens"], serde_json::json!(4096));
+        assert!(
+            body.get("max_tokens").is_none(),
+            "OpenAI Chat Completions deprecates max_tokens and requires max_completion_tokens for current reasoning models"
+        );
+    }
+
+    #[test]
+    fn cerebras_chat_body_sets_max_completion_tokens() {
+        let endpoint = LlmEndpoint {
+            provider: "cerebras".to_string(),
+            api_url: "https://api.cerebras.ai/v1/chat/completions".to_string(),
+            model: "gpt-oss-120b".to_string(),
+            timeout_secs: 5,
+            api_format: ApiFormat::OpenaiCompat,
+        };
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+
+        assert_eq!(body["max_completion_tokens"], serde_json::json!(4096));
+        assert!(
+            body.get("max_tokens").is_none(),
+            "Cerebras Chat Completions documents max_completion_tokens, not max_tokens"
+        );
     }
 
     #[test]
@@ -1086,7 +1685,7 @@ mod tests {
     }
 
     #[test]
-    fn chatgpt_backend_keeps_max_output_tokens_by_default() {
+    fn chatgpt_backend_omits_max_output_tokens_before_first_request() {
         let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
         let body = build_llm_body(
             &endpoint,
@@ -1102,7 +1701,10 @@ mod tests {
 
         let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, false);
 
-        assert_eq!(adapted["max_output_tokens"], serde_json::json!(4096));
+        assert!(
+            adapted.get("max_output_tokens").is_none(),
+            "ChatGPT Codex backend rejects max_output_tokens; it must be removed before dispatch"
+        );
         assert_eq!(adapted["store"], serde_json::json!(false));
     }
 
@@ -1121,6 +1723,8 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
         let api_key = chatgpt_codex_api_key();
@@ -1147,6 +1751,8 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
         let api_key = chatgpt_codex_api_key();
@@ -1192,6 +1798,8 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -1227,6 +1835,8 @@ mod tests {
                 session_id: None,
                 web_search: false,
                 openai_fast_mode: false,
+                stream_progress_timeout_secs: None,
+                stream_total_timeout_secs: None,
             },
         );
 
@@ -1429,6 +2039,317 @@ mod tests {
              too when ChatGPT-auth is used. Wire value hard-coded here to catch \
              divergence from openai/codex upstream — see the module-level \
              comment above these tests for why this literal is not a shared const."
+        );
+    }
+
+    // --- ensure_non_empty_llm_content tests ------------------------------
+    //
+    // Contract:
+    //   - Returns Err(...) when content.trim().is_empty()
+    //   - Error message contains endpoint.provider, endpoint.model, and source
+    //   - Otherwise returns Ok(content) — content is NOT trimmed
+
+    #[test]
+    fn ensure_non_empty_llm_content_rejects_empty_string() {
+        let endpoint = make_test_endpoint();
+        let result = ensure_non_empty_llm_content(String::new(), &endpoint, "polish");
+
+        assert!(
+            result.is_err(),
+            "empty content must produce Err; got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_rejects_whitespace_only() {
+        let endpoint = make_test_endpoint();
+        let result = ensure_non_empty_llm_content("   \n\t".to_string(), &endpoint, "polish");
+
+        assert!(
+            result.is_err(),
+            "whitespace-only content must produce Err; got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_passes_real_text() {
+        let endpoint = make_test_endpoint();
+        let result = ensure_non_empty_llm_content("hello world".to_string(), &endpoint, "polish");
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("hello world"),
+            "real text must pass through verbatim, NOT trimmed"
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_preserves_internal_whitespace() {
+        let endpoint = make_test_endpoint();
+        let result = ensure_non_empty_llm_content("  hi  ".to_string(), &endpoint, "polish");
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("  hi  "),
+            "leading/trailing whitespace must be preserved when content has \
+             non-whitespace characters — the function checks emptiness via \
+             trim() but must NOT mutate the returned string"
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_error_message_includes_provider_and_model() {
+        let endpoint = make_test_endpoint();
+        let result = ensure_non_empty_llm_content(String::new(), &endpoint, "polish");
+
+        let err = result.expect_err("empty content must produce Err");
+        assert!(
+            err.contains("test-provider"),
+            "error message must mention provider {:?}; got {:?}",
+            endpoint.provider,
+            err
+        );
+        assert!(
+            err.contains("test-model-x"),
+            "error message must mention model {:?}; got {:?}",
+            endpoint.model,
+            err
+        );
+    }
+
+    #[test]
+    fn ensure_non_empty_llm_content_error_message_includes_source_label() {
+        let endpoint = make_test_endpoint();
+        let result = ensure_non_empty_llm_content("   ".to_string(), &endpoint, "ai-polish");
+
+        let err = result.expect_err("whitespace-only content must produce Err");
+        assert!(
+            err.contains("ai-polish"),
+            "error message must mention source label {:?} verbatim; got {:?}",
+            "ai-polish",
+            err
+        );
+    }
+
+    // --- is_empty_llm_response_error tests --------------------------------
+    //
+    // 这条识别函数是 polish/assistant fallback 决定是否短路重试的依据。
+    // 如果识别失稳（漏判 → 多花 3 次请求；误判 → 把无关错误当空响应丢弃），
+    // 就退回到原始浪费/错失的状态。
+
+    #[test]
+    fn is_empty_llm_response_error_matches_fresh_helper_output() {
+        let endpoint = make_test_endpoint();
+        let err = ensure_non_empty_llm_content(String::new(), &endpoint, "non_stream")
+            .expect_err("empty content must produce Err");
+        assert!(
+            super::is_empty_llm_response_error(&err),
+            "recognizer must accept the very error string the helper produces; got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn is_empty_llm_response_error_matches_each_documented_source() {
+        // 每个 callsite 都要被识别——任何一个漏掉就意味着那条路径上的空
+        // 响应仍会触发 polish 4 段 fallback 全跑。
+        let endpoint = make_test_endpoint();
+        for source in [
+            "non_stream",
+            "openai_chat_sse_done",
+            "openai_chat_sse_eos",
+            "anthropic_sse_message_stop",
+            "anthropic_sse_eos",
+            "openai_responses_sse_completed",
+            // 新增的 Responses SSE finalize 路径：done 事件结束流，
+            // eos 是流意外终止后由 finalize 兜底。两条分支都必须被
+            // recognizer 识别，否则 polish/assistant fallback 链路会
+            // 误以为是真正的 transport 错误而连跑 4 段。
+            "openai_responses_sse_done",
+            "openai_responses_sse_eos",
+        ] {
+            let err = ensure_non_empty_llm_content(String::new(), &endpoint, source)
+                .expect_err("empty content must produce Err");
+            assert!(
+                super::is_empty_llm_response_error(&err),
+                "recognizer missed source={:?}; err={:?}",
+                source,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn is_empty_llm_response_error_rejects_unrelated_errors() {
+        // 未来加新错误时不应该误命中。这里也防止前缀被改成"空响应"等更通用
+        // 的措辞导致与 anthropic / openai 自带的错误文案撞车。
+        for unrelated in [
+            "HTTP 500: internal server error",
+            "流式读取失败: connection reset",
+            "Anthropic 流式错误: rate_limit_exceeded",
+            "Responses 流式错误: invalid_request",
+            "API 返回错误 401: invalid api key",
+            "响应解析失败: expected ident at column 5",
+            "",
+        ] {
+            assert!(
+                !super::is_empty_llm_response_error(unrelated),
+                "recognizer must NOT match unrelated error; got match for {:?}",
+                unrelated
+            );
+        }
+    }
+
+    #[test]
+    fn is_empty_llm_response_error_prefix_constant_is_load_bearing() {
+        // EMPTY_LLM_RESPONSE_ERROR_PREFIX 是 helper 与 recognizer 共用的契约
+        // 字符串。把它改了就要同步改两边——这条断言是个 wake-up，提醒读者
+        // 这个常量不是装饰品。
+        assert_eq!(super::EMPTY_LLM_RESPONSE_ERROR_PREFIX, "LLM 响应为空（");
+    }
+
+    // --- finalize_responses_sse_accumulated tests --------------------------
+    //
+    // OpenAI Responses SSE 在 stream 结束（done）或意外断流（eos）时，
+    // 我们手里同时握有：
+    //   - accumulated：从 delta 事件里逐段拼起来的正文
+    //   - fallback_content：completed/done 事件里附带的最终 content（可选）
+    // finalizer 的合同是：
+    //   1) accumulated 优先（含义最权威，且包含逐 token 流出的内容），
+    //      非空就直接返回，且**不** trim——和 ensure_non_empty_llm_content
+    //      对齐：只校验 trim 后是否为空，但返回原始字符串以保留前后空白。
+    //   2) accumulated 为空才退回到事件里挂的 fallback_content；同样要求非空。
+    //   3) 两者皆空再走 ensure_non_empty_llm_content，借它统一拼出
+    //      EMPTY_LLM_RESPONSE_ERROR_PREFIX 起头的错误，让 recognizer 能识别。
+
+    #[test]
+    fn finalize_responses_sse_accumulated_returns_accumulated_when_non_empty() {
+        // accumulated 存在就赢——即使 fallback 也非空也要被忽略。否则会出现
+        // 流式内容被 done 事件的截断 fallback 覆盖，丢字。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            "hello".to_string(),
+            Some("ignored".to_string()),
+            &endpoint,
+            "openai_responses_sse_done",
+        );
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("hello"),
+            "accumulated 非空时必须直接返回 accumulated 原值，忽略 fallback"
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_preserves_accumulated_whitespace() {
+        // 与 ensure_non_empty_llm_content 行为一致：判空用 trim，但返回原字符串。
+        // 流式拼接出来的前后空白可能是有意义的（例如续写场景）。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            "  hi  ".to_string(),
+            None,
+            &endpoint,
+            "openai_responses_sse_done",
+        );
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("  hi  "),
+            "accumulated 必须 verbatim 返回，不允许被 trim 改写"
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_falls_back_when_accumulated_empty() {
+        // 部分 provider 在 delta 里只丢 reasoning，正文只在 completed/done
+        // 事件里给一次。accumulated 为空时必须用 fallback 兜底。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            String::new(),
+            Some("from_event".to_string()),
+            &endpoint,
+            "openai_responses_sse_done",
+        );
+
+        assert_eq!(
+            result.as_deref(),
+            Ok("from_event"),
+            "accumulated 为空、fallback 非空时必须返回 fallback 原值"
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_ignores_empty_fallback() {
+        // fallback 是 Some 但内容为空，等价于没有 fallback。要走空响应错误，
+        // 而不是返回 Ok("")——后者会让上游误以为模型给了空字符串答案。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            String::new(),
+            Some(String::new()),
+            &endpoint,
+            "openai_responses_sse_done",
+        );
+
+        let err = result.expect_err("accumulated 与 fallback 都为空时必须 Err");
+        assert!(
+            super::is_empty_llm_response_error(&err),
+            "错误必须能被 is_empty_llm_response_error 识别，否则 polish fallback 短路失效；got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_ignores_none_fallback() {
+        // 完全没有 fallback 也是常见场景（流被中断、只能用 eos 兜底）。
+        let endpoint = make_test_endpoint();
+        let result = finalize_responses_sse_accumulated(
+            String::new(),
+            None,
+            &endpoint,
+            "openai_responses_sse_eos",
+        );
+
+        let err = result.expect_err("accumulated 空、fallback None 时必须 Err");
+        assert!(
+            super::is_empty_llm_response_error(&err),
+            "错误必须能被 is_empty_llm_response_error 识别；got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn finalize_responses_sse_accumulated_error_carries_provider_model_and_source() {
+        // 错误信息要能在日志里直接定位是哪个 provider/model/调用点出问题的。
+        // 这条断言把三段都钉死，避免有人把 source 标签替换成更"通用"的措辞
+        // 而让 grep 失效。
+        let endpoint = make_test_endpoint();
+        let err = finalize_responses_sse_accumulated(
+            String::new(),
+            None,
+            &endpoint,
+            "openai_responses_sse_done",
+        )
+        .expect_err("空响应必须 Err");
+
+        assert!(
+            err.contains(&endpoint.provider),
+            "错误必须包含 provider {:?}; got {:?}",
+            endpoint.provider,
+            err
+        );
+        assert!(
+            err.contains(&endpoint.model),
+            "错误必须包含 model {:?}; got {:?}",
+            endpoint.model,
+            err
+        );
+        assert!(
+            err.contains("openai_responses_sse_done"),
+            "错误必须包含 source 标签 verbatim，方便日志/grep 定位; got {:?}",
+            err
         );
     }
 }

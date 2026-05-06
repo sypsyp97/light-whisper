@@ -7,6 +7,7 @@ export interface TranscriptionResult {
 }
 
 export type RecordingMode = "dictation" | "assistant";
+export type EditGrabStatus = "ok" | "timeout" | "empty" | "unsupported";
 
 // 与 Rust 后端 funasr_service::FunASRStatus 对应
 export interface FunASRStatus {
@@ -40,6 +41,7 @@ export interface HistoryItem {
   originalText: string;
   timestamp: number;
   timeDisplay: string;
+  editGrabStatus?: EditGrabStatus;
 }
 
 export interface InputDeviceInfo {

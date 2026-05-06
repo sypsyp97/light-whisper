@@ -10,6 +10,9 @@ use crate::state::user_profile::{UserProfile, WebSearchConfig, WebSearchProvider
 use crate::state::AppState;
 use crate::utils::AppError;
 
+const ASSISTANT_SIMPLE_STREAM_TOTAL_TIMEOUT_SECS: u64 = 240;
+const ASSISTANT_EXTENDED_STREAM_TOTAL_TIMEOUT_SECS: u64 = 600;
+
 const ASSISTANT_SYSTEM_PROMPT: &str = r#"
 <role>
 你是用户的语音助手，负责理解用户的语音指令并生成对应的目标文本。用户通过语音告诉你要做什么，你直接输出完成后的结果。
@@ -161,27 +164,28 @@ fn render_assistant_user_content(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::render_assistant_user_content;
+fn build_assistant_request_options(
+    reasoning_mode: crate::state::user_profile::LlmReasoningMode,
+    session_id: u64,
+    use_native_search: bool,
+    has_image_context: bool,
+) -> LlmRequestOptions<'static> {
+    let stream_total_timeout_secs = if use_native_search || has_image_context {
+        ASSISTANT_EXTENDED_STREAM_TOTAL_TIMEOUT_SECS
+    } else {
+        ASSISTANT_SIMPLE_STREAM_TOTAL_TIMEOUT_SECS
+    };
 
-    #[test]
-    fn assistant_input_preserves_symbols_and_splits_cdata() {
-        let content = render_assistant_user_content(
-            Some("<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"),
-            "如果 a > b 并且文本里有 ]]> 这个片段",
-            Some("原文里有 <tag> 和 >"),
-            true,
-        );
-
-        assert!(content.contains(
-            "<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"
-        ));
-        assert!(content.contains("<selected_text><![CDATA[原文里有 <tag> 和 >]]></selected_text>"));
-        assert!(content.contains("<screen_context><![CDATA[已附带当前整屏截图，仅在与用户请求相关时参考其中信息。]]></screen_context>"));
-        assert!(content.contains(
-            "<user_request><![CDATA[如果 a > b 并且文本里有 ]]]]><![CDATA[> 这个片段]]></user_request>"
-        ));
+    LlmRequestOptions {
+        stream: true,
+        json_output: false,
+        reasoning_mode,
+        stream_event: Some("assistant-stream"),
+        session_id: Some(session_id),
+        web_search: use_native_search,
+        openai_fast_mode: false,
+        stream_progress_timeout_secs: None,
+        stream_total_timeout_secs: Some(stream_total_timeout_secs),
     }
 }
 
@@ -330,7 +334,7 @@ pub async fn generate_content(
     let effective_image_support = cached_image_support.or(probed_image_support);
 
     let images = if screen_context_enabled && effective_image_support != Some(false) {
-        match screen_capture_service::capture_full_screen_context() {
+        match screen_capture_service::capture_full_screen_context_async().await {
             Ok(captured) => {
                 if !captured.is_empty() {
                     let labels = captured
@@ -374,15 +378,16 @@ pub async fn generate_content(
         text: user_content.clone(),
         images,
     };
+    let has_image_context = !user_input.images.is_empty();
 
     let request_options = LlmRequestOptions {
-        stream: true,
-        json_output: false,
-        reasoning_mode: config.assistant_reasoning_mode(),
-        stream_event: Some("assistant-stream"),
-        session_id: Some(session_id),
-        web_search: use_native_search,
         openai_fast_mode: config.openai_fast_mode,
+        ..build_assistant_request_options(
+            config.assistant_reasoning_mode(),
+            session_id,
+            use_native_search,
+            has_image_context,
+        )
     };
     let body = llm_client::build_llm_body(&endpoint, &system_prompt, &user_input, request_options);
 
@@ -478,10 +483,11 @@ pub async fn generate_content(
         Err(err) => return Err(AppError::Other(err)),
     };
 
+    // `send_llm_request` 已经在内部把空响应统一映射成 Err（带 provider/
+    // model 诊断信息），上面的 match 把所有 Err 分支都 return 了，所以走到
+    // 这里 content trim 后必然非空。旧的 "AI 助手返回了空内容" 兜底已
+    // 不可达，移除。
     let trimmed = content.trim().to_string();
-    if trimmed.is_empty() {
-        return Err(AppError::Other("AI 助手返回了空内容".to_string()));
-    }
 
     let _ = app_handle.emit(
         "assistant-stream",
@@ -500,4 +506,57 @@ pub async fn generate_content(
     }
 
     Ok(trimmed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_assistant_request_options, render_assistant_user_content};
+    use crate::state::user_profile::LlmReasoningMode;
+
+    #[test]
+    fn assistant_input_preserves_symbols_and_splits_cdata() {
+        let content = render_assistant_user_content(
+            Some("<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"),
+            "如果 a > b 并且文本里有 ]]> 这个片段",
+            Some("原文里有 <tag> 和 >"),
+            true,
+        );
+
+        assert!(content.contains(
+            "<app_context><process_name><![CDATA[Code.exe]]></process_name></app_context>"
+        ));
+        assert!(content.contains("<selected_text><![CDATA[原文里有 <tag> 和 >]]></selected_text>"));
+        assert!(content.contains("<screen_context><![CDATA[已附带当前整屏截图，仅在与用户请求相关时参考其中信息。]]></screen_context>"));
+        assert!(content.contains(
+            "<user_request><![CDATA[如果 a > b 并且文本里有 ]]]]><![CDATA[> 这个片段]]></user_request>"
+        ));
+    }
+
+    #[test]
+    fn assistant_stream_uses_bounded_total_budget() {
+        let options =
+            build_assistant_request_options(LlmReasoningMode::ProviderDefault, 42, false, false);
+
+        let timeout = options
+            .stream_total_timeout_secs
+            .expect("assistant streaming requests must carry a total timeout");
+        assert!(
+            (240..=600).contains(&timeout),
+            "assistant stream total timeout should be bounded for normal tasks, got {timeout}s"
+        );
+    }
+
+    #[test]
+    fn native_web_search_assistant_stream_may_use_upper_budget() {
+        let options =
+            build_assistant_request_options(LlmReasoningMode::ProviderDefault, 42, true, false);
+
+        let timeout = options
+            .stream_total_timeout_secs
+            .expect("web-search assistant streaming requests must carry a total timeout");
+        assert!(
+            (480..=600).contains(&timeout),
+            "web-search assistant stream budget should be near the upper bounded range, got {timeout}s"
+        );
+    }
 }

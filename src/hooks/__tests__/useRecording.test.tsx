@@ -12,9 +12,9 @@
  *     implementation — they lock that behaviour in place against future
  *     refactors.
  *
- *   - The `stopRecording` return-type test is a TDD red-state test: it
- *     asserts the future contract (resolves to `undefined`) and is expected
- *     to FAIL against the current implementation (which `return null`s).
+ *   - The `stopRecording` return-type test locks in the current public
+ *     contract: the hook resolves to `undefined` after the Tauri command
+ *     completes.
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -202,6 +202,95 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
     });
   });
 
+  it("stores edit-grab status from the current final result and preserves it in history", async () => {
+    tauriInvokeMocks.startRecording.mockResolvedValueOnce(11);
+
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 11,
+        text: "current final",
+        interim: false,
+        editGrabStatus: "timeout",
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.transcriptionResult).toBe("current final");
+      expect(result.current.editGrabStatus).toBe("timeout");
+      expect(result.current.history[0].editGrabStatus).toBe("timeout");
+    });
+  });
+
+  it("keeps stale final edit-grab status in history without replacing the current displayed status", async () => {
+    tauriInvokeMocks.startRecording.mockResolvedValueOnce(12);
+    tauriInvokeMocks.startRecording.mockResolvedValueOnce(13);
+
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+    await act(async () => {
+      await result.current.startRecording();
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 13,
+        text: "new result",
+        interim: false,
+        editGrabStatus: "ok",
+      });
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 12,
+        text: "stale result",
+        interim: false,
+        editGrabStatus: "empty",
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.transcriptionResult).toBe("new result");
+      expect(result.current.editGrabStatus).toBe("ok");
+      const historyByText = new Map(result.current.history.map((item) => [item.text, item]));
+      expect(historyByText.get("new result")?.editGrabStatus).toBe("ok");
+      expect(historyByText.get("stale result")?.editGrabStatus).toBe("empty");
+    });
+  });
+
+  it.each(["ok", "timeout", "empty", "unsupported"] as const)(
+    "accepts %s as a frontend-visible edit-grab status",
+    async (editGrabStatus) => {
+      const { result } = renderHook(() => useRecording());
+      await flushMicrotasks();
+
+      await act(async () => {
+        tauriEvents.emit("transcription-result", {
+          sessionId: 20,
+          text: `status ${editGrabStatus}`,
+          interim: false,
+          editGrabStatus,
+        });
+      });
+
+      await waitFor(() => {
+        expect(result.current.editGrabStatus).toBe(editGrabStatus);
+        expect(result.current.history[0].editGrabStatus).toBe(editGrabStatus);
+      });
+    }
+  );
+
   it("keeps both raw ASR text and editable baseline after a final result arrives", async () => {
     const { result } = renderHook(() => useRecording());
     await flushMicrotasks();
@@ -248,7 +337,7 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
   });
 });
 
-describe("useRecording stopRecording return type (TDD red)", () => {
+describe("useRecording stopRecording return type", () => {
   it("stopRecording resolves to undefined (not null)", async () => {
     tauriInvokeMocks.startRecording.mockResolvedValue(1);
     tauriInvokeMocks.stopRecording.mockResolvedValue(undefined);

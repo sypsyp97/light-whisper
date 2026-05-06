@@ -313,6 +313,65 @@ pub async fn get_llm_reasoning_support(
     ))
 }
 
+/// 校验单个 provider 字段：name。trim 后非空、字符数不超过 128。
+/// 拆出来是为了让 `update_custom_provider` 的 Optional 校验复用同一份语义。
+fn validate_provider_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("provider 名称不能为空".into());
+    }
+    if name.chars().count() > 128 {
+        return Err("provider 名称过长（最多 128 字符）".into());
+    }
+    Ok(name.to_string())
+}
+
+/// 校验单个 provider 字段：base_url。trim 后非空、是合法 URL、scheme 仅 http/https。
+/// 末尾斜杠归一化掉，避免 "https://x/" 与 "https://x" 在后续比较时不一致。
+fn validate_provider_base_url(base_url: &str) -> Result<String, String> {
+    let url = base_url.trim();
+    if url.is_empty() {
+        return Err("base_url 不能为空".into());
+    }
+    let parsed = reqwest::Url::parse(url).map_err(|err| format!("非法 base_url: {}", err))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => {
+            return Err(format!(
+                "base_url 仅支持 http/https，收到 scheme: {}",
+                other
+            ))
+        }
+    }
+    Ok(url.trim_end_matches('/').to_string())
+}
+
+/// 校验单个 provider 字段：model。trim 后非空。
+fn validate_provider_model(model: &str) -> Result<String, String> {
+    let model = model.trim();
+    if model.is_empty() {
+        return Err("model 不能为空".into());
+    }
+    Ok(model.to_string())
+}
+
+/// 校验并归一化自定义 provider 字段。
+///
+/// 这里不卡白名单 host（自托管 OpenAI 兼容服务很常见），但要求：
+/// - name/model trim 后非空，name 控制在 128 字符内（防止前端 UI 撑爆）
+/// - base_url 是合法 URL，scheme 仅允许 http/https
+/// - 末尾斜杠归一化掉，避免 "https://x/" 与 "https://x" 在后续比较时不一致
+fn normalize_custom_provider_fields(
+    name: &str,
+    base_url: &str,
+    model: &str,
+) -> Result<(String, String, String), String> {
+    let normalized_name = validate_provider_name(name)?;
+    let normalized_url = validate_provider_base_url(base_url)?;
+    let normalized_model = validate_provider_model(model)?;
+    Ok((normalized_name, normalized_url, normalized_model))
+}
+
 #[tauri::command]
 pub async fn add_custom_provider(
     state: tauri::State<'_, AppState>,
@@ -321,24 +380,40 @@ pub async fn add_custom_provider(
     model: String,
     api_format: ApiFormat,
 ) -> Result<String, String> {
-    let id = format!(
-        "custom_{}",
+    let (name, base_url, model) = normalize_custom_provider_fields(&name, &base_url, &model)?;
+    // 用毫秒时间戳生成 id 在 UI 快速点击时可能撞 ID（同一毫秒两次添加）；
+    // 拼一段随机后缀 + 在 push 前查重，确保 id 唯一。
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let mut id = format!(
+        "custom_{}_{:08x}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_millis()
+            .as_millis(),
+        rng.gen::<u32>()
     );
-    let provider = CustomProvider {
-        id: id.clone(),
-        name,
-        base_url,
-        model,
-        api_format,
-    };
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    let assigned_id = profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        // 极小概率撞 ID 时再随机一次。
+        while profile
+            .llm_provider
+            .custom_providers
+            .iter()
+            .any(|p| p.id == id)
+        {
+            id = format!("custom_{:016x}", rng.gen::<u64>());
+        }
+        let provider = CustomProvider {
+            id: id.clone(),
+            name: name.clone(),
+            base_url: base_url.clone(),
+            model: model.clone(),
+            api_format,
+        };
         profile.llm_provider.custom_providers.push(provider);
+        id.clone()
     });
-    Ok(id)
+    Ok(assigned_id)
 }
 
 #[tauri::command]
@@ -350,6 +425,20 @@ pub async fn update_custom_provider(
     model: Option<String>,
     api_format: Option<ApiFormat>,
 ) -> Result<(), String> {
+    // 先校验入参，再进 profile 闭包。这样校验失败不会污染 profile 状态。
+    let normalized_name = match name.as_deref() {
+        Some(n) => Some(validate_provider_name(n)?),
+        None => None,
+    };
+    let normalized_url = match base_url.as_deref() {
+        Some(u) => Some(validate_provider_base_url(u)?),
+        None => None,
+    };
+    let normalized_model = match model.as_deref() {
+        Some(m) => Some(validate_provider_model(m)?),
+        None => None,
+    };
+
     let found = profile_service::update_profile_and_schedule(state.inner(), |profile| {
         if let Some(cp) = profile
             .llm_provider
@@ -357,14 +446,14 @@ pub async fn update_custom_provider(
             .iter_mut()
             .find(|p| p.id == id)
         {
-            if let Some(n) = name {
-                cp.name = n;
+            if let Some(n) = &normalized_name {
+                cp.name = n.clone();
             }
-            if let Some(u) = base_url {
-                cp.base_url = u;
+            if let Some(u) = &normalized_url {
+                cp.base_url = u.clone();
             }
-            if let Some(m) = model {
-                cp.model = m;
+            if let Some(m) = &normalized_model {
+                cp.model = m.clone();
             }
             if let Some(f) = api_format {
                 cp.api_format = f;
@@ -688,4 +777,214 @@ fn parse_invalid_indices(raw: &str) -> Vec<usize> {
         }
     }
     Vec::new()
+}
+
+#[cfg(test)]
+mod validator_tests {
+    use super::*;
+
+    // --- validate_provider_name ------------------------------------------
+    //
+    // 目的：把 trim、空值、长度上限三件事按合同钉死。这些字符串从前端
+    // 直接落到 profile 里，没人会再清洗一遍——校验不严会让用户保存到
+    // 一个让 UI 显示崩溃（128 字符限制）或永远跑不通（空字符串）的
+    // provider。
+
+    #[test]
+    fn validate_provider_name_rejects_empty_string() {
+        // 完全空串必须报"不能为空"——前端直接显示此错误。
+        let err = validate_provider_name("").expect_err("空字符串必须 Err");
+        assert_eq!(err, "provider 名称不能为空");
+    }
+
+    #[test]
+    fn validate_provider_name_rejects_whitespace_only() {
+        // 全空白等价于空串：必须 trim 后再判，否则用户用空格"保存"也算通过。
+        let err = validate_provider_name("   ").expect_err("纯空白必须 Err");
+        assert_eq!(err, "provider 名称不能为空");
+    }
+
+    #[test]
+    fn validate_provider_name_accepts_exactly_128_chars() {
+        // 128 是上限（含），不是 127。这条边界把 off-by-one 钉死。
+        let name: String = "a".repeat(128);
+        let result = validate_provider_name(&name);
+        assert_eq!(
+            result.as_deref(),
+            Ok(name.as_str()),
+            "128 字符必须接受（边界含上限）"
+        );
+    }
+
+    #[test]
+    fn validate_provider_name_rejects_129_chars() {
+        // 上限 +1 一定要 Err，且错误文案对应"过长"。
+        let name: String = "a".repeat(129);
+        let err = validate_provider_name(&name).expect_err("129 字符必须 Err");
+        assert_eq!(err, "provider 名称过长（最多 128 字符）");
+    }
+
+    #[test]
+    fn validate_provider_name_trims_outer_whitespace() {
+        // 返回值必须是 trim 后的字符串。否则保存进去的名字会带前后空格，
+        // 后续比较/显示会出现幽灵空白。
+        let result = validate_provider_name("  abc  ");
+        assert_eq!(result.as_deref(), Ok("abc"), "返回值必须是 trim 后的字符串");
+    }
+
+    #[test]
+    fn validate_provider_name_counts_chars_not_bytes() {
+        // 100 个 ASCII + 30 个 CJK 共 130 char（每个 CJK 在 UTF-8 里占 3 字节，
+        // 总字节 100 + 30*3 = 190）。如果实现错把 .len() 当字符数：
+        //   - 190 > 128 → 这条会 Err，看起来"对"——但 100 ASCII 也会错判
+        // 如果实现按 .chars().count()：
+        //   - 130 > 128 → Err，符合合同
+        // 这条断言只钉一种情况，但一同盯着字符数语义。
+        let mut name = String::with_capacity(190);
+        for _ in 0..100 {
+            name.push('a');
+        }
+        for _ in 0..30 {
+            name.push('文'); // 多字节 CJK
+        }
+        assert_eq!(name.chars().count(), 130, "前置条件：130 个字符");
+        let err = validate_provider_name(&name).expect_err("130 字符必须 Err");
+        assert_eq!(
+            err, "provider 名称过长（最多 128 字符）",
+            "字符计数必须基于 chars() 而非 bytes"
+        );
+    }
+
+    // --- validate_provider_base_url --------------------------------------
+    //
+    // 目的：拒绝非法 URL，禁止 http/https 之外的 scheme（防止 file://
+    // 之类被无意保存触发后续 reqwest 行为不一致），并把末尾斜杠归一化掉
+    // 以避免 "https://x/" 与 "https://x" 在比较/拼接时不一致。
+
+    #[test]
+    fn validate_provider_base_url_rejects_empty_string() {
+        let err = validate_provider_base_url("").expect_err("空 base_url 必须 Err");
+        assert_eq!(err, "base_url 不能为空");
+    }
+
+    #[test]
+    fn validate_provider_base_url_rejects_whitespace_only() {
+        // 同 name：必须先 trim 再判空，否则空格能"骗"过校验。
+        let err = validate_provider_base_url("   ").expect_err("纯空白 base_url 必须 Err");
+        assert_eq!(err, "base_url 不能为空");
+    }
+
+    #[test]
+    fn validate_provider_base_url_rejects_garbage_string() {
+        // 不能解析为 URL 时必须用"非法 base_url:"前缀，方便前端 grep 错误类型。
+        let err =
+            validate_provider_base_url("not a url at all").expect_err("非 URL 字符串必须 Err");
+        assert!(
+            err.starts_with("非法 base_url: "),
+            "错误必须以 \"非法 base_url: \" 开头；got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn validate_provider_base_url_rejects_ftp_scheme() {
+        // ftp 是合法 URL scheme 但我们不支持。错误必须显式提示 scheme 名称，
+        // 否则用户很难懂为什么"看起来像 URL"的字符串被拒了。
+        let err = validate_provider_base_url("ftp://example.com").expect_err("ftp scheme 必须 Err");
+        assert!(
+            err.contains("仅支持 http/https"),
+            "错误必须包含\"仅支持 http/https\"；got {:?}",
+            err
+        );
+        assert!(
+            err.contains("ftp"),
+            "错误必须显式提到收到的 scheme \"ftp\"；got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn validate_provider_base_url_rejects_file_scheme() {
+        // file:// 也是常见误填，必须拒掉以防止保存后引发 reqwest 行为异常。
+        let err = validate_provider_base_url("file:///x").expect_err("file scheme 必须 Err");
+        assert!(
+            err.contains("file"),
+            "错误必须提到 \"file\" scheme；got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn validate_provider_base_url_accepts_plain_http() {
+        // 自托管（局域网/dev）经常用 http；不能误拒。
+        let result = validate_provider_base_url("http://example.com");
+        assert_eq!(
+            result.as_deref(),
+            Ok("http://example.com"),
+            "http URL 必须被接受且原样返回"
+        );
+    }
+
+    #[test]
+    fn validate_provider_base_url_strips_single_trailing_slash() {
+        // 末尾斜杠归一化：避免 "https://x/" 与 "https://x" 后续在
+        // identity 比较/字符串拼接时出现"看起来一样但 != " 的诡异 bug。
+        let result = validate_provider_base_url("https://example.com/");
+        assert_eq!(
+            result.as_deref(),
+            Ok("https://example.com"),
+            "末尾单斜杠必须被剥掉"
+        );
+    }
+
+    #[test]
+    fn validate_provider_base_url_strips_multiple_trailing_slashes() {
+        // 用户可能粘贴 "https://x///"，trim_end_matches('/') 必须把所有
+        // 尾随斜杠一次性剥掉，而不是只剥一个。
+        let result = validate_provider_base_url("https://example.com///");
+        assert_eq!(
+            result.as_deref(),
+            Ok("https://example.com"),
+            "所有尾随斜杠都必须被一次剥光"
+        );
+    }
+
+    #[test]
+    fn validate_provider_base_url_trims_outer_whitespace_before_parse() {
+        // 复制粘贴常带前后空格；这些必须在 parse 前 trim 掉，
+        // 否则 reqwest::Url::parse 会因为前导空白直接报"非法 base_url"。
+        let result = validate_provider_base_url("  https://example.com  ");
+        assert_eq!(
+            result.as_deref(),
+            Ok("https://example.com"),
+            "外层空白必须先 trim 再 parse"
+        );
+    }
+
+    // --- validate_provider_model -----------------------------------------
+    //
+    // model 校验合同最简单：trim 后非空即可，且返回 trim 后的值。
+    // 这里没有长度上限——provider 自己规定 model 名长度。
+
+    #[test]
+    fn validate_provider_model_rejects_empty_string() {
+        let err = validate_provider_model("").expect_err("空 model 必须 Err");
+        assert_eq!(err, "model 不能为空");
+    }
+
+    #[test]
+    fn validate_provider_model_rejects_whitespace_only() {
+        let err = validate_provider_model("   ").expect_err("纯空白 model 必须 Err");
+        assert_eq!(err, "model 不能为空");
+    }
+
+    #[test]
+    fn validate_provider_model_trims_outer_whitespace() {
+        let result = validate_provider_model("  gpt-4  ");
+        assert_eq!(
+            result.as_deref(),
+            Ok("gpt-4"),
+            "返回值必须是 trim 后的字符串"
+        );
+    }
 }

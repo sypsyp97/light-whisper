@@ -24,6 +24,19 @@ import type {
 
 type InvokeArgs = Record<string, unknown>;
 
+export class IpcError extends Error {
+  readonly code: string;
+  readonly category: string;
+  readonly details: unknown;
+  constructor(message: string, code: string, category: string, details?: unknown) {
+    super(message);
+    this.name = "IpcError";
+    this.code = code;
+    this.category = category;
+    this.details = details;
+  }
+}
+
 function normalizeInvokeError(command: string, err: unknown): Error {
   if (err instanceof Error) {
     return err;
@@ -33,7 +46,13 @@ function normalizeInvokeError(command: string, err: unknown): Error {
   }
   if (typeof err === "object" && err !== null) {
     const message = Reflect.get(err, "message");
+    const code = Reflect.get(err, "code");
+    const category = Reflect.get(err, "category");
+    const details = Reflect.get(err, "details");
     if (typeof message === "string" && message.trim()) {
+      if (typeof code === "string" && code.trim() && typeof category === "string" && category.trim()) {
+        return new IpcError(message, code, category, details);
+      }
       return new Error(message);
     }
     const error = Reflect.get(err, "error");

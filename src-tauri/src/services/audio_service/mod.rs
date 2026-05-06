@@ -45,7 +45,7 @@ pub(crate) const PASTE_DELAY_MS: u64 = 60;
 pub(crate) const AUDIO_CAPTURE_INIT_TIMEOUT_SECS: u64 = 8;
 pub(crate) const MICROPHONE_LEVEL_EMIT_INTERVAL_MS: u64 = 70;
 /// finalize 阶段等待并行抓取选中文本的最大时长。超时就按普通听写处理。
-pub(crate) const EDIT_GRAB_WAIT_MS: u64 = 150;
+pub(crate) const EDIT_GRAB_WAIT_MS: u64 = 650;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

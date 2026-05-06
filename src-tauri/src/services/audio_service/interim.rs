@@ -5,7 +5,7 @@ use std::sync::{
 
 use tauri::{Emitter, Manager};
 
-use super::resample::resample_to_16k;
+use super::resample::ResamplerState;
 use super::{
     INTERIM_HEAVY_COST_MS, INTERIM_INTERVAL_BASE_MS, INTERIM_INTERVAL_DOWN_STEP_MS,
     INTERIM_INTERVAL_MAX_MS, INTERIM_INTERVAL_MIN_MS, INTERIM_INTERVAL_UP_STEP_MS,
@@ -37,11 +37,28 @@ pub fn spawn_interim_loop(
         // 已写入 resampled_cache 的原始样本数（raw sample index）
         let mut raw_processed: usize = 0;
         let needs_resample = sample_rate != 0 && sample_rate != TARGET_SAMPLE_RATE;
+        let mut resample_failed = false;
+        let mut resampler = None;
         let max_output_tail = (TARGET_SAMPLE_RATE as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
 
         if sample_rate == 0 {
             log::error!("中间转写启动失败：采样率为 0 (session {})", session_id);
             return;
+        }
+        if needs_resample {
+            match ResamplerState::new(sample_rate) {
+                Ok(value) => {
+                    resampler = Some(value);
+                }
+                Err(err) => {
+                    resample_failed = true;
+                    log::warn!(
+                        "中间转写重采样初始化失败，保留原始采样率 {}Hz: {}",
+                        sample_rate,
+                        err
+                    );
+                }
+            }
         }
 
         // 在线引擎不做中间转写（每次请求花钱且有网络延迟）
@@ -79,9 +96,28 @@ pub fn spawn_interim_loop(
 
             // 只对增量重采样（原生 16k 时是零拷贝），追加到会话缓存
             if !delta.is_empty() {
-                if needs_resample {
-                    let delta_resampled = resample_to_16k(&delta, sample_rate);
-                    resampled_cache.extend_from_slice(delta_resampled.as_ref());
+                if needs_resample && !resample_failed {
+                    if let Some(resampler) = resampler.as_mut() {
+                        match resampler.push_i16(&delta) {
+                            Ok(delta_resampled) => {
+                                resampled_cache.extend_from_slice(delta_resampled.as_ref());
+                            }
+                            Err(err) => {
+                                resample_failed = true;
+                                resampled_cache.clear();
+                                log::warn!(
+                                    "中间转写重采样失败，后续保留原始采样率 {}Hz: {}",
+                                    sample_rate,
+                                    err
+                                );
+                            }
+                        }
+                    } else {
+                        resample_failed = true;
+                        resampled_cache.clear();
+                    }
+                } else if resample_failed {
+                    // fallback 分支会直接从原始 samples 取尾部，避免把非 16k 音频送成 16k。
                 } else {
                     resampled_cache.extend_from_slice(&delta);
                 }
@@ -94,16 +130,25 @@ pub fn spawn_interim_loop(
                 }
             }
 
-            // 把最后 12s 的已重采样数据送给 Python；缓存可能已被裁剪，直接取尾部
-            let tail_start = resampled_cache.len().saturating_sub(max_output_tail);
-            let interim_samples = &resampled_cache[tail_start..];
+            // 把最后 12s 送给 Python；重采样失败时保留原始采样率。
+            let raw_tail;
+            let (interim_samples, interim_sample_rate) = if resample_failed {
+                let max_raw_tail = (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
+                let guard = samples.lock();
+                let tail_start = guard.len().saturating_sub(max_raw_tail);
+                raw_tail = guard[tail_start..].to_vec();
+                (raw_tail.as_slice(), sample_rate)
+            } else {
+                let tail_start = resampled_cache.len().saturating_sub(max_output_tail);
+                (&resampled_cache[tail_start..], TARGET_SAMPLE_RATE)
+            };
             let covered_sample_count =
                 current_count.min((sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize);
 
             match funasr_service::transcribe_pcm16(
                 state.inner(),
                 interim_samples,
-                TARGET_SAMPLE_RATE,
+                interim_sample_rate,
                 &app_handle,
             )
             .await

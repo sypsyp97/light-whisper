@@ -23,7 +23,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -143,6 +143,7 @@ pub struct ModelCheckResult {
 const ASR_REPO_ID: &str = "FunAudioLLM/SenseVoiceSmall";
 const VAD_REPO_ID: &str = "funasr/fsmn-vad";
 const WHISPER_REPO_ID: &str = "deepdml/faster-whisper-large-v3-turbo-ct2";
+const HF_COMPLETE_MANIFEST_NAME: &str = ".light_whisper_complete.json";
 
 /// Python 服务器的 JSON 响应
 ///
@@ -150,6 +151,8 @@ const WHISPER_REPO_ID: &str = "deepdml/faster-whisper-large-v3-turbo-ct2";
 /// `Option<T>` 表示字段可能存在也可能不存在。
 #[derive(Debug, Deserialize)]
 struct ServerResponse {
+    /// 请求 ID；新协议用于丢弃取消/超时后迟到的旧响应
+    request_id: Option<u64>,
     /// 操作是否成功
     success: Option<bool>,
     /// 状态标识
@@ -217,7 +220,16 @@ const SERVER_RESPONSE_TIMEOUT_SECS: u64 = 60;
 const SERVER_EXIT_WRITE_TIMEOUT_MS: u64 = 300;
 const SERVER_EXIT_WAIT_TIMEOUT_SECS: u64 = 2;
 const INLINE_AUDIO_FORMAT_PCM_S16LE: &str = "pcm_s16le";
+const TARGET_SAMPLE_RATE_FOR_INLINE_AUDIO: u32 = 16_000;
 const ENGINE_ARCHIVE_FINGERPRINT: &str = env!("LIGHT_WHISPER_ENGINE_ARCHIVE_FINGERPRINT");
+static NEXT_SERVER_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+
+fn now_unix_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
 
 fn to_normalized_path(path: &std::path::Path) -> String {
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -280,6 +292,19 @@ where
     T: for<'de> Deserialize<'de>,
     R: AsyncBufRead + Unpin,
 {
+    read_json_response_matching(reader, timeout, context, |_| true).await
+}
+
+async fn read_json_response_matching<T, R>(
+    reader: &mut R,
+    timeout: Duration,
+    context: &str,
+    mut accept: impl FnMut(&T) -> bool,
+) -> Result<T, AppError>
+where
+    T: for<'de> Deserialize<'de>,
+    R: AsyncBufRead + Unpin,
+{
     let start_at = Instant::now();
     let mut line_bytes = Vec::new();
 
@@ -315,7 +340,11 @@ where
                 }
 
                 if let Ok(value) = serde_json::from_str::<T>(trimmed) {
-                    return Ok(value);
+                    if accept(&value) {
+                        return Ok(value);
+                    }
+                    log::warn!("{}阶段丢弃了不匹配的旧 JSON 响应", context);
+                    continue;
                 }
 
                 // 某些 Windows 机器上，第三方库会把噪音输出和 JSON 响应挤在同一行。
@@ -323,6 +352,10 @@ where
                 if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
                     if start < end {
                         if let Ok(value) = serde_json::from_str::<T>(&trimmed[start..=end]) {
+                            if !accept(&value) {
+                                log::warn!("{}阶段丢弃了不匹配的旧 JSON 响应", context);
+                                continue;
+                            }
                             log::warn!("{}阶段从混合输出中恢复了 JSON 响应", context);
                             return Ok(value);
                         }
@@ -414,38 +447,96 @@ async fn extract_engine_archive(
 
     // 解压是 CPU 密集型 + IO 密集型，放到阻塞线程
     tokio::task::spawn_blocking(move || {
-        // 清理可能残留的不完整解压
-        if engine_dir.exists() {
-            let _ = std::fs::remove_dir_all(&engine_dir);
+        let parent = engine_dir
+            .parent()
+            .ok_or_else(|| AppError::Asr("引擎目录缺少父目录".to_string()))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AppError::Asr(format!("创建引擎父目录失败: {}", e)))?;
+
+        let stamp = now_unix_ms();
+        let staging_dir = parent.join(format!("engine.staging.{}", stamp));
+        let backup_dir = parent.join(format!("engine.backup.{}", stamp));
+
+        if staging_dir.exists() {
+            let _ = std::fs::remove_dir_all(&staging_dir);
         }
-        std::fs::create_dir_all(&engine_dir)
+        std::fs::create_dir_all(&staging_dir)
             .map_err(|e| AppError::Asr(format!("创建引擎目录失败: {}", e)))?;
 
-        let archive_name = archive
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
+        let extract_result = (|| -> Result<usize, AppError> {
+            let archive_name = archive
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
 
-        let total = if archive_name.ends_with(".tar.xz") {
-            extract_tar_xz_archive(&archive, &engine_dir, &handle)?
-        } else {
-            extract_zip_archive(&archive, &engine_dir, &handle)?
+            let total = if archive_name.ends_with(".tar.xz") {
+                extract_tar_xz_archive(&archive, &staging_dir, &handle)?
+            } else {
+                extract_zip_archive(&archive, &staging_dir, &handle)?
+            };
+
+            if total == 0 {
+                return Err(AppError::Asr("引擎归档为空".to_string()));
+            }
+            let staged_exe = staging_dir.join("engine.exe");
+            if !staged_exe.is_file() {
+                return Err(AppError::Asr("引擎归档缺少 engine.exe".to_string()));
+            }
+
+            // 写入版本标记，用于后续升级检测；只写 staging，验证成功后整体替换。
+            let fingerprint = expected_engine_install_fingerprint(&handle);
+            paths::atomic_write(
+                staging_dir.join(".version").as_path(),
+                fingerprint.as_bytes(),
+            )
+            .map_err(|e| AppError::Asr(format!("写入引擎版本标记失败: {}", e)))?;
+
+            Ok(total)
+        })();
+
+        let total = match extract_result {
+            Ok(total) => total,
+            Err(err) => {
+                let _ = std::fs::remove_dir_all(&staging_dir);
+                return Err(err);
+            }
         };
 
-        if total == 0 {
-            return Err(AppError::Asr("引擎归档为空".to_string()));
-        }
-
-        // 写入版本标记，用于后续升级检测
-        let fingerprint = expected_engine_install_fingerprint(&handle);
-        let _ = std::fs::write(engine_dir.join(".version"), fingerprint);
+        replace_engine_dir(&engine_dir, &staging_dir, &backup_dir)?;
+        let _ = std::fs::remove_dir_all(&backup_dir);
 
         log::info!("引擎解压完成: {} 个条目", total);
         Ok(engine_dir.join("engine.exe"))
     })
     .await
     .map_err(|e| AppError::Asr(format!("解压任务异常: {}", e)))?
+}
+
+fn replace_engine_dir(
+    engine_dir: &std::path::Path,
+    staging_dir: &std::path::Path,
+    backup_dir: &std::path::Path,
+) -> Result<(), AppError> {
+    if backup_dir.exists() {
+        let _ = std::fs::remove_dir_all(backup_dir);
+    }
+
+    let had_previous = engine_dir.exists();
+    if had_previous {
+        std::fs::rename(engine_dir, backup_dir)
+            .map_err(|e| AppError::Asr(format!("备份旧引擎失败: {}", e)))?;
+    }
+
+    match std::fs::rename(staging_dir, engine_dir) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            if had_previous {
+                let _ = std::fs::rename(backup_dir, engine_dir);
+            }
+            Err(AppError::Asr(format!("替换引擎目录失败: {}", err)))
+        }
+    }
 }
 
 fn extract_zip_archive(
@@ -912,6 +1003,13 @@ pub async fn transcribe_pcm16(
 
     let hot_words = profile_hot_words(state);
 
+    // The Python memory protocol receives raw samples only. It uses sample_rate
+    // for duration accounting, while the ASR backends assume the in-memory array
+    // is already at their expected rate. Preserve non-16k audio by sending WAV.
+    if sample_rate != TARGET_SAMPLE_RATE_FOR_INLINE_AUDIO {
+        return transcribe_pcm16_via_path(state, samples, sample_rate, hot_words, app_handle).await;
+    }
+
     if state.inline_audio_transport() == Some(false) {
         return transcribe_pcm16_via_path(state, samples, sample_rate, hot_words, app_handle).await;
     }
@@ -965,12 +1063,13 @@ fn encode_wav_bytes(samples: &[i16], sample_rate: u32) -> Result<Vec<u8>, AppErr
 }
 
 fn create_temp_audio_path() -> std::path::PathBuf {
+    static TEMP_AUDIO_COUNTER: AtomicU64 = AtomicU64::new(1);
+    let counter = TEMP_AUDIO_COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "light_whisper_audio_{}.wav",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
+        "light_whisper_audio_{}_{}_{}.wav",
+        std::process::id(),
+        now_unix_ms(),
+        counter,
     ))
 }
 
@@ -1116,8 +1215,17 @@ async fn send_command_impl(
     process: &mut FunasrProcess,
     command: &ServerCommand,
 ) -> Result<ServerResponse, AppError> {
+    let request_id = NEXT_SERVER_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+    let mut command_value = serde_json::to_value(command)
+        .map_err(|e| AppError::Asr(format!("序列化命令失败: {}", e)))?;
+    if let Some(map) = command_value.as_object_mut() {
+        map.insert(
+            "request_id".to_string(),
+            serde_json::Value::Number(request_id.into()),
+        );
+    }
     // 序列化命令为 Python 端期望的扁平 JSON 格式
-    let command_json = serde_json::to_string(command)
+    let command_json = serde_json::to_string(&command_value)
         .map_err(|e| AppError::Asr(format!("序列化命令失败: {}", e)))?;
 
     // 写入命令到 stdin
@@ -1136,10 +1244,17 @@ async fn send_command_impl(
         .map_err(|e| AppError::Asr(format!("刷新 stdin 缓冲区失败: {}", e)))?;
 
     // 从 stdout 读取响应（允许跳过非 JSON 行）
-    read_json_response(
+    read_json_response_matching(
         &mut process.stdout,
         Duration::from_secs(SERVER_RESPONSE_TIMEOUT_SECS),
         "等待 FunASR 响应",
+        |response: &ServerResponse| match response.request_id {
+            Some(actual) => actual == request_id,
+            None => {
+                log::warn!("FunASR 响应缺少 request_id，按旧协议兼容处理");
+                true
+            }
+        },
     )
     .await
 }
@@ -1370,53 +1485,116 @@ fn is_hf_repo_ready(repo_id: &str) -> bool {
         }
     };
 
-    const MIN_SIZE: u64 = 1_000_000; // 1MB
-    let weight_exts: &[&str] = &[".pt", ".bin", ".safetensors", ".onnx"];
-
     for entry in entries.filter_map(Result::ok) {
         let snapshot_path = entry.path();
         if !snapshot_path.is_dir() {
             continue;
         }
         log::info!("检查 snapshot: {}", snapshot_path.display());
-        // 递归遍历 snapshot 目录查找模型权重文件
-        if has_weight_file(&snapshot_path, weight_exts, MIN_SIZE) {
+        if snapshot_matches_completion_manifest(&snapshot_path)
+            || snapshot_matches_legacy_weight_check(&snapshot_path)
+        {
             log::info!("模型就绪: {} (在 {})", repo_id, snapshot_path.display());
             return true;
         }
     }
 
-    log::warn!(
-        "模型未就绪: {} — snapshots 中未找到 >1MB 的权重文件 ({:?})",
-        repo_id,
-        weight_exts
-    );
+    log::warn!("模型未就绪: {} — 未找到完整下载清单或文件校验失败", repo_id);
     false
 }
 
-/// 递归检查目录中是否存在符合条件的模型权重文件
-fn has_weight_file(dir: &std::path::Path, exts: &[&str], min_size: u64) -> bool {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return false,
+fn snapshot_matches_completion_manifest(snapshot_path: &std::path::Path) -> bool {
+    const MIN_SIZE: u64 = 1_000_000;
+    let manifest_path = snapshot_path.join(HF_COMPLETE_MANIFEST_NAME);
+    let data = match std::fs::read_to_string(&manifest_path) {
+        Ok(data) => data,
+        Err(err) => {
+            log::warn!("缺少模型完整性清单 {}: {}", manifest_path.display(), err);
+            return false;
+        }
     };
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        if path.is_dir() {
-            if has_weight_file(&path, exts, min_size) {
-                return true;
+    let manifest: serde_json::Value = match serde_json::from_str(&data) {
+        Ok(value) => value,
+        Err(err) => {
+            log::warn!(
+                "模型完整性清单解析失败 {}: {}",
+                manifest_path.display(),
+                err
+            );
+            return false;
+        }
+    };
+    let Some(files) = manifest.get("files").and_then(|value| value.as_array()) else {
+        return false;
+    };
+    let mut has_weight = false;
+    for item in files {
+        let Some(rel_path) = item.get("path").and_then(|value| value.as_str()) else {
+            return false;
+        };
+        let Some(expected_size) = item.get("size").and_then(|value| value.as_u64()) else {
+            return false;
+        };
+        let normalized = rel_path.replace('\\', "/");
+        if normalized.starts_with('/') || normalized.split('/').any(|part| part == "..") {
+            return false;
+        }
+        let path = snapshot_path.join(normalized);
+        let actual_size = match std::fs::metadata(&path) {
+            Ok(meta) => meta.len(),
+            Err(_) => return false,
+        };
+        if actual_size != expected_size {
+            return false;
+        }
+        if [".pt", ".bin", ".safetensors", ".onnx"]
+            .iter()
+            .any(|ext| rel_path.ends_with(ext))
+            && actual_size >= MIN_SIZE
+        {
+            has_weight = true;
+        }
+    }
+    has_weight
+}
+
+fn snapshot_matches_legacy_weight_check(snapshot_path: &std::path::Path) -> bool {
+    const MIN_SIZE: u64 = 1_000_000;
+    const WEIGHT_EXTS: &[&str] = &[".pt", ".bin", ".safetensors", ".onnx"];
+
+    fn visit(dir: &std::path::Path, exts: &[&str], min_size: u64) -> Option<bool> {
+        let entries = std::fs::read_dir(dir).ok()?;
+        let mut has_weight = false;
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name.ends_with(".incomplete") {
+                return Some(false);
             }
-        } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if exts.iter().any(|ext| name.ends_with(ext)) {
-                if let Ok(meta) = std::fs::metadata(&path) {
-                    if meta.len() >= min_size {
-                        return true;
-                    }
+            if path.is_dir() {
+                match visit(&path, exts, min_size) {
+                    Some(true) => has_weight = true,
+                    Some(false) | None => return Some(false),
+                }
+            } else if exts.iter().any(|ext| name.ends_with(ext)) {
+                match std::fs::metadata(&path) {
+                    Ok(meta) if meta.len() >= min_size => has_weight = true,
+                    Ok(_) => {}
+                    Err(_) => return Some(false),
                 }
             }
         }
+        Some(has_weight)
     }
-    false
+
+    let ready = visit(snapshot_path, WEIGHT_EXTS, MIN_SIZE).unwrap_or(false);
+    if ready {
+        log::warn!(
+            "模型 snapshot 缺少完整性清单，按旧版权重文件检查兼容放行: {}",
+            snapshot_path.display()
+        );
+    }
+    ready
 }
 
 /// 检查模型文件是否已下载
@@ -1487,7 +1665,7 @@ use tauri::Emitter;
 
 #[cfg(test)]
 mod tests {
-    use super::{read_json_response, ServerResponse};
+    use super::{read_json_response, read_json_response_matching, ServerResponse};
     use std::time::Duration;
     use tokio::io::{AsyncWriteExt, BufReader};
 
@@ -1541,5 +1719,85 @@ mod tests {
 
         assert_eq!(response.success, Some(true));
         assert_eq!(response.message.as_deref(), Some("ok"));
+    }
+
+    #[tokio::test]
+    async fn read_json_response_ignores_stale_response_before_matching_request() {
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        writer
+            .write_all(
+                br#"{"request_id":1,"success":true,"message":"stale"}
+{"request_id":2,"success":true,"message":"fresh"}
+"#,
+            )
+            .await
+            .unwrap();
+        writer.shutdown().await.unwrap();
+        let mut reader = BufReader::new(reader);
+        let response = read_json_response_matching(
+            &mut reader,
+            Duration::from_secs(1),
+            "test",
+            |response: &ServerResponse| response.request_id == Some(2),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            response.message.as_deref(),
+            Some("fresh"),
+            "ASR IPC must correlate responses by request_id and skip stale responses left behind by a cancelled request"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_json_response_accepts_legacy_response_without_request_id() {
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        writer
+            .write_all(
+                br#"{"success":true,"message":"legacy"}
+{"request_id":7,"success":true,"message":"matched"}
+"#,
+            )
+            .await
+            .unwrap();
+        writer.shutdown().await.unwrap();
+        let mut reader = BufReader::new(reader);
+        let response = read_json_response_matching(
+            &mut reader,
+            Duration::from_secs(1),
+            "test",
+            |response: &ServerResponse| match response.request_id {
+                Some(id) => id == 7,
+                None => true,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.message.as_deref(), Some("legacy"));
+    }
+
+    #[test]
+    fn engine_extraction_preserves_existing_engine_until_archive_succeeds() {
+        let root = std::env::temp_dir().join(format!(
+            "light_whisper_engine_replace_test_{}_{}",
+            std::process::id(),
+            super::now_unix_ms()
+        ));
+        let engine_dir = root.join("engine");
+        let missing_staging_dir = root.join("missing-staging");
+        let backup_dir = root.join("engine.backup");
+        std::fs::create_dir_all(&engine_dir).unwrap();
+        std::fs::write(engine_dir.join("engine.exe"), b"old-engine").unwrap();
+
+        let result = super::replace_engine_dir(&engine_dir, &missing_staging_dir, &backup_dir);
+
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read(engine_dir.join("engine.exe")).unwrap(),
+            b"old-engine"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -10,6 +10,9 @@ pub struct SearchResult {
 }
 
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_SEARCH_CONTEXT_RESULTS: usize = 5;
+const MAX_SEARCH_CONTEXT_BYTES: usize = 10_000;
+const MAX_SEARCH_RESULT_CONTENT_BYTES: usize = 1_600;
 
 // ── Exa MCP（免费，无需 Key）────────────────────────────────────────
 
@@ -75,16 +78,7 @@ pub async fn exa_search(
         .await
         .map_err(|e| format!("Exa 响应读取失败: {e}"))?;
 
-    // SSE 格式中完整的 JSON-RPC 响应在最后一个 data: 行
-    let json_str = if raw.contains("event:") {
-        raw.lines()
-            .rev()
-            .find_map(|line| line.strip_prefix("data:").map(str::trim))
-            .filter(|s| !s.is_empty())
-            .unwrap_or(raw.trim())
-    } else {
-        raw.trim()
-    };
+    let json_str = extract_final_json_data_line(&raw).unwrap_or_else(|| raw.trim());
 
     let rpc: JsonRpcResponse =
         serde_json::from_str(json_str).map_err(|e| format!("Exa 响应解析失败: {e}"))?;
@@ -144,6 +138,21 @@ fn parse_exa_text_block(block: &str) -> SearchResult {
         url,
         content,
     }
+}
+
+fn extract_final_json_data_line(raw: &str) -> Option<&str> {
+    if !raw.contains("data:") {
+        return None;
+    }
+
+    raw.lines()
+        .rev()
+        .filter_map(|line| line.strip_prefix("data:").map(str::trim))
+        .find(|data| {
+            !data.is_empty()
+                && *data != "[DONE]"
+                && (data.starts_with('{') || data.starts_with('['))
+        })
 }
 
 // ── Tavily（API，需要 Key）─────────────────────────────────────────
@@ -231,16 +240,37 @@ pub fn render_search_context(results: &[SearchResult]) -> String {
 
     let mut out = String::from("<web_search_results>\n");
     out.push_str("<instruction>以下是联网搜索返回的参考信息。根据用户问题自行判断是否需要引用：如果问题涉及实时信息、新闻、事实查询，请参考搜索结果并在行文中自然标注来源；如果问题是创作、闲聊或不需要外部信息的任务，直接忽略搜索结果即可。</instruction>\n");
-    for (i, r) in results.iter().enumerate() {
-        out.push_str(&format!(
-            "<result index=\"{}\">\n{}\n{}\n{}\n</result>\n",
+    let closing = "</web_search_results>";
+    for (i, r) in results.iter().take(MAX_SEARCH_CONTEXT_RESULTS).enumerate() {
+        let fixed_parts = format!(
+            "<result index=\"{}\">\n{}\n{}\n",
             i + 1,
-            wrap_xml_cdata("title", &r.title),
-            wrap_xml_cdata("url", &r.url),
-            wrap_xml_cdata("content", &r.content),
-        ));
+            wrap_xml_cdata("title", truncate_str(&r.title, 240)),
+            wrap_xml_cdata("url", truncate_str(&r.url, 600)),
+        );
+        let suffix = "</result>\n";
+        let available = MAX_SEARCH_CONTEXT_BYTES
+            .saturating_sub(out.len())
+            .saturating_sub(fixed_parts.len())
+            .saturating_sub(suffix.len())
+            .saturating_sub(closing.len());
+        if available == 0 {
+            break;
+        }
+        let content_limit = available.min(MAX_SEARCH_RESULT_CONTENT_BYTES);
+        let content = truncate_str(&r.content, content_limit);
+        let block = format!(
+            "{}{}\n{}",
+            fixed_parts,
+            wrap_xml_cdata("content", content),
+            suffix
+        );
+        if out.len() + block.len() + closing.len() > MAX_SEARCH_CONTEXT_BYTES {
+            break;
+        }
+        out.push_str(&block);
     }
-    out.push_str("</web_search_results>");
+    out.push_str(closing);
     out
 }
 
@@ -255,5 +285,36 @@ mod tests {
         assert_eq!(result.title, "Rust Programming");
         assert_eq!(result.url, "https://rust-lang.org");
         assert_eq!(result.content, "Rust is a systems programming language.");
+    }
+
+    #[test]
+    fn render_search_context_caps_prompt_contribution() {
+        let results = vec![SearchResult {
+            title: "large".to_string(),
+            url: "https://example.com".to_string(),
+            content: "x".repeat(80_000),
+        }];
+
+        let rendered = render_search_context(&results);
+
+        assert!(
+            rendered.len() <= 12_000,
+            "web search context should cap prompt contribution; rendered {} bytes",
+            rendered.len()
+        );
+    }
+
+    #[test]
+    fn exa_sse_parser_uses_final_json_data_line_not_done_marker() {
+        let source = include_str!("web_search_service.rs");
+
+        assert!(
+            source.contains("extract_final_json_data_line"),
+            "Exa SSE parsing should use a helper that scans data: lines from the end and skips [DONE]/empty/non-JSON lines"
+        );
+        assert!(
+            !source.contains(".rev()\n            .find_map(|line| line.strip_prefix(\"data:\")"),
+            "selecting the last data: line treats trailing [DONE] or keepalive data as the JSON-RPC payload"
+        );
     }
 }

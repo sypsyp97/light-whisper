@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 本地构建 + 发布 Release
-# 用法: bash scripts/release.sh 1.2.1 "支持 OpenAI Codex OAuth 来润色。"
+# 用法: bash scripts/release.sh 1.3.6 "本次发布说明。"
 
 set -euo pipefail
 
@@ -10,6 +10,7 @@ TAG="v${VERSION}"
 PKG_JSON="package.json"
 TAURI_CONF="src-tauri/tauri.conf.json"
 CARGO_TOML="src-tauri/Cargo.toml"
+PYPROJECT_TOML="pyproject.toml"
 INSTALLER="src-tauri/target/release/bundle/nsis/轻语 Whisper_${VERSION}_x64-setup.exe"
 
 echo "=== 发布 ${TAG} ==="
@@ -25,7 +26,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 1
 fi
 
-# 1. 更新版本号（package.json + tauri.conf.json + Cargo.toml）
+# 1. 更新版本号（package.json + tauri.conf.json + Cargo.toml + pyproject.toml）
 echo "[1/6] 更新版本号 → ${VERSION}"
 python -c "
 import json, re, sys
@@ -54,6 +55,13 @@ with open('$CARGO_TOML', 'r', encoding='utf-8') as f:
 text = re.sub(r'^(version = \").*?\"', rf'\g<1>{version}\"', text, count=1, flags=re.MULTILINE)
 with open('$CARGO_TOML', 'w', encoding='utf-8') as f:
     f.write(text)
+
+# pyproject.toml — 只替换项目版本，requires-python 由测试锁定
+with open('$PYPROJECT_TOML', 'r', encoding='utf-8') as f:
+    text = f.read()
+text = re.sub(r'^(version = \").*?\"', rf'\g<1>{version}\"', text, count=1, flags=re.MULTILINE)
+with open('$PYPROJECT_TOML', 'w', encoding='utf-8') as f:
+    f.write(text)
 " "$VERSION"
 
 # 2. 构建 Python 引擎
@@ -75,7 +83,7 @@ echo "安装包: ${SIZE}"
 
 # 5. 提交 + tag + push
 echo "[5/6] 提交 + 推送"
-git add "$PKG_JSON" "$TAURI_CONF" "$CARGO_TOML" src-tauri/Cargo.lock
+git add "$PKG_JSON" "$TAURI_CONF" "$CARGO_TOML" "$PYPROJECT_TOML" src-tauri/Cargo.lock
 git commit -m "chore: bump version to ${VERSION}"
 git tag "$TAG"
 git push && git push --tags

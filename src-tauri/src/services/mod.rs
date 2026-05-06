@@ -15,4 +15,6 @@ pub mod web_search_service;
 #[cfg(test)]
 mod ai_polish_transport_retry_tests;
 #[cfg(test)]
+mod codex_oauth_prewarm_tests;
+#[cfg(test)]
 mod openai_fast_mode_oauth_tests;

@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
 use crate::services::llm_provider::KEYRING_SERVICE;
-use crate::state::user_profile::OpenaiAuthMode;
+use crate::state::user_profile::{LlmProviderConfig, OpenaiAuthMode};
 use crate::state::AppState;
 use crate::utils::paths;
 
@@ -319,8 +319,7 @@ fn generate_state() -> String {
     let bytes = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(48)
-        .map(|ch| ch as u8)
-        .collect::<Vec<_>>();
+        .collect::<Vec<u8>>();
     base64_url_encode(&bytes)
 }
 
@@ -689,14 +688,44 @@ fn session_needs_refresh(session: &OpenaiCodexOauthSession) -> bool {
     }
 }
 
+fn session_has_runtime_auth_material(session: &OpenaiCodexOauthSession) -> bool {
+    !session.api_key.trim().is_empty() || !session.access_token.trim().is_empty()
+}
+
+pub(crate) fn should_prewarm_runtime_session(
+    provider: &str,
+    config: &LlmProviderConfig,
+    session: Option<&OpenaiCodexOauthSession>,
+) -> bool {
+    if provider != OPENAI_PROVIDER {
+        return false;
+    }
+
+    let Some(session) = session else {
+        return false;
+    };
+
+    let effective_mode = config.openai_auth_mode.unwrap_or(OpenaiAuthMode::Oauth);
+    if effective_mode != OpenaiAuthMode::Oauth {
+        return false;
+    }
+
+    session_needs_refresh(session) || !session_has_runtime_auth_material(session)
+}
+
 async fn refresh_session_if_needed(
     app_handle: &tauri::AppHandle,
     state: &AppState,
     mut session: OpenaiCodexOauthSession,
 ) -> Result<OpenaiCodexOauthSession, String> {
-    if !session_needs_refresh(&session)
-        && (!session.api_key.trim().is_empty() || !session.access_token.trim().is_empty())
-    {
+    let refresh_start = std::time::Instant::now();
+    if !session_needs_refresh(&session) && session_has_runtime_auth_material(&session) {
+        log::info!(
+            "OpenAI Codex OAuth 认证材料已就绪 ({}ms): api_key={}, bearer={}",
+            refresh_start.elapsed().as_millis(),
+            !session.api_key.trim().is_empty(),
+            !session.access_token.trim().is_empty()
+        );
         return Ok(session);
     }
 
@@ -707,7 +736,14 @@ async fn refresh_session_if_needed(
         if session.refresh_token.trim().is_empty() {
             return Err("OpenAI Codex OAuth 会话缺少 refresh token，请重新登录。".to_string());
         }
+        let token_refresh_start = std::time::Instant::now();
         let token_response = refresh_tokens(&state.http_client, &session.refresh_token).await?;
+        log::info!(
+            "OpenAI Codex OAuth refresh 完成 ({}ms): rehydration={}, expired={}",
+            token_refresh_start.elapsed().as_millis(),
+            needs_rehydration,
+            session_needs_refresh(&session)
+        );
         let id_token = token_response
             .id_token
             .unwrap_or_else(|| session.id_token.clone());
@@ -734,9 +770,16 @@ async fn refresh_session_if_needed(
     };
 
     let mut refreshed = refreshed;
+    let exchange_start = std::time::Instant::now();
     refreshed.api_key =
         match exchange_id_token_for_api_key(&state.http_client, &refreshed.id_token).await {
-            Ok(api_key) => api_key,
+            Ok(api_key) => {
+                log::info!(
+                    "OpenAI Codex OAuth API Key exchange 完成 ({}ms)",
+                    exchange_start.elapsed().as_millis()
+                );
+                api_key
+            }
             Err(err) => {
                 log::warn!(
                 "OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}",
@@ -748,6 +791,12 @@ async fn refresh_session_if_needed(
     enrich_session_from_tokens(&mut refreshed, None);
     save_session_to_storage(app_handle, &refreshed)?;
     state.set_openai_codex_oauth_session(Some(refreshed.clone()));
+    log::info!(
+        "OpenAI Codex OAuth 认证材料重水化完成 ({}ms): api_key={}, bearer={}",
+        refresh_start.elapsed().as_millis(),
+        !refreshed.api_key.trim().is_empty(),
+        !refreshed.access_token.trim().is_empty()
+    );
     Ok(refreshed)
 }
 
@@ -762,6 +811,39 @@ pub fn sync_runtime_session(
 
 pub fn status(state: &AppState) -> OpenaiCodexOauthStatus {
     make_status(state.read_openai_codex_oauth_session().as_ref())
+}
+
+pub async fn prewarm_runtime_session(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<(), String> {
+    let provider = state.active_llm_provider();
+    let config = state.llm_provider_config();
+    let session = state.read_openai_codex_oauth_session();
+    if !should_prewarm_runtime_session(&provider, &config, session.as_ref()) {
+        log::info!(
+            "OpenAI Codex OAuth 启动预热跳过: provider={}, auth_mode={:?}, has_session={}",
+            provider,
+            config.openai_auth_mode,
+            session.is_some()
+        );
+        return Ok(());
+    }
+    let session = session.expect("prewarm decision requires a session");
+
+    let start = std::time::Instant::now();
+    log::info!(
+        "OpenAI Codex OAuth 启动预热开始: cached_api_key={}, cached_bearer={}, expires_at_ms={:?}",
+        !session.api_key.trim().is_empty(),
+        !session.access_token.trim().is_empty(),
+        session.expires_at_ms
+    );
+    refresh_session_if_needed(app_handle, state, session).await?;
+    log::info!(
+        "OpenAI Codex OAuth 启动预热完成 ({}ms)",
+        start.elapsed().as_millis()
+    );
+    Ok(())
 }
 
 pub async fn login(

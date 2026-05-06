@@ -578,6 +578,7 @@ pub fn is_cerebras_like_endpoint(endpoint: &LlmEndpoint) -> bool {
 const GPT5_EFFORTS: &[&str] = &["minimal", "low", "medium", "high"];
 const GPT5_1_EFFORTS: &[&str] = &["none", "low", "medium", "high"];
 const GPT5_2_54_EFFORTS: &[&str] = &["none", "low", "medium", "high", "xhigh"];
+const GPT5_5_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const GPT5_PRO_EFFORTS: &[&str] = &["high"];
 const GPT5_2_54_PRO_EFFORTS: &[&str] = &["medium", "high", "xhigh"];
 const GPT5_2_3_CODEX_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
@@ -589,8 +590,11 @@ fn openai_gpt5_reasoning_efforts(model: &str) -> Option<&'static [&'static str]>
     match tail {
         "gpt-5-pro" => Some(GPT5_PRO_EFFORTS),
         _ if tail.starts_with("gpt-5-pro-") => Some(GPT5_PRO_EFFORTS),
-        "gpt-5.2-pro" | "gpt-5.4-pro" => Some(GPT5_2_54_PRO_EFFORTS),
-        _ if tail.starts_with("gpt-5.2-pro-") || tail.starts_with("gpt-5.4-pro-") => {
+        "gpt-5.2-pro" | "gpt-5.4-pro" | "gpt-5.5-pro" => Some(GPT5_2_54_PRO_EFFORTS),
+        _ if tail.starts_with("gpt-5.2-pro-")
+            || tail.starts_with("gpt-5.4-pro-")
+            || tail.starts_with("gpt-5.5-pro-") =>
+        {
             Some(GPT5_2_54_PRO_EFFORTS)
         }
         "gpt-5.2-codex" | "gpt-5.3-codex" => Some(GPT5_2_3_CODEX_EFFORTS),
@@ -609,6 +613,8 @@ fn openai_gpt5_reasoning_efforts(model: &str) -> Option<&'static [&'static str]>
         _ if tail.starts_with("gpt-5.2-") || tail.starts_with("gpt-5.4-") => {
             Some(GPT5_2_54_EFFORTS)
         }
+        "gpt-5.5" => Some(GPT5_5_EFFORTS),
+        _ if tail.starts_with("gpt-5.5-") => Some(GPT5_5_EFFORTS),
         "gpt-5" => Some(GPT5_EFFORTS),
         _ if tail.starts_with("gpt-5-") => Some(GPT5_EFFORTS),
         _ => None,
@@ -856,12 +862,16 @@ pub fn apply_reasoning_controls(
         }
         (ReasoningControlKind::SiliconFlowThinkingBudget, _) => {
             let thinking_budget = match mode {
-                LlmReasoningMode::Off => return,
+                LlmReasoningMode::Off => {
+                    body["enable_thinking"] = serde_json::json!(false);
+                    return;
+                }
                 LlmReasoningMode::Light => 1024,
                 LlmReasoningMode::Balanced => 4096,
                 LlmReasoningMode::Deep => 8192,
                 LlmReasoningMode::ProviderDefault => return,
             };
+            body["enable_thinking"] = serde_json::json!(true);
             body["thinking_budget"] = serde_json::json!(thinking_budget);
         }
         (ReasoningControlKind::CerebrasReasoningEffort, _) => {
@@ -1486,6 +1496,20 @@ mod tests {
     }
 
     #[test]
+    fn openai_gpt5_5_reaches_xhigh() {
+        let endpoint = endpoint_for_preview(OPENAI, None, Some("gpt-5.5"), ApiFormat::OpenaiCompat);
+
+        assert_eq!(
+            reasoning_efforts_for_modes(&endpoint),
+            strings(&["low", "medium", "high", "xhigh"])
+        );
+        assert_eq!(
+            reasoning_support(&endpoint, true).strategy.as_deref(),
+            Some("openai_reasoning_effort")
+        );
+    }
+
+    #[test]
     fn openai_gpt5_1_codex_max_reaches_xhigh() {
         let endpoint = endpoint_for_preview(
             OPENAI,
@@ -1513,6 +1537,38 @@ mod tests {
 
         assert!(support.supported);
         assert_eq!(support.strategy.as_deref(), Some("deepseek_thinking"));
+    }
+
+    #[test]
+    fn siliconflow_off_sends_enable_thinking_false() {
+        let endpoint = endpoint_for_preview(
+            SILICONFLOW,
+            None,
+            Some("Qwen/Qwen3-32B"),
+            ApiFormat::OpenaiCompat,
+        );
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Off);
+
+        assert_eq!(body["enable_thinking"], serde_json::json!(false));
+        assert!(body.get("thinking_budget").is_none());
+    }
+
+    #[test]
+    fn siliconflow_reasoning_budget_enables_thinking() {
+        let endpoint = endpoint_for_preview(
+            SILICONFLOW,
+            None,
+            Some("Qwen/Qwen3-32B"),
+            ApiFormat::OpenaiCompat,
+        );
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Balanced);
+
+        assert_eq!(body["enable_thinking"], serde_json::json!(true));
+        assert_eq!(body["thinking_budget"], serde_json::json!(4096));
     }
 
     #[test]

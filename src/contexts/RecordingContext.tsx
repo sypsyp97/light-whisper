@@ -5,7 +5,7 @@ import { useHotkey } from "@/hooks/useHotkey";
 import { setInputMethodCommand, setAiPolishConfig, getAiPolishApiKey, setInputDevice, setSoundEnabled, setRecordingMode } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
 import { INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
-import type { HistoryItem, HotkeyDiagnostic, RecordingMode } from "@/types";
+import type { EditGrabStatus, HistoryItem, HotkeyDiagnostic, RecordingMode } from "@/types";
 
 interface RecordingContextValue {
   // recording
@@ -22,6 +22,7 @@ interface RecordingContextValue {
   durationSec: number | null;
   charCount: number | null;
   detectedLanguage: string | null;
+  editGrabStatus: EditGrabStatus | null;
   history: HistoryItem[];
   recordingMode: RecordingMode;
   // model
@@ -60,6 +61,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     durationSec,
     charCount,
     detectedLanguage,
+    editGrabStatus,
     history,
     resultMode,
   } = useRecording();
@@ -158,6 +160,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     durationSec,
     charCount,
     detectedLanguage,
+    editGrabStatus,
     history,
     recordingMode: resultMode,
     stage,
@@ -179,7 +182,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     isRecording, isProcessing, startRecording, stopRecording, recordingError,
     transcriptionResult, setTranscriptionResult, originalAsrText,
     editBaselineText, setEditBaselineText,
-    durationSec, charCount, detectedLanguage, history, resultMode,
+    durationSec, charCount, detectedLanguage, editGrabStatus, history, resultMode,
     stage, isReady, device, gpuName, downloadProgress, downloadMessage, isDownloading,
     modelError, downloadModels, cancelDownload, retryModel,
     hotkeyDisplay, hotkeyError, setHotkey, hotkeyDiagnostic,

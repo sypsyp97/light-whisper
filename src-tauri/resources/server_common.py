@@ -151,12 +151,17 @@ def decode_inline_audio(
     if not audio_base64:
         raise ValueError("缺少内存音频数据")
 
-    audio_bytes = base64.b64decode(audio_base64)
+    try:
+        audio_bytes = base64.b64decode(audio_base64, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise ValueError(f"音频 base64 解码失败: {exc}") from exc
     fmt = (audio_format or "pcm_s16le").lower()
 
     if fmt == "pcm_s16le":
         if not sample_rate or sample_rate <= 0:
             raise ValueError("PCM 内存音频缺少有效采样率")
+        if len(audio_bytes) % 2 != 0:
+            raise ValueError("PCM s16le 数据字节数必须为偶数")
         import numpy as np
 
         samples = np.frombuffer(audio_bytes, dtype="<i2")
@@ -358,6 +363,7 @@ class BaseASRServer:
         sys.stdout.flush()
 
         while self.running:
+            request_id = None
             try:
                 line = sys.stdin.readline()
                 if not line:
@@ -370,10 +376,18 @@ class BaseASRServer:
                 try:
                     command = json.loads(line)
                 except json.JSONDecodeError:
+                    # 无 request_id 可回传——JSON 解析就失败了。Rust 端按旧协议兼容。
                     result = {"success": False, "error": "无效的JSON命令"}
                     print(json.dumps(result, ensure_ascii=False))
                     sys.stdout.flush()
                     continue
+
+                # Rust 端给每条命令打的 request_id；所有响应必须原样回传，
+                # 否则乱序/延迟响应防护退化为旧协议兼容路径。
+                if isinstance(command, dict):
+                    rid = command.get("request_id")
+                    if isinstance(rid, int):
+                        request_id = rid
 
                 action = command.get("action")
                 if action == "transcribe":
@@ -394,12 +408,16 @@ class BaseASRServer:
                     result = {"success": True, "message": "内存清理完成"}
                 elif action == "exit":
                     result = {"success": True, "message": "服务器退出"}
+                    if request_id is not None and isinstance(result, dict):
+                        result["request_id"] = request_id
                     print(json.dumps(result, ensure_ascii=False))
                     sys.stdout.flush()
                     break
                 else:
                     result = {"success": False, "error": f"未知命令: {action}"}
 
+                if request_id is not None and isinstance(result, dict):
+                    result["request_id"] = request_id
                 print(json.dumps(result, ensure_ascii=False))
                 sys.stdout.flush()
 
@@ -411,6 +429,8 @@ class BaseASRServer:
                     "error": str(e),
                     "traceback": traceback.format_exc(),
                 }
+                if request_id is not None:
+                    error_result["request_id"] = request_id
                 print(json.dumps(error_result, ensure_ascii=False))
                 sys.stdout.flush()
 

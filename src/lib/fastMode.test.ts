@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldShowFastModeToggle } from "./fastMode";
+import { resolveEffectiveAssistantProvider, shouldShowFastModeToggle } from "./fastMode";
 
 const base = {
   loggedIn: true,
@@ -75,5 +75,55 @@ describe("shouldShowFastModeToggle", () => {
         effectiveAssistantProvider: "deepseek",
       }),
     ).toBe(false);
+  });
+
+  it("hides in assistant block when separate config is off with a stale openai assistant provider", () => {
+    const effectiveAssistantProvider = resolveEffectiveAssistantProvider({
+      assistantUseSeparateModel: false,
+      assistantProvider: "openai",
+      llmProvider: "cerebras",
+    });
+
+    expect(effectiveAssistantProvider).toBe("cerebras");
+    expect(
+      shouldShowFastModeToggle({
+        ...base,
+        scope: "assistant",
+        llmProvider: "cerebras",
+        effectiveAssistantProvider,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("resolveEffectiveAssistantProvider", () => {
+  it("uses the polish provider when assistant separate config is off", () => {
+    expect(
+      resolveEffectiveAssistantProvider({
+        assistantUseSeparateModel: false,
+        assistantProvider: "openai",
+        llmProvider: "deepseek",
+      }),
+    ).toBe("deepseek");
+  });
+
+  it("uses the assistant provider when assistant separate config is on", () => {
+    expect(
+      resolveEffectiveAssistantProvider({
+        assistantUseSeparateModel: true,
+        assistantProvider: "openai",
+        llmProvider: "deepseek",
+      }),
+    ).toBe("openai");
+  });
+
+  it("falls back to the polish provider when assistant provider is blank", () => {
+    expect(
+      resolveEffectiveAssistantProvider({
+        assistantUseSeparateModel: true,
+        assistantProvider: " ",
+        llmProvider: "cerebras",
+      }),
+    ).toBe("cerebras");
   });
 });

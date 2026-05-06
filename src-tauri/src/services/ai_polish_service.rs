@@ -11,6 +11,8 @@ use crate::services::{
 use crate::state::user_profile::{CorrectionSource, LlmReasoningMode};
 use crate::state::AppState;
 
+const AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS: u64 = 120;
+
 /// LLM 结构化输出
 #[derive(Deserialize)]
 struct StructuredResponse {
@@ -309,6 +311,8 @@ pub(crate) fn ai_polish_transport_plan(
         session_id: Some(session_id),
         web_search: false,
         openai_fast_mode: false,
+        stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
+        stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
     let stream_nojson = LlmRequestOptions {
         stream: true,
@@ -318,6 +322,8 @@ pub(crate) fn ai_polish_transport_plan(
         session_id: Some(session_id),
         web_search: false,
         openai_fast_mode: false,
+        stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
+        stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
     let nostream_json = LlmRequestOptions {
         stream: false,
@@ -327,6 +333,8 @@ pub(crate) fn ai_polish_transport_plan(
         session_id: Some(session_id),
         web_search: false,
         openai_fast_mode: false,
+        stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
+        stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
     let nostream_nojson = LlmRequestOptions {
         stream: false,
@@ -336,6 +344,8 @@ pub(crate) fn ai_polish_transport_plan(
         session_id: Some(session_id),
         web_search: false,
         openai_fast_mode: false,
+        stream_progress_timeout_secs: Some(llm_client::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS),
+        stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
 
     if prefer_streaming_after_partial {
@@ -395,6 +405,18 @@ async fn send_llm_request_with_transport_fallback(
             return Ok(content);
         }
         Err(err) => {
+            // 空响应是模型/prompt 层面的问题，换 transport 大概率仍然回空——
+            // 直接抛错，省下 3 次 LLM 请求；用户能从错误里看到 provider/model
+            // 诊断信息。
+            if llm_client::is_empty_llm_response_error(&err) {
+                let _ = state.take_ai_polish_stream_started(session_id);
+                log::warn!(
+                    "AI 润色 {} 收到空响应，跳过 transport fallback: {}",
+                    ai_polish_transport_label(&stage1),
+                    err
+                );
+                return Err(err);
+            }
             log::warn!(
                 "AI 润色 {} 失败: {}",
                 ai_polish_transport_label(&stage1),
@@ -429,6 +451,15 @@ async fn send_llm_request_with_transport_fallback(
             Ok(content) => {
                 let _ = state.take_ai_polish_stream_started(session_id);
                 return Ok(content);
+            }
+            Err(err) if llm_client::is_empty_llm_response_error(&err) => {
+                let _ = state.take_ai_polish_stream_started(session_id);
+                log::warn!(
+                    "AI 润色 {} 收到空响应，停止剩余 fallback: {}",
+                    stage_label,
+                    err
+                );
+                return Err(err);
             }
             Err(err) if stage.json_output => {
                 if !llm_provider::looks_like_json_output_unsupported_error(&err) {
@@ -546,33 +577,66 @@ pub async fn polish_text(
         return Ok(text.to_string());
     }
 
+    let start = std::time::Instant::now();
+    emit_polish_status(app_handle, "auth", text, "", "", session_id);
+
+    let active_provider = state.active_llm_provider();
+    let manual_api_key = state.read_ai_polish_api_key();
+    let auth_start = std::time::Instant::now();
     let api_key = codex_oauth_service::resolve_api_key_for_provider(
         app_handle,
         state,
-        &state.active_llm_provider(),
-        &state.read_ai_polish_api_key(),
+        &active_provider,
+        &manual_api_key,
     )
-    .await?;
+    .await
+    .inspect_err(|e| {
+        emit_polish_status(app_handle, "error", text, text, e, session_id);
+    })?;
+    let auth_elapsed_ms = auth_start.elapsed().as_millis();
+    log::info!(
+        "AI 润色认证解析完成 ({}ms): provider={}, has_auth={}",
+        auth_elapsed_ms,
+        active_provider,
+        !api_key.is_empty()
+    );
 
     if api_key.is_empty() {
-        log::warn!("AI 润色已启用但未配置 API Key，也未完成 OpenAI Codex 登录，跳过润色");
+        log::warn!(
+            "AI 润色已启用但未配置 API Key，也未完成 OpenAI Codex 登录，跳过润色 (auth{}ms)",
+            auth_elapsed_ms
+        );
         return Ok(text.to_string());
     }
 
+    emit_polish_status(app_handle, "polishing", text, "", "", session_id);
+
     let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
+    emit_polish_status(app_handle, "prompt", text, "", "", session_id);
+    let prompt_start = std::time::Instant::now();
     let system_prompt = build_system_prompt(state, text, translation_target_override);
+    let prompt_elapsed_ms = prompt_start.elapsed().as_millis();
+
+    emit_polish_status(app_handle, "user_input", text, "", "", session_id);
+    let user_input_start = std::time::Instant::now();
     let user_input = build_polish_user_input(state, &endpoint, &api_key, text).await;
     let user_content_len = user_input.text.len();
+    let image_count = user_input.images.len();
+    let user_input_elapsed_ms = user_input_start.elapsed().as_millis();
 
     log::info!(
-        "AI 润色请求: 文本长度={}, format={:?}",
+        "AI 润色请求准备完成: auth={}ms, prompt={}ms, user_input={}ms, 文本长度={}, 请求文本长度={}, 图片={}张, format={:?}",
+        auth_elapsed_ms,
+        prompt_elapsed_ms,
+        user_input_elapsed_ms,
         text.len(),
+        user_content_len,
+        image_count,
         endpoint.api_format
     );
 
-    let start = std::time::Instant::now();
-    emit_polish_status(app_handle, "polishing", text, "", "", session_id);
-
+    emit_polish_status(app_handle, "request", text, "", "", session_id);
+    let request_start = std::time::Instant::now();
     let raw_content = send_llm_request_with_fallback(
         state,
         &endpoint,
@@ -588,15 +652,16 @@ pub async fn polish_text(
         emit_polish_status(app_handle, "error", text, text, e, session_id);
     })?;
 
+    // `send_llm_request` 已经把"HTTP 成功但 trim 后为空"作为 Err 抛出，
+    // 所以走到这里 raw_content 至少有一个非空白字符，trim 后必然非空——
+    // 旧的 `is_empty() => return Ok(text)` 兜底已不可达，移除。
     let raw_content = raw_content.trim();
 
-    if raw_content.is_empty() {
-        return Ok(text.to_string());
-    }
-
+    let request_elapsed_ms = request_start.elapsed().as_millis();
     let elapsed_ms = start.elapsed().as_millis();
     log::info!(
-        "AI 润色原始返回 ({}ms): {}",
+        "AI 润色原始返回 (请求{}ms, 总{}ms): {}",
+        request_elapsed_ms,
         elapsed_ms,
         &raw_content[..raw_content.len().min(500)]
     );
@@ -820,19 +885,29 @@ async fn build_polish_user_input(
     let cache_key = llm_provider::image_support_cache_key(endpoint);
     let cached_image_support = state.assistant_image_support(&cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
+        let probe_start = std::time::Instant::now();
         let support = llm_provider::probe_image_support_from_provider_metadata(
             &state.http_client,
             endpoint,
             api_key,
         )
         .await;
+        let probe_elapsed_ms = probe_start.elapsed().as_millis();
         if let Some(supported) = support {
             state.set_assistant_image_support(cache_key.clone(), supported);
             log::info!(
-                "根据模型元数据识别 AI 润色图片输入支持: provider={}, model={}, supported={}",
+                "根据模型元数据识别 AI 润色图片输入支持 ({}ms): provider={}, model={}, supported={}",
+                probe_elapsed_ms,
                 endpoint.provider,
                 endpoint.model,
                 supported
+            );
+        } else {
+            log::info!(
+                "AI 润色图片输入支持探测未得到结论 ({}ms): provider={}, model={}",
+                probe_elapsed_ms,
+                endpoint.provider,
+                endpoint.model
             );
         }
         support
@@ -842,8 +917,10 @@ async fn build_polish_user_input(
     let effective_image_support = cached_image_support.or(probed_image_support);
 
     let images = if screen_context_enabled && effective_image_support != Some(false) {
-        match screen_capture_service::capture_full_screen_context() {
+        let capture_start = std::time::Instant::now();
+        match screen_capture_service::capture_full_screen_context_async().await {
             Ok(captured) => {
+                let capture_elapsed_ms = capture_start.elapsed().as_millis();
                 if !captured.is_empty() {
                     let labels = captured
                         .iter()
@@ -851,9 +928,15 @@ async fn build_polish_user_input(
                         .collect::<Vec<_>>()
                         .join(", ");
                     log::info!(
-                        "AI 润色已附带屏幕截图上下文: {} 张 ({})",
+                        "AI 润色已附带屏幕截图上下文 ({}ms): {} 张 ({})",
+                        capture_elapsed_ms,
                         captured.len(),
                         labels
+                    );
+                } else {
+                    log::info!(
+                        "AI 润色屏幕截图上下文为空 ({}ms)，继续纯文本请求",
+                        capture_elapsed_ms
                     );
                 }
                 captured
@@ -1045,9 +1128,10 @@ fn emit_polish_status(
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_edit_result, parse_structured_response, render_polish_user_content,
-        BASE_SYSTEM_PROMPT,
+        ai_polish_transport_plan, extract_edit_result, parse_structured_response,
+        render_polish_user_content, BASE_SYSTEM_PROMPT,
     };
+    use crate::state::user_profile::LlmReasoningMode;
 
     #[test]
     fn polish_input_preserves_symbols_and_splits_cdata() {
@@ -1147,5 +1231,20 @@ mod tests {
     fn base_prompt_includes_translation_target_self_repair_example() {
         assert!(BASE_SYSTEM_PROMPT.contains("你把这句话翻译成日语 不对 翻译成英语"));
         assert!(BASE_SYSTEM_PROMPT.contains("你把这句话翻译成英语。"));
+    }
+
+    #[test]
+    fn ai_polish_stream_stages_use_short_total_stream_budget() {
+        let stages = ai_polish_transport_plan(LlmReasoningMode::ProviderDefault, 42, false);
+
+        for stage in stages.iter().filter(|stage| stage.stream) {
+            let timeout = stage
+                .stream_total_timeout_secs
+                .expect("AI polish streaming stages must carry a total timeout");
+            assert!(
+                (60..=120).contains(&timeout),
+                "AI polish stream total timeout should be a short task budget, got {timeout}s"
+            );
+        }
     }
 }

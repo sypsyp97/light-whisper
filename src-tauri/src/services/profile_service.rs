@@ -21,13 +21,26 @@ const PROFILE_SAVE_DEBOUNCE_MS: u64 = 350;
 
 pub fn load_profile() -> UserProfile {
     let path = paths::get_data_dir().join("user_profile.json");
-    let mut profile = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|data| serde_json::from_str(&data).ok())
-        .unwrap_or_else(|| {
-            log::info!("用户画像文件不存在或解析失败，使用默认值");
+    let mut profile = match std::fs::read_to_string(&path) {
+        Ok(data) => match serde_json::from_str::<serde_json::Value>(&data) {
+            Ok(value) if value.is_object() => serde_json::from_value(value).unwrap_or_else(|err| {
+                log::warn!("用户画像对象解析失败，使用默认值: {}", err);
+                UserProfile::default()
+            }),
+            Ok(_) => {
+                log::warn!("用户画像文件是有效 JSON 但不是对象，使用默认值且保留原文件");
+                UserProfile::default()
+            }
+            Err(err) => {
+                log::warn!("用户画像文件解析失败，使用默认值且保留原文件: {}", err);
+                UserProfile::default()
+            }
+        },
+        Err(_) => {
+            log::info!("用户画像文件不存在，使用默认值");
             UserProfile::default()
-        });
+        }
+    };
     let stats = normalize_profile(&mut profile);
     if stats.removed_hot_words > 0 || stats.removed_corrections > 0 {
         log::info!(
@@ -118,8 +131,9 @@ fn take_pending_profile_save_if(
 async fn write_profile_async(profile: &UserProfile) -> Result<(), String> {
     let path = paths::get_data_dir().join("user_profile.json");
     let data = serialize_profile(profile)?;
-    tokio::fs::write(&path, data)
+    tokio::task::spawn_blocking(move || paths::atomic_write(&path, data.as_bytes()))
         .await
+        .map_err(|e| format!("写入任务异常: {}", e))?
         .map_err(|e| format!("写入失败: {}", e))
 }
 
