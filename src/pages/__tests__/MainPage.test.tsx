@@ -6,6 +6,7 @@ vi.mock("@/api/tauri", () => ({
   copyToClipboard: vi.fn(async () => "ok"),
   submitUserCorrection: vi.fn(async () => undefined),
   hideMainWindow: vi.fn(async () => "ok"),
+  openPermissionSettings: vi.fn(async () => undefined),
 }));
 
 vi.mock("@tauri-apps/api/event", async () => {
@@ -85,5 +86,39 @@ describe("MainPage", () => {
       charCount: 5,
     });
     expect(screen.getByTestId("main-result")).toBeInTheDocument();
+  });
+
+  it("shows an Open Settings button when the recording error is a PermissionDenied", async () => {
+    // The whole point of the structured-error refactor: a permission denial
+    // must surface a one-click deeplink, not a multi-line opaque toast.
+    const apiMod = await import("@/api/tauri");
+    const openSpy = vi.mocked(
+      (apiMod as unknown as { openPermissionSettings: ReturnType<typeof vi.fn> })
+        .openPermissionSettings,
+    );
+    renderWithRecordingContext(<MainPage onNavigate={onNavigate} animClass="" />, {
+      recordingError: "需要「麦克风」权限",
+      recordingErrorPermission: {
+        kind: "microphone",
+        settingsUrl:
+          "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+      },
+    });
+    const btn = screen.getByTestId("main-perm-open-settings-btn");
+    await userEvent.click(btn);
+    expect(openSpy).toHaveBeenCalledWith("microphone");
+  });
+
+  it("falls back to the retry button when the error is a model error (not permission)", () => {
+    // Permission and model errors must NOT both grab the action slot — the
+    // permission deeplink only takes priority when there's actually a
+    // structured permission denial.
+    renderWithRecordingContext(<MainPage onNavigate={onNavigate} animClass="" />, {
+      modelError: "model boom",
+    });
+    expect(screen.getByTestId("main-retry-btn")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("main-perm-open-settings-btn"),
+    ).not.toBeInTheDocument();
   });
 });

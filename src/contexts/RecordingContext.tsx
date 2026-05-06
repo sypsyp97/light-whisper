@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, type ReactNode } from "r
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
-import { setInputMethodCommand, setAiPolishConfig, getAiPolishApiKey, setInputDevice, setSoundEnabled, setRecordingMode } from "@/api/tauri";
+import { setInputMethodCommand, setAiPolishConfig, getAiPolishApiKey, setInputDevice, setSoundEnabled, setRecordingMode, type PermissionDeniedDetails } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
 import { INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import type { EditGrabStatus, HistoryItem, HotkeyDiagnostic, RecordingMode } from "@/types";
@@ -14,6 +14,8 @@ interface RecordingContextValue {
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   recordingError: string | null;
+  /** Structured permission payload when the recording error is a TCC denial. */
+  recordingErrorPermission: PermissionDeniedDetails | null;
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
   originalAsrText: string | null;
@@ -53,6 +55,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     startRecording,
     stopRecording,
     error: recordingError,
+    errorPermission: recordingErrorPermission,
     transcriptionResult,
     setTranscriptionResult,
     originalAsrText,
@@ -152,6 +155,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     startRecording,
     stopRecording,
     recordingError,
+    recordingErrorPermission,
     transcriptionResult,
     setTranscriptionResult,
     originalAsrText,
@@ -180,6 +184,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     hotkeyDiagnostic,
   }), [
     isRecording, isProcessing, startRecording, stopRecording, recordingError,
+    recordingErrorPermission,
     transcriptionResult, setTranscriptionResult, originalAsrText,
     editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, history, resultMode,

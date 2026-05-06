@@ -294,7 +294,7 @@
   padding: 2px 6px;
   border: 1px solid var(--lw-border-subtle);
   border-bottom-width: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--lw-bg-elevated);
   color: var(--lw-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -353,7 +353,7 @@
   border: none;
   color: inherit;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -719,6 +719,12 @@
   font-size: 16px;
   font-weight: 600;
   color: var(--lw-text);
+}
+.lw-settings-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .lw-settings-row {
   display: flex;

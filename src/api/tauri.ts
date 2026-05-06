@@ -427,4 +427,35 @@ export function requestPermission(kind: PermissionKind): Promise<PermissionStatu
   return invokeCommand<PermissionStatus>("request_permission", { kind });
 }
 
+/**
+ * Open the macOS Privacy & Security pane that controls `kind`. On non-macOS
+ * the backend returns a no-op `Ok(())`, so it's safe to invoke unconditionally.
+ */
+export function openPermissionSettings(kind: PermissionKind): Promise<void> {
+  return invokeCommand<void>("open_permission_settings", { kind });
+}
+
+/**
+ * Structured payload attached to PERMISSION_DENIED errors thrown by the
+ * backend. The backend uses camelCase for `settingsUrl` to match the IPC
+ * convention; we mirror that here so consumers can use the field directly.
+ */
+export interface PermissionDeniedDetails {
+  kind: PermissionKind;
+  settingsUrl: string;
+}
+
+/** Type guard: true when the thrown error carries PERMISSION_DENIED details. */
+export function isPermissionDeniedError(
+  err: unknown,
+): err is IpcError & { details: PermissionDeniedDetails } {
+  if (!(err instanceof IpcError)) return false;
+  if (err.code !== "PERMISSION_DENIED") return false;
+  const details = err.details;
+  if (typeof details !== "object" || details === null) return false;
+  const kind = (details as { kind?: unknown }).kind;
+  const settingsUrl = (details as { settingsUrl?: unknown }).settingsUrl;
+  return typeof kind === "string" && typeof settingsUrl === "string";
+}
+
 export { enableAutostart, disableAutostart, isAutostartEnabled };

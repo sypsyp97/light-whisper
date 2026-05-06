@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecordingContext } from "@/contexts/RecordingContext";
-import { copyToClipboard, submitUserCorrection } from "@/api/tauri";
+import { copyToClipboard, openPermissionSettings, submitUserCorrection } from "@/api/tauri";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { ONBOARDING_DISMISSED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import TitleBar from "@/components/main/TitleBar";
@@ -30,6 +30,7 @@ export default function MainPage({ onNavigate, animClass }: MainPageProps) {
     startRecording,
     stopRecording,
     recordingError,
+    recordingErrorPermission,
     transcriptionResult,
     originalAsrText,
     setTranscriptionResult,
@@ -106,7 +107,24 @@ export default function MainPage({ onNavigate, animClass }: MainPageProps) {
   const showError = (recordingError || modelError) && !errorBannerDismissed;
   const errorMessage = recordingError || modelError || "";
   const errorIsModel = !!modelError;
+  const errorIsPermission = !!recordingErrorPermission && !modelError;
   const showOnboarding = !onboardingDismissed && history.length === 0;
+
+  const bannerAction = errorIsPermission && recordingErrorPermission
+    ? {
+        label: t("settings.permOpenSettings", { defaultValue: "Open Settings" }),
+        onClick: () => {
+          void openPermissionSettings(recordingErrorPermission.kind);
+        },
+        testId: "main-perm-open-settings-btn",
+      }
+    : errorIsModel && retryModel
+      ? {
+          label: t("common.retry"),
+          onClick: retryModel,
+          testId: "main-retry-btn",
+        }
+      : undefined;
 
   const indicatorStage: "checking" | "loading" | "ready" | "error" =
     stage === "ready" ? "ready"
@@ -151,11 +169,7 @@ export default function MainPage({ onNavigate, animClass }: MainPageProps) {
             tone="error"
             message={errorMessage}
             onDismiss={() => setErrorBannerDismissed(true)}
-            action={errorIsModel && retryModel ? {
-              label: t("common.retry"),
-              onClick: retryModel,
-              testId: "main-retry-btn",
-            } : undefined}
+            action={bannerAction}
             data-testid="main-error-banner"
           />
         )}

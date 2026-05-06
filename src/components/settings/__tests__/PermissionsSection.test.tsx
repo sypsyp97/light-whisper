@@ -8,6 +8,7 @@ vi.mock("@/api/tauri", () => ({
     canRequest: kind !== "microphone",
   })),
   requestPermission: vi.fn(async () => ({ granted: true, canRequest: false })),
+  openPermissionSettings: vi.fn(async () => undefined),
   pasteText: vi.fn(async () => "ok"),
 }));
 
@@ -19,6 +20,7 @@ import { PermissionsSection } from "@/components/settings/PermissionsSection";
 const api = apiModule as unknown as {
   checkPermission: ReturnType<typeof vi.fn>;
   requestPermission: ReturnType<typeof vi.fn>;
+  openPermissionSettings: ReturnType<typeof vi.fn>;
   pasteText: ReturnType<typeof vi.fn>;
 };
 
@@ -61,5 +63,62 @@ describe("PermissionsSection", () => {
   it("shows granted badge for microphone row", async () => {
     render(<PermissionsSection />);
     expect(await screen.findByTestId("perm-status-microphone")).toBeInTheDocument();
+  });
+
+  it("clicking 'Open Settings' on a denied row invokes openPermissionSettings(kind)", async () => {
+    // The user complaint was that they can't unblock themselves from a
+    // permission error. The fix is a one-click deeplink straight into the
+    // matching System Settings pane — every denied row exposes one.
+    render(<PermissionsSection />);
+    const btn = await screen.findByTestId("perm-open-settings-screen");
+    await userEvent.click(btn);
+    await waitFor(() => {
+      expect(vi.mocked(api.openPermissionSettings)).toHaveBeenCalledWith("screen");
+    });
+  });
+
+  it("granted rows expose a re-check button (not a Request button)", async () => {
+    // Once a permission is granted, the prominent CTA must NOT keep saying
+    // "Request"/"Settings" — that's confusing and tempts users to revoke
+    // themselves. Instead it becomes a quiet "Re-check" affordance.
+    render(<PermissionsSection />);
+    expect(
+      await screen.findByTestId("perm-recheck-microphone"),
+    ).toBeInTheDocument();
+    // And there is NO "Open Settings" button on a granted row — opening
+    // settings would only let the user revoke; we don't surface that path.
+    expect(
+      screen.queryByTestId("perm-open-settings-microphone"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("re-check button refreshes the row's status via checkPermission", async () => {
+    render(<PermissionsSection />);
+    const btn = await screen.findByTestId("perm-recheck-microphone");
+    vi.mocked(api.checkPermission).mockClear();
+    await userEvent.click(btn);
+    await waitFor(() => {
+      expect(vi.mocked(api.checkPermission)).toHaveBeenCalledWith("microphone");
+    });
+  });
+
+  it("section-level 'Re-check all' refreshes every permission", async () => {
+    render(<PermissionsSection />);
+    const btn = await screen.findByTestId("perm-recheck-all-btn");
+    vi.mocked(api.checkPermission).mockClear();
+    await userEvent.click(btn);
+    await waitFor(() => {
+      const calls = vi
+        .mocked(api.checkPermission)
+        .mock.calls.map((c) => c[0]);
+      expect(calls).toEqual(
+        expect.arrayContaining([
+          "microphone",
+          "accessibility",
+          "screen",
+          "automation",
+        ]),
+      );
+    });
   });
 });

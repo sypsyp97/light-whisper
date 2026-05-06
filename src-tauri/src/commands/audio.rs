@@ -36,6 +36,13 @@ pub(crate) async fn start_recording_inner(
         return Err(AppError::Audio(RECORDING_NOT_READY_ERROR.into()));
     }
 
+    // Pre-flight TCC check on macOS. If the user denies the mic, fail fast
+    // with a structured PermissionDenied (carrying a settings deeplink) so
+    // the UI can render an "Open Settings" affordance — instead of letting
+    // cpal throw a generic "no input device" two seconds later.
+    crate::services::permissions_service::ensure_microphone_permission_for_recording()
+        .await?;
+
     audio_service::stop_microphone_level_monitor(state);
 
     let (session_id, stop_flag, stop_notify) = {

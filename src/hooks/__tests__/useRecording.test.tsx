@@ -52,10 +52,19 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: tauriEvents.listen,
 }));
 
-vi.mock("@/api/tauri", () => ({
-  startRecording: tauriInvokeMocks.startRecording,
-  stopRecording: tauriInvokeMocks.stopRecording,
-}));
+vi.mock("@/api/tauri", async () => {
+  // Re-export the real IpcError + isPermissionDeniedError so tests can
+  // construct structured errors that the hook will recognize. We only
+  // override startRecording / stopRecording with the spies above.
+  const actual = await vi.importActual<typeof import("@/api/tauri")>(
+    "@/api/tauri",
+  );
+  return {
+    ...actual,
+    startRecording: tauriInvokeMocks.startRecording,
+    stopRecording: tauriInvokeMocks.stopRecording,
+  };
+});
 
 vi.mock("sonner", () => ({
   toast: {
@@ -351,5 +360,66 @@ describe("useRecording stopRecording return type", () => {
     });
 
     expect(resolved).toBeUndefined();
+  });
+});
+
+describe("useRecording PermissionDenied capture", () => {
+  it("exposes errorPermission when start_recording fails with PERMISSION_DENIED", async () => {
+    // The user complaint is "permission errors block me". Capturing the
+    // structured payload here lets MainPage render a one-click "Open
+    // Settings" affordance instead of a multi-line opaque toast.
+    const { IpcError } = await import("@/api/tauri");
+    const denied = new IpcError(
+      "需要「麦克风」权限",
+      "PERMISSION_DENIED",
+      "permission",
+      {
+        kind: "microphone",
+        settingsUrl:
+          "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+      },
+    );
+    tauriInvokeMocks.startRecording.mockRejectedValueOnce(denied);
+
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+
+    expect(result.current.error).toBe("需要「麦克风」权限");
+    expect(result.current.errorPermission).toEqual({
+      kind: "microphone",
+      settingsUrl:
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+    });
+  });
+
+  it("clears errorPermission once a non-permission error replaces it", async () => {
+    const { IpcError } = await import("@/api/tauri");
+    tauriInvokeMocks.startRecording
+      .mockRejectedValueOnce(
+        new IpcError("denied", "PERMISSION_DENIED", "permission", {
+          kind: "screen",
+          settingsUrl:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        }),
+      )
+      .mockRejectedValueOnce(new Error("plain failure"));
+
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+    expect(result.current.errorPermission?.kind).toBe("screen");
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+    expect(result.current.error).toBe("plain failure");
+    expect(result.current.errorPermission).toBeNull();
   });
 });

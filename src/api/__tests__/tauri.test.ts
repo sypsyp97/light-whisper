@@ -185,3 +185,60 @@ describe("normalizeInvokeError -> IpcError", () => {
     expect((caught as Error).message).toBe("native");
   });
 });
+
+describe("isPermissionDeniedError type guard", () => {
+  it("returns true when code is PERMISSION_DENIED with kind+settingsUrl details", async () => {
+    const { isPermissionDeniedError, IpcError } = await import("@/api/tauri");
+    const err = new IpcError("denied", "PERMISSION_DENIED", "permission", {
+      kind: "microphone",
+      settingsUrl:
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+    });
+    expect(isPermissionDeniedError(err)).toBe(true);
+    if (isPermissionDeniedError(err)) {
+      // After narrowing, details.kind/settingsUrl are typed accessible.
+      expect(err.details.kind).toBe("microphone");
+      expect(err.details.settingsUrl).toContain("Privacy_Microphone");
+    }
+  });
+
+  it("returns false for non-permission IpcError", async () => {
+    const { isPermissionDeniedError, IpcError } = await import("@/api/tauri");
+    const err = new IpcError("audio failed", "AUDIO_ERROR", "audio");
+    expect(isPermissionDeniedError(err)).toBe(false);
+  });
+
+  it("returns false for plain Error", async () => {
+    const { isPermissionDeniedError } = await import("@/api/tauri");
+    expect(isPermissionDeniedError(new Error("boom"))).toBe(false);
+  });
+
+  it("returns false when details object is missing required keys", async () => {
+    // Defensive: a future backend bug shouldn't be silently treated as a
+    // valid permission error and crash the deeplink button.
+    const { isPermissionDeniedError, IpcError } = await import("@/api/tauri");
+    const err = new IpcError(
+      "denied",
+      "PERMISSION_DENIED",
+      "permission",
+      // missing settingsUrl
+      { kind: "microphone" },
+    );
+    expect(isPermissionDeniedError(err)).toBe(false);
+  });
+});
+
+describe("openPermissionSettings", () => {
+  it("invokes the open_permission_settings IPC command with the given kind", async () => {
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+    const { openPermissionSettings } = await import("@/api/tauri");
+    await openPermissionSettings("accessibility");
+    // The IPC command name must match the tauri::command we registered;
+    // changing either side without the other will silently break the
+    // settings deeplink in production. This test pins both halves.
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "open_permission_settings",
+      { kind: "accessibility" },
+    );
+  });
+});

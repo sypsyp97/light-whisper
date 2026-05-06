@@ -14,6 +14,15 @@ pub enum AppError {
     Serde(#[from] serde_json::Error),
     #[error("Tauri错误: {0}")]
     Tauri(String),
+    /// macOS TCC permission denied. Carries the kind (microphone/accessibility/
+    /// screen/automation) and a `settings_url` deep-link so the UI can offer a
+    /// one-click "Open Settings" affordance instead of a multi-line prose error.
+    #[error("{message}")]
+    PermissionDenied {
+        kind: String,
+        settings_url: String,
+        message: String,
+    },
     #[error("{0}")]
     Other(String),
 }
@@ -28,6 +37,7 @@ impl AppError {
             AppError::Io(_) => "IO_ERROR",
             AppError::Serde(_) => "SERDE_ERROR",
             AppError::Tauri(_) => "TAURI_ERROR",
+            AppError::PermissionDenied { .. } => "PERMISSION_DENIED",
             AppError::Other(_) => "OTHER_ERROR",
         }
     }
@@ -40,7 +50,25 @@ impl AppError {
             AppError::Download(_) => "network",
             AppError::Io(_) | AppError::Serde(_) => "system",
             AppError::Tauri(_) => "tauri",
+            AppError::PermissionDenied { .. } => "permission",
             AppError::Other(_) => "other",
+        }
+    }
+
+    /// Structured payload for the IPC `details` field. Only PermissionDenied
+    /// produces a non-null body today; other variants stay `None` so the front
+    /// end's existing `details === null` shape is preserved for them.
+    fn details_payload(&self) -> Option<serde_json::Value> {
+        match self {
+            AppError::PermissionDenied {
+                kind,
+                settings_url,
+                ..
+            } => Some(serde_json::json!({
+                "kind": kind,
+                "settingsUrl": settings_url,
+            })),
+            _ => None,
         }
     }
 }
@@ -50,9 +78,9 @@ struct StructuredAppError {
     code: &'static str,
     category: &'static str,
     message: String,
-    /// 预留给未来携带结构化诊断信息（schema、status、provider 详情等）。
-    /// 当前所有 variant 都没有 payload，统一序列化为 JSON null，让前端
-    /// 永远能 `error.details === null` 判空而不是 `'details' in error`。
+    /// 携带结构化诊断信息。PermissionDenied 用 `{ kind, settingsUrl }` 让前端
+    /// 直接渲染「打开系统设置」按钮；其他 variant 暂时为 null，前端可继续
+    /// 用 `error.details === null` 判空。
     details: Option<serde_json::Value>,
 }
 
@@ -65,7 +93,7 @@ impl Serialize for AppError {
             code: self.code(),
             category: self.category(),
             message: self.to_string(),
-            details: None,
+            details: self.details_payload(),
         }
         .serialize(serializer)
     }
@@ -195,5 +223,85 @@ mod tests {
             serde_json::Value::String(expected_category.to_string()),
             "serialized `category` must equal AppError::category()"
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // PermissionDenied — structured permission-denied IPC contract.
+    //
+    // The UI consumes `details.kind` to choose copy and `details.settingsUrl`
+    // to render the "Open Settings" deeplink. Pinning these field names
+    // prevents accidental rename from breaking the front-end render path.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn permission_denied_code_is_stable() {
+        let err = AppError::PermissionDenied {
+            kind: "microphone".into(),
+            settings_url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone".into(),
+            message: "麦克风权限尚未授予".into(),
+        };
+        assert_eq!(err.code(), "PERMISSION_DENIED");
+        assert_eq!(err.category(), "permission");
+    }
+
+    #[test]
+    fn permission_denied_serializes_details_with_kind_and_url() {
+        let err = AppError::PermissionDenied {
+            kind: "accessibility".into(),
+            settings_url:
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                    .into(),
+            message: "辅助功能权限尚未授予".into(),
+        };
+        let value = serde_json::to_value(&err).expect("AppError must serialize");
+        let details = value
+            .get("details")
+            .expect("details key must be present")
+            .as_object()
+            .expect("PermissionDenied serializes details as an object");
+        assert_eq!(
+            details.get("kind").and_then(|v| v.as_str()),
+            Some("accessibility"),
+            "details.kind must echo the PermissionKind tag",
+        );
+        assert_eq!(
+            details.get("settingsUrl").and_then(|v| v.as_str()),
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"),
+            "details.settingsUrl must be camelCase and equal the deeplink",
+        );
+    }
+
+    #[test]
+    fn permission_denied_message_is_the_user_facing_string() {
+        // Display impl points at the `message` field — the prose the UI shows.
+        // It must NOT inline the deeplink (that's structured) or the kind tag.
+        let err = AppError::PermissionDenied {
+            kind: "screen".into(),
+            settings_url: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture".into(),
+            message: "屏幕录制权限尚未授予".into(),
+        };
+        assert_eq!(err.to_string(), "屏幕录制权限尚未授予");
+    }
+
+    #[test]
+    fn non_permission_errors_keep_details_null() {
+        // Existing front-end code uses `error.details === null` as the "no
+        // structured payload" branch; we must preserve that for every variant
+        // that hasn't opted in.
+        for err in [
+            AppError::Asr("a".into()),
+            AppError::Audio("b".into()),
+            AppError::Download("c".into()),
+            AppError::Tauri("d".into()),
+            AppError::Other("e".into()),
+        ] {
+            let value = serde_json::to_value(&err).expect("AppError must serialize");
+            assert_eq!(
+                value["details"],
+                serde_json::Value::Null,
+                "details must remain null for {:?}",
+                err
+            );
+        }
     }
 }

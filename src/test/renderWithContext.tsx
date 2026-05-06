@@ -1,6 +1,7 @@
 import React, { createContext, useContext, type ReactElement } from "react";
 import { render, type RenderResult } from "@testing-library/react";
 import { vi } from "vitest";
+import type { PermissionDeniedDetails } from "@/api/tauri";
 import type { HistoryItem, HotkeyDiagnostic, RecordingMode } from "@/types";
 
 export interface RecordingContextValue {
@@ -9,6 +10,7 @@ export interface RecordingContextValue {
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   recordingError: string | null;
+  recordingErrorPermission: PermissionDeniedDetails | null;
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
   originalAsrText: string | null;
@@ -63,6 +65,7 @@ export function buildDefaultContext(overrides?: Partial<RecordingContextValue>):
     startRecording: vi.fn(async () => {}),
     stopRecording: vi.fn(async () => {}),
     recordingError: null,
+    recordingErrorPermission: null,
     transcriptionResult: null,
     setTranscriptionResult: vi.fn(),
     originalAsrText: null,

@@ -2,7 +2,12 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import i18n from "@/i18n";
-import { startRecording as invokeStartRecording, stopRecording as invokeStopRecording } from "@/api/tauri";
+import {
+  isPermissionDeniedError,
+  startRecording as invokeStartRecording,
+  stopRecording as invokeStopRecording,
+  type PermissionDeniedDetails,
+} from "@/api/tauri";
 import type { EditGrabStatus, HistoryItem, RecordingMode } from "@/types";
 
 interface UseRecordingReturn {
@@ -11,6 +16,12 @@ interface UseRecordingReturn {
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   error: string | null;
+  /**
+   * Structured payload populated when the most recent recording error was a
+   * macOS PERMISSION_DENIED IPC error. Lets the UI render a one-click "Open
+   * Settings" deeplink instead of a multi-line opaque toast.
+   */
+  errorPermission: PermissionDeniedDetails | null;
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
   originalAsrText: string | null;
@@ -70,6 +81,8 @@ export function useRecording(): UseRecordingReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorPermission, setErrorPermission] =
+    useState<PermissionDeniedDetails | null>(null);
   const [transcriptionResult, setTranscriptionResult] = useState<string | null>(null);
   const [originalAsrText, setOriginalAsrText] = useState<string | null>(null);
   const [editBaselineText, setEditBaselineText] = useState<string | null>(null);
@@ -89,6 +102,10 @@ export function useRecording(): UseRecordingReturn {
     setIsRecording(payload.isRecording);
     setIsProcessing(payload.isProcessing);
     setError(payload.error ?? null);
+    // recording-state events ride the success path and never carry a
+    // permission payload — clear any stale one so a fresh successful start
+    // doesn't leave a dangling "Open Settings" affordance from a prior fail.
+    if (!payload.error) setErrorPermission(null);
     setResultMode(payload.mode ?? "dictation");
   });
 
@@ -96,7 +113,13 @@ export function useRecording(): UseRecordingReturn {
     const sessionId = Number(payload.sessionId || 0);
     if (sessionId > 0 && sessionId < latestSessionIdRef.current) return;
     const message = payload.message?.trim();
-    if (message) setError(message);
+    if (message) {
+      setError(message);
+      // Backend events don't carry structured permission details today; this
+      // is a plain string surface and the deeplink path is taken via the
+      // invoke-rejection branch in startRecording / stopRecording.
+      setErrorPermission(null);
+    }
   });
 
   useTauriEvent<TranscriptionPayload>("transcription-result", (payload) => {
@@ -143,17 +166,24 @@ export function useRecording(): UseRecordingReturn {
     else if (status === "error") toast.error(i18n.t("toast.aiPolishFailed", { error: errMsg }), { duration: 2500 });
   });
 
+  /** Capture err's user-facing message + structured permission payload (if any). */
+  const captureError = useCallback((err: unknown) => {
+    setError(err instanceof Error ? err.message : String(err));
+    setErrorPermission(isPermissionDeniedError(err) ? err.details : null);
+  }, []);
+
   const startRecording = useCallback(async () => {
     setError(null);
+    setErrorPermission(null);
     try {
       const sessionId = await invokeStartRecording();
       if (Number.isFinite(sessionId) && sessionId > latestSessionIdRef.current) {
         latestSessionIdRef.current = sessionId;
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      captureError(err);
     }
-  }, []);
+  }, [captureError]);
 
   const stopRecording = useCallback(async (): Promise<void> => {
     if (isRecording) {
@@ -164,13 +194,13 @@ export function useRecording(): UseRecordingReturn {
       await invokeStopRecording();
     } catch (err) {
       if (isRecording) setIsProcessing(false);
-      setError(err instanceof Error ? err.message : String(err));
+      captureError(err);
     }
-  }, [isRecording]);
+  }, [isRecording, captureError]);
 
   return {
     isRecording, isProcessing, startRecording, stopRecording,
-    error, transcriptionResult, setTranscriptionResult,
+    error, errorPermission, transcriptionResult, setTranscriptionResult,
     originalAsrText, editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, history,
     resultMode,
