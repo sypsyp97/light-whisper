@@ -83,6 +83,51 @@ describe("Card — hairline border, no decorative drop shadow", () => {
   });
 });
 
+describe("Settings layout — top horizontal nav, scrollable content below", () => {
+  it("html / body / #root pin to 100% height so the layout chain doesn't collapse", () => {
+    // Without this, `.lw-root { height: 100% }` resolves to 0 in modes where
+    // the document root has no intrinsic height (e.g. dev `vite`), and every
+    // scrollable region fails to get a bounded height to scroll within.
+    expect(themeCss).toMatch(
+      /html,\s*body,\s*#root\s*\{[^}]*height:\s*100%/,
+    );
+  });
+
+  it("settings body is a flex column, NOT a sidebar grid", () => {
+    // The Apple branch shipped a 220px sidebar layout that broke scrolling
+    // and didn't match main's UX. Pin the column flex shape so it can't
+    // regress to a grid behind a refactor.
+    const body = ruleBody(appCss, ".lw-settings-body");
+    expect(body).toMatch(/display:\s*flex/);
+    expect(body).toMatch(/flex-direction:\s*column/);
+    expect(body).not.toMatch(/grid-template-columns/);
+  });
+
+  it("settings nav is a single horizontal row of tabs at the top", () => {
+    const nav = ruleBody(appCss, ".lw-settings-nav");
+    expect(nav).toMatch(/flex-direction:\s*row/);
+    // Long tab lists should scroll horizontally instead of wrapping —
+    // wrapping breaks the "one row" promise the user explicitly asked for.
+    expect(nav).toMatch(/overflow-x:\s*auto/);
+  });
+
+  it("settings content has min-height: 0 so overflow-y: auto actually scrolls", () => {
+    // Flex items default to `min-height: auto`, which forbids shrinking
+    // below their intrinsic content size. Without `min-height: 0`, the
+    // inner `overflow-y: auto` never engages and the page becomes
+    // un-scrollable when sections exceed the viewport.
+    const content = ruleBody(appCss, ".lw-settings-content");
+    expect(content).toMatch(/min-height:\s*0/);
+    expect(content).toMatch(/overflow-y:\s*auto/);
+  });
+
+  it("main content also pins min-height: 0 so its history list can scroll", () => {
+    const content = ruleBody(appCss, ".lw-main-content");
+    expect(content).toMatch(/min-height:\s*0/);
+    expect(content).toMatch(/overflow-y:\s*auto/);
+  });
+});
+
 describe("Recording button — the one product surface that may use the signature drop-shadow", () => {
   it("--shadow-product token uses Apple's signature 3px 5px 30px drop", () => {
     // The single drop-shadow Apple ships is reserved for photographic product

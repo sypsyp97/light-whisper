@@ -63,7 +63,7 @@ This document comprehensively catalogs all features on the `main` branch of Ligh
 ### Architecture
 
 - **Mutually exclusive picker dropdowns** via `useExclusivePicker` hook
-- **Side navigation**: IntersectionObserver tracks scroll to highlight active section
+- **Top navigation**: horizontal scrollable tab row; IntersectionObserver tracks scroll to highlight active section
 - **State persisted to**: localStorage + Tauri backend via debounced API calls
 - **LLM provider drafts**: Local JSON cache for unsaved provider configs (`LLM_PROVIDER_DRAFTS_KEY`)
 
