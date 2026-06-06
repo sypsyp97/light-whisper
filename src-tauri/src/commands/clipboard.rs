@@ -78,6 +78,37 @@ fn release_stuck_modifiers() -> Result<(), AppError> {
     Ok(())
 }
 
+/// 向前台窗口发送 `count` 次退格键，用于「重说纠错」时删除上一次输入的文本。
+/// 每次退格删除一个字符（码点），与 `String::chars().count()` 对应。
+#[cfg(target_os = "windows")]
+pub async fn send_backspaces(count: usize) -> Result<(), AppError> {
+    if count == 0 {
+        return Ok(());
+    }
+
+    const VK_BACK: u16 = 0x08;
+
+    // 防止录音热键残留的修饰键把退格解读成组合键（如 Ctrl+Backspace 删整词）。
+    release_stuck_modifiers()?;
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+    let mut inputs: Vec<INPUT> = Vec::with_capacity(count * 2);
+    for _ in 0..count {
+        inputs.push(make_key_input(VK_BACK, 0, 0));
+        inputs.push(make_key_input(VK_BACK, 0, KEYEVENTF_KEYUP));
+    }
+    send_inputs(&inputs)?;
+    log::info!("已发送 {} 次退格键用于重说纠错", count);
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub async fn send_backspaces(_count: usize) -> Result<(), AppError> {
+    Err(AppError::Other(
+        "当前平台暂不支持模拟退格，仅 Windows 可用".to_string(),
+    ))
+}
+
 /// 通过 UIA TextPattern 读取前台焦点控件的选中文本。零副作用。
 pub fn grab_selected_text() -> Option<String> {
     #[cfg(target_os = "windows")]

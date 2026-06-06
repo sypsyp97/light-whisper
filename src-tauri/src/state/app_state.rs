@@ -65,6 +65,20 @@ pub struct InterimCache {
     pub language: Option<String>,
 }
 
+/// 最近一次普通听写的结果，用于「重说纠错」：当用户紧接着把同一句话重说一遍
+/// （或补上漏掉的字）时，识别为对上一句的修正，删掉已输入内容并替换为合并结果。
+#[derive(Clone)]
+pub struct LastDictation {
+    /// 上一次实际输入到目标窗口的文本（已润色 / 已合并后的最终版本）。
+    pub text: String,
+    /// `text` 的字符数，等于需要发送的退格键次数。
+    pub char_count: usize,
+    /// 输入完成的时间戳（Unix 毫秒），用于时效判定。
+    pub at_ms: u64,
+    /// 输入时前台窗口的进程名，用于「同一程序」判定。
+    pub process_name: String,
+}
+
 pub struct RecordingSession {
     pub session_id: u64,
     pub trigger: RecordingTrigger,
@@ -183,6 +197,8 @@ pub struct RecordingState {
     pub recording: Arc<parking_lot::Mutex<Option<RecordingSlot>>>,
     pub session_counter: AtomicU64,
     pub pending_paste: Arc<parking_lot::Mutex<Vec<String>>>,
+    /// 最近一次普通听写的输入结果，供「重说纠错」判定使用。
+    pub last_dictation: Arc<parking_lot::Mutex<Option<LastDictation>>>,
     pub selected_input_device_name: Arc<parking_lot::Mutex<Option<String>>>,
     pub microphone_level_monitor: Arc<parking_lot::Mutex<Option<MicrophoneLevelMonitor>>>,
     pub subtitle_show_gen: AtomicU64,
@@ -194,6 +210,7 @@ impl Default for RecordingState {
             recording: Default::default(),
             session_counter: AtomicU64::new(0),
             pending_paste: Default::default(),
+            last_dictation: Default::default(),
             selected_input_device_name: Default::default(),
             microphone_level_monitor: Default::default(),
             subtitle_show_gen: AtomicU64::new(0),
