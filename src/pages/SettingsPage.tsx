@@ -132,8 +132,8 @@ const llmProviderOptions: ReadonlyArray<{
     label: "DeepSeek",
     descKey: "settings.deepseekDesc",
     baseUrl: "https://api.deepseek.com",
-    defaultModel: "deepseek-chat",
-    models: ["deepseek-chat", "deepseek-reasoner"],
+    defaultModel: "deepseek-v4-flash",
+    models: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
   },
   {
     key: "cerebras",

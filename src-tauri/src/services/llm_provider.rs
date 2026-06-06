@@ -36,7 +36,7 @@ pub struct LlmReasoningSupport {
 fn default_endpoint_parts(provider: &str) -> (&'static str, &'static str, u64) {
     match provider {
         OPENAI => ("https://api.openai.com", "gpt-4.1-mini", 10),
-        DEEPSEEK => ("https://api.deepseek.com", "deepseek-chat", 10),
+        DEEPSEEK => ("https://api.deepseek.com", "deepseek-v4-flash", 10),
         SILICONFLOW => ("https://api.siliconflow.cn", "Qwen/Qwen3-32B", 10),
         CUSTOM => ("http://127.0.0.1:8000", "gpt-4.1-mini", 10),
         _ => ("https://api.cerebras.ai", "gpt-oss-120b", 5),
@@ -681,7 +681,10 @@ fn supports_cerebras_reasoning(model: &str) -> bool {
 fn supports_deepseek_thinking(model: &str) -> bool {
     let normalized = model.trim().to_ascii_lowercase();
     let tail = normalized.rsplit('/').next().unwrap_or(&normalized);
-    matches!(tail, "deepseek-chat" | "deepseek-reasoner")
+    matches!(
+        tail,
+        "deepseek-v4-flash" | "deepseek-v4-pro" | "deepseek-chat" | "deepseek-reasoner"
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1537,6 +1540,37 @@ mod tests {
 
         assert!(support.supported);
         assert_eq!(support.strategy.as_deref(), Some("deepseek_thinking"));
+    }
+
+    #[test]
+    fn deepseek_v4_flash_reports_reasoning_support() {
+        let endpoint = endpoint_for_preview(
+            DEEPSEEK,
+            None,
+            Some("deepseek-v4-flash"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        let support = reasoning_support(&endpoint, false);
+
+        assert!(support.supported);
+        assert_eq!(support.strategy.as_deref(), Some("deepseek_thinking"));
+    }
+
+    #[test]
+    fn deepseek_v4_flash_off_disables_thinking() {
+        let endpoint = endpoint_for_preview(
+            DEEPSEEK,
+            None,
+            Some("deepseek-v4-flash"),
+            ApiFormat::OpenaiCompat,
+        );
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Off);
+
+        assert_eq!(body["thinking"]["type"], serde_json::json!("disabled"));
+        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]
