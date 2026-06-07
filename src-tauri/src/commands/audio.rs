@@ -16,6 +16,66 @@ pub(crate) const RECORDING_NOT_READY_ERROR: &str = "语音识别服务尚未就�
 pub(crate) const RECORDING_ALREADY_ACTIVE_ERROR: &str = "已有录音正在进行中";
 pub(crate) const RECORDING_START_CANCELLED_ERROR: &str = "录音启动已取消";
 
+/// 当前是否有录音正在捕获音频（start 到 stop/cancel 之间为 true）。
+/// 键盘钩子线程据此决定「录音中按 Esc」是否触发取消——只读这个原子，开销极小。
+pub(crate) static RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// 取消录音时通知前端：录音结束、不进入处理态，并补发一个 recording-cancelled。
+fn emit_cancel_state(app_handle: &tauri::AppHandle, session_id: u64, trigger: RecordingTrigger) {
+    let _ = app_handle.emit(
+        "recording-state",
+        serde_json::json!({
+            "sessionId": session_id,
+            "isRecording": false,
+            "isProcessing": false,
+            "mode": trigger.mode().as_str(),
+        }),
+    );
+    let _ = app_handle.emit(
+        "recording-cancelled",
+        serde_json::json!({ "sessionId": session_id }),
+    );
+}
+
+/// 用户主动取消录音：丢弃已录音频，不转写、不输入，收起字幕窗口。
+pub(crate) async fn cancel_recording_inner(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+) -> Result<Option<u64>, AppError> {
+    RECORDING_ACTIVE.store(false, Ordering::Relaxed);
+
+    let recording = match state.recording.recording.lock().take() {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    match recording {
+        RecordingSlot::Starting(p) => {
+            p.stop_flag.store(true, Ordering::Relaxed);
+            p.stop_notify.notify_waiters();
+            emit_cancel_state(&app_handle, p.session_id, p.trigger);
+            log::info!("录音启动阶段已取消 (session {})", p.session_id);
+            Ok(Some(p.session_id))
+        }
+        RecordingSlot::Active(s) => {
+            let session_id = s.session_id;
+            let trigger = s.trigger;
+            s.stop_flag.store(true, Ordering::Relaxed);
+            s.stop_notify.notify_waiters();
+            if state.ui.sound_enabled.load(Ordering::Acquire) {
+                crate::utils::sound::play_stop_sound();
+            }
+            emit_cancel_state(&app_handle, session_id, trigger);
+            let _ = crate::commands::window::hide_subtitle_window_inner(&app_handle);
+            log::info!("已取消录音并丢弃音频 (session {})", session_id);
+            tokio::spawn(async move {
+                audio_service::discard_recording(s).await;
+            });
+            Ok(Some(session_id))
+        }
+    }
+}
+
 fn clear_pending_recording_if_current(state: &AppState, session_id: u64) {
     let mut guard = state.recording.recording.lock();
     if matches!(guard.as_ref(), Some(RecordingSlot::Starting(s)) if s.session_id == session_id) {
@@ -145,6 +205,9 @@ pub(crate) async fn start_recording_inner(
         return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
     }
 
+    // 录音已确认进入 Active：标记活跃，使「录音中按 Esc 取消」对键盘钩子生效。
+    RECORDING_ACTIVE.store(true, Ordering::Relaxed);
+
     // 先发 recording-state，后显示字幕窗口。show_subtitle_window 在 Windows 上
     // CreateWindow + 布局会花 50-100ms，这段窗口里前端如果还没收到本会话的
     // recording-state，上一 session 的延迟 transcription-result 会钻进来覆盖当前
@@ -187,6 +250,7 @@ pub(crate) async fn stop_recording_inner(
     app_handle: tauri::AppHandle,
     state: &AppState,
 ) -> Result<Option<u64>, AppError> {
+    RECORDING_ACTIVE.store(false, Ordering::Relaxed);
     let recording = state.recording.recording.lock().take();
 
     let recording = match recording {
@@ -263,6 +327,15 @@ pub async fn stop_recording(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), AppError> {
     let _ = stop_recording_inner(app_handle, state.inner()).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_recording(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), AppError> {
+    let _ = cancel_recording_inner(app_handle, state.inner()).await?;
     Ok(())
 }
 

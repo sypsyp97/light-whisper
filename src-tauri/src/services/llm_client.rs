@@ -11,7 +11,9 @@ use crate::state::AppState;
 
 const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
 const STREAM_TOTAL_TIMEOUT_SECS: u64 = 24 * 60 * 60;
-pub(crate) const AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS: u64 = 45;
+// 流式「多久没吐出新内容就判定为卡住」。原 45s 在模型中途卡顿时会让用户长时间干等，
+// 缩短到 12s：模型一卡，12s 内放弃流式、快速回退到非流式。正常流式每秒都在出字，不受影响。
+pub(crate) const AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS: u64 = 12;
 const RETRYABLE_429_DELAYS_MS: &[u64] = &[600, 1200];
 
 #[derive(Debug, Clone, Copy)]

@@ -73,6 +73,8 @@ fn classify_backend(spec: &HotkeySpec) -> HotkeyBackend {
 enum DispatchEvent {
     Press(Arc<UnifiedHookState>, String),
     Release(Arc<UnifiedHookState>, String),
+    /// 录音中按 Esc：取消当前录音（丢弃音频，不转写不输入）。
+    Cancel(tauri::AppHandle),
 }
 
 #[cfg(target_os = "windows")]
@@ -102,6 +104,9 @@ fn dispatch_channel() -> &'static std::sync::mpsc::Sender<DispatchEvent> {
                                 &msg,
                                 state.spec.label(),
                             );
+                        }
+                        DispatchEvent::Cancel(app_handle) => {
+                            handle_hotkey_cancel(app_handle);
                         }
                     }
                 }
@@ -450,6 +455,35 @@ fn handle_hotkey_stop(
                 });
                 emit_recording_error(&app_handle, &message);
             }
+        }
+    });
+}
+
+/// 录音中按 Esc 触发：取消当前录音。
+#[cfg(target_os = "windows")]
+fn handle_hotkey_cancel(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let state = app_handle.state::<AppState>();
+        match crate::commands::audio::cancel_recording_inner(app_handle.clone(), state.inner())
+            .await
+        {
+            Ok(Some(session_id)) => {
+                // 重置所有热键 gate，避免 toggle 模式下取消后状态错位（下次按键变空操作）。
+                let bundle = get_unified_hook_states();
+                for hook_state in [
+                    bundle.dictation.as_ref(),
+                    bundle.translation.as_ref(),
+                    bundle.assistant.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    reset_hotkey_event_gate(&hook_state.gate);
+                }
+                log::info!("Esc 取消录音 (session {})", session_id);
+            }
+            Ok(None) => log::debug!("Esc 取消：当前没有活跃录音"),
+            Err(err) => log::warn!("Esc 取消录音失败: {}", err),
         }
     });
 }
@@ -833,6 +867,23 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
     }
 
     let vk = keyboard.vkCode;
+
+    // 录音进行中按 Esc → 取消录音，并吞掉这个 Esc（不传给前台程序，避免误关弹窗等）。
+    // bundle 此处必非空（上面已 early-return），从任一已注册热键状态借用 app_handle。
+    if is_key_down
+        && vk as u16 == VK_ESCAPE
+        && crate::commands::audio::RECORDING_ACTIVE.load(Ordering::Acquire)
+    {
+        if let Some(state) = bundle
+            .dictation
+            .as_ref()
+            .or(bundle.translation.as_ref())
+            .or(bundle.assistant.as_ref())
+        {
+            send_dispatch(DispatchEvent::Cancel(state.app_handle.clone()));
+            return 1;
+        }
+    }
 
     let mut swallow = false;
     for state in [
