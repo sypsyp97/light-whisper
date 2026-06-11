@@ -8,6 +8,22 @@ export interface TranscriptionResult {
 
 export type RecordingMode = "dictation" | "assistant";
 export type EditGrabStatus = "ok" | "timeout" | "empty" | "unsupported";
+export type TranscriptionResultStage = "raw" | "polished";
+
+export interface TranscriptionTiming {
+  asrMs?: number;
+  polishMs?: number;
+  totalMs?: number;
+  rawFirst?: {
+    status:
+      | "preview_only"
+      | "pasted"
+      | "replaced"
+      | "kept_raw"
+      | "final_fallback"
+      | "unchanged";
+  };
+}
 
 // 与 Rust 后端 funasr_service::FunASRStatus 对应
 export interface FunASRStatus {
@@ -42,6 +58,8 @@ export interface HistoryItem {
   timestamp: number;
   timeDisplay: string;
   editGrabStatus?: EditGrabStatus;
+  resultStage?: TranscriptionResultStage;
+  timing?: TranscriptionTiming;
 }
 
 export interface InputDeviceInfo {

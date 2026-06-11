@@ -59,6 +59,20 @@ const en: TranslationSchema = {
     title: "Result",
     recognizingSpeech: "Recognizing speech...",
     stats: "{{chars}} chars · {{duration}}s · {{cpm}} chars/min",
+    latency: {
+      asr: "ASR {{ms}}ms",
+      ai: "AI {{ms}}ms",
+      total: "total {{ms}}ms",
+    },
+    rawFirst: {
+      preview_only: "raw preview",
+      polished_preview: "polish complete",
+      pasted: "raw pasted",
+      replaced: "raw-first replaced",
+      kept_raw: "raw kept",
+      final_fallback: "final pasted",
+      unchanged: "raw unchanged",
+    },
     editableTranscription: "Transcription result, editable",
     editGrab: {
       timeout: "Selected text lookup timed out",
@@ -73,6 +87,15 @@ const en: TranslationSchema = {
     polishingWithTokens: "Polishing... {{tokens}} tokens",
     polishing: "Polishing...",
     webSearching: "Searching the web...",
+    rawFirst: {
+      preview_only: "raw preview",
+      polished_preview: "polish complete",
+      pasted: "raw pasted",
+      replaced: "raw-first replaced",
+      kept_raw: "raw kept",
+      final_fallback: "final pasted",
+      unchanged: "raw unchanged",
+    },
   },
   toast: {
     correctionRecorded: "Correction preference recorded",

@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Copy, Check } from "lucide-react";
-import type { EditGrabStatus } from "@/types";
+import type { EditGrabStatus, TranscriptionResultStage, TranscriptionTiming } from "@/types";
 
 interface TranscriptionResultProps {
   text: string | null;
@@ -15,6 +15,8 @@ interface TranscriptionResultProps {
   charCount: number | null;
   detectedLanguage?: string | null;
   editGrabStatus?: EditGrabStatus | null;
+  timing?: TranscriptionTiming | null;
+  resultStage?: TranscriptionResultStage | null;
 }
 
 export default function TranscriptionResult({
@@ -29,6 +31,8 @@ export default function TranscriptionResult({
   charCount,
   detectedLanguage,
   editGrabStatus,
+  timing,
+  resultStage,
 }: TranscriptionResultProps) {
   const { t } = useTranslation();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -39,7 +43,19 @@ export default function TranscriptionResult({
     editGrabStatus === "timeout" || editGrabStatus === "empty"
       ? `result.editGrab.${editGrabStatus}`
       : null;
-  const showMeta = hasStats || editGrabHintKey;
+  const latencyParts = [
+    timing?.asrMs != null ? t("result.latency.asr", { ms: timing.asrMs }) : null,
+    timing?.polishMs != null ? t("result.latency.ai", { ms: timing.polishMs }) : null,
+    timing?.totalMs != null ? t("result.latency.total", { ms: timing.totalMs }) : null,
+  ].filter((part): part is string => !!part);
+  const rawFirstStatusKey = timing?.rawFirst?.status === "preview_only" && resultStage === "polished"
+    ? "polished_preview"
+    : timing?.rawFirst?.status;
+  const rawFirstStatus = rawFirstStatusKey
+    ? t(`result.rawFirst.${rawFirstStatusKey}`)
+    : null;
+  const showMeta = hasStats || editGrabHintKey || latencyParts.length > 0 || rawFirstStatus;
+  const isRawPreview = resultStage === "raw";
 
   useEffect(() => {
     setDraftText(text ?? "");
@@ -51,12 +67,13 @@ export default function TranscriptionResult({
   }, [onDraftChange]);
 
   const handleBlur = useCallback(() => {
+    if (isRawPreview) return;
     const edited = draftText.trim();
     const baseline = originalText?.trim() ?? "";
     if (edited && baseline && edited !== baseline) {
       onTextChange?.(edited);
     }
-  }, [draftText, originalText, onTextChange]);
+  }, [draftText, isRawPreview, originalText, onTextChange]);
 
   const handleCopy = useCallback(() => {
     const currentText = bodyRef.current?.value.trim() ?? draftText.trim() ?? text ?? "";
@@ -85,6 +102,7 @@ export default function TranscriptionResult({
               aria-label={t("result.editableTranscription")}
               value={draftText}
               rows={Math.max(3, draftText.split(/\r?\n/).length)}
+              readOnly={isRawPreview}
               onChange={(event) => handleChange(event.target.value)}
               onBlur={handleBlur}
               spellCheck={false}
@@ -95,6 +113,12 @@ export default function TranscriptionResult({
                   <span className="result-lang-tag">{detectedLanguage}</span>
                 )}
                 {hasStats && t("result.stats", { chars: charCount, duration: durationSec.toFixed(1), cpm: Math.round((charCount / durationSec) * 60) })}
+                {latencyParts.length > 0 && (
+                  <span className="result-latency">{latencyParts.join(" · ")}</span>
+                )}
+                {rawFirstStatus && (
+                  <span className="result-raw-first">{rawFirstStatus}</span>
+                )}
                 {editGrabHintKey && (
                   <span className="result-edit-grab-hint">{t(editGrabHintKey)}</span>
                 )}

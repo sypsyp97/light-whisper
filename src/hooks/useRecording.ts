@@ -3,7 +3,13 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import i18n from "@/i18n";
 import { startRecording as invokeStartRecording, stopRecording as invokeStopRecording } from "@/api/tauri";
-import type { EditGrabStatus, HistoryItem, RecordingMode } from "@/types";
+import type {
+  EditGrabStatus,
+  HistoryItem,
+  RecordingMode,
+  TranscriptionResultStage,
+  TranscriptionTiming,
+} from "@/types";
 
 interface UseRecordingReturn {
   isRecording: boolean;
@@ -20,6 +26,8 @@ interface UseRecordingReturn {
   charCount: number | null;
   detectedLanguage: string | null;
   editGrabStatus: EditGrabStatus | null;
+  timing: TranscriptionTiming | null;
+  resultStage: TranscriptionResultStage | null;
   history: HistoryItem[];
   resultMode: RecordingMode;
 }
@@ -42,6 +50,8 @@ interface TranscriptionPayload {
   mode?: RecordingMode;
   originalText?: string;
   editGrabStatus?: EditGrabStatus;
+  resultStage?: TranscriptionResultStage;
+  timing?: TranscriptionTiming;
 }
 
 /** 封装 Tauri 事件监听的 useEffect 样板 */
@@ -77,6 +87,8 @@ export function useRecording(): UseRecordingReturn {
   const [charCount, setCharCount] = useState<number | null>(null);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [editGrabStatus, setEditGrabStatus] = useState<EditGrabStatus | null>(null);
+  const [timing, setTiming] = useState<TranscriptionTiming | null>(null);
+  const [resultStage, setResultStage] = useState<TranscriptionResultStage | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [resultMode, setResultMode] = useState<RecordingMode>("dictation");
   const latestSessionIdRef = useRef(0);
@@ -119,6 +131,8 @@ export function useRecording(): UseRecordingReturn {
       setCharCount(payload.charCount ?? null);
       setDetectedLanguage(payload.language ?? null);
       setEditGrabStatus(payload.editGrabStatus ?? null);
+      setTiming(payload.timing ?? null);
+      setResultStage(payload.resultStage ?? null);
       setResultMode(payload.mode ?? "dictation");
     }
 
@@ -131,6 +145,8 @@ export function useRecording(): UseRecordingReturn {
             originalText: rawText,
             timestamp: now, timeDisplay: new Date(now).toLocaleTimeString(),
             editGrabStatus: payload.editGrabStatus,
+            resultStage: payload.resultStage,
+            timing: payload.timing,
           },
           ...prev.filter((item) => item.id !== historyId),
         ].slice(0, 20)
@@ -173,6 +189,8 @@ export function useRecording(): UseRecordingReturn {
     error, transcriptionResult, setTranscriptionResult,
     originalAsrText, editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, history,
+    timing,
+    resultStage,
     resultMode,
   };
 }

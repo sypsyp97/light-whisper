@@ -1,5 +1,7 @@
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
+use serde::Serialize;
 use tauri::{Emitter, Manager};
 
 use super::resample::ChunkedResampler;
@@ -11,8 +13,10 @@ use super::{
 use crate::services::{
     ai_polish_service, alibaba_asr_service, assistant_service, funasr_service, glm_asr_service,
 };
-use crate::state::{AppState, DictationOutputMode, RecordingMode, RecordingSession, RecordingSlot};
-use crate::utils::paths;
+use crate::state::{
+    AppState, DictationOutputMode, RecordingMode, RecordingSession, RecordingSlot, RecordingTrigger,
+};
+use crate::utils::{paths, AppError};
 
 // ---------- 最终转写 + 粘贴 ----------
 
@@ -35,6 +39,40 @@ impl EditGrabStatus {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranscriptionTiming {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    asr_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    polish_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_first: Option<RawFirstTiming>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RawFirstTiming {
+    status: RawFirstStatus,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RawFirstStatus {
+    PreviewOnly,
+    Pasted,
+    Replaced,
+    KeptRaw,
+    FinalFallback,
+    Unchanged,
+}
+
+fn elapsed_ms(start: Instant) -> u64 {
+    start.elapsed().as_millis().min(u64::MAX as u128) as u64
+}
+
 pub async fn finalize_recording(app_handle: tauri::AppHandle, session: RecordingSession) {
     let RecordingSession {
         session_id,
@@ -47,6 +85,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         edit_grab,
         ..
     } = session;
+    let finalize_start = Instant::now();
 
     if let Some(h) = audio_thread {
         let _ = tokio::task::spawn_blocking(move || {
@@ -137,6 +176,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     //   3. interim 确实返回了非空文本。
     let max_interim_window_samples = (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
     let tail_gap_threshold_samples = (sample_rate as f64 * 0.25) as usize;
+    let asr_start = Instant::now();
     let (asr_text, detected_lang): (Result<String, String>, Option<String>) = match cached {
         Some(ref c)
             if final_count > 0
@@ -165,6 +205,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             return;
         }
     };
+    let asr_elapsed_ms = elapsed_ms(asr_start);
 
     let lang_ref = detected_lang.as_deref();
 
@@ -279,10 +320,56 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     } else {
         // 普通听写模式
         let original = text.clone();
+        let ai_polish_enabled = state.profile.ai_polish_enabled.load(Ordering::Acquire);
+        let raw_preview_stage = dictation_raw_preview_stage(trigger, ai_polish_enabled);
+        let raw_paste_replacement = if should_raw_first_paste(trigger, ai_polish_enabled, true) {
+            crate::commands::clipboard::capture_raw_paste_replacement_target(&original)
+        } else {
+            None
+        };
+        let raw_was_pasted = if raw_paste_replacement.is_some() {
+            match do_paste_result(&app_handle, &original).await {
+                Ok(()) => true,
+                Err(err) => {
+                    log::warn!(
+                        "raw-first 听写原文粘贴失败，回退到 final-only 粘贴: {}",
+                        err
+                    );
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        let raw_first_preview_status = raw_first_preview_status_for_paste(raw_was_pasted);
+        if let Some(stage) = raw_preview_stage {
+            let timing = TranscriptionTiming {
+                asr_ms: Some(asr_elapsed_ms),
+                polish_ms: None,
+                total_ms: Some(elapsed_ms(finalize_start)),
+                raw_first: Some(RawFirstTiming {
+                    status: raw_first_preview_status,
+                }),
+            };
+            emit_transcription_result(
+                &app_handle,
+                session_id,
+                mode,
+                &original,
+                &original,
+                duration_sec,
+                false,
+                lang_ref,
+                edit_grab_status,
+                Some(stage),
+                Some(timing),
+            );
+        }
         let translation_override = match trigger.dictation_output() {
             DictationOutputMode::Original => Some(None),
             DictationOutputMode::Translated => None,
         };
+        let polish_start = Instant::now();
         let text = ai_polish_service::polish_text(
             state.inner(),
             &text,
@@ -295,8 +382,54 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             log::warn!("AI 润色失败，使用原文: {}", e);
             text
         });
+        let polish_elapsed_ms = elapsed_ms(polish_start);
         let polished = text != original;
-        emit_done(
+        let result_stage = dictation_final_result_stage(raw_preview_stage, polished);
+        let mut should_paste_final = false;
+        let raw_first_final_status = if raw_preview_stage.is_some() {
+            Some(if let Some(token) = raw_paste_replacement.as_ref() {
+                if raw_was_pasted {
+                    if polished {
+                        match crate::commands::clipboard::replace_raw_paste_suffix_if_unchanged(
+                            token, &text,
+                        ) {
+                            Ok(true) => {
+                                log::info!("raw-first 听写已替换为 AI 润色结果");
+                                RawFirstStatus::Replaced
+                            }
+                            Ok(false) => {
+                                log::warn!(
+                                    "raw-first 听写未替换：目标内容已变化，保留原始 ASR 粘贴结果"
+                                );
+                                RawFirstStatus::KeptRaw
+                            }
+                            Err(err) => {
+                                log::warn!("raw-first 听写替换失败: {}", err);
+                                RawFirstStatus::KeptRaw
+                            }
+                        }
+                    } else {
+                        RawFirstStatus::Unchanged
+                    }
+                } else {
+                    should_paste_final = true;
+                    RawFirstStatus::FinalFallback
+                }
+            } else {
+                should_paste_final = true;
+                RawFirstStatus::PreviewOnly
+            })
+        } else {
+            should_paste_final = true;
+            None
+        };
+        let timing = TranscriptionTiming {
+            asr_ms: Some(asr_elapsed_ms),
+            polish_ms: Some(polish_elapsed_ms),
+            total_ms: Some(elapsed_ms(finalize_start)),
+            raw_first: raw_first_final_status.map(|status| RawFirstTiming { status }),
+        };
+        emit_done_with_stage(
             &app_handle,
             session_id,
             mode,
@@ -306,14 +439,18 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             polished,
             lang_ref,
             edit_grab_status,
+            result_stage,
+            Some(timing),
         );
 
         if !text.is_empty() {
-            let app = app_handle.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
-                do_paste(&app, &text).await;
-            });
+            if should_paste_final {
+                let app = app_handle.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
+                    do_paste(&app, &text).await;
+                });
+            }
         } else {
             flush_pending_paste(&app_handle);
         }
@@ -410,6 +547,43 @@ async fn do_final_asr(
 
 // ---------- 事件发送 ----------
 
+fn dictation_raw_preview_stage(
+    trigger: RecordingTrigger,
+    ai_polish_enabled: bool,
+) -> Option<&'static str> {
+    (ai_polish_enabled
+        && trigger.mode() == RecordingMode::Dictation
+        && trigger.dictation_output() == DictationOutputMode::Original)
+        .then_some("raw")
+}
+
+fn dictation_final_result_stage(
+    raw_preview_stage: Option<&str>,
+    polished: bool,
+) -> Option<&'static str> {
+    if raw_preview_stage.is_some() {
+        Some("polished")
+    } else {
+        polished.then_some("polished")
+    }
+}
+
+fn raw_first_preview_status_for_paste(raw_was_pasted: bool) -> RawFirstStatus {
+    if raw_was_pasted {
+        RawFirstStatus::Pasted
+    } else {
+        RawFirstStatus::PreviewOnly
+    }
+}
+
+fn should_raw_first_paste(
+    trigger: RecordingTrigger,
+    ai_polish_enabled: bool,
+    can_safely_replace_raw: bool,
+) -> bool {
+    dictation_raw_preview_stage(trigger, ai_polish_enabled).is_some() && can_safely_replace_raw
+}
+
 #[allow(clippy::too_many_arguments)]
 fn emit_done(
     app: &tauri::AppHandle,
@@ -422,24 +596,86 @@ fn emit_done(
     language: Option<&str>,
     edit_grab_status: EditGrabStatus,
 ) {
+    emit_done_with_stage(
+        app,
+        sid,
+        mode,
+        text,
+        original_text,
+        dur,
+        polished,
+        language,
+        edit_grab_status,
+        None,
+        None,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_done_with_stage(
+    app: &tauri::AppHandle,
+    sid: u64,
+    mode: RecordingMode,
+    text: &str,
+    original_text: &str,
+    dur: f64,
+    polished: bool,
+    language: Option<&str>,
+    edit_grab_status: EditGrabStatus,
+    result_stage: Option<&str>,
+    timing: Option<TranscriptionTiming>,
+) {
     let delay = if text.is_empty() {
         EMPTY_RESULT_HIDE_DELAY_MS
     } else {
         RESULT_HIDE_DELAY_MS
     };
     emit_recording_state_if_current(app, sid, mode, false, false, None);
-    let _ = app.emit(
-        "transcription-result",
-        serde_json::json!({
-            "sessionId": sid, "text": text, "interim": false,
-            "durationSec": dur, "charCount": text.chars().count(), "polished": polished,
-            "language": language, "mode": mode.as_str(), "originalText": original_text,
-            "editGrabStatus": edit_grab_status.as_str(),
-        }),
+    emit_transcription_result(
+        app,
+        sid,
+        mode,
+        text,
+        original_text,
+        dur,
+        polished,
+        language,
+        edit_grab_status,
+        result_stage,
+        timing,
     );
     if mode != RecordingMode::Assistant || text.is_empty() {
         schedule_hide(app, delay);
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_transcription_result(
+    app: &tauri::AppHandle,
+    sid: u64,
+    mode: RecordingMode,
+    text: &str,
+    original_text: &str,
+    dur: f64,
+    polished: bool,
+    language: Option<&str>,
+    edit_grab_status: EditGrabStatus,
+    result_stage: Option<&str>,
+    timing: Option<TranscriptionTiming>,
+) {
+    let mut payload = serde_json::json!({
+        "sessionId": sid, "text": text, "interim": false,
+        "durationSec": dur, "charCount": text.chars().count(), "polished": polished,
+        "language": language, "mode": mode.as_str(), "originalText": original_text,
+        "editGrabStatus": edit_grab_status.as_str(),
+    });
+    if let Some(stage) = result_stage {
+        payload["resultStage"] = serde_json::json!(stage);
+    }
+    if let Some(timing) = timing {
+        payload["timing"] = serde_json::json!(timing);
+    }
+    let _ = app.emit("transcription-result", payload);
 }
 
 fn emit_error(app: &tauri::AppHandle, sid: u64, mode: RecordingMode, error: &str) {
@@ -520,11 +756,17 @@ fn flush_pending_paste(app: &tauri::AppHandle) {
 }
 
 async fn do_paste(app: &tauri::AppHandle, text: &str) {
+    if let Err(e) = do_paste_result(app, text).await {
+        log::error!("自动粘贴失败: {}", e);
+    }
+}
+
+async fn do_paste_result(app: &tauri::AppHandle, text: &str) -> Result<(), AppError> {
     let state = app.state::<AppState>();
     if state.recording.recording.lock().is_some() {
         state.recording.pending_paste.lock().push(text.to_string());
         log::info!("录音进行中，文本已加入待粘贴队列（{} 个字符）", text.len());
-        return;
+        return Ok(());
     }
 
     let mut full = String::new();
@@ -534,7 +776,124 @@ async fn do_paste(app: &tauri::AppHandle, text: &str) {
     full.push_str(text);
 
     let method = state.ui.input_method.lock().clone();
-    if let Err(e) = crate::commands::clipboard::paste_text_impl(app, &full, &method).await {
-        log::error!("自动粘贴失败: {}", e);
+    crate::commands::clipboard::paste_text_impl(app, &full, &method)
+        .await
+        .map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::RecordingTrigger;
+
+    #[test]
+    fn raw_preview_stage_is_enabled_for_original_dictation_with_ai_polish() {
+        assert_eq!(
+            dictation_raw_preview_stage(RecordingTrigger::DictationOriginal, true),
+            Some("raw")
+        );
+    }
+
+    #[test]
+    fn raw_preview_stage_is_disabled_for_translation_and_unpolished_dictation() {
+        assert_eq!(
+            dictation_raw_preview_stage(RecordingTrigger::DictationTranslated, true),
+            None
+        );
+        assert_eq!(
+            dictation_raw_preview_stage(RecordingTrigger::DictationOriginal, false),
+            None
+        );
+    }
+
+    #[test]
+    fn final_stage_after_raw_preview_means_polish_flow_completed_even_when_text_unchanged() {
+        assert_eq!(
+            dictation_final_result_stage(Some("raw"), false),
+            Some("polished")
+        );
+        assert_eq!(
+            dictation_final_result_stage(Some("raw"), true),
+            Some("polished")
+        );
+        assert_eq!(dictation_final_result_stage(None, false), None);
+        assert_eq!(dictation_final_result_stage(None, true), Some("polished"));
+    }
+
+    #[test]
+    fn raw_first_preview_status_tracks_actual_paste_result() {
+        assert_eq!(
+            serde_json::to_value(raw_first_preview_status_for_paste(true)).unwrap(),
+            serde_json::json!("pasted")
+        );
+        assert_eq!(
+            serde_json::to_value(raw_first_preview_status_for_paste(false)).unwrap(),
+            serde_json::json!("preview_only")
+        );
+    }
+
+    #[test]
+    fn raw_first_paste_requires_original_dictation_ai_polish_and_safe_replacement() {
+        assert!(should_raw_first_paste(
+            RecordingTrigger::DictationOriginal,
+            true,
+            true
+        ));
+        assert!(!should_raw_first_paste(
+            RecordingTrigger::DictationOriginal,
+            true,
+            false
+        ));
+        assert!(!should_raw_first_paste(
+            RecordingTrigger::DictationOriginal,
+            false,
+            true
+        ));
+        assert!(!should_raw_first_paste(
+            RecordingTrigger::DictationTranslated,
+            true,
+            true
+        ));
+        assert!(!should_raw_first_paste(
+            RecordingTrigger::Assistant,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn transcription_timing_serializes_as_frontend_camel_case_payload() {
+        let value = serde_json::to_value(TranscriptionTiming {
+            asr_ms: Some(42),
+            polish_ms: None,
+            total_ms: Some(45),
+            raw_first: None,
+        })
+        .expect("timing should serialize");
+
+        assert_eq!(value, serde_json::json!({ "asrMs": 42, "totalMs": 45 }));
+    }
+
+    #[test]
+    fn transcription_timing_includes_raw_first_status_when_present() {
+        let value = serde_json::to_value(TranscriptionTiming {
+            asr_ms: Some(42),
+            polish_ms: Some(900),
+            total_ms: Some(948),
+            raw_first: Some(RawFirstTiming {
+                status: RawFirstStatus::Replaced,
+            }),
+        })
+        .expect("timing should serialize");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "asrMs": 42,
+                "polishMs": 900,
+                "totalMs": 948,
+                "rawFirst": { "status": "replaced" }
+            })
+        );
     }
 }

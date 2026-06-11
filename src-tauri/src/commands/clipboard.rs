@@ -140,6 +140,107 @@ fn try_get_selection(element: &uiautomation::UIElement) -> Option<String> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn capture_raw_paste_replacement_target_windows(
+    raw_text: &str,
+) -> Option<RawPasteReplacementToken> {
+    if raw_text.trim().is_empty() {
+        return None;
+    }
+
+    use uiautomation::patterns::{UITextPattern, UIValuePattern};
+    use uiautomation::types::TextPatternRangeEndpoint;
+    use uiautomation::UIAutomation;
+
+    let automation = UIAutomation::new().ok()?;
+    let focused = automation.get_focused_element().ok()?;
+    let value_pattern: UIValuePattern = focused.get_pattern().ok()?;
+    if value_pattern.is_readonly().ok()? {
+        return None;
+    }
+
+    let text_pattern: UITextPattern = focused.get_pattern().ok()?;
+    let (caret_active, caret_range) = text_pattern.get_caret_range().ok()?;
+    if !caret_active {
+        return None;
+    }
+    let document_range = text_pattern.get_document_range().ok()?;
+    let caret_at_document_end = caret_range
+        .compare_endpoints(
+            TextPatternRangeEndpoint::End,
+            &document_range,
+            TextPatternRangeEndpoint::End,
+        )
+        .ok()?
+        == 0;
+    if !caret_at_document_end {
+        return None;
+    }
+
+    let runtime_id = focused.get_runtime_id().ok()?;
+    let value_before = value_pattern.get_value().ok()?;
+    Some(RawPasteReplacementToken::new(
+        runtime_id,
+        value_before,
+        raw_text.to_string(),
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn replace_raw_paste_suffix_if_unchanged_windows(
+    token: &RawPasteReplacementToken,
+    polished_text: &str,
+) -> Result<bool, AppError> {
+    use uiautomation::patterns::UIValuePattern;
+    use uiautomation::UIAutomation;
+
+    let automation = UIAutomation::new()
+        .map_err(|e| AppError::Other(format!("初始化 UI Automation 失败: {}", e)))?;
+    let focused = match automation.get_focused_element() {
+        Ok(element) => element,
+        Err(e) => {
+            log::debug!("raw-first 替换跳过：无法读取当前焦点控件: {}", e);
+            return Ok(false);
+        }
+    };
+    match focused.get_runtime_id() {
+        Ok(runtime_id) if runtime_id == token.runtime_id => {}
+        Ok(_) => {
+            log::debug!("raw-first 替换跳过：焦点控件已变化");
+            return Ok(false);
+        }
+        Err(e) => {
+            log::debug!("raw-first 替换跳过：无法读取控件 runtime id: {}", e);
+            return Ok(false);
+        }
+    }
+
+    let value_pattern: UIValuePattern = match focused.get_pattern() {
+        Ok(pattern) => pattern,
+        Err(e) => {
+            log::debug!("raw-first 替换跳过：当前控件不支持 ValuePattern: {}", e);
+            return Ok(false);
+        }
+    };
+    let current_value = value_pattern
+        .get_value()
+        .map_err(|e| AppError::Other(format!("读取当前输入框文本失败: {}", e)))?;
+    let Some(replacement_value) = replacement_value_if_raw_suffix_unchanged(
+        &token.value_before,
+        &token.raw_text,
+        polished_text,
+        &current_value,
+    ) else {
+        log::debug!("raw-first 替换跳过：raw 文本后已有用户输入或内容已变化");
+        return Ok(false);
+    };
+
+    value_pattern
+        .set_value(&replacement_value)
+        .map_err(|e| AppError::Other(format!("替换 raw-first 文本失败: {}", e)))?;
+    Ok(true)
+}
+
 #[tauri::command]
 pub async fn copy_to_clipboard(
     app_handle: tauri::AppHandle,
@@ -157,6 +258,67 @@ pub fn write_text_to_clipboard(app_handle: &tauri::AppHandle, text: &str) -> Res
         .clipboard()
         .write_text(text)
         .map_err(|e| AppError::Other(format!("写入剪贴板失败: {}", e)))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawPasteReplacementToken {
+    runtime_id: Vec<i32>,
+    value_before: String,
+    raw_text: String,
+}
+
+impl RawPasteReplacementToken {
+    fn new(runtime_id: Vec<i32>, value_before: String, raw_text: String) -> Self {
+        Self {
+            runtime_id,
+            value_before,
+            raw_text,
+        }
+    }
+}
+
+pub fn replacement_value_if_raw_suffix_unchanged(
+    value_before: &str,
+    raw_text: &str,
+    polished_text: &str,
+    current_value: &str,
+) -> Option<String> {
+    if raw_text.is_empty() || raw_text == polished_text {
+        return None;
+    }
+
+    let expected_current = format!("{value_before}{raw_text}");
+    (current_value == expected_current).then(|| format!("{value_before}{polished_text}"))
+}
+
+pub fn capture_raw_paste_replacement_target(raw_text: &str) -> Option<RawPasteReplacementToken> {
+    #[cfg(target_os = "windows")]
+    {
+        capture_raw_paste_replacement_target_windows(raw_text)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = raw_text;
+        None
+    }
+}
+
+pub fn replace_raw_paste_suffix_if_unchanged(
+    token: &RawPasteReplacementToken,
+    polished_text: &str,
+) -> Result<bool, AppError> {
+    #[cfg(target_os = "windows")]
+    {
+        replace_raw_paste_suffix_if_unchanged_windows(token, polished_text)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = token;
+        let _ = polished_text;
+        Ok(false)
+    }
 }
 
 #[tauri::command]
@@ -294,6 +456,8 @@ pub async fn paste_text_impl(
 
 #[cfg(test)]
 mod tests {
+    use super::replacement_value_if_raw_suffix_unchanged;
+
     #[test]
     fn sendinput_wrapper_treats_partial_sends_as_failure() {
         let source = include_str!("clipboard.rs");
@@ -313,6 +477,43 @@ mod tests {
         assert!(
             source.contains("chunks(") || source.contains("SENDINPUT_CHUNK"),
             "long Unicode paste text must be chunked before SendInput to avoid oversized input arrays"
+        );
+    }
+
+    #[test]
+    fn raw_suffix_replacement_requires_exact_before_plus_raw_value() {
+        assert_eq!(
+            replacement_value_if_raw_suffix_unchanged("hello ", "wrld", "world", "hello wrld"),
+            Some("hello world".to_string())
+        );
+    }
+
+    #[test]
+    fn raw_suffix_replacement_skips_when_user_typed_after_raw() {
+        assert_eq!(
+            replacement_value_if_raw_suffix_unchanged("hello ", "wrld", "world", "hello wrld!"),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_suffix_replacement_skips_mid_document_insertions() {
+        assert_eq!(
+            replacement_value_if_raw_suffix_unchanged(
+                "hello world",
+                " brave",
+                " brave,",
+                "hello brave world"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_suffix_replacement_skips_when_polish_does_not_change_text() {
+        assert_eq!(
+            replacement_value_if_raw_suffix_unchanged("hello ", "world", "world", "hello world"),
+            None
         );
     }
 }

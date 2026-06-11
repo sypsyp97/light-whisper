@@ -57,6 +57,20 @@ const zh = {
     title: "识别结果",
     recognizingSpeech: "正在识别语音...",
     stats: "{{chars}}字 · {{duration}}秒 · {{cpm}}字/分钟",
+    latency: {
+      asr: "ASR {{ms}}ms",
+      ai: "AI {{ms}}ms",
+      total: "总计 {{ms}}ms",
+    },
+    rawFirst: {
+      preview_only: "raw 预览",
+      polished_preview: "润色完成",
+      pasted: "raw 已上屏",
+      replaced: "raw 已替换",
+      kept_raw: "保留 raw",
+      final_fallback: "final 上屏",
+      unchanged: "raw 未变化",
+    },
     editableTranscription: "识别结果，可编辑",
     editGrab: {
       timeout: "选中文本读取超时",
@@ -71,6 +85,15 @@ const zh = {
     polishingWithTokens: "优化中... {{tokens}} tokens",
     polishing: "优化中...",
     webSearching: "正在联网搜索...",
+    rawFirst: {
+      preview_only: "raw 预览",
+      polished_preview: "润色完成",
+      pasted: "raw 已上屏",
+      replaced: "raw 已替换",
+      kept_raw: "保留 raw",
+      final_fallback: "final 上屏",
+      unchanged: "raw 未变化",
+    },
   },
   toast: {
     correctionRecorded: "已记录修改偏好",
