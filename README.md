@@ -29,7 +29,7 @@
 
 ### Option A: Installer (recommended)
 
-Download `轻语.Whisper_x.x.x_x64-setup.exe` from the [Releases](https://github.com/sypsyp97/light-whisper/releases/latest) page. Run the installer — everything is bundled, no Python or build tools needed. ASR models will be downloaded on first use (~1–1.5 GB).
+Download the `*_x64-setup.exe` installer from the [Releases](https://github.com/sypsyp97/light-whisper/releases/latest) page. Run the installer — everything is bundled, no Python or build tools needed. ASR models will be downloaded on first use (~1–1.5 GB).
 
 > [!NOTE]
 > **GPU (optional):** NVIDIA GPU with up-to-date driver for CUDA acceleration. No GPU → automatic CPU fallback.
@@ -47,17 +47,17 @@ See [Quick Start](#quick-start) below.
 **One-key dictation**<br>
 Hold <kbd>F2</kbd> (configurable) to record, release to transcribe & type into the active window.
 
-**Three ASR engines**<br>
-SenseVoice (zh/en/ja/ko/yue) and Faster Whisper (99+ languages) run fully local with CUDA acceleration; GLM-ASR is online — just add an API key, no Python or GPU needed.
+**Four ASR engines**<br>
+SenseVoice (zh/en/ja/ko/yue) and Faster Whisper (99+ languages) run fully local with CUDA acceleration; GLM-ASR and Alibaba DashScope/Qwen ASR are online — just add an API key, no Python or GPU needed.
 
 **AI polish**<br>
-Optional LLM post-processing: fix homophones, punctuation, filler words; adapts tone to the foreground app. Built-in presets (OpenAI / DeepSeek / Cerebras / SiliconFlow) plus OpenAI-compatible and Anthropic API formats.
+Optional LLM post-processing: fix homophones, punctuation, filler words; adapts tone to the foreground app. Raw ASR can appear first, then update to the polished result when the LLM returns. The result card shows ASR, AI, and total latency. Built-in presets (OpenAI / DeepSeek / Cerebras / SiliconFlow) plus OpenAI-compatible and Anthropic API formats.
 
 **Adaptive learning**<br>
 Learns structured ASR corrections and key terms; manually deleted hot words are blocked from coming back.
 
 **Subtitle overlay**<br>
-Transparent floating window shows live dictation status and assistant output.
+Transparent floating window shows live dictation status, raw ASR preview, polish completion state, and assistant output.
 
 </td>
 <td width="50%">
@@ -78,35 +78,17 @@ Hold-to-talk or toggle mode · input queue · multilingual UI (en/zh) · auto-up
 </tr>
 </table>
 
-## Light-Whisper vs Typeless
-
-| Feature | Light-Whisper | Typeless |
-|:--------|:---:|:---:|
-| **Pricing** | Free & open-source | Free tier (4k words/week); $12–30/mo |
-| **Privacy** | Fully offline (local engines) | Cloud-based, zero-data-retention |
-| **Open source** | ✅ | ❌ |
-| **Platform** | Windows | Windows, Mac, iOS, Android, Web |
-| **ASR engines** | 3 switchable (local + online) | Cloud proprietary |
-| **Languages** | 5–99+ (engine dependent) | 100+ |
-| **AI polish** | Multi-backend LLM, bring your own key | Built-in |
-| **Screen-aware assistant + web search** | ✅ | ❌ |
-| **Subtitle overlay** | ✅ | ❌ |
-
 ## Engine Comparison
 
-| | SenseVoice (default) | Faster Whisper | GLM-ASR (online) |
-|:--|:---:|:---:|:---:|
-| **Chinese CER** | 2.96 % (AISHELL-1) | 5.14 % | 7.17 % |
-| **English WER** | 3.15 % (LibriSpeech) | 1.82 % | — |
-| **Languages** | 5 (zh/en/ja/ko/yue) | 99+ | Chinese + dialects |
-| **Punctuation** | Built-in ITN | initial_prompt guided | Built-in |
-| **Hot words** | ✅ | ✅ | ✅ (max 100) |
-| **Model size** | ~938 MB | ~1.5 GB | Cloud (no download) |
-| **Requires** | GPU/CPU (bundled) | GPU/CPU (bundled) | API key only |
-| **Cost** | Free (local) | Free (local) | ¥0.06/min |
+| Engine | Runtime | Best for | Language / model | Setup |
+|:--|:--|:--|:--|:--|
+| **SenseVoice** | Local Python engine | Default dictation, low-latency local use | zh / en / ja / ko / yue | Downloads SenseVoiceSmall + VAD models |
+| **Faster Whisper** | Local Python engine | Wider language coverage | large-v3-turbo-ct2, 99+ languages | Downloads Whisper model |
+| **GLM-ASR** | Online API | Cloud ASR with no local model download | `glm-asr-2512` | API key + region endpoint |
+| **Alibaba DashScope** | Online API | Qwen ASR / Omni models on DashScope | Default `qwen3-asr-flash`; model list can be refreshed in Settings | API key + region + model |
 
 > [!NOTE]
-> SenseVoice/Whisper CER source: [FunAudioLLM paper](https://arxiv.org/html/2407.04051v1), Table 6. GLM-ASR CER source: Zhipu AI.
+> Online ASR engines return final results only and skip the local Python engine startup. Local engines use the bundled Python engine and cached HuggingFace models.
 
 ## Build from Source — Requirements
 
@@ -124,7 +106,7 @@ Hold-to-talk or toggle mode · input queue · multilingual UI (en/zh) · auto-up
 **GPU (optional):** NVIDIA GPU with up-to-date driver. No need to install CUDA Toolkit — PyTorch bundles CUDA 12.8.
 
 > [!TIP]
-> **GLM-ASR users:** If you only use the online GLM-ASR engine, you only need Rust, Node.js, and pnpm — no Python, uv, or GPU required. Just build and add your API key in Settings.
+> **Online ASR users:** If you only use GLM-ASR or Alibaba DashScope/Qwen ASR, you only need Rust, Node.js, and pnpm — no Python, uv, or GPU required. Build the app and add your API key in Settings.
 
 <details>
 <summary><b>Step-by-step tool installation</b></summary>
@@ -195,7 +177,7 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 │  TypeScript  │◄──invoke/emit─►│  (Tauri 2)   │◄────JSON──────►│  SenseVoice /   │
 └──────────────┘                └──────┬───────┘                │  Faster Whisper │
                                        │                        └─────────────────┘
-                                       ├─── HTTP ──► GLM-ASR API (online ASR)
+                                       ├─── HTTP ──► Online ASR APIs (GLM-ASR / Alibaba DashScope)
                                        ├─── HTTP ──► LLM API (AI polish / assistant / translation)
                                        ├─── HTTP ──► Web Search (Exa / Tavily) → assistant context
                                        ├─── Screen Capture ──► full-screen screenshots → assistant context
@@ -209,7 +191,7 @@ The installer is in `src-tauri/target/release/bundle/nsis/`, or run `src-tauri/t
 |:------|:------|
 | **Frontend** | `src/pages/`, `src/components/`, `src/hooks/`, `src/contexts/`, `src/lib/`, `src/i18n/`, `src/styles/` |
 | **Rust commands** | `src-tauri/src/commands/` — audio, assistant, clipboard, funasr, hotkey, ai_polish, profile, updater, window |
-| **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service, screen_capture_service, web_search_service, download_service |
+| **Rust services** | `src-tauri/src/services/` — funasr_service, glm_asr_service, alibaba_asr_service, audio_service, assistant_service, ai_polish_service, llm_client, llm_provider, profile_service, screen_capture_service, web_search_service, download_service |
 | **State** | `src-tauri/src/state/` — app_state, user_profile |
 | **Python ASR** | `src-tauri/resources/` — funasr_server.py, whisper_server.py, server_common.py |
 
@@ -245,22 +227,6 @@ Requires an up-to-date NVIDIA driver. For CUDA 12.x minor-version compatibility,
 </details>
 
 <details>
-<summary><b>Characters turn into periods when typing into apps</b></summary>
-
-This happens when a Chinese IME intercepts `SendInput` Unicode events. Fix: switch to **Clipboard paste** mode in Settings, or toggle your IME to English mode.
-
-</details>
-
-<details>
-<summary><b>Chinese text appears garbled</b></summary>
-
-Enable Windows UTF-8 system locale support to resolve encoding issues:
-
-`Control Panel` → `Region` (or `Clock and Region`) → `Administrative` → `Change system locale...` → check `Beta: Use Unicode UTF-8 for worldwide language support` → `OK` → restart Windows.
-
-</details>
-
-<details>
 <summary><b>Hotkey not working</b></summary>
 
 Default dictation hotkey is F2. If occupied by another program, change it in Settings (e.g. `Ctrl+Win+R`).
@@ -270,7 +236,9 @@ Default dictation hotkey is F2. If occupied by another program, change it in Set
 <details>
 <summary><b>Log locations</b></summary>
 
-`%APPDATA%\com.light-whisper.app\logs\` — `funasr_server.log` / `whisper_server.log`
+- App log: `%LOCALAPPDATA%\com.light-whisper.desktop\logs\app.log`
+- Python ASR logs: `%APPDATA%\com.light-whisper.app\logs\funasr_server.log` / `whisper_server.log`
+- Python stderr fallback: `%APPDATA%\com.light-whisper.app\funasr_stderr.log`
 
 </details>
 
@@ -279,6 +247,7 @@ Default dictation hotkey is F2. If occupied by another program, change it in Set
 - [FunASR](https://github.com/modelscope/FunASR) & [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) — Alibaba DAMO Academy
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) & [large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2)
 - [GLM-ASR](https://bigmodel.cn/) — Zhipu AI
+- [Alibaba DashScope](https://www.alibabacloud.com/help/en/model-studio/) & Qwen ASR / Omni
 - [Tauri](https://tauri.app/) / [React](https://react.dev/)
 
 ## License
