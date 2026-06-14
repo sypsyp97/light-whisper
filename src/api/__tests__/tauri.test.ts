@@ -185,3 +185,161 @@ describe("normalizeInvokeError -> IpcError", () => {
     expect((caught as Error).message).toBe("native");
   });
 });
+
+describe("setLlmProviderConfig payload", () => {
+  it("omits assistantProvider when the caller does not update it", async () => {
+    const mod = await import("@/api/tauri");
+    const { setLlmProviderConfig } = mod as {
+      setLlmProviderConfig: (
+        active: string,
+        customBaseUrl?: string,
+        customModel?: string,
+        polishReasoningMode?: string,
+        assistantReasoningMode?: string,
+        assistantUseSeparateModel?: boolean,
+        assistantModel?: string,
+        assistantProvider?: string | null,
+      ) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setLlmProviderConfig(
+      "custom",
+      "https://example.com/v1",
+      "model-a",
+      "balanced",
+      "light",
+      true,
+      "assistant-model",
+      undefined,
+    );
+
+    const [, args] = invokeMock.invoke.mock.calls[0];
+    expect(args).not.toHaveProperty("assistantProvider");
+    expect(args).not.toHaveProperty("assistantProviderSet");
+  });
+
+  it("keeps explicit assistantProvider values in the payload", async () => {
+    const mod = await import("@/api/tauri");
+    const { setLlmProviderConfig } = mod as {
+      setLlmProviderConfig: (
+        active: string,
+        customBaseUrl?: string,
+        customModel?: string,
+        polishReasoningMode?: string,
+        assistantReasoningMode?: string,
+        assistantUseSeparateModel?: boolean,
+        assistantModel?: string,
+        assistantProvider?: string | null,
+      ) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setLlmProviderConfig(
+      "custom",
+      "https://example.com/v1",
+      "model-a",
+      "balanced",
+      "light",
+      true,
+      "assistant-model",
+      "assistant-provider",
+    );
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "set_llm_provider_config",
+      expect.objectContaining({
+        assistantProvider: "assistant-provider",
+        assistantProviderSet: true,
+      }),
+    );
+  });
+
+  it("keeps explicit null assistantProvider so callers can clear it", async () => {
+    const mod = await import("@/api/tauri");
+    const { setLlmProviderConfig } = mod as {
+      setLlmProviderConfig: (
+        active: string,
+        customBaseUrl?: string,
+        customModel?: string,
+        polishReasoningMode?: string,
+        assistantReasoningMode?: string,
+        assistantUseSeparateModel?: boolean,
+        assistantModel?: string,
+        assistantProvider?: string | null,
+      ) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setLlmProviderConfig(
+      "custom",
+      "https://example.com/v1",
+      "model-a",
+      "balanced",
+      "light",
+      false,
+      "model-a",
+      null,
+    );
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "set_llm_provider_config",
+      expect.objectContaining({
+        assistantProvider: null,
+        assistantProviderSet: true,
+      }),
+    );
+  });
+});
+
+describe("setCorrectionValidationConfig payload", () => {
+  it("omits provider/model set flags when those fields are not updated", async () => {
+    const mod = await import("@/api/tauri");
+    const { setCorrectionValidationConfig } = mod as {
+      setCorrectionValidationConfig: (params: {
+        enabled: boolean;
+        useSeparateModel?: boolean;
+        provider?: string | null;
+        model?: string | null;
+      }) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setCorrectionValidationConfig({ enabled: true, useSeparateModel: false });
+
+    const [, args] = invokeMock.invoke.mock.calls[0];
+    expect(args).not.toHaveProperty("provider");
+    expect(args).not.toHaveProperty("providerSet");
+    expect(args).not.toHaveProperty("model");
+    expect(args).not.toHaveProperty("modelSet");
+  });
+
+  it("keeps explicit null provider/model updates with set flags", async () => {
+    const mod = await import("@/api/tauri");
+    const { setCorrectionValidationConfig } = mod as {
+      setCorrectionValidationConfig: (params: {
+        enabled: boolean;
+        useSeparateModel?: boolean;
+        provider?: string | null;
+        model?: string | null;
+      }) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setCorrectionValidationConfig({
+      enabled: true,
+      provider: null,
+      model: null,
+    });
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "set_correction_validation_config",
+      expect.objectContaining({
+        provider: null,
+        providerSet: true,
+        model: null,
+        modelSet: true,
+      }),
+    );
+  });
+});

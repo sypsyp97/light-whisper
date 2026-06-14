@@ -1,5 +1,6 @@
 use std::sync::atomic::Ordering;
 
+use chrono::{DateTime, FixedOffset, Local, SecondsFormat};
 use tauri::Emitter;
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
@@ -76,8 +77,15 @@ const ASSISTANT_SYSTEM_PROMPT: &str = r#"
 "#;
 
 pub fn build_assistant_system_prompt(profile: &UserProfile) -> String {
+    render_assistant_system_prompt_at(profile, Local::now().fixed_offset())
+}
+
+fn render_assistant_system_prompt_at(profile: &UserProfile, now: DateTime<FixedOffset>) -> String {
     let mut prompt = ASSISTANT_SYSTEM_PROMPT.trim().to_string();
     let hot_words = profile.get_hot_word_texts(20);
+
+    prompt.push_str("\n\n");
+    prompt.push_str(&render_assistant_runtime_context(now));
 
     if !hot_words.is_empty() {
         prompt.push_str("\n\n<user_terms>\n");
@@ -103,6 +111,21 @@ pub fn build_assistant_system_prompt(profile: &UserProfile) -> String {
     }
 
     prompt
+}
+
+fn render_assistant_runtime_context(now: DateTime<FixedOffset>) -> String {
+    let current_datetime = now.to_rfc3339_opts(SecondsFormat::Secs, false);
+    let current_date = now.format("%Y-%m-%d").to_string();
+    let current_time = now.format("%H:%M:%S").to_string();
+    let utc_offset = now.format("%:z").to_string();
+
+    format!(
+        "<runtime_context>\n{}\n{}\n{}\n{}\n<instruction>这是当前设备本地时间。用户提到今天、明天、昨天、现在、当前、最近、本周、本月、今年、今晚等相对时间时，以这里的时间为准。搜索查询和搜索结果判断也以该时间为准；解释日期或时间范围时，同样以该时间为准。</instruction>\n</runtime_context>",
+        crate::utils::foreground::wrap_xml_cdata("current_datetime", &current_datetime),
+        crate::utils::foreground::wrap_xml_cdata("current_date", &current_date),
+        crate::utils::foreground::wrap_xml_cdata("current_time", &current_time),
+        crate::utils::foreground::wrap_xml_cdata("utc_offset", &utc_offset),
+    )
 }
 
 fn build_assistant_user_content_with_selection(
@@ -189,6 +212,201 @@ fn build_assistant_request_options(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct AssistantWebSearchDecision {
+    should_search: bool,
+    reason: &'static str,
+}
+
+fn decide_assistant_web_search(
+    asr_text: &str,
+    selected_text: Option<&str>,
+) -> AssistantWebSearchDecision {
+    let query = asr_text.trim().to_lowercase();
+    let has_selection = selected_text
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+
+    if query.is_empty() {
+        return AssistantWebSearchDecision {
+            should_search: false,
+            reason: "empty_request",
+        };
+    }
+
+    if contains_any(
+        &query,
+        &[
+            "不要联网",
+            "不用联网",
+            "别联网",
+            "不要搜索",
+            "不用搜索",
+            "别搜索",
+            "不要查",
+            "不用查",
+            "别查",
+            "no search",
+            "without searching",
+            "do not search",
+            "don't search",
+        ],
+    ) {
+        return AssistantWebSearchDecision {
+            should_search: false,
+            reason: "explicit_no_search",
+        };
+    }
+
+    if contains_any(
+        &query,
+        &[
+            "查一下",
+            "查下",
+            "帮我查",
+            "搜一下",
+            "搜下",
+            "搜索",
+            "联网查",
+            "上网查",
+            "网上查",
+            "检索",
+            "look up",
+            "search",
+            "google",
+            "browse",
+        ],
+    ) {
+        return AssistantWebSearchDecision {
+            should_search: true,
+            reason: "explicit_search",
+        };
+    }
+
+    if is_generation_or_editing_request(&query, has_selection) {
+        return AssistantWebSearchDecision {
+            should_search: false,
+            reason: "generation_or_editing",
+        };
+    }
+
+    if contains_any(
+        &query,
+        &[
+            "天气",
+            "温度",
+            "气温",
+            "预报",
+            "下雨",
+            "实时",
+            "当前",
+            "现在",
+            "今天",
+            "今日",
+            "明天",
+            "昨天",
+            "最近",
+            "最新",
+            "新闻",
+            "价格",
+            "股价",
+            "汇率",
+            "利率",
+            "航班",
+            "路况",
+            "比赛",
+            "赛程",
+            "结果",
+            "weather",
+            "temperature",
+            "forecast",
+            "current",
+            "today",
+            "tomorrow",
+            "yesterday",
+            "recent",
+            "latest",
+            "news",
+            "price",
+            "stock",
+            "exchange rate",
+            "flight",
+            "traffic",
+            "score",
+            "schedule",
+        ],
+    ) {
+        return AssistantWebSearchDecision {
+            should_search: true,
+            reason: "realtime_or_freshness",
+        };
+    }
+
+    AssistantWebSearchDecision {
+        should_search: false,
+        reason: "no_search_intent",
+    }
+}
+
+fn is_generation_or_editing_request(query: &str, has_selection: bool) -> bool {
+    contains_any(
+        query,
+        &[
+            "帮我写",
+            "写一",
+            "写封",
+            "写个",
+            "写段",
+            "起草",
+            "回复",
+            "回一句",
+            "帮我回",
+            "发一句",
+            "翻译",
+            "译成",
+            "润色",
+            "改写",
+            "改得",
+            "改成",
+            "总结",
+            "摘要",
+            "提炼",
+            "扩写",
+            "缩短",
+            "压缩",
+            "整理",
+            "语气",
+            "grammar",
+            "translate",
+            "rewrite",
+            "polish",
+            "summarize",
+            "summary",
+            "draft",
+            "write",
+            "reply",
+            "make it",
+            "shorten",
+            "expand",
+        ],
+    ) || (has_selection
+        && contains_any(
+            query,
+            &[
+                "这段",
+                "这句话",
+                "这个文本",
+                "selected text",
+                "this text",
+                "this sentence",
+            ],
+        ))
+}
+
+fn contains_any(value: &str, patterns: &[&str]) -> bool {
+    patterns.iter().any(|pattern| value.contains(pattern))
+}
+
 /// 执行第三方搜索（Exa / Tavily）
 async fn run_third_party_search(
     state: &AppState,
@@ -271,13 +489,25 @@ pub async fn generate_content(
     let mut system_prompt = state.with_profile(build_assistant_system_prompt);
 
     // ── 联网搜索 ──
-    // 原生模式：注入 tool，模型自主决定是否搜索（类似 ChatGPT）。
-    //   不硬编码模型白名单——直接注入，不支持的模型会返回错误，下方 retry 时去掉 web_search 重试。
-    // 第三方模式：先搜索，结果注入 prompt，模型自行判断是否引用。
-    let use_native_search =
-        effective_ws.enabled && effective_ws.provider == WebSearchProvider::ModelNative;
+    // 先用本地意图判断避免无关搜索；实时/事实/显式查询再进入搜索路径。
+    // 原生模式：注入 tool，模型在需要时调用；不支持的模型会在下方 retry 时去掉 web_search。
+    // 第三方模式：先搜索，结果注入 prompt，模型基于搜索结果作答。
+    let web_search_decision = if effective_ws.enabled {
+        decide_assistant_web_search(asr_text, selected_text)
+    } else {
+        AssistantWebSearchDecision {
+            should_search: false,
+            reason: "web_search_disabled",
+        }
+    };
+    let use_native_search = effective_ws.enabled
+        && effective_ws.provider == WebSearchProvider::ModelNative
+        && web_search_decision.should_search;
 
-    if effective_ws.enabled && effective_ws.provider != WebSearchProvider::ModelNative {
+    if effective_ws.enabled
+        && effective_ws.provider != WebSearchProvider::ModelNative
+        && web_search_decision.should_search
+    {
         // 通知前端：正在搜索
         let _ = app_handle.emit(
             "assistant-stream",
@@ -288,7 +518,7 @@ pub async fn generate_content(
         );
 
         match run_third_party_search(state, &effective_ws, asr_text).await {
-            Ok(results) if !results.is_empty() => {
+            Ok(results) => {
                 log::info!(
                     "联网搜索({:?})返回 {} 条结果",
                     effective_ws.provider,
@@ -299,12 +529,17 @@ pub async fn generate_content(
                     web_search_service::render_search_context(&results)
                 ));
             }
-            Ok(_) => log::info!("联网搜索({:?})无结果", effective_ws.provider),
             Err(err) => log::warn!(
                 "联网搜索({:?})失败，继续无搜索上下文: {err}",
                 effective_ws.provider
             ),
         }
+    } else if effective_ws.enabled && !web_search_decision.should_search {
+        log::info!(
+            "助手联网搜索跳过: provider={:?}, reason={}",
+            effective_ws.provider,
+            web_search_decision.reason
+        );
     }
 
     let screen_context_enabled =
@@ -510,8 +745,71 @@ pub async fn generate_content(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_assistant_request_options, render_assistant_user_content};
+    use super::{
+        build_assistant_request_options, decide_assistant_web_search,
+        render_assistant_system_prompt_at, render_assistant_user_content,
+    };
     use crate::state::user_profile::LlmReasoningMode;
+    use crate::state::user_profile::UserProfile;
+
+    #[test]
+    fn assistant_system_prompt_includes_current_runtime_time_context() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-06-15T09:08:07+02:00")
+            .expect("fixed test datetime");
+
+        let prompt = render_assistant_system_prompt_at(&UserProfile::default(), now);
+
+        assert!(prompt.contains("<runtime_context>"));
+        assert!(prompt.contains("2026-06-15T09:08:07+02:00"));
+        assert!(prompt.contains("<current_date><![CDATA[2026-06-15]]></current_date>"));
+        assert!(prompt.contains("<current_time><![CDATA[09:08:07]]></current_time>"));
+        assert!(prompt.contains("<utc_offset><![CDATA[+02:00]]></utc_offset>"));
+        assert!(prompt.contains("相对时间"));
+        assert!(prompt.contains("搜索查询和搜索结果判断也以该时间为准"));
+    }
+
+    #[test]
+    fn assistant_web_search_intent_requires_search_for_realtime_questions() {
+        for request in [
+            "纽伦堡今天的天气怎么样？",
+            "查一下 OpenAI 今天有什么新闻",
+            "英伟达现在股价多少？",
+            "what is the latest OpenAI API pricing?",
+        ] {
+            let decision = decide_assistant_web_search(request, None);
+            assert!(
+                decision.should_search,
+                "real-time query should trigger search: {request} ({})",
+                decision.reason
+            );
+        }
+    }
+
+    #[test]
+    fn assistant_web_search_intent_skips_generation_and_editing_tasks() {
+        for request in [
+            "现在帮我写一封邮件，说我明天下午到",
+            "把这句话翻译成英文",
+            "改得更礼貌一点",
+            "帮我总结一下这段文字",
+            "write a short reply saying I will be late",
+        ] {
+            let decision = decide_assistant_web_search(request, Some("需要处理的文本"));
+            assert!(
+                !decision.should_search,
+                "generation/editing task should skip search: {request} ({})",
+                decision.reason
+            );
+        }
+    }
+
+    #[test]
+    fn assistant_web_search_intent_honors_explicit_no_search() {
+        let decision = decide_assistant_web_search("不要联网，直接帮我写一段回复", None);
+
+        assert!(!decision.should_search);
+        assert_eq!(decision.reason, "explicit_no_search");
+    }
 
     #[test]
     fn assistant_input_preserves_symbols_and_splits_cdata() {

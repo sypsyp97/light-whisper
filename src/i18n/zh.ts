@@ -356,7 +356,7 @@ const zh = {
     assistantPromptHint: "这段提示词只作用于助手模式，不影响普通听写与润色。",
     webSearch: "联网搜索",
     webSearchDesc: "助手模式联网搜索",
-    webSearchHint: "开启后，助手会先获取真实搜索结果再回答。仅在助手模式下生效，不影响听写和润色。",
+    webSearchHint: "开启后，助手会在实时信息、事实查询或你明确要求时联网搜索；写作、翻译和改写会直接生成。仅在助手模式下生效，不影响听写和润色。",
     webSearchOauthHint: "使用 Codex OAuth 登录时，不提供模型内置搜索，只保留 Exa / Tavily 这类真实搜索方式。",
     assistantAuthSourceLabel: "当前助手鉴权：{{source}}",
     assistantAuthSourceAssistantKey: "助手专用 API Key",

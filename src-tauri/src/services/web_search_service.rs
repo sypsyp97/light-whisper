@@ -85,10 +85,11 @@ pub async fn exa_search(
 
     let content_blocks = rpc.result.map(|r| r.content).unwrap_or_default();
 
-    // Exa MCP 返回的 text 是带标签的纯文本块，多条结果用空行分隔
+    // Exa MCP 返回的 text 是带标签的纯文本块。单条结果的 Highlights/Text
+    // 内部也可能有空行，所以只能在新的 Title: 行处切分结果。
     let mut results = Vec::new();
     for block in &content_blocks {
-        for entry in block.text.split("\n\n") {
+        for entry in split_exa_result_blocks(&block.text) {
             let parsed = parse_exa_text_block(entry);
             if !parsed.title.is_empty() || !parsed.url.is_empty() {
                 results.push(parsed);
@@ -97,6 +98,55 @@ pub async fn exa_search(
     }
 
     Ok(results)
+}
+
+fn split_exa_result_blocks(text: &str) -> Vec<&str> {
+    let mut blocks = Vec::new();
+    let mut start = None;
+    let mut offset = 0;
+
+    for line in text.split_inclusive('\n') {
+        let line_start = offset;
+        let line_without_newline = line.trim_end_matches(['\r', '\n']);
+        if line_without_newline.starts_with("Title: ") {
+            if let Some(current_start) = start {
+                let block = text[current_start..line_start].trim();
+                if !block.is_empty() {
+                    blocks.push(block);
+                }
+            }
+            start = Some(line_start);
+        } else if start.is_none() && !line_without_newline.trim().is_empty() {
+            start = Some(line_start);
+        }
+        offset += line.len();
+    }
+
+    if let Some(current_start) = start {
+        let block = text[current_start..].trim();
+        if !block.is_empty() {
+            blocks.push(block);
+        }
+    }
+
+    blocks
+}
+
+fn labeled_value<'a>(line: &'a str, label: &str) -> Option<&'a str> {
+    line.strip_prefix(label).map(str::trim)
+}
+
+fn push_content_line(content: &mut String, line: &str) {
+    let line = line.trim_end();
+    if content.is_empty() {
+        let first = line.trim();
+        if !first.is_empty() {
+            content.push_str(first);
+        }
+        return;
+    }
+    content.push('\n');
+    content.push_str(line);
 }
 
 /// 解析 Exa MCP 的带标签文本块：
@@ -110,26 +160,31 @@ fn parse_exa_text_block(block: &str) -> SearchResult {
     let mut title = String::new();
     let mut url = String::new();
     let mut content = String::new();
+    let mut reading_content = false;
 
     for line in block.lines() {
-        if let Some(val) = line.strip_prefix("Title: ") {
-            title = val.trim().to_string();
-        } else if let Some(val) = line.strip_prefix("URL: ") {
-            url = val.trim().to_string();
-        } else if let Some(val) = line.strip_prefix("Text: ") {
-            content = val.trim().to_string();
-        } else if let Some(val) = line.strip_prefix("Highlights:") {
-            if content.is_empty() {
-                content = val.trim().to_string();
-            }
-        } else if content.is_empty()
-            && !line.starts_with("Published")
-            && !line.starts_with("Author")
+        if let Some(val) = labeled_value(line, "Title:") {
+            title = val.to_string();
+            reading_content = false;
+        } else if let Some(val) = labeled_value(line, "URL:") {
+            url = val.to_string();
+            reading_content = false;
+        } else if labeled_value(line, "Published Date:").is_some()
+            || labeled_value(line, "Published:").is_some()
+            || labeled_value(line, "Author:").is_some()
         {
-            // 没有 Text: 前缀的额外内容行
-            if !line.trim().is_empty() && !title.is_empty() {
-                content = line.trim().to_string();
-            }
+            reading_content = false;
+        } else if let Some(val) = labeled_value(line, "Text:") {
+            reading_content = true;
+            push_content_line(&mut content, val);
+        } else if let Some(val) = labeled_value(line, "Highlights:") {
+            reading_content = true;
+            push_content_line(&mut content, val);
+        } else if reading_content {
+            push_content_line(&mut content, line);
+        } else if !title.is_empty() && !line.trim().is_empty() {
+            reading_content = true;
+            push_content_line(&mut content, line);
         }
     }
 
@@ -239,8 +294,15 @@ pub fn render_search_context(results: &[SearchResult]) -> String {
     use crate::utils::foreground::wrap_xml_cdata;
 
     let mut out = String::from("<web_search_results>\n");
-    out.push_str("<instruction>以下是联网搜索返回的参考信息。根据用户问题自行判断是否需要引用：如果问题涉及实时信息、新闻、事实查询，请参考搜索结果并在行文中自然标注来源；如果问题是创作、闲聊或不需要外部信息的任务，直接忽略搜索结果即可。</instruction>\n");
+    out.push_str("<status>已经执行过联网查询；下面是本次第三方搜索返回的全部可用结果。</status>\n");
+    out.push_str("<instruction>如果用户问题涉及天气、新闻、价格、时间、政策、事实核验等实时信息，优先根据这些搜索结果作答，并自然标注来源；有搜索结果时不要回答无法实时查询。如果搜索结果没有给出用户要的具体实时数值，明确说明“搜索结果没有给出具体实时数值”，再概括已有线索并给出最有用的下一步或最相关来源。如果用户请求是创作、改写、翻译、润色、闲聊或不需要外部信息的任务，忽略搜索结果即可。</instruction>\n");
+    out.push_str(&format!("<result_count>{}</result_count>\n", results.len()));
     let closing = "</web_search_results>";
+    if results.is_empty() {
+        out.push_str("<empty>本次联网搜索完成，但没有返回可用结果。</empty>\n");
+        out.push_str(closing);
+        return out;
+    }
     for (i, r) in results.iter().take(MAX_SEARCH_CONTEXT_RESULTS).enumerate() {
         let fixed_parts = format!(
             "<result index=\"{}\">\n{}\n{}\n",
@@ -288,6 +350,41 @@ mod tests {
     }
 
     #[test]
+    fn parse_exa_block_keeps_multiline_highlights_after_blank_lines() {
+        let block = "Title: Wetter und Klima - Deutscher Wetterdienst   -  Nürnberg (Flugh.)\nURL: https://www.dwd.de/DE/wetter/wetterundklima_vorort/bayern/nuernberg/_node.html\nPublished: N/A\nAuthor: N/A\nHighlights:\nWetter und Klima - Deutscher Wetterdienst - Nürnberg (Flugh.)\n\n# Nürnberg (Flugh.)\n\n| Wetterwerte | 7.06.2026 | 07 Uhr |\n| --- | --- | --- |\n| Temperatur | 14 Grad C |\n| rel. Feuchte | 85 % |";
+
+        let result = parse_exa_text_block(block);
+
+        assert_eq!(
+            result.title,
+            "Wetter und Klima - Deutscher Wetterdienst   -  Nürnberg (Flugh.)"
+        );
+        assert_eq!(
+            result.url,
+            "https://www.dwd.de/DE/wetter/wetterundklima_vorort/bayern/nuernberg/_node.html"
+        );
+        assert!(
+            result.content.contains("Temperatur | 14 Grad C"),
+            "weather values after blank lines must reach the assistant prompt: {}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn exa_content_blocks_split_only_at_new_result_titles() {
+        let text = "Title: First\nURL: https://one.example\nHighlights:\nFirst line\n\nstill first result\n\nTitle: Second\nURL: https://two.example\nText: Second line";
+
+        let blocks = split_exa_result_blocks(text);
+
+        assert_eq!(blocks.len(), 2);
+        assert!(
+            blocks[0].contains("still first result"),
+            "blank lines inside highlights belong to the same Exa result"
+        );
+        assert!(blocks[1].starts_with("Title: Second"));
+    }
+
+    #[test]
     fn render_search_context_caps_prompt_contribution() {
         let results = vec![SearchResult {
             title: "large".to_string(),
@@ -301,6 +398,30 @@ mod tests {
             rendered.len() <= 12_000,
             "web search context should cap prompt contribution; rendered {} bytes",
             rendered.len()
+        );
+    }
+
+    #[test]
+    fn render_search_context_marks_third_party_results_as_completed_web_lookup() {
+        let results = vec![SearchResult {
+            title: "Nuremberg Weather".to_string(),
+            url: "https://example.com/weather".to_string(),
+            content: "Current temperature is 18 C with light rain.".to_string(),
+        }];
+
+        let rendered = render_search_context(&results);
+
+        assert!(
+            rendered.contains("已经执行过联网查询"),
+            "assistant prompt should tell the model that Exa/Tavily results came from an already-completed web lookup: {rendered}"
+        );
+        assert!(
+            rendered.contains("不得回答无法实时查询") || rendered.contains("不要回答无法实时查询"),
+            "real-time questions with search results should not trigger a generic inability-to-browse answer: {rendered}"
+        );
+        assert!(
+            rendered.contains("创作") && rendered.contains("改写") && rendered.contains("忽略搜索结果"),
+            "creative or rewrite tasks should remain allowed to ignore web search results: {rendered}"
         );
     }
 

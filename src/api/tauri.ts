@@ -199,7 +199,7 @@ export function setLlmProviderConfig(
   assistantProvider?: string | null,
   openaiAuthMode?: OpenaiAuthMode | null,
 ): Promise<void> {
-  return invokeCommand<void>("set_llm_provider_config", {
+  const args: InvokeArgs = {
     active,
     customBaseUrl: customBaseUrl ?? null,
     customModel: customModel ?? null,
@@ -207,9 +207,13 @@ export function setLlmProviderConfig(
     assistantReasoningMode: assistantReasoningMode ?? null,
     assistantUseSeparateModel: assistantUseSeparateModel ?? null,
     assistantModel: assistantModel ?? null,
-    assistantProvider: assistantProvider !== undefined ? assistantProvider : null,
     openaiAuthMode: openaiAuthMode ?? null,
-  });
+  };
+  if (assistantProvider !== undefined) {
+    args.assistantProvider = assistantProvider;
+    args.assistantProviderSet = true;
+  }
+  return invokeCommand<void>("set_llm_provider_config", args);
 }
 
 export function setAssistantApiKey(apiKey: string): Promise<void> {
@@ -225,12 +229,14 @@ export function getLlmReasoningSupport(
   baseUrl?: string,
   model?: string,
   apiFormat?: ApiFormat,
+  reasoningMode?: LlmReasoningMode,
 ): Promise<LlmReasoningSupport> {
   return invokeCommand<LlmReasoningSupport>("get_llm_reasoning_support", {
     provider,
     baseUrl: baseUrl ?? null,
     model: model ?? null,
     apiFormat: apiFormat ?? null,
+    reasoningMode: reasoningMode ?? null,
   });
 }
 
@@ -345,12 +351,21 @@ export function setCorrectionValidationConfig(params: {
   provider?: string | null;
   model?: string | null;
 }): Promise<void> {
-  return invokeCommand<void>("set_correction_validation_config", {
+  const args: InvokeArgs = {
     enabled: params.enabled,
-    useSeparateModel: params.useSeparateModel,
-    provider: params.provider,
-    model: params.model,
-  });
+  };
+  if (params.useSeparateModel !== undefined) {
+    args.useSeparateModel = params.useSeparateModel;
+  }
+  if (params.provider !== undefined) {
+    args.provider = params.provider;
+    args.providerSet = true;
+  }
+  if (params.model !== undefined) {
+    args.model = params.model;
+    args.modelSet = true;
+  }
+  return invokeCommand<void>("set_correction_validation_config", args);
 }
 
 /**

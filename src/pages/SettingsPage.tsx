@@ -75,8 +75,20 @@ import Kbd from "@/components/Kbd";
 import TitleBar from "@/components/TitleBar";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
 import { getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
-import { resolveEffectiveAssistantProvider, shouldShowFastModeToggle } from "@/lib/fastMode";
+import {
+  resolveAssistantModelForProviderChange,
+  resolveAssistantModelForPolishProviderChange,
+  resolveAssistantModelState,
+  resolveAssistantModelToggleState,
+  resolveAssistantProviderToPersist,
+  resolveEffectiveAssistantProvider,
+  shouldShowFastModeToggle,
+} from "@/lib/fastMode";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
+import {
+  resolveAssistantLlmReasoningProbeTarget,
+  resolveLlmReasoningProbeTarget,
+} from "@/lib/llmReasoningProbe";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { useTranslation } from "react-i18next";
 
@@ -463,11 +475,24 @@ export default function SettingsPage({
   const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
   const [newProviderModel, setNewProviderModel] = useState("");
   const [newProviderFormat, setNewProviderFormat] = useState<ApiFormat>("openai_compat");
+  const availableLlmProviders = useMemo(
+    () => [
+      ...llmProviderOptions.map((option) => option.key),
+      ...customProviders.map((provider) => provider.id),
+    ],
+    [customProviders],
+  );
   const providerSupportsCustomEndpoint = llmProvider === "custom" || customProviders.some((p) => p.id === llmProvider);
   const effectiveAssistantProvider = resolveEffectiveAssistantProvider({
     assistantUseSeparateModel,
     assistantProvider,
     llmProvider,
+    availableProviders: availableLlmProviders,
+  });
+  const assistantProviderToPersist = resolveAssistantProviderToPersist({
+    assistantUseSeparateModel,
+    assistantProvider,
+    availableProviders: availableLlmProviders,
   });
   const polishManualApiKey = aiPolishApiKey.trim();
   const assistantManualApiKey =
@@ -683,12 +708,32 @@ export default function SettingsPage({
       const nextModel = cp
         ? cp.model
         : resolveLlmModel(nextProvider, p.llm_provider.custom_model ?? preset.defaultModel);
+      const nextAssistantUseSeparateModel = Boolean(p.llm_provider.assistant_use_separate_model);
+      const nextAssistantProvider = resolveEffectiveAssistantProvider({
+        assistantUseSeparateModel: nextAssistantUseSeparateModel,
+        assistantProvider: p.llm_provider.assistant_provider,
+        llmProvider: nextProvider,
+        availableProviders: [
+          ...llmProviderOptions.map((option) => option.key),
+          ...cps.map((provider) => provider.id),
+        ],
+      });
+      const assistantCp = cps.find((c) => c.id === nextAssistantProvider);
+      const assistantPreset = findLlmPreset(nextAssistantProvider);
+      const nextAssistantDefaultModel = assistantCp
+        ? assistantCp.model
+        : resolveLlmModel(nextAssistantProvider, assistantPreset.defaultModel);
       setLlmProvider(nextProvider);
       setCustomBaseUrl(nextBaseUrl);
       setCustomModel(nextModel);
-      setAssistantUseSeparateModel(Boolean(p.llm_provider.assistant_use_separate_model));
-      setAssistantModel((p.llm_provider.assistant_model ?? nextModel).trim() || nextModel);
-      setAssistantProviderState(p.llm_provider.assistant_provider ?? nextProvider);
+      setAssistantUseSeparateModel(nextAssistantUseSeparateModel);
+      setAssistantModel(resolveAssistantModelState({
+        assistantUseSeparateModel: nextAssistantUseSeparateModel,
+        savedAssistantModel: p.llm_provider.assistant_model,
+        polishModel: nextModel,
+        assistantDefaultModel: nextAssistantDefaultModel,
+      }));
+      setAssistantProviderState(nextAssistantUseSeparateModel ? p.llm_provider.assistant_provider ?? "" : "");
       setPolishReasoningMode(p.llm_provider.polish_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
       setAssistantReasoningMode(p.llm_provider.assistant_reasoning_mode ?? p.llm_provider.reasoning_mode ?? "provider_default");
       const storedAuthMode = p.llm_provider.openai_auth_mode;
@@ -1075,32 +1120,31 @@ export default function SettingsPage({
 
   // 助手独立模型列表：provider 不同时独立拉取，相同时复用润色列表
   const refreshAssistantModels = useCallback(async (silent = false) => {
-    const effectiveProvider = assistantProvider || llmProvider;
     // 同 provider 时复用润色模型列表
-    if (effectiveProvider === llmProvider) {
+    if (effectiveAssistantProvider === llmProvider) {
       setAssistantModels(aiModels);
       return;
     }
     const apiKey = assistantApiKeyState.trim();
-    const assistantOauthReady = effectiveProvider === "openai" && openaiCodexOauthStatus.loggedIn;
+    const assistantOauthReady = effectiveAssistantProvider === "openai" && openaiCodexOauthStatus.loggedIn;
     if (!apiKey && !assistantOauthReady) {
       setAssistantModels([]);
       return;
     }
     // 解析助手 provider 的 base_url
-    const cp = customProviders.find((p) => p.id === effectiveProvider);
-    const baseUrl = cp ? cp.base_url : findLlmPreset(effectiveProvider).baseUrl;
+    const cp = customProviders.find((p) => p.id === effectiveAssistantProvider);
+    const baseUrl = cp ? cp.base_url : findLlmPreset(effectiveAssistantProvider).baseUrl;
 
     setAssistantModelsLoading(true);
     try {
-      const payload = await listAiModels(effectiveProvider, baseUrl || undefined, apiKey);
+      const payload = await listAiModels(effectiveAssistantProvider, baseUrl || undefined, apiKey);
       setAssistantModels(payload.models);
     } catch {
       if (!silent) setAssistantModels([]);
     } finally {
       setAssistantModelsLoading(false);
     }
-  }, [aiModels, assistantApiKeyState, assistantProvider, customProviders, llmProvider, openaiCodexOauthStatus.loggedIn]);
+  }, [aiModels, assistantApiKeyState, customProviders, effectiveAssistantProvider, llmProvider, openaiCodexOauthStatus.loggedIn]);
 
   const assistantModelsFetch = useDebouncedCallback((silent: boolean) => {
     void refreshAssistantModels(silent);
@@ -1128,8 +1172,7 @@ export default function SettingsPage({
     if (!assistantUseSeparateModel) {
       return;
     }
-    const effectiveProvider = assistantProvider || llmProvider;
-    if (effectiveProvider === llmProvider) {
+    if (effectiveAssistantProvider === llmProvider) {
       // 同 provider 时直接同步润色列表
       setAssistantModels(aiModels);
       return;
@@ -1141,7 +1184,7 @@ export default function SettingsPage({
     }
     assistantModelsFetch.schedule(true);
     return () => { assistantModelsFetch.cancel(); };
-  }, [aiModels, assistantHasAuth, assistantModelsFetch, assistantProvider, assistantUseSeparateModel, llmProvider]);
+  }, [aiModels, assistantHasAuth, assistantModelsFetch, assistantUseSeparateModel, effectiveAssistantProvider, llmProvider]);
 
   const handleAddHotWord = useCallback(() => {
     const word = newHotWord.trim();
@@ -1165,13 +1208,13 @@ export default function SettingsPage({
     return { ...preset, label: preset.labelKey ? t(preset.labelKey) : preset.label, desc: t(preset.descKey) };
   }, [llmProvider, customProviders, t]);
   const currentAssistantPreset = useMemo(() => {
-    const p = assistantProvider || llmProvider;
-    const cp = customProviders.find((c) => c.id === p);
+    const cp = customProviders.find((c) => c.id === effectiveAssistantProvider);
     if (cp) return { key: cp.id, label: cp.name, baseUrl: cp.base_url, defaultModel: cp.model, desc: cp.api_format === "anthropic" ? "Anthropic" : t("settings.openaiCompat") };
-    const preset = findLlmPreset(p);
+    const preset = findLlmPreset(effectiveAssistantProvider);
     return { ...preset, label: preset.labelKey ? t(preset.labelKey) : preset.label, desc: t(preset.descKey) };
-  }, [assistantProvider, llmProvider, customProviders, t]);
-  const assistantProviderDiffers = assistantUseSeparateModel && assistantProvider && assistantProvider !== llmProvider;
+  }, [customProviders, effectiveAssistantProvider, t]);
+  const assistantProviderDiffers =
+    assistantUseSeparateModel && effectiveAssistantProvider !== llmProvider;
   const handleOpenaiCodexOauthLogin = useCallback(async () => {
     setOpenaiCodexOauthLoading(true);
     try {
@@ -1234,13 +1277,13 @@ export default function SettingsPage({
       assistantReasoningMode,
       assistantUseSeparateModel,
       assistantModel,
-      assistantProvider,
+      assistantProviderToPersist,
     );
   }, [
     assistantModel,
-    assistantProvider,
     assistantReasoningMode,
     assistantUseSeparateModel,
+    assistantProviderToPersist,
     customBaseUrl,
     customModel,
     effectiveOpenaiAuthMode,
@@ -1405,7 +1448,7 @@ export default function SettingsPage({
     if (!keyword) return true;
     return model.id.toLowerCase().includes(keyword) || (model.ownedBy ?? "").toLowerCase().includes(keyword);
   }), [aiModels, aiModelSearch]);
-  const effectiveAssistantModels = assistantUseSeparateModel && assistantProvider && assistantProvider !== llmProvider
+  const effectiveAssistantModels = assistantProviderDiffers
     ? assistantModels
     : aiModels;
   const filteredAssistantModels = useMemo(() => effectiveAssistantModels.filter((model) => {
@@ -1429,16 +1472,19 @@ export default function SettingsPage({
     await setAiPolishConfig(aiPolishEnabled, aiPolishApiKey).catch(() => {});
 
     const nextDraft = resolveProviderDraft(nextProvider);
-    const nextAssistantModel = assistantUseSeparateModel
-      ? assistantModel.trim() || nextDraft.model
-      : nextDraft.model;
+    const nextAssistantModel = resolveAssistantModelForPolishProviderChange({
+      assistantUseSeparateModel,
+      assistantProviderToPersist,
+      savedAssistantModel: assistantModel,
+      nextPolishModel: nextDraft.model,
+      assistantDefaultModel: currentAssistantPreset.defaultModel,
+    });
     setLlmProvider(nextProvider);
     setCustomBaseUrl(nextDraft.baseUrl);
     setCustomModel(nextDraft.model);
     setAssistantModel(nextAssistantModel);
-    // 若未开启独立模式，助手 provider 跟随润色
     if (!assistantUseSeparateModel) {
-      setAssistantProviderState(nextProvider);
+      setAssistantProviderState("");
     }
     updateProviderDraft(nextProvider, nextDraft.baseUrl, nextDraft.model);
     picker.close();
@@ -1453,7 +1499,7 @@ export default function SettingsPage({
       assistantReasoningMode,
       assistantUseSeparateModel,
       nextAssistantModel,
-      assistantUseSeparateModel ? assistantProvider : undefined,
+      assistantProviderToPersist,
     ).catch(() => {});
     await refreshAiPolishKey();
     if (!assistantUseSeparateModel) {
@@ -1462,9 +1508,10 @@ export default function SettingsPage({
   }, [
     aiPolishApiKey,
     aiPolishEnabled,
-    assistantProvider,
+    assistantProviderToPersist,
     customBaseUrl,
     customModel,
+    currentAssistantPreset,
     llmProvider,
     polishReasoningMode,
     assistantReasoningMode,
@@ -1481,6 +1528,12 @@ export default function SettingsPage({
   const handleModelSelect = useCallback((nextModel: string) => {
     const normalizedModel = nextModel.trim();
     if (!normalizedModel) return;
+    const nextAssistantModel = resolveAssistantModelState({
+      assistantUseSeparateModel,
+      savedAssistantModel: assistantModel,
+      polishModel: normalizedModel,
+      assistantDefaultModel: normalizedModel,
+    });
     setCustomModel(normalizedModel);
     updateProviderDraft(llmProvider, customBaseUrl, normalizedModel);
     llmConfigSave.schedule(
@@ -1490,29 +1543,30 @@ export default function SettingsPage({
       polishReasoningMode,
       assistantReasoningMode,
       assistantUseSeparateModel,
-      assistantModel,
+      nextAssistantModel,
+      assistantProviderToPersist,
     );
     picker.close();
     setAiModelSearch("");
     if (!assistantUseSeparateModel) {
       setAssistantModel(normalizedModel);
     }
-  }, [assistantModel, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, llmProvider, picker, polishReasoningMode, llmConfigSave, updateProviderDraft]);
+  }, [assistantModel, assistantProviderToPersist, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, llmProvider, picker, polishReasoningMode, llmConfigSave, updateProviderDraft]);
 
   const handleAssistantModelToggle = useCallback((enabled: boolean) => {
     setAssistantUseSeparateModel(enabled);
     picker.close();
-    if (!enabled) {
-      setAssistantModel(customModel);
-    } else {
-      if (!assistantModel.trim()) {
-        setAssistantModel(customModel);
-      }
-      // 开启时默认跟随润色 provider（若尚未独立设定）
-      if (!assistantProvider || assistantProvider === llmProvider) {
-        setAssistantProviderState(llmProvider);
-      }
-    }
+    const nextState = resolveAssistantModelToggleState({
+      enabled,
+      previousAssistantUseSeparateModel: assistantUseSeparateModel,
+      assistantProvider,
+      availableProviders: availableLlmProviders,
+      savedAssistantModel: assistantModel,
+      polishModel: customModel,
+      assistantDefaultModel: currentAssistantPreset.defaultModel,
+    });
+    setAssistantModel(nextState.assistantModel);
+    setAssistantProviderState(nextState.assistantProviderState);
     llmConfigSave.schedule(
       llmProvider,
       customBaseUrl,
@@ -1520,13 +1574,13 @@ export default function SettingsPage({
       polishReasoningMode,
       assistantReasoningMode,
       enabled,
-      (enabled ? assistantModel : customModel).trim() || customModel,
-      enabled ? (assistantProvider || llmProvider) : undefined,
+      nextState.assistantModel,
+      nextState.assistantProviderToPersist,
     );
     if (enabled) {
       void refreshAssistantKey();
     }
-  }, [assistantModel, assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, refreshAssistantKey, llmConfigSave]);
+  }, [assistantModel, assistantProvider, assistantReasoningMode, assistantUseSeparateModel, availableLlmProviders, currentAssistantPreset.defaultModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, refreshAssistantKey, llmConfigSave]);
 
   const handleAssistantProviderSelect = useCallback(async (nextProvider: string) => {
     if (nextProvider === assistantProvider) {
@@ -1534,7 +1588,19 @@ export default function SettingsPage({
       setAssistantProviderSearch("");
       return;
     }
+    const nextProviderCustom = customProviders.find((provider) => provider.id === nextProvider);
+    const nextProviderDefaultModel = nextProviderCustom
+      ? nextProviderCustom.model
+      : findLlmPreset(nextProvider).defaultModel;
+    const nextAssistantModel = resolveAssistantModelForProviderChange({
+      nextAssistantProvider: nextProvider,
+      polishProvider: llmProvider,
+      polishModel: customModel,
+      nextProviderDefaultModel,
+    });
+    llmConfigSave.cancel();
     setAssistantProviderState(nextProvider);
+    setAssistantModel(nextAssistantModel);
     picker.close();
     setAssistantProviderSearch("");
     // 先保存 config（含新 assistantProvider），再加载对应 key
@@ -1545,11 +1611,11 @@ export default function SettingsPage({
       polishReasoningMode,
       assistantReasoningMode,
       true,
-      assistantModel || undefined,
+      nextAssistantModel || undefined,
       nextProvider,
     ).catch(() => {});
     await refreshAssistantKey();
-  }, [assistantModel, assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, polishReasoningMode, refreshAssistantKey]);
+  }, [assistantProvider, assistantReasoningMode, customBaseUrl, customModel, customProviders, llmConfigSave, llmProvider, picker, polishReasoningMode, refreshAssistantKey]);
 
   const handleAssistantModelSelect = useCallback((nextModel: string) => {
     const normalizedModel = nextModel.trim();
@@ -1565,9 +1631,9 @@ export default function SettingsPage({
       assistantReasoningMode,
       true,
       normalizedModel,
-      assistantProvider,
+      assistantProviderToPersist,
     );
-  }, [assistantProvider, assistantReasoningMode, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, llmConfigSave]);
+  }, [assistantProviderToPersist, assistantReasoningMode, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, llmConfigSave]);
 
   const handleTranslationSelect = useCallback(async (target: string | null) => {
     setTranslationTargetState(target);
@@ -1598,24 +1664,46 @@ export default function SettingsPage({
     assistantPromptSave.schedule(value);
   }, [assistantPromptSave]);
 
-  const currentProviderFormat: ApiFormat = useMemo(() => {
-    return customProviders.find((provider) => provider.id === llmProvider)?.api_format ?? "openai_compat";
-  }, [customProviders, llmProvider]);
+  const polishReasoningProbeTarget = useMemo(() => {
+    const preset = findLlmPreset(llmProvider);
+    return resolveLlmReasoningProbeTarget({
+      provider: llmProvider,
+      customBaseUrl,
+      customModel,
+      customProviders,
+      defaults: {
+        baseUrl: preset.baseUrl,
+        model: preset.defaultModel,
+      },
+    });
+  }, [customBaseUrl, customModel, customProviders, llmProvider]);
 
-  const effectiveReasoningBaseUrl = useMemo(() => {
-    return resolveLlmBaseUrl(llmProvider, customBaseUrl);
-  }, [customBaseUrl, llmProvider]);
-
-  const effectivePolishReasoningModel = useMemo(() => {
-    return resolveLlmModel(llmProvider, customModel);
-  }, [customModel, llmProvider]);
-
-  const effectiveAssistantReasoningModel = useMemo(() => {
-    if (!assistantUseSeparateModel) {
-      return effectivePolishReasoningModel;
-    }
-    return assistantModel.trim() || effectivePolishReasoningModel;
-  }, [assistantModel, assistantUseSeparateModel, effectivePolishReasoningModel]);
+  const assistantReasoningProbeTarget = useMemo(() => {
+    const preset = findLlmPreset(effectiveAssistantProvider);
+    return resolveAssistantLlmReasoningProbeTarget({
+      assistantUseSeparateModel,
+      polishTarget: polishReasoningProbeTarget,
+      llmProvider,
+      effectiveAssistantProvider,
+      assistantModel,
+      customBaseUrl,
+      customModel,
+      customProviders,
+      defaults: {
+        baseUrl: preset.baseUrl,
+        model: preset.defaultModel,
+      },
+    });
+  }, [
+    assistantModel,
+    assistantUseSeparateModel,
+    customBaseUrl,
+    customModel,
+    customProviders,
+    effectiveAssistantProvider,
+    llmProvider,
+    polishReasoningProbeTarget,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1626,10 +1714,11 @@ export default function SettingsPage({
     });
 
     void getLlmReasoningSupport(
-      llmProvider,
-      effectiveReasoningBaseUrl || undefined,
-      effectivePolishReasoningModel || undefined,
-      currentProviderFormat,
+      polishReasoningProbeTarget.provider,
+      polishReasoningProbeTarget.baseUrl || undefined,
+      polishReasoningProbeTarget.model || undefined,
+      polishReasoningProbeTarget.apiFormat,
+      polishReasoningMode,
     ).then((support) => {
       if (!cancelled) {
         setPolishReasoningSupportState(support);
@@ -1647,7 +1736,7 @@ export default function SettingsPage({
     return () => {
       cancelled = true;
     };
-  }, [currentProviderFormat, effectivePolishReasoningModel, effectiveReasoningBaseUrl, llmProvider]);
+  }, [polishReasoningMode, polishReasoningProbeTarget]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1658,10 +1747,11 @@ export default function SettingsPage({
     });
 
     void getLlmReasoningSupport(
-      llmProvider,
-      effectiveReasoningBaseUrl || undefined,
-      effectiveAssistantReasoningModel || undefined,
-      currentProviderFormat,
+      assistantReasoningProbeTarget.provider,
+      assistantReasoningProbeTarget.baseUrl || undefined,
+      assistantReasoningProbeTarget.model || undefined,
+      assistantReasoningProbeTarget.apiFormat,
+      assistantReasoningMode,
     ).then((support) => {
       if (!cancelled) {
         setAssistantReasoningSupportState(support);
@@ -1679,7 +1769,7 @@ export default function SettingsPage({
     return () => {
       cancelled = true;
     };
-  }, [currentProviderFormat, effectiveAssistantReasoningModel, effectiveReasoningBaseUrl, llmProvider]);
+  }, [assistantReasoningMode, assistantReasoningProbeTarget]);
 
   const buildReasoningModeHint = useCallback((support: LlmReasoningSupport, selectedMode: LlmReasoningMode) => {
     if (support.supported) {
@@ -1691,8 +1781,10 @@ export default function SettingsPage({
     return support.summary;
   }, [t]);
 
-  const polishReasoningModeDisabled = !polishReasoningSupport.supported;
-  const assistantReasoningModeDisabled = !assistantReasoningSupport.supported;
+  const polishReasoningModeDisabled =
+    !polishReasoningSupport.supported && polishReasoningMode === "provider_default";
+  const assistantReasoningModeDisabled =
+    !assistantReasoningSupport.supported && assistantReasoningMode === "provider_default";
   const selectedAssistantReasoningOption = useMemo(
     () => findReasoningModeOption(assistantReasoningMode),
     [assistantReasoningMode],
@@ -1780,8 +1872,9 @@ export default function SettingsPage({
       assistantReasoningMode,
       assistantUseSeparateModel,
       assistantModel,
+      assistantProviderToPersist,
     );
-  }, [assistantModel, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningModeDisabled, llmConfigSave]);
+  }, [assistantModel, assistantProviderToPersist, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningModeDisabled, llmConfigSave]);
 
   const handleAssistantReasoningModeChange = useCallback((mode: LlmReasoningMode) => {
     if (assistantReasoningModeDisabled) return;
@@ -1795,8 +1888,9 @@ export default function SettingsPage({
       mode,
       assistantUseSeparateModel,
       assistantModel,
+      assistantProviderToPersist,
     );
-  }, [assistantModel, assistantReasoningModeDisabled, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, llmConfigSave]);
+  }, [assistantModel, assistantProviderToPersist, assistantReasoningModeDisabled, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, llmConfigSave]);
 
   const handleRecordingModeChange = useCallback((mode: "hold" | "toggle") => {
     setRecordingModeState(mode);
@@ -2707,6 +2801,7 @@ export default function SettingsPage({
                                   className="btn-ghost btn-ghost-xs"
                                   disabled={!newProviderName.trim() || !newProviderBaseUrl.trim()}
                                   onClick={() => {
+                                    llmConfigSave.cancel();
                                     void addCustomProvider(newProviderName.trim(), newProviderBaseUrl.trim(), newProviderModel.trim(), newProviderFormat).then(async (id) => {
                                       setAddingProvider(false);
                                       const baseUrl = newProviderBaseUrl.trim();
@@ -2718,10 +2813,20 @@ export default function SettingsPage({
                                       // 先刷新 profile 拿到最新 customProviders，再切换
                                       await refreshProfile();
                                       // 直接设置状态，不依赖 resolveProviderDraft（避免竞态）
+                                      const nextAssistantModel = resolveAssistantModelForPolishProviderChange({
+                                        assistantUseSeparateModel,
+                                        assistantProviderToPersist,
+                                        savedAssistantModel: assistantModel,
+                                        nextPolishModel: model,
+                                        assistantDefaultModel: currentAssistantPreset.defaultModel,
+                                      });
                                       setLlmProvider(id);
                                       setCustomBaseUrl(baseUrl);
                                       setCustomModel(model);
-                                      setAssistantModel(model);
+                                      setAssistantModel(nextAssistantModel);
+                                      if (!assistantUseSeparateModel) {
+                                        setAssistantProviderState("");
+                                      }
                                       updateProviderDraft(id, baseUrl, model);
                                       await setLlmProviderConfig(
                                         id,
@@ -2730,7 +2835,8 @@ export default function SettingsPage({
                                         polishReasoningMode,
                                         assistantReasoningMode,
                                         assistantUseSeparateModel,
-                                        model,
+                                        nextAssistantModel,
+                                        assistantProviderToPersist,
                                       ).catch(() => {});
                                       await refreshAiPolishKey();
                                     });
@@ -2767,6 +2873,7 @@ export default function SettingsPage({
                         assistantReasoningMode,
                         assistantUseSeparateModel,
                         assistantModel,
+                        assistantProviderToPersist,
                       );
                     }}
                   />
@@ -2810,6 +2917,12 @@ export default function SettingsPage({
                         value={customModel}
                         onChange={(e) => {
                           const nextModel = e.target.value;
+                          const nextAssistantModel = resolveAssistantModelState({
+                            assistantUseSeparateModel,
+                            savedAssistantModel: assistantModel,
+                            polishModel: nextModel,
+                            assistantDefaultModel: nextModel,
+                          });
                           setCustomModel(nextModel);
                           updateProviderDraft(llmProvider, customBaseUrl, nextModel);
                           llmConfigSave.schedule(
@@ -2819,7 +2932,8 @@ export default function SettingsPage({
                             polishReasoningMode,
                             assistantReasoningMode,
                             assistantUseSeparateModel,
-                            assistantModel,
+                            nextAssistantModel,
+                            assistantProviderToPersist,
                           );
                           if (!assistantUseSeparateModel) {
                             setAssistantModel(nextModel);
@@ -3149,7 +3263,7 @@ export default function SettingsPage({
                               key={`assistant-provider-${opt.key}`}
                               type="button"
                               className="picker-option"
-                              data-active={assistantProvider === opt.key}
+                              data-active={effectiveAssistantProvider === opt.key}
                               onClick={() => handleAssistantProviderSelect(opt.key)}
                             >
                               <span className="picker-option-copy">
@@ -3166,7 +3280,7 @@ export default function SettingsPage({
                   {/* 助手独立 API Key（仅当 provider 与润色不同时显示） */}
                   {assistantProviderDiffers ? (
                     <>
-                      {assistantProvider === "openai" && renderOpenaiAuthModeToggle()}
+                      {effectiveAssistantProvider === "openai" && renderOpenaiAuthModeToggle()}
                       <div className="settings-column" style={{ gap: 4 }}>
                         <span className="settings-option-desc">{currentAssistantPreset.label} API Key</span>
                         <SecretInput
@@ -3208,7 +3322,7 @@ export default function SettingsPage({
                             assistantReasoningMode,
                             true,
                             nextModel,
-                            assistantProvider,
+                            assistantProviderToPersist,
                           );
                         }}
                       />

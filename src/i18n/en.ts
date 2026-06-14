@@ -358,7 +358,7 @@ const en: TranslationSchema = {
     assistantPromptHint: "This prompt only applies to assistant mode. It does not affect dictation or polishing.",
     webSearch: "Web Search",
     webSearchDesc: "Assistant web search",
-    webSearchHint: "When enabled, the assistant fetches real web results before answering. Only applies to assistant mode.",
+    webSearchHint: "When enabled, the assistant searches for real-time information, fact lookups, or explicit search requests, and skips search for writing, translation, and rewriting tasks. Only applies to assistant mode.",
     webSearchOauthHint: "When signed in with Codex OAuth, model-built-in search is unavailable here; only real search providers such as Exa or Tavily are shown.",
     assistantAuthSourceLabel: "Assistant auth: {{source}}",
     assistantAuthSourceAssistantKey: "assistant API key",

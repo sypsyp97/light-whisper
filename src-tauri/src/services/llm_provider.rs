@@ -1,4 +1,7 @@
 use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 use serde_json::Value;
 use tauri_plugin_keyring::KeyringExt;
 
@@ -32,6 +35,31 @@ pub struct LlmReasoningSupport {
     pub strategy: Option<String>,
     pub summary: String,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoReasoningStrategy {
+    OpenaiResponsesReasoning,
+    OpenaiChatReasoningEffort,
+    TopLevelThinking,
+    ChatTemplateThinking,
+    NoControls,
+}
+
+impl AutoReasoningStrategy {
+    pub fn strategy_name(self) -> &'static str {
+        match self {
+            Self::OpenaiResponsesReasoning => "auto_openai_responses_reasoning",
+            Self::OpenaiChatReasoningEffort => "auto_openai_chat_reasoning_effort",
+            Self::TopLevelThinking => "auto_top_level_thinking",
+            Self::ChatTemplateThinking => "auto_chat_template_thinking",
+            Self::NoControls => "auto_no_reasoning_controls",
+        }
+    }
+}
+
+static AUTO_REASONING_STRATEGY_CACHE: OnceLock<
+    parking_lot::Mutex<HashMap<String, AutoReasoningStrategy>>,
+> = OnceLock::new();
 
 fn default_endpoint_parts(provider: &str) -> (&'static str, &'static str, u64) {
     match provider {
@@ -463,6 +491,15 @@ pub fn endpoint_for_preview(
     endpoint_for_config(&config)
 }
 
+pub fn endpoint_uses_responses_api(endpoint: &LlmEndpoint) -> bool {
+    endpoint.api_format == ApiFormat::OpenaiCompat
+        && endpoint
+            .api_url
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+            .ends_with("/responses")
+}
+
 pub fn image_support_cache_key(endpoint: &LlmEndpoint) -> String {
     format!(
         "{:?}|{}|{}|{}",
@@ -477,6 +514,7 @@ fn indicates_unsupported(normalized: &str) -> bool {
     normalized.contains("not supported")
         || normalized.contains("unsupported")
         || normalized.contains("does not support")
+        || normalized.contains("not permitted")
         || normalized.contains("are not valid")
         || normalized.contains("invalidparameter")
         || normalized.contains("invalid parameter")
@@ -530,6 +568,7 @@ pub fn looks_like_reasoning_unsupported_error(message: &str) -> bool {
     let mentions_reasoning = normalized.contains("reasoning")
         || normalized.contains("reasoning_effort")
         || normalized.contains("thinking")
+        || normalized.contains("chat_template_kwargs")
         || normalized.contains("budget_tokens")
         || normalized.contains("reasoning_content");
 
@@ -537,42 +576,42 @@ pub fn looks_like_reasoning_unsupported_error(message: &str) -> bool {
         && (indicates_unsupported(&normalized) || normalized.contains("unknown parameter"))
 }
 
+fn endpoint_host(endpoint: &LlmEndpoint) -> Option<String> {
+    reqwest::Url::parse(&endpoint.api_url)
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
+}
+
+fn endpoint_host_matches(endpoint: &LlmEndpoint, domain: &str) -> bool {
+    let Some(host) = endpoint_host(endpoint) else {
+        return false;
+    };
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
 pub fn is_volcengine_like_endpoint(endpoint: &LlmEndpoint) -> bool {
     if endpoint.api_format != ApiFormat::OpenaiCompat {
         return false;
     }
 
-    let api_url = endpoint.api_url.to_ascii_lowercase();
     let model = endpoint.model.trim().to_ascii_lowercase();
 
-    api_url.contains("volces.com")
-        || api_url.contains("volcengine.com")
+    endpoint_host_matches(endpoint, "volces.com")
+        || endpoint_host_matches(endpoint, "volcengine.com")
         || model.contains("doubao")
         || model.contains("seed-")
 }
 
 fn is_deepseek_like_endpoint(endpoint: &LlmEndpoint) -> bool {
-    endpoint.provider == DEEPSEEK
-        || endpoint
-            .api_url
-            .to_ascii_lowercase()
-            .contains("deepseek.com")
+    endpoint.provider == DEEPSEEK || endpoint_host_matches(endpoint, "deepseek.com")
 }
 
 fn is_siliconflow_like_endpoint(endpoint: &LlmEndpoint) -> bool {
-    endpoint.provider == SILICONFLOW
-        || endpoint
-            .api_url
-            .to_ascii_lowercase()
-            .contains("siliconflow.com")
+    endpoint.provider == SILICONFLOW || endpoint_host_matches(endpoint, "siliconflow.com")
 }
 
 pub fn is_cerebras_like_endpoint(endpoint: &LlmEndpoint) -> bool {
-    endpoint.provider == CEREBRAS
-        || endpoint
-            .api_url
-            .to_ascii_lowercase()
-            .contains("cerebras.ai")
+    endpoint.provider == CEREBRAS || endpoint_host_matches(endpoint, "cerebras.ai")
 }
 
 const GPT5_EFFORTS: &[&str] = &["minimal", "low", "medium", "high"];
@@ -696,6 +735,7 @@ enum ReasoningControlKind {
     CerebrasReasoningEffort,
     CerebrasGlmToggle,
     VolcengineThinkingType,
+    AutoOpenaiCompat,
 }
 
 impl ReasoningControlKind {
@@ -708,6 +748,7 @@ impl ReasoningControlKind {
             Self::CerebrasReasoningEffort => "cerebras_reasoning_effort",
             Self::CerebrasGlmToggle => "cerebras_disable_reasoning",
             Self::VolcengineThinkingType => "volcengine_thinking_type",
+            Self::AutoOpenaiCompat => "auto_openai_compat_probe",
         }
     }
 
@@ -734,6 +775,9 @@ impl ReasoningControlKind {
             Self::VolcengineThinkingType => {
                 "当前模型支持 thinking.type；关闭=disabled，轻量/标准=auto，深度=enabled。"
             }
+            Self::AutoOpenaiCompat => {
+                "当前是 OpenAI-compatible 后端；会自动探测可用的思考控制参数并缓存成功策略。"
+            }
         }
     }
 }
@@ -749,9 +793,11 @@ fn reasoning_control_kind(
             .then_some(ReasoningControlKind::AnthropicThinking);
     }
 
-    if is_volcengine_like_endpoint(endpoint) && !uses_responses_api {
-        return supports_volcengine_thinking(model)
-            .then_some(ReasoningControlKind::VolcengineThinkingType);
+    if is_volcengine_like_endpoint(endpoint)
+        && !uses_responses_api
+        && supports_volcengine_thinking(model)
+    {
+        return Some(ReasoningControlKind::VolcengineThinkingType);
     }
 
     if is_deepseek_like_endpoint(endpoint) && supports_deepseek_thinking(model) {
@@ -774,11 +820,23 @@ fn reasoning_control_kind(
         }
     }
 
+    if is_auto_probe_openai_compatible_endpoint(endpoint) {
+        return Some(ReasoningControlKind::AutoOpenaiCompat);
+    }
+
     if openai_gpt5_reasoning_efforts(model).is_some() {
         return Some(ReasoningControlKind::OpenaiEffort);
     }
 
     None
+}
+
+fn is_auto_probe_openai_compatible_endpoint(endpoint: &LlmEndpoint) -> bool {
+    endpoint.api_format == ApiFormat::OpenaiCompat && !is_openai_like_endpoint(endpoint)
+}
+
+pub fn is_openai_like_endpoint(endpoint: &LlmEndpoint) -> bool {
+    endpoint.provider == OPENAI || endpoint_host(endpoint).as_deref() == Some("api.openai.com")
 }
 
 pub fn reasoning_support(endpoint: &LlmEndpoint, uses_responses_api: bool) -> LlmReasoningSupport {
@@ -811,6 +869,224 @@ pub fn reasoning_support(endpoint: &LlmEndpoint, uses_responses_api: bool) -> Ll
         strategy: None,
         summary: summary.to_string(),
     }
+}
+
+pub fn reasoning_support_for_mode(
+    endpoint: &LlmEndpoint,
+    uses_responses_api: bool,
+    mode: LlmReasoningMode,
+) -> LlmReasoningSupport {
+    let support = reasoning_support(endpoint, uses_responses_api);
+    if mode == LlmReasoningMode::ProviderDefault || !support.supported {
+        return support;
+    }
+
+    if is_auto_reasoning_endpoint(endpoint, uses_responses_api)
+        && cached_auto_reasoning_strategy(endpoint, uses_responses_api, mode)
+            == Some(AutoReasoningStrategy::NoControls)
+    {
+        return LlmReasoningSupport {
+            supported: false,
+            strategy: Some(
+                AutoReasoningStrategy::NoControls
+                    .strategy_name()
+                    .to_string(),
+            ),
+            summary: "当前后端已拒绝该档位的思考控制参数，应用会按模型默认行为发送。".to_string(),
+        };
+    }
+
+    support
+}
+
+fn auto_reasoning_intent(mode: LlmReasoningMode) -> &'static str {
+    match mode {
+        LlmReasoningMode::Off => "off",
+        LlmReasoningMode::Light => "light",
+        LlmReasoningMode::Balanced => "balanced",
+        LlmReasoningMode::Deep => "deep",
+        LlmReasoningMode::ProviderDefault => "provider_default",
+    }
+}
+
+fn auto_reasoning_strategy_cache_key(
+    endpoint: &LlmEndpoint,
+    uses_responses_api: bool,
+    intent: &str,
+) -> String {
+    format!(
+        "{:?}|{}|{}|{}|{}",
+        endpoint.api_format,
+        endpoint.api_url,
+        endpoint.model.trim().to_ascii_lowercase(),
+        uses_responses_api,
+        intent
+    )
+}
+
+fn auto_reasoning_strategy_cache(
+) -> &'static parking_lot::Mutex<HashMap<String, AutoReasoningStrategy>> {
+    AUTO_REASONING_STRATEGY_CACHE.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
+
+pub fn cached_auto_reasoning_strategy(
+    endpoint: &LlmEndpoint,
+    uses_responses_api: bool,
+    mode: LlmReasoningMode,
+) -> Option<AutoReasoningStrategy> {
+    auto_reasoning_strategy_cache()
+        .lock()
+        .get(&auto_reasoning_strategy_cache_key(
+            endpoint,
+            uses_responses_api,
+            auto_reasoning_intent(mode),
+        ))
+        .copied()
+}
+
+pub fn remember_auto_reasoning_strategy(
+    endpoint: &LlmEndpoint,
+    uses_responses_api: bool,
+    mode: LlmReasoningMode,
+    strategy: AutoReasoningStrategy,
+) {
+    auto_reasoning_strategy_cache().lock().insert(
+        auto_reasoning_strategy_cache_key(
+            endpoint,
+            uses_responses_api,
+            auto_reasoning_intent(mode),
+        ),
+        strategy,
+    );
+}
+
+pub fn is_auto_reasoning_endpoint(endpoint: &LlmEndpoint, uses_responses_api: bool) -> bool {
+    reasoning_control_kind(endpoint, uses_responses_api)
+        == Some(ReasoningControlKind::AutoOpenaiCompat)
+}
+
+fn preferred_auto_reasoning_strategy(
+    uses_responses_api: bool,
+    mode: LlmReasoningMode,
+) -> AutoReasoningStrategy {
+    if mode == LlmReasoningMode::Off {
+        AutoReasoningStrategy::TopLevelThinking
+    } else if uses_responses_api {
+        AutoReasoningStrategy::OpenaiResponsesReasoning
+    } else {
+        AutoReasoningStrategy::OpenaiChatReasoningEffort
+    }
+}
+
+fn auto_reasoning_fallback_strategies(
+    uses_responses_api: bool,
+    mode: LlmReasoningMode,
+) -> &'static [AutoReasoningStrategy] {
+    const RESPONSES: &[AutoReasoningStrategy] = &[AutoReasoningStrategy::OpenaiChatReasoningEffort];
+    const CHAT_OFF: &[AutoReasoningStrategy] = &[AutoReasoningStrategy::ChatTemplateThinking];
+    const CHAT_EFFORT: &[AutoReasoningStrategy] = &[AutoReasoningStrategy::TopLevelThinking];
+
+    if mode == LlmReasoningMode::Off {
+        CHAT_OFF
+    } else if uses_responses_api {
+        RESPONSES
+    } else {
+        CHAT_EFFORT
+    }
+}
+
+fn auto_effort_for_mode(mode: LlmReasoningMode) -> Option<&'static str> {
+    match mode {
+        LlmReasoningMode::Off => None,
+        LlmReasoningMode::Light => Some("low"),
+        LlmReasoningMode::Balanced => Some("medium"),
+        LlmReasoningMode::Deep => Some("high"),
+        LlmReasoningMode::ProviderDefault => None,
+    }
+}
+
+fn apply_auto_reasoning_strategy(
+    body: &mut serde_json::Value,
+    strategy: AutoReasoningStrategy,
+    mode: LlmReasoningMode,
+) {
+    match strategy {
+        AutoReasoningStrategy::OpenaiResponsesReasoning => {
+            let Some(effort) = auto_effort_for_mode(mode) else {
+                return;
+            };
+            body["reasoning"] = serde_json::json!({ "effort": effort });
+        }
+        AutoReasoningStrategy::OpenaiChatReasoningEffort => {
+            let Some(effort) = auto_effort_for_mode(mode) else {
+                return;
+            };
+            body["reasoning_effort"] = serde_json::json!(effort);
+        }
+        AutoReasoningStrategy::TopLevelThinking => {
+            let thinking_type = if mode == LlmReasoningMode::Off {
+                "disabled"
+            } else {
+                "enabled"
+            };
+            body["thinking"] = serde_json::json!({ "type": thinking_type });
+        }
+        AutoReasoningStrategy::ChatTemplateThinking => {
+            body["chat_template_kwargs"] =
+                serde_json::json!({ "thinking": mode != LlmReasoningMode::Off });
+        }
+        AutoReasoningStrategy::NoControls => {}
+    }
+}
+
+pub fn applied_auto_reasoning_strategy(body: &serde_json::Value) -> Option<AutoReasoningStrategy> {
+    let map = body.as_object()?;
+    if map.contains_key("thinking") {
+        return Some(AutoReasoningStrategy::TopLevelThinking);
+    }
+    if map.contains_key("chat_template_kwargs") {
+        return Some(AutoReasoningStrategy::ChatTemplateThinking);
+    }
+    if map.contains_key("reasoning") {
+        return Some(AutoReasoningStrategy::OpenaiResponsesReasoning);
+    }
+    if map.contains_key("reasoning_effort") {
+        return Some(AutoReasoningStrategy::OpenaiChatReasoningEffort);
+    }
+    None
+}
+
+pub fn auto_reasoning_fallback_bodies(
+    endpoint: &LlmEndpoint,
+    uses_responses_api: bool,
+    request_body: &serde_json::Value,
+    mode: LlmReasoningMode,
+) -> Vec<(AutoReasoningStrategy, serde_json::Value)> {
+    if !is_auto_reasoning_endpoint(endpoint, uses_responses_api)
+        || mode == LlmReasoningMode::ProviderDefault
+    {
+        return Vec::new();
+    }
+
+    let cached = cached_auto_reasoning_strategy(endpoint, uses_responses_api, mode);
+    if cached == Some(AutoReasoningStrategy::NoControls) {
+        return Vec::new();
+    }
+
+    let current = applied_auto_reasoning_strategy(request_body).or(cached);
+    let mut base = request_body.clone();
+    strip_reasoning_controls(&mut base);
+
+    auto_reasoning_fallback_strategies(uses_responses_api, mode)
+        .iter()
+        .copied()
+        .filter(|strategy| Some(*strategy) != current)
+        .map(|strategy| {
+            let mut body = base.clone();
+            apply_auto_reasoning_strategy(&mut body, strategy, mode);
+            (strategy, body)
+        })
+        .collect()
 }
 
 pub fn apply_reasoning_controls(
@@ -890,6 +1166,14 @@ pub fn apply_reasoning_controls(
         (ReasoningControlKind::CerebrasGlmToggle, _) => {
             body["disable_reasoning"] = serde_json::json!(mode == LlmReasoningMode::Off);
         }
+        (ReasoningControlKind::AutoOpenaiCompat, _) => {
+            let Some(strategy) = cached_auto_reasoning_strategy(endpoint, uses_responses_api, mode)
+                .or_else(|| Some(preferred_auto_reasoning_strategy(uses_responses_api, mode)))
+            else {
+                return;
+            };
+            apply_auto_reasoning_strategy(body, strategy, mode);
+        }
         (ReasoningControlKind::OpenaiEffort, _) => {
             let Some(effort) = openai_gpt5_effort_for_mode(&endpoint.model, mode) else {
                 return;
@@ -909,6 +1193,7 @@ pub fn strip_reasoning_controls(body: &mut serde_json::Value) {
         map.remove("reasoning");
         map.remove("reasoning_effort");
         map.remove("thinking");
+        map.remove("chat_template_kwargs");
         map.remove("thinking_budget");
         map.remove("enable_thinking");
         map.remove("disable_reasoning");
@@ -1375,6 +1660,9 @@ mod tests {
         assert!(looks_like_reasoning_unsupported_error(
             "unknown parameter: reasoning_effort"
         ));
+        assert!(looks_like_reasoning_unsupported_error(
+            "Extra inputs are not permitted (param: chat_template_kwargs)"
+        ));
         assert!(!looks_like_reasoning_unsupported_error(
             "API 返回错误 401: invalid api key"
         ));
@@ -1391,6 +1679,25 @@ mod tests {
 
         assert_eq!(endpoint.api_format, ApiFormat::Anthropic);
         assert_eq!(endpoint.api_url, "https://api.anthropic.com/v1/messages");
+    }
+
+    #[test]
+    fn responses_api_detection_is_case_insensitive_and_exact() {
+        let responses = endpoint_for_preview(
+            "responses-case",
+            Some("https://example.com/V1/RESPONSES"),
+            Some("future-model"),
+            ApiFormat::OpenaiCompat,
+        );
+        let responses_suffix = endpoint_for_preview(
+            "responses-suffix",
+            Some("https://example.com/v1/responses-extra"),
+            Some("future-model"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        assert!(endpoint_uses_responses_api(&responses));
+        assert!(!endpoint_uses_responses_api(&responses_suffix));
     }
 
     #[test]
@@ -1412,6 +1719,24 @@ mod tests {
     }
 
     #[test]
+    fn volcengine_like_unknown_model_reports_auto_reasoning_support() {
+        let endpoint = endpoint_for_preview(
+            CUSTOM,
+            Some("https://ark.cn-beijing.volces.com/api/v3"),
+            Some("doubao-future-reasoner"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        let support = reasoning_support(&endpoint, false);
+
+        assert!(support.supported);
+        assert_eq!(
+            support.strategy.as_deref(),
+            Some("auto_openai_compat_probe")
+        );
+    }
+
+    #[test]
     fn openai_non_reasoning_models_report_unsupported() {
         let endpoint =
             endpoint_for_preview(OPENAI, None, Some("gpt-4.1-mini"), ApiFormat::OpenaiCompat);
@@ -1420,6 +1745,178 @@ mod tests {
 
         assert!(!support.supported);
         assert!(support.summary.contains("不可用"));
+    }
+
+    #[test]
+    fn unknown_openai_compatible_reports_auto_reasoning_support() {
+        let endpoint = endpoint_for_preview(
+            "fau",
+            Some("https://hub.nhr.fau.de/api/llmgw/v1"),
+            Some("moonshotai/Kimi-K2.6"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        let support = reasoning_support(&endpoint, false);
+
+        assert!(support.supported);
+        assert_eq!(
+            support.strategy.as_deref(),
+            Some("auto_openai_compat_probe")
+        );
+    }
+
+    #[test]
+    fn custom_gateway_path_containing_openai_host_still_uses_auto_reasoning() {
+        let endpoint = endpoint_for_preview(
+            "custom-gateway",
+            Some("https://gateway.example/api.openai.com/v1"),
+            Some("gpt-5.2"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        let support = reasoning_support(&endpoint, false);
+
+        assert_eq!(
+            support.strategy.as_deref(),
+            Some("auto_openai_compat_probe"),
+            "only the actual URL host should identify the official OpenAI API"
+        );
+    }
+
+    #[test]
+    fn auto_openai_compatible_starts_with_chat_reasoning_effort() {
+        let endpoint = endpoint_for_preview(
+            "auto_reasoning_chat_start",
+            Some("https://auto-reasoning-start.example/v1"),
+            Some("future-model"),
+            ApiFormat::OpenaiCompat,
+        );
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Deep);
+
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("chat_template_kwargs").is_none());
+    }
+
+    #[test]
+    fn auto_openai_compatible_off_starts_with_thinking_disabled() {
+        let endpoint = endpoint_for_preview(
+            "auto_reasoning_chat_off",
+            Some("https://auto-reasoning-off.example/v1"),
+            Some("future-model"),
+            ApiFormat::OpenaiCompat,
+        );
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Off);
+
+        assert_eq!(body["thinking"], serde_json::json!({ "type": "disabled" }));
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn auto_openai_compatible_fallbacks_try_one_standard_alternate() {
+        let endpoint = endpoint_for_preview(
+            "auto_reasoning_fallback",
+            Some("https://auto-reasoning-fallback.example/v1"),
+            Some("future-model"),
+            ApiFormat::OpenaiCompat,
+        );
+        let request_body = serde_json::json!({
+            "model": "future-model",
+            "messages": [],
+            "reasoning_effort": "low",
+        });
+
+        let fallbacks =
+            auto_reasoning_fallback_bodies(&endpoint, false, &request_body, LlmReasoningMode::Deep);
+
+        assert_eq!(fallbacks.len(), 1);
+        assert_eq!(fallbacks[0].0, AutoReasoningStrategy::TopLevelThinking);
+        assert_eq!(
+            fallbacks[0].1["thinking"],
+            serde_json::json!({ "type": "enabled" })
+        );
+        assert!(fallbacks
+            .iter()
+            .all(|(_, body)| body.get("reasoning_effort").is_none()));
+    }
+
+    #[test]
+    fn remembered_auto_strategy_is_reused_for_endpoint() {
+        let endpoint = endpoint_for_preview(
+            "auto_reasoning_cached",
+            Some("https://auto-reasoning-cache.example/v1"),
+            Some("future-model"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        remember_auto_reasoning_strategy(
+            &endpoint,
+            false,
+            LlmReasoningMode::Balanced,
+            AutoReasoningStrategy::OpenaiResponsesReasoning,
+        );
+
+        let mut body = serde_json::json!({});
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Balanced);
+
+        assert_eq!(body["reasoning"], serde_json::json!({ "effort": "medium" }));
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn remembered_no_controls_strategy_skips_future_auto_params() {
+        let endpoint = endpoint_for_preview(
+            "auto_reasoning_no_controls",
+            Some("https://auto-reasoning-no-controls.example/v1"),
+            Some("future-model"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        remember_auto_reasoning_strategy(
+            &endpoint,
+            false,
+            LlmReasoningMode::Deep,
+            AutoReasoningStrategy::NoControls,
+        );
+
+        let mut body = serde_json::json!({});
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Deep);
+
+        assert!(body.get("reasoning").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn auto_support_for_mode_reports_no_controls_cache_as_unsupported() {
+        let endpoint = endpoint_for_preview(
+            "auto_reasoning_no_controls_support",
+            Some("https://auto-reasoning-no-controls-support.example/v1"),
+            Some("future-model"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        remember_auto_reasoning_strategy(
+            &endpoint,
+            false,
+            LlmReasoningMode::Deep,
+            AutoReasoningStrategy::NoControls,
+        );
+
+        let default_support =
+            reasoning_support_for_mode(&endpoint, false, LlmReasoningMode::ProviderDefault);
+        let deep_support = reasoning_support_for_mode(&endpoint, false, LlmReasoningMode::Deep);
+
+        assert!(default_support.supported);
+        assert!(!deep_support.supported);
+        assert_eq!(
+            deep_support.strategy.as_deref(),
+            Some("auto_no_reasoning_controls")
+        );
     }
 
     fn strings(values: &[&str]) -> Vec<String> {
@@ -1555,6 +2052,41 @@ mod tests {
 
         assert!(support.supported);
         assert_eq!(support.strategy.as_deref(), Some("deepseek_thinking"));
+    }
+
+    #[test]
+    fn known_openai_compatible_provider_unknown_model_reports_auto_reasoning_support() {
+        let endpoint = endpoint_for_preview(
+            DEEPSEEK,
+            None,
+            Some("deepseek-future-reasoner"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        let support = reasoning_support(&endpoint, false);
+
+        assert!(support.supported);
+        assert_eq!(
+            support.strategy.as_deref(),
+            Some("auto_openai_compat_probe")
+        );
+    }
+
+    #[test]
+    fn known_openai_compatible_provider_unknown_model_starts_with_auto_probe() {
+        let endpoint = endpoint_for_preview(
+            SILICONFLOW,
+            None,
+            Some("Future/Reasoner-Next"),
+            ApiFormat::OpenaiCompat,
+        );
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Deep);
+
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert!(body.get("enable_thinking").is_none());
+        assert!(body.get("thinking_budget").is_none());
     }
 
     #[test]

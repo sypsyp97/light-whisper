@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -13,6 +15,8 @@ const STREAM_EVENT_TIMEOUT_SECS: u64 = 90;
 const STREAM_TOTAL_TIMEOUT_SECS: u64 = 24 * 60 * 60;
 pub(crate) const AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS: u64 = 45;
 const RETRYABLE_429_DELAYS_MS: &[u64] = &[600, 1200];
+static OUTPUT_TOKEN_LIMIT_UNSUPPORTED_CACHE: OnceLock<parking_lot::Mutex<HashSet<String>>> =
+    OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 pub struct LlmRequestOptions<'a> {
@@ -114,13 +118,13 @@ fn uses_openai_oauth_origin_auth(endpoint: &LlmEndpoint, api_key: &str) -> bool 
 }
 
 fn uses_responses_api(endpoint: &LlmEndpoint) -> bool {
-    endpoint.api_format == ApiFormat::OpenaiCompat && endpoint.api_url.contains("/v1/responses")
+    llm_provider::endpoint_uses_responses_api(endpoint)
 }
 
 fn uses_openai_chat_completions_api(endpoint: &LlmEndpoint) -> bool {
     endpoint.api_format == ApiFormat::OpenaiCompat
         && endpoint.api_url.contains("/chat/completions")
-        && (endpoint.provider == "openai" || endpoint.api_url.contains("api.openai.com"))
+        && llm_provider::is_openai_like_endpoint(endpoint)
 }
 
 fn chat_output_token_limit_key(endpoint: &LlmEndpoint) -> &'static str {
@@ -171,7 +175,7 @@ fn adapt_body_for_backend(
     if uses_chatgpt_backend {
         // The ChatGPT Codex backend rejects this Responses API field, so avoid
         // a guaranteed failed first request before the compatibility retry.
-        strip_max_output_tokens(&mut adapted);
+        strip_output_token_limits(&mut adapted);
     }
 
     if let Some(map) = adapted.as_object_mut() {
@@ -192,23 +196,59 @@ fn adapt_body_for_backend(
     adapted
 }
 
-fn looks_like_max_output_tokens_unsupported_error(message: &str) -> bool {
+fn looks_like_output_token_limit_unsupported_error(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     let mentions_output_limit = normalized.contains("max_output_tokens")
+        || normalized.contains("max_tokens")
         || normalized.contains("max completion tokens")
+        || normalized.contains("max_completion_tokens")
         || normalized.contains("maximum output tokens");
 
     mentions_output_limit
         && (normalized.contains("unsupported")
             || normalized.contains("not supported")
             || normalized.contains("unknown parameter")
-            || normalized.contains("invalid"))
+            || normalized.contains("unrecognized parameter")
+            || normalized.contains("not recognized"))
 }
 
-fn strip_max_output_tokens(body: &mut Value) {
+fn strip_output_token_limits(body: &mut Value) {
     if let Some(map) = body.as_object_mut() {
         map.remove("max_output_tokens");
+        map.remove("max_completion_tokens");
+        map.remove("max_tokens");
     }
+}
+
+fn has_output_token_limit(body: &Value) -> bool {
+    body.get("max_output_tokens").is_some()
+        || body.get("max_completion_tokens").is_some()
+        || body.get("max_tokens").is_some()
+}
+
+fn output_token_limit_unsupported_cache_key(endpoint: &LlmEndpoint) -> String {
+    format!(
+        "{:?}|{}|{}",
+        endpoint.api_format,
+        endpoint.api_url,
+        endpoint.model.trim().to_ascii_lowercase()
+    )
+}
+
+fn output_token_limit_unsupported_cache() -> &'static parking_lot::Mutex<HashSet<String>> {
+    OUTPUT_TOKEN_LIMIT_UNSUPPORTED_CACHE.get_or_init(|| parking_lot::Mutex::new(HashSet::new()))
+}
+
+fn cached_output_token_limit_unsupported(endpoint: &LlmEndpoint) -> bool {
+    output_token_limit_unsupported_cache()
+        .lock()
+        .contains(&output_token_limit_unsupported_cache_key(endpoint))
+}
+
+fn remember_output_token_limit_unsupported(endpoint: &LlmEndpoint) {
+    output_token_limit_unsupported_cache()
+        .lock()
+        .insert(output_token_limit_unsupported_cache_key(endpoint));
 }
 
 pub fn build_llm_body(
@@ -1053,7 +1093,11 @@ pub async fn send_llm_request(
             }
         }
     }
-    let request_body = adapt_body_for_backend(endpoint, api_key, body, options.openai_fast_mode);
+    let mut request_body =
+        adapt_body_for_backend(endpoint, api_key, body, options.openai_fast_mode);
+    if cached_output_token_limit_unsupported(endpoint) {
+        strip_output_token_limits(&mut request_body);
+    }
     let timeout = dynamic_timeout(
         endpoint.timeout_secs,
         text_len,
@@ -1065,6 +1109,7 @@ pub async fn send_llm_request(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let requested_stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    let mut remember_initial_auto_reasoning_strategy = true;
 
     async fn dispatch_request(
         http_client: &reqwest::Client,
@@ -1086,6 +1131,183 @@ pub async fn send_llm_request(
             .map_err(|e| format!("请求失败: {}", e))
     }
 
+    struct ReasoningRetryContext<'a> {
+        http_client: &'a reqwest::Client,
+        endpoint: &'a LlmEndpoint,
+        api_key: &'a str,
+        headers: &'a reqwest::header::HeaderMap,
+        timeout: Duration,
+        mode: LlmReasoningMode,
+    }
+
+    async fn retry_after_reasoning_rejection(
+        ctx: &ReasoningRetryContext<'_>,
+        base_body: &Value,
+        initial_status: reqwest::StatusCode,
+        mut error_message: String,
+    ) -> Result<reqwest::Response, String> {
+        let endpoint = ctx.endpoint;
+        let is_responses_api = uses_responses_api(endpoint);
+        if llm_provider::cached_auto_reasoning_strategy(endpoint, is_responses_api, ctx.mode)
+            == Some(llm_provider::AutoReasoningStrategy::NoControls)
+        {
+            return Err(format!(
+                "API 返回错误 {}: {}",
+                initial_status, error_message
+            ));
+        }
+
+        let mut output_token_limit_unsupported = false;
+        for (strategy, mut fallback_body) in llm_provider::auto_reasoning_fallback_bodies(
+            endpoint,
+            is_responses_api,
+            base_body,
+            ctx.mode,
+        ) {
+            log::warn!(
+                "当前模型拒绝推理参数，尝试自动探测策略 {}: provider={}, model={}, err={}",
+                strategy.strategy_name(),
+                endpoint.provider,
+                endpoint.model,
+                error_message
+            );
+            let retry_response = dispatch_request(
+                ctx.http_client,
+                endpoint,
+                ctx.api_key,
+                ctx.headers.clone(),
+                &fallback_body,
+                ctx.timeout,
+            )
+            .await?;
+            if retry_response.status().is_success() {
+                llm_provider::remember_auto_reasoning_strategy(
+                    endpoint,
+                    is_responses_api,
+                    ctx.mode,
+                    strategy,
+                );
+                return Ok(retry_response);
+            }
+
+            let mut status = retry_response.status();
+            let mut body_text = retry_response.text().await.unwrap_or_default();
+            error_message = extract_api_error_message(endpoint, &body_text);
+            if looks_like_output_token_limit_unsupported_error(&error_message)
+                && has_output_token_limit(&fallback_body)
+            {
+                output_token_limit_unsupported = true;
+                log::warn!(
+                    "当前后端不支持输出长度参数，已移除后继续推理参数探测: provider={}, model={}, err={}",
+                    endpoint.provider,
+                    endpoint.model,
+                    error_message
+                );
+                strip_output_token_limits(&mut fallback_body);
+                let retry_response = dispatch_request(
+                    ctx.http_client,
+                    endpoint,
+                    ctx.api_key,
+                    ctx.headers.clone(),
+                    &fallback_body,
+                    ctx.timeout,
+                )
+                .await?;
+                if retry_response.status().is_success() {
+                    remember_output_token_limit_unsupported(endpoint);
+                    llm_provider::remember_auto_reasoning_strategy(
+                        endpoint,
+                        is_responses_api,
+                        ctx.mode,
+                        strategy,
+                    );
+                    return Ok(retry_response);
+                }
+
+                status = retry_response.status();
+                body_text = retry_response.text().await.unwrap_or_default();
+                error_message = extract_api_error_message(endpoint, &body_text);
+            }
+            if !llm_provider::looks_like_reasoning_unsupported_error(&error_message) {
+                return Err(format!("API 返回错误 {}: {}", status, error_message));
+            }
+        }
+
+        log::warn!(
+            "当前模型不支持推理参数，已移除后自动重试: provider={}, model={}, err={}",
+            endpoint.provider,
+            endpoint.model,
+            error_message
+        );
+        let mut fallback_body = base_body.clone();
+        llm_provider::strip_reasoning_controls(&mut fallback_body);
+        if output_token_limit_unsupported {
+            strip_output_token_limits(&mut fallback_body);
+        }
+        let retry_response = dispatch_request(
+            ctx.http_client,
+            endpoint,
+            ctx.api_key,
+            ctx.headers.clone(),
+            &fallback_body,
+            ctx.timeout,
+        )
+        .await?;
+        if !retry_response.status().is_success() {
+            let mut status = retry_response.status();
+            let mut body_text = retry_response.text().await.unwrap_or_default();
+            let mut error_message = extract_api_error_message(endpoint, &body_text);
+            if looks_like_output_token_limit_unsupported_error(&error_message)
+                && has_output_token_limit(&fallback_body)
+            {
+                log::warn!(
+                    "当前后端不支持输出长度参数，已移除后继续无推理参数重试: provider={}, model={}, err={}",
+                    endpoint.provider,
+                    endpoint.model,
+                    error_message
+                );
+                strip_output_token_limits(&mut fallback_body);
+                let retry_response = dispatch_request(
+                    ctx.http_client,
+                    endpoint,
+                    ctx.api_key,
+                    ctx.headers.clone(),
+                    &fallback_body,
+                    ctx.timeout,
+                )
+                .await?;
+                if retry_response.status().is_success() {
+                    remember_output_token_limit_unsupported(endpoint);
+                    if llm_provider::is_auto_reasoning_endpoint(endpoint, is_responses_api) {
+                        llm_provider::remember_auto_reasoning_strategy(
+                            endpoint,
+                            is_responses_api,
+                            ctx.mode,
+                            llm_provider::AutoReasoningStrategy::NoControls,
+                        );
+                    }
+                    return Ok(retry_response);
+                }
+                status = retry_response.status();
+                body_text = retry_response.text().await.unwrap_or_default();
+                error_message = extract_api_error_message(endpoint, &body_text);
+            }
+            return Err(format!("API 返回错误 {}: {}", status, error_message));
+        }
+        if output_token_limit_unsupported {
+            remember_output_token_limit_unsupported(endpoint);
+        }
+        if llm_provider::is_auto_reasoning_endpoint(endpoint, is_responses_api) {
+            llm_provider::remember_auto_reasoning_strategy(
+                endpoint,
+                is_responses_api,
+                ctx.mode,
+                llm_provider::AutoReasoningStrategy::NoControls,
+            );
+        }
+        Ok(retry_response)
+    }
+
     let mut response = dispatch_request(
         http_client,
         endpoint,
@@ -1101,6 +1323,14 @@ pub async fn send_llm_request(
         let mut body_text = response.text().await.unwrap_or_default();
         let mut error_message = extract_api_error_message(endpoint, &body_text);
         let mut successful_retry: Option<reqwest::Response> = None;
+        let reasoning_retry_context = ReasoningRetryContext {
+            http_client,
+            endpoint,
+            api_key,
+            headers: &headers,
+            timeout,
+            mode: options.reasoning_mode,
+        };
 
         if is_retryable_overload_error(status, &error_message) {
             for delay_ms in RETRYABLE_429_DELAYS_MS {
@@ -1112,7 +1342,7 @@ pub async fn send_llm_request(
                     error_message
                 );
                 tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
-                response = dispatch_request(
+                let retry_response = dispatch_request(
                     http_client,
                     endpoint,
                     api_key,
@@ -1121,12 +1351,12 @@ pub async fn send_llm_request(
                     timeout,
                 )
                 .await?;
-                if response.status().is_success() {
-                    successful_retry = Some(response);
+                if retry_response.status().is_success() {
+                    successful_retry = Some(retry_response);
                     break;
                 }
-                status = response.status();
-                let retry_body_text = response.text().await.unwrap_or_default();
+                status = retry_response.status();
+                let retry_body_text = retry_response.text().await.unwrap_or_default();
                 error_message = extract_api_error_message(endpoint, &retry_body_text);
                 if !is_retryable_overload_error(status, &error_message) {
                     break;
@@ -1136,20 +1366,22 @@ pub async fn send_llm_request(
 
         if let Some(retry_response) = successful_retry {
             response = retry_response;
-        } else if looks_like_max_output_tokens_unsupported_error(&error_message) {
+        } else if looks_like_output_token_limit_unsupported_error(&error_message)
+            && has_output_token_limit(&request_body)
+        {
             log::warn!(
-                "当前后端不支持 max_output_tokens，已移除后自动重试: provider={}, model={}, err={}",
+                "当前后端不支持输出长度参数，已移除后自动重试: provider={}, model={}, err={}",
                 endpoint.provider,
                 endpoint.model,
                 error_message
             );
             let mut fallback_body = request_body.clone();
-            strip_max_output_tokens(&mut fallback_body);
+            strip_output_token_limits(&mut fallback_body);
             response = dispatch_request(
                 http_client,
                 endpoint,
                 api_key,
-                headers,
+                headers.clone(),
                 &fallback_body,
                 timeout,
             )
@@ -1158,36 +1390,53 @@ pub async fn send_llm_request(
                 status = response.status();
                 body_text = response.text().await.unwrap_or_default();
                 error_message = extract_api_error_message(endpoint, &body_text);
-                return Err(format!("API 返回错误 {}: {}", status, error_message));
+                if options.reasoning_mode != LlmReasoningMode::ProviderDefault
+                    && llm_provider::looks_like_reasoning_unsupported_error(&error_message)
+                {
+                    remember_initial_auto_reasoning_strategy = false;
+                    response = retry_after_reasoning_rejection(
+                        &reasoning_retry_context,
+                        &fallback_body,
+                        status,
+                        error_message,
+                    )
+                    .await?;
+                    remember_output_token_limit_unsupported(endpoint);
+                } else {
+                    return Err(format!("API 返回错误 {}: {}", status, error_message));
+                }
+            } else {
+                remember_output_token_limit_unsupported(endpoint);
             }
         } else if options.reasoning_mode != LlmReasoningMode::ProviderDefault
             && llm_provider::looks_like_reasoning_unsupported_error(&error_message)
         {
-            log::warn!(
-                "当前模型不支持推理参数，已移除后自动重试: provider={}, model={}, err={}",
-                endpoint.provider,
-                endpoint.model,
-                error_message
-            );
-            let mut fallback_body = request_body.clone();
-            llm_provider::strip_reasoning_controls(&mut fallback_body);
-            response = dispatch_request(
-                http_client,
-                endpoint,
-                api_key,
-                headers,
-                &fallback_body,
-                timeout,
+            remember_initial_auto_reasoning_strategy = false;
+            response = retry_after_reasoning_rejection(
+                &reasoning_retry_context,
+                &request_body,
+                status,
+                error_message,
             )
             .await?;
-            if !response.status().is_success() {
-                status = response.status();
-                body_text = response.text().await.unwrap_or_default();
-                error_message = extract_api_error_message(endpoint, &body_text);
-                return Err(format!("API 返回错误 {}: {}", status, error_message));
-            }
         } else {
             return Err(format!("API 返回错误 {}: {}", status, error_message));
+        }
+    }
+
+    if remember_initial_auto_reasoning_strategy
+        && options.reasoning_mode != LlmReasoningMode::ProviderDefault
+    {
+        let is_responses_api = uses_responses_api(endpoint);
+        if llm_provider::is_auto_reasoning_endpoint(endpoint, is_responses_api) {
+            if let Some(strategy) = llm_provider::applied_auto_reasoning_strategy(&request_body) {
+                llm_provider::remember_auto_reasoning_strategy(
+                    endpoint,
+                    is_responses_api,
+                    options.reasoning_mode,
+                    strategy,
+                );
+            }
         }
     }
 
@@ -1259,7 +1508,7 @@ mod tests {
         build_stream_event_payload, dynamic_timeout, ensure_non_empty_llm_content,
         extract_api_error_message, extract_content, extract_openai_compat_error_message,
         finalize_responses_sse_accumulated, is_retryable_overload_error,
-        looks_like_max_output_tokens_unsupported_error, stream_read_budget_at, LlmRequestOptions,
+        looks_like_output_token_limit_unsupported_error, stream_read_budget_at, LlmRequestOptions,
         LlmUserInput, OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
     };
     use crate::services::codex_oauth_service;
@@ -1632,6 +1881,30 @@ mod tests {
     }
 
     #[test]
+    fn custom_gateway_path_containing_openai_host_uses_generic_token_limit() {
+        let endpoint = LlmEndpoint {
+            provider: "custom-gateway".to_string(),
+            api_url: "https://gateway.example/api.openai.com/v1/chat/completions".to_string(),
+            model: "gpt-5.2".to_string(),
+            timeout_secs: 10,
+            api_format: ApiFormat::OpenaiCompat,
+        };
+
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+
+        assert_eq!(body["max_tokens"], serde_json::json!(4096));
+        assert!(
+            body.get("max_completion_tokens").is_none(),
+            "only the actual URL host should opt into official OpenAI chat token naming"
+        );
+    }
+
+    #[test]
     fn openai_chat_body_sets_max_completion_tokens() {
         let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
         let body = build_llm_body(
@@ -1765,14 +2038,23 @@ mod tests {
     }
 
     #[test]
-    fn recognizes_max_output_tokens_unsupported_errors() {
-        assert!(looks_like_max_output_tokens_unsupported_error(
+    fn recognizes_output_token_limit_unsupported_errors() {
+        assert!(looks_like_output_token_limit_unsupported_error(
             "Unknown parameter: max_output_tokens"
         ));
-        assert!(looks_like_max_output_tokens_unsupported_error(
+        assert!(looks_like_output_token_limit_unsupported_error(
             "max_output_tokens is not supported by this backend"
         ));
-        assert!(!looks_like_max_output_tokens_unsupported_error(
+        assert!(looks_like_output_token_limit_unsupported_error(
+            "max_completion_tokens is not recognized by this backend"
+        ));
+        assert!(!looks_like_output_token_limit_unsupported_error(
+            "invalid max_tokens value"
+        ));
+        assert!(!looks_like_output_token_limit_unsupported_error(
+            "max_tokens must be less than or equal to 8192"
+        ));
+        assert!(!looks_like_output_token_limit_unsupported_error(
             "request timed out after 30s"
         ));
     }
