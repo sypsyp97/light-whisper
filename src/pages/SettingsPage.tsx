@@ -125,7 +125,6 @@ const inputOptions = [
 const llmProviderOptions: ReadonlyArray<{
   key: string;
   label: string;
-  labelKey?: string;
   descKey: string;
   baseUrl: string;
   defaultModel: string;
@@ -162,15 +161,6 @@ const llmProviderOptions: ReadonlyArray<{
     baseUrl: "https://api.siliconflow.cn",
     defaultModel: "Qwen/Qwen3-32B",
     models: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-7B-Instruct"],
-  },
-  {
-    key: "custom",
-    label: "custom",
-    labelKey: "settings.customCompatLabel",
-    descKey: "settings.customCompatDesc",
-    baseUrl: "http://127.0.0.1:8000",
-    defaultModel: "gpt-4.1-mini",
-    models: ["gpt-4.1-mini", "gpt-4o-mini", "deepseek-chat"],
   },
 ];
 
@@ -233,12 +223,8 @@ function findLlmPreset(key: string) {
   return llmProviderOptions.find((option) => option.key === key) ?? llmProviderOptions[0];
 }
 
-function isBuiltinCustomPreset(key: string) {
-  return key === "custom";
-}
-
 function isFixedPresetProvider(key: string) {
-  return llmProviderOptions.some((option) => option.key === key) && !isBuiltinCustomPreset(key);
+  return llmProviderOptions.some((option) => option.key === key);
 }
 
 function resolveEffectiveProvider(key: string, customProviders: CustomProvider[]): string {
@@ -482,7 +468,7 @@ export default function SettingsPage({
     ],
     [customProviders],
   );
-  const providerSupportsCustomEndpoint = llmProvider === "custom" || customProviders.some((p) => p.id === llmProvider);
+  const providerSupportsCustomEndpoint = customProviders.some((p) => p.id === llmProvider);
   const effectiveAssistantProvider = resolveEffectiveAssistantProvider({
     assistantUseSeparateModel,
     assistantProvider,
@@ -1205,13 +1191,13 @@ export default function SettingsPage({
     const cp = customProviders.find((p) => p.id === effectiveProvider);
     if (cp) return { key: cp.id, label: cp.name, descKey: undefined as string | undefined, baseUrl: cp.base_url, defaultModel: cp.model, models: [] as string[], desc: cp.api_format === "anthropic" ? "Anthropic" : t("settings.openaiCompat") };
     const preset = findLlmPreset(effectiveProvider);
-    return { ...preset, label: preset.labelKey ? t(preset.labelKey) : preset.label, desc: t(preset.descKey) };
+    return { ...preset, label: preset.label, desc: t(preset.descKey) };
   }, [llmProvider, customProviders, t]);
   const currentAssistantPreset = useMemo(() => {
     const cp = customProviders.find((c) => c.id === effectiveAssistantProvider);
     if (cp) return { key: cp.id, label: cp.name, baseUrl: cp.base_url, defaultModel: cp.model, desc: cp.api_format === "anthropic" ? "Anthropic" : t("settings.openaiCompat") };
     const preset = findLlmPreset(effectiveAssistantProvider);
-    return { ...preset, label: preset.labelKey ? t(preset.labelKey) : preset.label, desc: t(preset.descKey) };
+    return { ...preset, label: preset.label, desc: t(preset.descKey) };
   }, [customProviders, effectiveAssistantProvider, t]);
   const assistantProviderDiffers =
     assistantUseSeparateModel && effectiveAssistantProvider !== llmProvider;
@@ -1419,7 +1405,7 @@ export default function SettingsPage({
     );
   }, [effectiveAssistantProvider, effectiveOpenaiAuthMode, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, handleOpenaiFastModeToggle, llmProvider, openaiCodexOauthLoading, openaiCodexOauthStatus, openaiFastMode, t]);
   const allProviderOptions = useMemo(() => {
-    const presets = llmProviderOptions.map((opt) => ({ key: opt.key, label: opt.labelKey ? t(opt.labelKey) : opt.label, desc: t(opt.descKey), baseUrl: opt.baseUrl, isCustom: false as const }));
+    const presets = llmProviderOptions.map((opt) => ({ key: opt.key, label: opt.label, desc: t(opt.descKey), baseUrl: opt.baseUrl, isCustom: false as const }));
     const customs = customProviders.map((cp) => ({
       key: cp.id,
       label: cp.name,
