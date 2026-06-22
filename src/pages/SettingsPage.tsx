@@ -560,8 +560,7 @@ export default function SettingsPage({
     nextAssistantModel: string,
     nextAssistantProvider?: string | null,
   ) => {
-    // openaiAuthMode 直接从闭包读最新值：useDebouncedCallback 内部用 useEffectEvent
-    // 包了 callback，每次 timer 触发时调用的是最新一版闭包，所以不用把它作为参数
+    // openaiAuthMode 直接从闭包读最新值：useDebouncedCallback 的 timer 触发时调用最新一版 callback。
     // 一路透传到所有 schedule 调用点（保持现有 call site 签名不变）。
     setLlmProviderConfig(
       provider,

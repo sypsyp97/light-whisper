@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 interface UseDebouncedCallbackOptions {
   onUnmount?: "cancel" | "flush";
@@ -9,9 +9,11 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
   delayMs: number,
   options?: UseDebouncedCallbackOptions,
 ) {
-  const callbackEvent = useEffectEvent(callback);
+  const callbackRef = useRef(callback);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingArgsRef = useRef<TArgs | null>(null);
+
+  callbackRef.current = callback;
 
   const cancel = useCallback(() => {
     if (timerRef.current !== null) {
@@ -29,8 +31,8 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
     clearTimeout(timerRef.current);
     timerRef.current = null;
     pendingArgsRef.current = null;
-    void callbackEvent(...args);
-  }, [callbackEvent]);
+    void callbackRef.current(...args);
+  }, []);
 
   const schedule = useCallback((...args: TArgs) => {
     cancel();
@@ -40,10 +42,10 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
       timerRef.current = null;
       pendingArgsRef.current = null;
       if (pendingArgs !== null) {
-        void callbackEvent(...pendingArgs);
+        void callbackRef.current(...pendingArgs);
       }
     }, delayMs);
-  }, [callbackEvent, cancel, delayMs]);
+  }, [cancel, delayMs]);
 
   useEffect(() => {
     return () => {
@@ -55,5 +57,5 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
     };
   }, [cancel, flush, options?.onUnmount]);
 
-  return { schedule, cancel, flush };
+  return useMemo(() => ({ schedule, cancel, flush }), [schedule, cancel, flush]);
 }
