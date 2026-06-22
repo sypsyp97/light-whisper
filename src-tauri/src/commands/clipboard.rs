@@ -30,6 +30,9 @@ fn make_key_input(vk: u16, scan: u16, flags: u32) -> INPUT {
 }
 
 #[cfg(target_os = "windows")]
+const CLIPBOARD_RESTORE_DELAY_MS: u64 = 200;
+
+#[cfg(target_os = "windows")]
 fn send_inputs(inputs: &[INPUT]) -> Result<(), AppError> {
     const SENDINPUT_CHUNK_SIZE: usize = 128;
 
@@ -291,6 +294,13 @@ pub fn replacement_value_if_raw_suffix_unchanged(
     (current_value == expected_current).then(|| format!("{value_before}{polished_text}"))
 }
 
+pub fn should_restore_clipboard_after_paste(
+    current_clipboard_text: Option<&str>,
+    paste_text: &str,
+) -> bool {
+    current_clipboard_text == Some(paste_text)
+}
+
 pub fn capture_raw_paste_replacement_target(raw_text: &str) -> Option<RawPasteReplacementToken> {
     #[cfg(target_os = "windows")]
     {
@@ -342,26 +352,65 @@ pub async fn paste_text_impl(
 
         if use_clipboard {
             use tauri_plugin_clipboard_manager::ClipboardExt;
+            use uiautomation::clipboards::{Clipboard, Snapshot};
+
+            fn capture_clipboard_snapshot() -> Result<Snapshot, AppError> {
+                let clipboard = Clipboard::open()
+                    .map_err(|e| AppError::Other(format!("打开剪贴板以创建快照失败: {}", e)))?;
+                clipboard
+                    .snapshot(true)
+                    .map_err(|e| AppError::Other(format!("创建剪贴板快照失败: {}", e)))
+            }
+
+            fn restore_clipboard_snapshot(snapshot: Snapshot) -> Result<(), AppError> {
+                let clipboard = Clipboard::open()
+                    .map_err(|e| AppError::Other(format!("打开剪贴板以恢复快照失败: {}", e)))?;
+                clipboard
+                    .restore(snapshot)
+                    .map_err(|e| AppError::Other(format!("恢复剪贴板快照失败: {}", e)))
+            }
+
+            let clipboard_snapshot = capture_clipboard_snapshot()?;
 
             app_handle
                 .clipboard()
                 .write_text(text)
                 .map_err(|e| AppError::Other(format!("写入剪贴板失败: {}", e)))?;
 
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let paste_result = (|| -> Result<(), AppError> {
+                std::thread::sleep(std::time::Duration::from_millis(10));
 
-            release_stuck_modifiers()?;
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                release_stuck_modifiers()?;
+                std::thread::sleep(std::time::Duration::from_millis(20));
 
-            const VK_CONTROL: u16 = 0x11;
-            const VK_V: u16 = 0x56;
-            let inputs = [
-                make_key_input(VK_CONTROL, 0, 0),
-                make_key_input(VK_V, 0, 0),
-                make_key_input(VK_V, 0, KEYEVENTF_KEYUP),
-                make_key_input(VK_CONTROL, 0, KEYEVENTF_KEYUP),
-            ];
-            send_inputs(&inputs)?;
+                const VK_CONTROL: u16 = 0x11;
+                const VK_V: u16 = 0x56;
+                let inputs = [
+                    make_key_input(VK_CONTROL, 0, 0),
+                    make_key_input(VK_V, 0, 0),
+                    make_key_input(VK_V, 0, KEYEVENTF_KEYUP),
+                    make_key_input(VK_CONTROL, 0, KEYEVENTF_KEYUP),
+                ];
+                send_inputs(&inputs)
+            })();
+
+            if paste_result.is_ok() {
+                std::thread::sleep(std::time::Duration::from_millis(CLIPBOARD_RESTORE_DELAY_MS));
+            }
+
+            let current_clipboard_text = app_handle.clipboard().read_text().ok();
+            if should_restore_clipboard_after_paste(current_clipboard_text.as_deref(), text) {
+                if let Err(e) = restore_clipboard_snapshot(clipboard_snapshot) {
+                    log::warn!("{}", e);
+                    if paste_result.is_ok() {
+                        return Err(e);
+                    }
+                }
+            } else {
+                log::debug!("剪贴板内容已变化，跳过恢复以保留用户的新剪贴板内容");
+            }
+
+            paste_result?;
         } else {
             use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SendMessageW};
 
@@ -456,7 +505,7 @@ pub async fn paste_text_impl(
 
 #[cfg(test)]
 mod tests {
-    use super::replacement_value_if_raw_suffix_unchanged;
+    use super::{replacement_value_if_raw_suffix_unchanged, should_restore_clipboard_after_paste};
 
     #[test]
     fn sendinput_wrapper_treats_partial_sends_as_failure() {
@@ -477,6 +526,69 @@ mod tests {
         assert!(
             source.contains("chunks(") || source.contains("SENDINPUT_CHUNK"),
             "long Unicode paste text must be chunked before SendInput to avoid oversized input arrays"
+        );
+    }
+
+    #[test]
+    fn clipboard_restore_guard_allows_restoring_only_app_written_text() {
+        assert!(should_restore_clipboard_after_paste(
+            Some("dictated clipboard text"),
+            "dictated clipboard text"
+        ));
+    }
+
+    #[test]
+    fn clipboard_restore_guard_preserves_user_clipboard_change() {
+        assert!(!should_restore_clipboard_after_paste(
+            Some("new user clipboard text"),
+            "dictated clipboard text"
+        ));
+    }
+
+    #[test]
+    fn clipboard_restore_guard_skips_unavailable_or_non_text_clipboard() {
+        assert!(!should_restore_clipboard_after_paste(
+            None,
+            "dictated clipboard text"
+        ));
+    }
+
+    #[test]
+    fn clipboard_mode_snapshots_before_write_and_restores_after_paste_attempt() {
+        let source = include_str!("clipboard.rs");
+        let clipboard_branch_start = source
+            .find("if use_clipboard")
+            .expect("clipboard mode branch should exist");
+        let clipboard_branch = &source[clipboard_branch_start..];
+
+        let snapshot_pos = clipboard_branch.find("capture_clipboard_snapshot").expect(
+            "clipboard mode must capture the user's clipboard snapshot before writing paste text",
+        );
+        let write_pos = clipboard_branch
+            .find("write_text(text)")
+            .expect("clipboard mode must write the dictated paste text");
+        assert!(
+            snapshot_pos < write_pos,
+            "clipboard snapshot must be captured before writing the paste text"
+        );
+
+        let paste_attempt_pos = clipboard_branch
+            .find("send_inputs(&inputs)")
+            .expect("clipboard mode must attempt Ctrl+V paste");
+        let restore_guard_pos = clipboard_branch
+            .find("should_restore_clipboard_after_paste")
+            .expect("clipboard mode restore must be guarded by the current clipboard value");
+        let restore_delay_pos = clipboard_branch
+            .find("CLIPBOARD_RESTORE_DELAY_MS")
+            .expect("clipboard mode must delay restore long enough for Ctrl+V to consume text");
+        let restore_pos = clipboard_branch
+            .find("restore_clipboard_snapshot(clipboard_snapshot)")
+            .expect("clipboard mode must restore the previous clipboard snapshot");
+        assert!(
+            paste_attempt_pos < restore_delay_pos
+                && restore_delay_pos < restore_guard_pos
+                && restore_guard_pos < restore_pos,
+            "clipboard restore must wait after the Ctrl+V paste attempt, then run through the restore guard"
         );
     }
 
