@@ -115,6 +115,13 @@ export interface OpenaiCodexOauthStatus {
   expiresAtMs?: number | null;
 }
 
+export interface OpenaiCodexOauthDeviceCodeChallenge {
+  verificationUrl: string;
+  userCode: string;
+  deviceAuthId: string;
+  intervalSecs: number;
+}
+
 // 热词来源
 export type HotWordSource = "user" | "learned";
 

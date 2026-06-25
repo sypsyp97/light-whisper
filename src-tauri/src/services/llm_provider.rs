@@ -536,6 +536,9 @@ pub fn looks_like_image_input_unsupported_error(message: &str) -> bool {
             || normalized.contains("unsupported content type")
             || normalized.contains("unsupported modality")
             || normalized.contains("modalities are not supported")
+            || (normalized.contains("unknown variant")
+                && normalized.contains("expected")
+                && normalized.contains("text"))
             || normalized.contains("invalid_value"))
 }
 
@@ -1563,6 +1566,9 @@ mod tests {
         ));
         assert!(looks_like_image_input_unsupported_error(
             "unsupported content type: input_image"
+        ));
+        assert!(looks_like_image_input_unsupported_error(
+            "API 返回错误 400 Bad Request: Failed to deserialize the JSON body into the target type: messages[1]: unknown variant `image_url`, expected `text` at line 1 column 127501 (code: invalid_request_error)"
         ));
         assert!(!looks_like_image_input_unsupported_error(
             "API 返回错误 401: invalid api key"

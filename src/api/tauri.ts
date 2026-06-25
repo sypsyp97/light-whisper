@@ -16,6 +16,7 @@ import type {
   LlmReasoningSupport,
   ModelCheckResult,
   OpenaiAuthMode,
+  OpenaiCodexOauthDeviceCodeChallenge,
   OpenaiCodexOauthStatus,
   TranscriptionResult,
   UserProfile,
@@ -122,6 +123,12 @@ export const showSubtitleWindow = createNoArgCommand<string>("show_subtitle_wind
 export const hideSubtitleWindow = createNoArgCommand<string>("hide_subtitle_window");
 export const getOpenaiCodexOauthStatus = createNoArgCommand<OpenaiCodexOauthStatus>("get_openai_codex_oauth_status");
 export const loginOpenaiCodexOauth = createNoArgCommand<OpenaiCodexOauthStatus>("login_openai_codex_oauth");
+export const startOpenaiCodexOauthDeviceCode = createNoArgCommand<OpenaiCodexOauthDeviceCodeChallenge>("start_openai_codex_oauth_device_code");
+export function completeOpenaiCodexOauthDeviceCode(
+  challenge: OpenaiCodexOauthDeviceCodeChallenge
+): Promise<OpenaiCodexOauthStatus> {
+  return invokeCommand<OpenaiCodexOauthStatus>("complete_openai_codex_oauth_device_code", { challenge });
+}
 export const logoutOpenaiCodexOauth = createNoArgCommand<void>("logout_openai_codex_oauth");
 
 export const unregisterAllHotkeys = createNoArgCommand<string>("unregister_all_hotkeys");

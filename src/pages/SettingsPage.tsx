@@ -58,7 +58,10 @@ import {
   setAssistantApiKey,
   getAssistantApiKey,
   loginOpenaiCodexOauth,
+  startOpenaiCodexOauthDeviceCode,
+  completeOpenaiCodexOauthDeviceCode,
   logoutOpenaiCodexOauth,
+  copyToClipboard,
   setOpenaiFastMode,
   setWebSearchConfig,
   setWebSearchApiKey,
@@ -68,7 +71,7 @@ import {
   removeCorrection,
   hideMainWindow,
 } from "@/api/tauri";
-import type { AiModelInfo, CorrectionPattern, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthStatus, WebSearchProvider } from "@/types";
+import type { AiModelInfo, CorrectionPattern, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, WebSearchProvider } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
@@ -414,6 +417,7 @@ export default function SettingsPage({
   const [aiPolishApiKey, setAiPolishApiKey] = useState("");
   const [openaiCodexOauthStatus, setOpenaiCodexOauthStatus] = useState<OpenaiCodexOauthStatus>({ loggedIn: false });
   const [openaiCodexOauthLoading, setOpenaiCodexOauthLoading] = useState(false);
+  const [openaiCodexOauthDeviceCode, setOpenaiCodexOauthDeviceCode] = useState<OpenaiCodexOauthDeviceCodeChallenge | null>(null);
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
@@ -1200,34 +1204,63 @@ export default function SettingsPage({
   }, [customProviders, effectiveAssistantProvider, t]);
   const assistantProviderDiffers =
     assistantUseSeparateModel && effectiveAssistantProvider !== llmProvider;
+  const finalizeOpenaiCodexOauthLogin = useCallback(async (loginStatus: OpenaiCodexOauthStatus) => {
+    setOpenaiCodexOauthStatus(loginStatus);
+    const refreshedStatus = await refreshOpenaiCodexOauthStatus();
+    if (refreshedStatus.loggedIn) {
+      setOpenaiCodexOauthStatus(refreshedStatus);
+    }
+    if (llmProvider === "openai") {
+      void refreshAiModels(true);
+    }
+    if (effectiveAssistantProvider === "openai") {
+      void refreshAssistantModels(true);
+    }
+    setOpenaiCodexOauthDeviceCode(null);
+    toast.success(t("toast.codexOauthLoginSuccess"));
+  }, [effectiveAssistantProvider, llmProvider, refreshAiModels, refreshAssistantModels, refreshOpenaiCodexOauthStatus, t]);
   const handleOpenaiCodexOauthLogin = useCallback(async () => {
     setOpenaiCodexOauthLoading(true);
     try {
       const loginStatus = await loginOpenaiCodexOauth();
-      setOpenaiCodexOauthStatus(loginStatus);
-      const refreshedStatus = await refreshOpenaiCodexOauthStatus();
-      if (refreshedStatus.loggedIn) {
-        setOpenaiCodexOauthStatus(refreshedStatus);
-      }
-      if (llmProvider === "openai") {
-        void refreshAiModels(true);
-      }
-      if (effectiveAssistantProvider === "openai") {
-        void refreshAssistantModels(true);
-      }
-      toast.success(t("toast.codexOauthLoginSuccess"));
+      await finalizeOpenaiCodexOauthLogin(loginStatus);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("toast.codexOauthLoginFailed"));
     } finally {
       setOpenaiCodexOauthLoading(false);
     }
-  }, [effectiveAssistantProvider, llmProvider, refreshAiModels, refreshAssistantModels, refreshOpenaiCodexOauthStatus, t]);
+  }, [finalizeOpenaiCodexOauthLogin, t]);
+  const handleOpenaiCodexOauthDeviceCodeStart = useCallback(async () => {
+    setOpenaiCodexOauthLoading(true);
+    try {
+      const challenge = await startOpenaiCodexOauthDeviceCode();
+      setOpenaiCodexOauthDeviceCode(challenge);
+      toast.success(t("settings.codexOauthDeviceCodeReady"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("toast.codexOauthLoginFailed"));
+    } finally {
+      setOpenaiCodexOauthLoading(false);
+    }
+  }, [t]);
+  const handleOpenaiCodexOauthDeviceCodeComplete = useCallback(async () => {
+    if (!openaiCodexOauthDeviceCode) return;
+    setOpenaiCodexOauthLoading(true);
+    try {
+      const loginStatus = await completeOpenaiCodexOauthDeviceCode(openaiCodexOauthDeviceCode);
+      await finalizeOpenaiCodexOauthLogin(loginStatus);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("toast.codexOauthLoginFailed"));
+    } finally {
+      setOpenaiCodexOauthLoading(false);
+    }
+  }, [finalizeOpenaiCodexOauthLogin, openaiCodexOauthDeviceCode, t]);
   const handleOpenaiCodexOauthLogout = useCallback(async () => {
     setOpenaiCodexOauthLoading(true);
     try {
       await logoutOpenaiCodexOauth();
       const status = { loggedIn: false } as OpenaiCodexOauthStatus;
       setOpenaiCodexOauthStatus(status);
+      setOpenaiCodexOauthDeviceCode(null);
       if (!aiPolishApiKey.trim()) {
         setAiModels([]);
         setAiModelsSourceUrl("");
@@ -1350,6 +1383,17 @@ export default function SettingsPage({
                 ? t("settings.codexOauthReauth")
                 : t("settings.codexOauthLogin")}
           </button>
+          {!loggedIn ? (
+            <button
+              type="button"
+              className="btn-ghost btn-ghost-sm"
+              onClick={() => { void handleOpenaiCodexOauthDeviceCodeStart(); }}
+              disabled={openaiCodexOauthLoading}
+              style={{ opacity: openaiCodexOauthLoading ? 0.7 : 1 }}
+            >
+              {t("settings.codexOauthDeviceCodeLogin")}
+            </button>
+          ) : null}
           {loggedIn ? (
             <button
               type="button"
@@ -1362,6 +1406,39 @@ export default function SettingsPage({
             </button>
           ) : null}
         </div>
+        {openaiCodexOauthDeviceCode && !loggedIn ? (
+          <div className="settings-column" style={{ gap: 6 }}>
+            <p className="settings-hint" style={{ margin: 0 }}>
+              {t("settings.codexOauthDeviceCodeReady")}
+            </p>
+            <code className="settings-hint" style={{ margin: 0, wordBreak: "break-all" }}>
+              {openaiCodexOauthDeviceCode.verificationUrl}
+            </code>
+            <div className="settings-row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <code style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0 }}>
+                {openaiCodexOauthDeviceCode.userCode}
+              </code>
+              <button
+                type="button"
+                className="btn-ghost btn-ghost-sm"
+                onClick={() => { void copyToClipboard(openaiCodexOauthDeviceCode.userCode); }}
+              >
+                {t("common.copy")}
+              </button>
+              <button
+                type="button"
+                className="test-btn"
+                onClick={() => { void handleOpenaiCodexOauthDeviceCodeComplete(); }}
+                disabled={openaiCodexOauthLoading}
+                style={{ opacity: openaiCodexOauthLoading ? 0.7 : 1 }}
+              >
+                {openaiCodexOauthLoading
+                  ? t("settings.codexOauthWorking")
+                  : t("settings.codexOauthDeviceCodeContinue")}
+              </button>
+            </div>
+          </div>
+        ) : null}
         {shouldShowFastModeToggle({
           scope,
           loggedIn,
@@ -1402,7 +1479,7 @@ export default function SettingsPage({
         ) : null}
       </div>
     );
-  }, [effectiveAssistantProvider, effectiveOpenaiAuthMode, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, handleOpenaiFastModeToggle, llmProvider, openaiCodexOauthLoading, openaiCodexOauthStatus, openaiFastMode, t]);
+  }, [effectiveAssistantProvider, effectiveOpenaiAuthMode, handleOpenaiCodexOauthDeviceCodeComplete, handleOpenaiCodexOauthDeviceCodeStart, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, handleOpenaiFastModeToggle, llmProvider, openaiCodexOauthDeviceCode, openaiCodexOauthLoading, openaiCodexOauthStatus, openaiFastMode, t]);
   const allProviderOptions = useMemo(() => {
     const presets = llmProviderOptions.map((opt) => ({ key: opt.key, label: opt.label, desc: t(opt.descKey), baseUrl: opt.baseUrl, isCustom: false as const }));
     const customs = customProviders.map((cp) => ({

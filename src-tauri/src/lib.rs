@@ -186,6 +186,8 @@ pub fn run() {
             commands::clipboard::copy_to_clipboard,
             commands::clipboard::paste_text,
             commands::codex_oauth::login_openai_codex_oauth,
+            commands::codex_oauth::start_openai_codex_oauth_device_code,
+            commands::codex_oauth::complete_openai_codex_oauth_device_code,
             commands::codex_oauth::logout_openai_codex_oauth,
             commands::codex_oauth::get_openai_codex_oauth_status,
             commands::window::hide_main_window,
