@@ -31,6 +31,13 @@ vi.mock("@tauri-apps/api/event", async () => {
 import * as api from "@/api/tauri";
 import { VocabularySection } from "@/components/settings/VocabularySection";
 
+async function openCorrectionRules() {
+  const button = screen.getByTestId("correction-rules-btn");
+  await waitFor(() => expect(button).not.toBeDisabled());
+  await userEvent.click(button);
+  return screen.findByTestId("modal-correction-rules");
+}
+
 describe("VocabularySection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -58,13 +65,12 @@ describe("VocabularySection", () => {
 
   it("opens correction rules modal when the manage button is clicked", async () => {
     render(<VocabularySection />);
-    await userEvent.click(screen.getByTestId("correction-rules-btn"));
-    expect(await screen.findByTestId("modal-correction-rules")).toBeInTheDocument();
+    expect(await openCorrectionRules()).toBeInTheDocument();
   });
 
   it("running validation calls validateCorrections", async () => {
     render(<VocabularySection />);
-    await userEvent.click(screen.getByTestId("correction-rules-btn"));
+    await openCorrectionRules();
     const validateBtn = await screen.findByTestId("correction-validate-btn");
     await userEvent.click(validateBtn);
     await waitFor(() => {
@@ -74,7 +80,7 @@ describe("VocabularySection", () => {
 
   it("toggling validation separate model does not mutate the main polish provider", async () => {
     render(<VocabularySection />);
-    await userEvent.click(screen.getByTestId("correction-rules-btn"));
+    await openCorrectionRules();
     await userEvent.click(await screen.findByTestId("correction-validation-separate-toggle"));
 
     await waitFor(() => {
@@ -109,10 +115,64 @@ describe("VocabularySection", () => {
     });
 
     render(<VocabularySection />);
-    await userEvent.click(screen.getByTestId("correction-rules-btn"));
+    await openCorrectionRules();
     const picker = await screen.findByTestId("correction-validation-provider");
     expect(picker).toHaveTextContent("OpenRouter");
     await userEvent.click(picker);
     expect(await screen.findByTestId("correction-validation-provider-option-provider-id")).toHaveTextContent("OpenRouter");
+  });
+
+  it("saves validation provider and model before running validation", async () => {
+    vi.mocked(api.getUserProfile).mockResolvedValueOnce({
+      hot_words: [],
+      correction_patterns: [
+        { original: "teh", corrected: "the", count: 1, last_seen: 0, source: "ai" },
+      ],
+      vocab_frequency: {},
+      total_transcriptions: 0,
+      last_updated: 0,
+      correction_validation_enabled: true,
+      llm_provider: {
+        active: "openai",
+        validation_use_separate_model: true,
+        validation_provider: "openai",
+        validation_model: "validator-v1",
+        custom_providers: [],
+      },
+    });
+
+    render(<VocabularySection />);
+    await openCorrectionRules();
+    const providerPicker = await screen.findByTestId("correction-validation-provider");
+    await userEvent.click(providerPicker);
+    await userEvent.click(await screen.findByTestId("correction-validation-provider-option-deepseek"));
+    const modelInput = await screen.findByTestId("correction-validation-model");
+    await userEvent.clear(modelInput);
+    await userEvent.type(modelInput, "validator-v2");
+    await userEvent.click(await screen.findByTestId("correction-validate-btn"));
+
+    await waitFor(() => {
+      expect(vi.mocked(api.validateCorrections)).toHaveBeenCalled();
+    });
+
+    const saveCalls = vi.mocked(api.setCorrectionValidationConfig).mock.calls;
+    const savedIndex = saveCalls.findIndex(([params]) => (
+      params.provider === "deepseek" && params.model === "validator-v2"
+    ));
+    expect(savedIndex).toBeGreaterThanOrEqual(0);
+    expect(vi.mocked(api.setCorrectionValidationConfig).mock.invocationCallOrder[savedIndex])
+      .toBeLessThan(vi.mocked(api.validateCorrections).mock.invocationCallOrder[0]);
+  });
+
+  it("does not open or save correction validation defaults before profile loads", async () => {
+    vi.mocked(api.getUserProfile).mockReturnValueOnce(new Promise(() => {}) as ReturnType<typeof api.getUserProfile>);
+
+    render(<VocabularySection />);
+    const button = screen.getByTestId("correction-rules-btn");
+    expect(button).toBeDisabled();
+    await userEvent.click(button);
+
+    expect(screen.queryByTestId("modal-correction-rules")).not.toBeInTheDocument();
+    expect(vi.mocked(api.setCorrectionValidationConfig)).not.toHaveBeenCalled();
   });
 });

@@ -128,6 +128,7 @@ const en: TranslationSchema = {
     translationSaveFailed: "Failed to save translation settings",
     customPromptSaveFailed: "Failed to save custom prompt",
     assistantPromptSaveFailed: "Failed to save assistant prompt",
+    correctionValidationConfigSaveFailed: "Failed to save correction audit settings",
     assistantScreenContextFailed: "Assistant screen context setting failed",
     polishScreenContextFailed: "Polish screen context setting failed",
     modelsDirUpdated: "Model directory updated",

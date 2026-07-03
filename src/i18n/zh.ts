@@ -126,6 +126,7 @@ const zh = {
     translationSaveFailed: "保存翻译设置失败",
     customPromptSaveFailed: "保存自定义指令失败",
     assistantPromptSaveFailed: "保存助手提示词失败",
+    correctionValidationConfigSaveFailed: "保存纠错审核设置失败",
     assistantScreenContextFailed: "助手屏幕感知设置失败",
     polishScreenContextFailed: "润色屏幕感知设置失败",
     modelsDirUpdated: "模型目录已更新",

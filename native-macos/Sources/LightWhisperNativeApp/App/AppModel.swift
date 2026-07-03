@@ -9,7 +9,13 @@ final class AppModel: ObservableObject {
     @Published var userProfile: UserProfile
     @Published var selectedInputDeviceUID: String?
     @Published var onlineASRAPIKey = ""
-    @Published var aiPolishAPIKey = ""
+    @Published var aiPolishAPIKey = "" {
+        didSet {
+            if assistantUsesActiveProviderKeychainUser(), assistantAPIKey != aiPolishAPIKey {
+                assistantAPIKey = aiPolishAPIKey
+            }
+        }
+    }
     @Published var assistantAPIKey = ""
     @Published var webSearchAPIKey = ""
     @Published var statusMessage = "Ready"
@@ -37,6 +43,7 @@ final class AppModel: ObservableObject {
         userProfile = (try? ProfileManagementService.load()) ?? UserProfile.defaultValue()
         let persistedWorkflow = UserDefaults.standard.string(forKey: Self.activeWorkflowDefaultsKey)
         activeWorkflow = persistedWorkflow.flatMap(RecordingWorkflow.init(rawValue:)) ?? .dictation
+        loadCredentialFields()
     }
 
     func bindMainWindow(_ window: NSWindow?) {
@@ -94,18 +101,50 @@ final class AppModel: ObservableObject {
         persistAPIKey(onlineASRAPIKey, user: engineSettings.onlineASRKeychainUser())
     }
 
+    func loadOnlineASRAPIKey() {
+        onlineASRAPIKey = loadAPIKey(user: engineSettings.onlineASRKeychainUser())
+    }
+
     func persistAIPolishAPIKey() {
         persistAPIKey(aiPolishAPIKey, user: LLMProviderCatalog.keychainUser(for: userProfile.llmProvider.resolveActiveProvider()))
     }
 
+    func loadAIPolishAPIKey() {
+        aiPolishAPIKey = loadAPIKey(user: LLMProviderCatalog.keychainUser(for: userProfile.llmProvider.resolveActiveProvider()))
+    }
+
     func persistAssistantAPIKey() {
+        guard !assistantUsesActiveProviderKeychainUser() else {
+            return
+        }
         let provider = userProfile.llmProvider.resolveAssistantProvider()
         persistAPIKey(assistantAPIKey, user: LLMProviderCatalog.keychainUser(for: provider))
+    }
+
+    func loadAssistantAPIKey() {
+        guard !assistantUsesActiveProviderKeychainUser() else {
+            assistantAPIKey = aiPolishAPIKey
+            return
+        }
+        let provider = userProfile.llmProvider.resolveAssistantProvider()
+        assistantAPIKey = loadAPIKey(user: LLMProviderCatalog.keychainUser(for: provider))
     }
 
     func persistWebSearchAPIKey() {
         let user = "web-search-\(userProfile.webSearch.provider.rawValue)-api-key"
         persistAPIKey(webSearchAPIKey, user: user)
+    }
+
+    func loadWebSearchAPIKey() {
+        let user = "web-search-\(userProfile.webSearch.provider.rawValue)-api-key"
+        webSearchAPIKey = loadAPIKey(user: user)
+    }
+
+    func loadCredentialFields() {
+        loadOnlineASRAPIKey()
+        loadAIPolishAPIKey()
+        loadAssistantAPIKey()
+        loadWebSearchAPIKey()
     }
 
     func flushPendingChanges() {
@@ -194,6 +233,21 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func loadAPIKey(user: String) -> String {
+        do {
+            return try keychainStore.string(for: user) ?? ""
+        } catch {
+            errorMessage = error.localizedDescription
+            return ""
+        }
+    }
+
+    private func assistantUsesActiveProviderKeychainUser() -> Bool {
+        let activeUser = LLMProviderCatalog.keychainUser(for: userProfile.llmProvider.resolveActiveProvider())
+        let assistantUser = LLMProviderCatalog.keychainUser(for: userProfile.llmProvider.resolveAssistantProvider())
+        return activeUser == assistantUser
     }
 }
 

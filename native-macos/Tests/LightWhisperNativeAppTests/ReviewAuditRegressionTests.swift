@@ -134,18 +134,32 @@ struct ReviewAuditRegressionTests {
         let assistantProviderSegment = try fixture.segment(
             in: source,
             from: #"Picker("Assistant Provider", selection:"#,
-            to: "TextField(\n                        \"Assistant Model\","
+            to: #"Toggle("Screen Context""#
         )
 
         let engineChangeFlushesPendingASRKey =
             engineSegment.contains("flushPendingChanges()")
-            || engineSegment.containsRegex(#"persistOnlineASRAPIKey\(\)[\s\S]{0,80}persistEngineSettings\(\)"#)
+            || (
+                engineSegment.contains("model.persistOnlineASRAPIKey()")
+                    && engineSegment.contains("model.persistEngineSettings()")
+                    && engineSegment.contains("model.loadOnlineASRAPIKey()")
+            )
         let providerChangeFlushesPendingLLMKeys =
             providerSegment.contains("flushPendingChanges()")
-            || providerSegment.containsRegex(#"persistAIPolishAPIKey\(\)[\s\S]{0,120}persistAssistantAPIKey\(\)[\s\S]{0,120}persistUserProfile\(\)"#)
+            || (
+                providerSegment.contains("model.persistAIPolishAPIKey()")
+                    && providerSegment.contains("model.persistAssistantAPIKey()")
+                    && providerSegment.contains("model.persistUserProfile()")
+                    && providerSegment.contains("model.loadAIPolishAPIKey()")
+                    && providerSegment.contains("model.loadAssistantAPIKey()")
+            )
         let assistantProviderChangeFlushesAssistantKey =
             assistantProviderSegment.contains("flushPendingChanges()")
-            || assistantProviderSegment.containsRegex(#"persistAssistantAPIKey\(\)[\s\S]{0,120}persistUserProfile\(\)"#)
+            || (
+                assistantProviderSegment.contains("model.persistAssistantAPIKey()")
+                    && assistantProviderSegment.contains("model.persistUserProfile()")
+                    && assistantProviderSegment.contains("model.loadAssistantAPIKey()")
+            )
 
         #expect(
             engineChangeFlushesPendingASRKey,

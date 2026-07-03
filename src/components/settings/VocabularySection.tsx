@@ -19,6 +19,7 @@ import Modal from "@/components/ui/Modal";
 import Segmented from "@/components/ui/Segmented";
 import Toggle from "@/components/ui/Toggle";
 import Picker from "@/components/ui/Picker";
+import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 
 export function VocabularySection() {
   const { t } = useTranslation();
@@ -104,6 +105,7 @@ export function VocabularySection() {
         <Button
           variant="ghost"
           onClick={() => setShowRules(true)}
+          disabled={!profile}
           data-testid="correction-rules-btn"
         >
           {t("settings.correctionRules")} · {t("settings.correctionRulesCount", { count: corrections.length })}
@@ -176,33 +178,72 @@ function CorrectionRulesModal({
     try { await removeCorrection(c.original, c.corrected); } catch { /* */ }
   }, []);
 
+  const persistValidationConfig = useCallback((
+    enabled: boolean,
+    useSeparateModel: boolean,
+    provider: string,
+    model: string,
+  ) => setCorrectionValidationConfig({
+    enabled,
+    useSeparateModel,
+    provider: provider || null,
+    model: model || null,
+  }), []);
+
+  const validationModelSave = useDebouncedCallback(
+    (
+      enabled: boolean,
+      useSeparateModel: boolean,
+      provider: string,
+      model: string,
+    ) => {
+      void persistValidationConfig(enabled, useSeparateModel, provider, model)
+        .catch(() => { toast.error(t("toast.correctionValidationConfigSaveFailed")); });
+    },
+    350,
+    { onUnmount: "cancel" },
+  );
+
   const handleValidationToggle = useCallback(async (next: boolean) => {
+    validationModelSave.cancel();
     setValidationEnabled(next);
     try {
-      await setCorrectionValidationConfig({
-        enabled: next,
-        useSeparateModel: separateModel,
-        provider: validationProvider || null,
-        model: validationModel || null,
-      });
-    } catch { /* */ }
-  }, [separateModel, validationProvider, validationModel]);
+      await persistValidationConfig(next, separateModel, validationProvider, validationModel);
+    } catch {
+      toast.error(t("toast.correctionValidationConfigSaveFailed"));
+    }
+  }, [persistValidationConfig, separateModel, t, validationModel, validationModelSave, validationProvider]);
 
   const handleSeparateToggle = useCallback(async (next: boolean) => {
+    validationModelSave.cancel();
     setSeparateModel(next);
     try {
-      await setCorrectionValidationConfig({
-        enabled: validationEnabled,
-        useSeparateModel: next,
-        provider: validationProvider || null,
-        model: validationModel || null,
-      });
-    } catch { /* */ }
-  }, [validationEnabled, validationProvider, validationModel]);
+      await persistValidationConfig(validationEnabled, next, validationProvider, validationModel);
+    } catch {
+      toast.error(t("toast.correctionValidationConfigSaveFailed"));
+    }
+  }, [persistValidationConfig, t, validationEnabled, validationModel, validationModelSave, validationProvider]);
+
+  const handleValidationProviderChange = useCallback(async (next: string) => {
+    validationModelSave.cancel();
+    setValidationProvider(next);
+    try {
+      await persistValidationConfig(validationEnabled, separateModel, next, validationModel);
+    } catch {
+      toast.error(t("toast.correctionValidationConfigSaveFailed"));
+    }
+  }, [persistValidationConfig, separateModel, t, validationEnabled, validationModel, validationModelSave]);
+
+  const handleValidationModelChange = useCallback((next: string) => {
+    setValidationModel(next);
+    validationModelSave.schedule(validationEnabled, separateModel, validationProvider, next);
+  }, [separateModel, validationEnabled, validationModelSave, validationProvider]);
 
   const handleValidate = useCallback(async () => {
+    validationModelSave.cancel();
     setValidating(true);
     try {
+      await persistValidationConfig(validationEnabled, separateModel, validationProvider, validationModel);
       const count = await validateCorrections();
       if (count > 0) toast.success(t("settings.correctionValidationRemoved", { count }));
       else toast.success(t("settings.correctionValidationAllValid"));
@@ -211,10 +252,39 @@ function CorrectionRulesModal({
     } finally {
       setValidating(false);
     }
-  }, [t]);
+  }, [
+    persistValidationConfig,
+    separateModel,
+    t,
+    validationEnabled,
+    validationModel,
+    validationModelSave,
+    validationProvider,
+  ]);
+
+  const handleClose = useCallback(() => {
+    validationModelSave.cancel();
+    if (!profile) {
+      onClose();
+      return;
+    }
+    void persistValidationConfig(validationEnabled, separateModel, validationProvider, validationModel)
+      .then(onClose)
+      .catch(() => toast.error(t("toast.correctionValidationConfigSaveFailed")));
+  }, [
+    onClose,
+    persistValidationConfig,
+    separateModel,
+    t,
+    validationEnabled,
+    validationModel,
+    validationModelSave,
+    validationProvider,
+    profile,
+  ]);
 
   return (
-    <Modal open={open} onClose={onClose} title={t("settings.correctionRules")} data-testid="modal-correction-rules">
+    <Modal open={open} onClose={handleClose} title={t("settings.correctionRules")} data-testid="modal-correction-rules">
       <div className="lw-stack lw-stack--md">
         <Segmented
           value={filter}
@@ -272,17 +342,17 @@ function CorrectionRulesModal({
           {separateModel && (
             <>
               <Field label={t("settings.provider")}>
-	                <Picker
-	                  value={validationProvider}
-	                  options={validationProviderOptions}
-	                  onChange={setValidationProvider}
-	                  data-testid="correction-validation-provider"
-	                />
+                <Picker
+                  value={validationProvider}
+                  options={validationProviderOptions}
+                  onChange={(v) => void handleValidationProviderChange(v)}
+                  data-testid="correction-validation-provider"
+                />
               </Field>
               <Field label={t("settings.modelLabel")}>
                 <TextInput
                   value={validationModel}
-                  onChange={setValidationModel}
+                  onChange={handleValidationModelChange}
                   placeholder={t("settings.correctionValidationModelPlaceholder")}
                   data-testid="correction-validation-model"
                 />

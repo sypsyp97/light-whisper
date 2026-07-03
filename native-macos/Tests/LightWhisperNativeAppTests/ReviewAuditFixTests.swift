@@ -165,6 +165,104 @@ struct ReviewAuditFixTests {
             "Local install should launch the installed app after deployment."
         )
     }
+
+    @Test
+    func nativeSettingsEditsNamedCustomProvidersInPlace() throws {
+        let fixture = try ReviewAuditFixture()
+        let settingsSource = try fixture.packageContents(
+            of: "Sources/LightWhisperNativeApp/App/Views/SettingsView.swift"
+        )
+
+        #expect(
+            settingsSource.contains("ForEach(model.userProfile.llmProvider.customProviders)"),
+            "Native settings should include named custom providers in provider pickers."
+        )
+        #expect(
+            settingsSource.contains("customProviders[index].baseURL = value"),
+            "Editing Base URL for a named custom provider should update customProviders[index].baseURL, which is the field used by endpoint resolution."
+        )
+        #expect(
+            settingsSource.contains("customProviders[index].model = value"),
+            "Editing Model for a named custom provider should update customProviders[index].model instead of the legacy global custom model field."
+        )
+    }
+
+    @Test
+    func nativeAssistantProviderSelectionTogglesSeparateModelState() throws {
+        let fixture = try ReviewAuditFixture()
+        let settingsSource = try fixture.packageContents(
+            of: "Sources/LightWhisperNativeApp/App/Views/SettingsView.swift"
+        )
+
+        #expect(settingsSource.contains("followActiveAssistantProviderTag"))
+        #expect(
+            settingsSource.contains("assistantUseSeparateModel = false"),
+            "Choosing Use Active Provider should explicitly disable assistant separate-model resolution."
+        )
+        #expect(
+            settingsSource.contains("assistantUseSeparateModel = true"),
+            "Choosing a concrete assistant provider should enable assistant separate-model resolution."
+        )
+        #expect(
+            settingsSource.contains("model.persistAssistantAPIKey()"),
+            "Changing assistant provider should save the currently typed assistant key under the old provider before switching."
+        )
+    }
+
+    @Test
+    func nativeProviderSwitchesReloadCredentialFieldsAfterChangingProvider() throws {
+        let fixture = try ReviewAuditFixture()
+        let settingsSource = try fixture.packageContents(
+            of: "Sources/LightWhisperNativeApp/App/Views/SettingsView.swift"
+        )
+        let appModelSource = try fixture.packageContents(
+            of: "Sources/LightWhisperNativeApp/App/AppModel.swift"
+        )
+
+        #expect(appModelSource.contains("func loadOnlineASRAPIKey()"))
+        #expect(appModelSource.contains("func loadAIPolishAPIKey()"))
+        #expect(appModelSource.contains("func loadAssistantAPIKey()"))
+        #expect(
+            settingsSource.contains("model.loadOnlineASRAPIKey()"),
+            "Switching ASR engine or region should load the key for the new keychain account before the settings window can flush again."
+        )
+        #expect(
+            settingsSource.contains("model.loadAIPolishAPIKey()"),
+            "Switching the active LLM provider should load the key for the new provider to avoid writing the old provider's key on window close."
+        )
+        #expect(
+            settingsSource.contains("model.loadAssistantAPIKey()"),
+            "Switching assistant provider should load the key for the new assistant provider to avoid stale-key writes on window close."
+        )
+    }
+
+    @Test
+    func nativeAssistantKeyDoesNotOverwriteSharedProviderKeyWhenProvidersShareKeychainUser() throws {
+        let fixture = try ReviewAuditFixture()
+        let appModelSource = try fixture.packageContents(
+            of: "Sources/LightWhisperNativeApp/App/AppModel.swift"
+        )
+        let persistAssistantSegment = try fixture.segment(
+            in: appModelSource,
+            from: "func persistAssistantAPIKey()",
+            to: "func loadAssistantAPIKey()"
+        )
+
+        #expect(
+            persistAssistantSegment.contains("guard !assistantUsesActiveProviderKeychainUser() else")
+                && persistAssistantSegment.contains("return"),
+            "When assistant and polish resolve to the same keychain account, persisting the assistant key should not write a second value to that shared account."
+        )
+        #expect(
+            appModelSource.contains("private func assistantUsesActiveProviderKeychainUser()")
+                && appModelSource.contains("activeUser == assistantUser"),
+            "Shared-key detection should compare the resolved keychain accounts, not just the separate-model toggle."
+        )
+        #expect(
+            appModelSource.contains("assistantAPIKey = aiPolishAPIKey"),
+            "When assistant shares the active provider key, the assistant field should mirror the active AI polish key instead of keeping stale text."
+        )
+    }
 }
 
 private struct ReviewAuditFixture {
@@ -182,5 +280,23 @@ private struct ReviewAuditFixture {
             contentsOf: packageRoot.appendingPathComponent(relativePath, isDirectory: false),
             encoding: .utf8
         )
+    }
+
+    func segment(in source: String, from start: String, to end: String) throws -> String {
+        guard let startRange = source.range(of: start) else {
+            throw NSError(
+                domain: "ReviewAuditFixture",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing start marker: \(start)"]
+            )
+        }
+        guard let endRange = source[startRange.upperBound...].range(of: end) else {
+            throw NSError(
+                domain: "ReviewAuditFixture",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Missing end marker: \(end)"]
+            )
+        }
+        return String(source[startRange.lowerBound..<endRange.lowerBound])
     }
 }
