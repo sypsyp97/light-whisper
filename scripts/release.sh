@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 本地构建 + 发布 Release
-# 用法: bash scripts/release.sh 1.3.6 "本次发布说明。"
+# 本地构建 + 发布 macOS Release
+# 用法: bash scripts/release.sh 1.3.10 "本次发布说明。"
 
 set -euo pipefail
 
@@ -10,8 +10,7 @@ TAG="v${VERSION}"
 PKG_JSON="package.json"
 TAURI_CONF="src-tauri/tauri.conf.json"
 CARGO_TOML="src-tauri/Cargo.toml"
-PYPROJECT_TOML="pyproject.toml"
-INSTALLER="src-tauri/target/release/bundle/nsis/轻语 Whisper_${VERSION}_x64-setup.exe"
+NATIVE_INFO="native-macos/Bundle/Info.plist"
 
 echo "=== 发布 ${TAG} ==="
 
@@ -26,78 +25,42 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 1
 fi
 
-# 1. 更新版本号（package.json + tauri.conf.json + Cargo.toml + pyproject.toml）
+# 1. 更新版本号
 echo "[1/6] 更新版本号 → ${VERSION}"
-python -c "
-import json, re, sys
+scripts/sync-version.sh "$VERSION"
 
-version = sys.argv[1]
-
-# package.json
-with open('$PKG_JSON', 'r', encoding='utf-8') as f:
-    pkg = json.load(f)
-pkg['version'] = version
-with open('$PKG_JSON', 'w', encoding='utf-8') as f:
-    json.dump(pkg, f, indent=2, ensure_ascii=False)
-    f.write('\n')
-
-# tauri.conf.json
-with open('$TAURI_CONF', 'r', encoding='utf-8') as f:
-    conf = json.load(f)
-conf['version'] = version
-with open('$TAURI_CONF', 'w', encoding='utf-8') as f:
-    json.dump(conf, f, indent=2, ensure_ascii=False)
-    f.write('\n')
-
-# Cargo.toml — 只替换 [package] 下的第一个 version
-with open('$CARGO_TOML', 'r', encoding='utf-8') as f:
-    text = f.read()
-text = re.sub(r'^(version = \").*?\"', rf'\g<1>{version}\"', text, count=1, flags=re.MULTILINE)
-with open('$CARGO_TOML', 'w', encoding='utf-8') as f:
-    f.write(text)
-
-# pyproject.toml — 只替换项目版本，requires-python 由测试锁定
-with open('$PYPROJECT_TOML', 'r', encoding='utf-8') as f:
-    text = f.read()
-text = re.sub(r'^(version = \").*?\"', rf'\g<1>{version}\"', text, count=1, flags=re.MULTILINE)
-with open('$PYPROJECT_TOML', 'w', encoding='utf-8') as f:
-    f.write(text)
-" "$VERSION"
-
-# 2. 构建 Python 引擎
-echo "[2/6] 构建 Python 引擎"
-uv run python scripts/build_engine.py
-
-# 3. 构建 Tauri 安装包
-echo "[3/6] 构建 Tauri 安装包"
+# 2. 构建 Tauri macOS app / DMG
+echo "[2/6] 构建 Tauri macOS app / DMG"
 pnpm tauri build
 
-# 4. 验证安装包
-echo "[4/6] 验证安装包"
-if [ ! -f "$INSTALLER" ]; then
-    echo "错误: 安装包不存在: ${INSTALLER}"
+# 3. 验证 DMG
+echo "[3/6] 验证 DMG"
+DMG="$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print | sort | tail -n 1)"
+if [ -z "$DMG" ] || [ ! -f "$DMG" ]; then
+    echo "错误: DMG 不存在"
     exit 1
 fi
-SIZE=$(du -h "$INSTALLER" | cut -f1)
-echo "安装包: ${SIZE}"
+SIZE=$(du -h "$DMG" | cut -f1)
+echo "DMG: ${DMG} (${SIZE})"
 
-# 5. 提交 + tag + push
-echo "[5/6] 提交 + 推送"
-git add "$PKG_JSON" "$TAURI_CONF" "$CARGO_TOML" "$PYPROJECT_TOML" src-tauri/Cargo.lock
+# 4. 提交 + tag + push
+echo "[4/6] 提交 + 推送"
+git add "$PKG_JSON" "$TAURI_CONF" "$CARGO_TOML" "$NATIVE_INFO" src-tauri/Cargo.lock
 git commit -m "chore: bump version to ${VERSION}"
 git tag "$TAG"
 git push && git push --tags
 
-# 6. 上传 Release
-echo "[6/6] 创建 Release 并上传安装包"
+# 5. 上传 Release
+echo "[5/6] 创建 Release 并上传 DMG"
 if [ "$RELEASE_NOTES" = "--generate-notes" ]; then
-    gh release create "$TAG" "$INSTALLER" \
+    gh release create "$TAG" "$DMG" \
         --title "$TAG" \
         --generate-notes
 else
-    gh release create "$TAG" "$INSTALLER" \
+    gh release create "$TAG" "$DMG" \
         --title "$TAG" \
         --notes "$RELEASE_NOTES"
 fi
 
+# 6. Done
 echo "=== 发布完成: https://github.com/sypsyp97/light-whisper/releases/tag/${TAG} ==="

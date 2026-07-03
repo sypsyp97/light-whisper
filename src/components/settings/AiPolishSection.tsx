@@ -102,10 +102,11 @@ export function AiPolishSection() {
 
   const handleProviderChange = useCallback(async (next: string) => {
     const prev = provider;
+    baseUrlSave.cancel();
     setProvider(next);
     try { await setLlmProviderConfig(next, baseUrl, model, reasoningMode); }
     catch { setProvider(prev); }
-  }, [provider, baseUrl, model, reasoningMode]);
+  }, [baseUrlSave, provider, baseUrl, model, reasoningMode]);
 
   const handleApiKeyChange = useCallback((v: string) => {
     setApiKey(v);
@@ -119,25 +120,28 @@ export function AiPolishSection() {
 
   const handleModelChange = useCallback(async (next: string) => {
     const prev = model;
+    baseUrlSave.cancel();
     setModel(next);
     try { await setLlmProviderConfig(provider, baseUrl, next, reasoningMode); }
     catch { setModel(prev); }
-  }, [model, provider, baseUrl, reasoningMode]);
+  }, [baseUrlSave, model, provider, baseUrl, reasoningMode]);
 
   const handleReasoningChange = useCallback(async (next: LlmReasoningMode) => {
     const prev = reasoningMode;
+    baseUrlSave.cancel();
     setReasoningMode(next);
     try { await setLlmProviderConfig(provider, baseUrl, model, next); }
     catch { setReasoningMode(prev); }
-  }, [reasoningMode, provider, baseUrl, model]);
+  }, [baseUrlSave, reasoningMode, provider, baseUrl, model]);
 
   const handleAuthModeChange = useCallback(async (next: OpenaiAuthMode) => {
     const prev = authMode;
+    baseUrlSave.cancel();
     setAuthMode(next);
     try {
       await setLlmProviderConfig(provider, baseUrl, model, reasoningMode, undefined, undefined, undefined, undefined, next);
     } catch { setAuthMode(prev); }
-  }, [authMode, provider, baseUrl, model, reasoningMode]);
+  }, [baseUrlSave, authMode, provider, baseUrl, model, reasoningMode]);
 
   const handleOauthLogin = useCallback(async () => {
     try {

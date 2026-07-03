@@ -22,6 +22,18 @@ interface TranscriptionResult {
   interim?: boolean;
   polished?: boolean;
   mode?: "dictation" | "assistant";
+  resultStage?: "raw" | "polished";
+  timing?: {
+    rawFirst?: {
+      status:
+        | "preview_only"
+        | "pasted"
+        | "replaced"
+        | "kept_raw"
+        | "final_fallback"
+        | "unchanged";
+    };
+  };
 }
 
 type Phase = "idle" | "recording" | "processing" | "searching" | "polishing" | "result";
@@ -37,6 +49,8 @@ export default function SubtitleOverlay() {
   const [text, setText] = useState("");
   const [fadingOut, setFadingOut] = useState(false);
   const [polishFlash, setPolishFlash] = useState(false);
+  const [rawFirstStatus, setRawFirstStatus] = useState<string | null>(null);
+  const [resultStage, setResultStage] = useState<TranscriptionResult["resultStage"] | null>(null);
   const [waveformBars, setWaveformBars] = useState<number[]>([]);
   const [mode, setMode] = useState<"dictation" | "assistant">("dictation");
   const [assistantCopied, setAssistantCopied] = useState(false);
@@ -120,6 +134,8 @@ export default function SubtitleOverlay() {
             clearFadeTimer();
             setFadingOut(false);
             setText("");
+            setRawFirstStatus(null);
+            setResultStage(null);
             setWaveformBars([]);
             setAssistantCopied(false);
             shouldAutoScrollRef.current = true;
@@ -213,6 +229,8 @@ export default function SubtitleOverlay() {
             clearFadeTimer();
             setFadingOut(false);
             setText("");
+            setRawFirstStatus(null);
+            setResultStage(null);
             setAssistantCopied(false);
             shouldAutoScrollRef.current = true;
             setPhase("polishing");
@@ -304,6 +322,8 @@ export default function SubtitleOverlay() {
 
           const incomingText = event.payload.text || "";
           setText(incomingText);
+          setRawFirstStatus(event.payload.timing?.rawFirst?.status ?? null);
+          setResultStage(event.payload.resultStage ?? null);
 
           if (interim) {
             setFadingOut(false);
@@ -317,6 +337,8 @@ export default function SubtitleOverlay() {
           // to avoid the capsule shrinking into a tiny blank pill.
           if (!finalText) {
             setText("");
+            setRawFirstStatus(null);
+            setResultStage(null);
             setPhase("processing");
             setFadingOut(true);
             return;
@@ -326,6 +348,9 @@ export default function SubtitleOverlay() {
           setPhase("result");
           setFadingOut(false);
           setPolishFlash(!!event.payload.polished);
+          if (event.payload.resultStage === "raw") {
+            return;
+          }
 
           if (event.payload.mode !== "assistant") {
             const expectedSessionId = latestSessionIdRef.current;
@@ -340,6 +365,8 @@ export default function SubtitleOverlay() {
             cleanupTimerRef.current = setTimeout(() => {
               if (latestSessionIdRef.current !== expectedSessionId) return;
               setText("");
+              setRawFirstStatus(null);
+              setResultStage(null);
               setPhase("idle");
               setFadingOut(false);
               setPolishFlash(false);
@@ -368,6 +395,9 @@ export default function SubtitleOverlay() {
 
   const isStreaming = text.length > 0 && smoothText.length < text.length;
   const hasText = smoothText.length > 0;
+  const rawFirstLabelKey = rawFirstStatus === "preview_only" && resultStage === "polished"
+    ? "polished_preview"
+    : rawFirstStatus;
   const isAssistant = mode === "assistant";
 
   let indicatorClass: string | null = null;
@@ -393,6 +423,8 @@ export default function SubtitleOverlay() {
     clearFadeTimer();
     setFadingOut(false);
     setText("");
+    setRawFirstStatus(null);
+    setResultStage(null);
     setWaveformBars([]);
     setAssistantCopied(false);
     setPhase("idle");
@@ -472,6 +504,9 @@ export default function SubtitleOverlay() {
         )}
         {hasText && phase === "polishing" && streamTokens > 0 && (
           <span className="subtitle-stream-badge">{streamTokens}</span>
+        )}
+        {hasText && rawFirstLabelKey && !isAssistant && (
+          <span className="subtitle-raw-first-badge">{t(`subtitle.rawFirst.${rawFirstLabelKey}`)}</span>
         )}
         {!hasText && hintText && <span key={phase} className="subtitle-hint">{hintText}</span>}
       </div>

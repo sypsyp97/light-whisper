@@ -61,9 +61,7 @@ impl AppError {
     fn details_payload(&self) -> Option<serde_json::Value> {
         match self {
             AppError::PermissionDenied {
-                kind,
-                settings_url,
-                ..
+                kind, settings_url, ..
             } => Some(serde_json::json!({
                 "kind": kind,
                 "settingsUrl": settings_url,
@@ -237,7 +235,8 @@ mod tests {
     fn permission_denied_code_is_stable() {
         let err = AppError::PermissionDenied {
             kind: "microphone".into(),
-            settings_url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone".into(),
+            settings_url:
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone".into(),
             message: "麦克风权限尚未授予".into(),
         };
         assert_eq!(err.code(), "PERMISSION_DENIED");
@@ -277,7 +276,9 @@ mod tests {
         // It must NOT inline the deeplink (that's structured) or the kind tag.
         let err = AppError::PermissionDenied {
             kind: "screen".into(),
-            settings_url: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture".into(),
+            settings_url:
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+                    .into(),
             message: "屏幕录制权限尚未授予".into(),
         };
         assert_eq!(err.to_string(), "屏幕录制权限尚未授予");

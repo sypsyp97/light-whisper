@@ -129,7 +129,7 @@ pub fn list_input_devices_sync(
         })
         .collect();
 
-    devices.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    devices.sort_by_key(|device| device.name.to_lowercase());
     Ok(InputDeviceListPayload {
         devices,
         selected_device_name,

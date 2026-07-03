@@ -3066,10 +3066,11 @@ dependencies = [
 
 [[package]]
 name = "light-whisper"
-version = "1.3.7"
+version = "1.3.10"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
+ "chrono",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "core-graphics",

@@ -39,6 +39,9 @@ export default function MainPage({ onNavigate, animClass }: MainPageProps) {
     durationSec,
     charCount,
     detectedLanguage,
+    editGrabStatus,
+    timing,
+    resultStage,
     history,
     recordingMode,
     stage,
@@ -58,6 +61,13 @@ export default function MainPage({ onNavigate, animClass }: MainPageProps) {
   const storedMode = readLocalStorage(RECORDING_MODE_KEY) === "toggle" ? "toggle" : "hold";
 
   useEffect(() => { setErrorBannerDismissed(false); }, [recordingError, modelError]);
+
+  useEffect(() => {
+    if (transcriptionResult && !onboardingDismissed) {
+      setOnboardingDismissed(true);
+      writeLocalStorage(ONBOARDING_DISMISSED_KEY, "true");
+    }
+  }, [transcriptionResult, onboardingDismissed]);
 
   const handleToggle = useCallback(() => {
     if (!isReady) return;
@@ -108,7 +118,7 @@ export default function MainPage({ onNavigate, animClass }: MainPageProps) {
   const errorMessage = recordingError || modelError || "";
   const errorIsModel = !!modelError;
   const errorIsPermission = !!recordingErrorPermission && !modelError;
-  const showOnboarding = !onboardingDismissed && history.length === 0;
+  const showOnboarding = !onboardingDismissed && !transcriptionResult && !isProcessing && isReady && history.length === 0;
 
   const bannerAction = errorIsPermission && recordingErrorPermission
     ? {
@@ -181,6 +191,9 @@ export default function MainPage({ onNavigate, animClass }: MainPageProps) {
             durationSec={durationSec}
             charCount={charCount}
             detectedLanguage={detectedLanguage}
+            editGrabStatus={editGrabStatus}
+            timing={timing}
+            resultStage={resultStage}
             onChange={handleChange}
             onSubmitCorrection={handleSubmitCorrection}
             onCopy={handleCopyResult}

@@ -56,11 +56,8 @@ unsafe extern "C" {
         value: *mut CFTypeRef,
     ) -> AXError;
     fn AXValueCreate(the_type: AXValueType, value_ptr: *const c_void) -> AXValueRef;
-    fn AXValueGetValue(
-        value: AXValueRef,
-        the_type: AXValueType,
-        value_ptr: *mut c_void,
-    ) -> Boolean;
+    fn AXValueGetValue(value: AXValueRef, the_type: AXValueType, value_ptr: *mut c_void)
+        -> Boolean;
 }
 
 #[cfg(target_os = "macos")]
@@ -98,6 +95,9 @@ fn make_key_input(vk: u16, scan: u16, flags: u32) -> INPUT {
         },
     }
 }
+
+#[cfg(target_os = "windows")]
+const CLIPBOARD_RESTORE_DELAY_MS: u64 = 200;
 
 #[cfg(target_os = "windows")]
 fn send_inputs(inputs: &[INPUT]) -> Result<(), AppError> {
@@ -254,7 +254,10 @@ fn grab_selected_text_macos() -> Option<String> {
         if trimmed.is_empty() {
             None
         } else {
-            log::info!("macOS Accessibility 检测到选中文本（{} 字符）", trimmed.len());
+            log::info!(
+                "macOS Accessibility 检测到选中文本（{} 字符）",
+                trimmed.len()
+            );
             Some(trimmed)
         }
     }
@@ -302,8 +305,10 @@ unsafe fn copy_ax_selected_text_from_range(
         return None;
     }
 
-    let range_param =
-        AXValueCreate(K_AX_VALUE_CF_RANGE_TYPE, &range as *const _ as *const c_void);
+    let range_param = AXValueCreate(
+        K_AX_VALUE_CF_RANGE_TYPE,
+        &range as *const _ as *const c_void,
+    );
     if range_param.is_null() {
         return None;
     }
@@ -335,6 +340,107 @@ unsafe fn cf_string_from_owned(value: CFTypeRef) -> Option<String> {
     Some(text)
 }
 
+#[cfg(target_os = "windows")]
+fn capture_raw_paste_replacement_target_windows(
+    raw_text: &str,
+) -> Option<RawPasteReplacementToken> {
+    if raw_text.trim().is_empty() {
+        return None;
+    }
+
+    use uiautomation::patterns::{UITextPattern, UIValuePattern};
+    use uiautomation::types::TextPatternRangeEndpoint;
+    use uiautomation::UIAutomation;
+
+    let automation = UIAutomation::new().ok()?;
+    let focused = automation.get_focused_element().ok()?;
+    let value_pattern: UIValuePattern = focused.get_pattern().ok()?;
+    if value_pattern.is_readonly().ok()? {
+        return None;
+    }
+
+    let text_pattern: UITextPattern = focused.get_pattern().ok()?;
+    let (caret_active, caret_range) = text_pattern.get_caret_range().ok()?;
+    if !caret_active {
+        return None;
+    }
+    let document_range = text_pattern.get_document_range().ok()?;
+    let caret_at_document_end = caret_range
+        .compare_endpoints(
+            TextPatternRangeEndpoint::End,
+            &document_range,
+            TextPatternRangeEndpoint::End,
+        )
+        .ok()?
+        == 0;
+    if !caret_at_document_end {
+        return None;
+    }
+
+    let runtime_id = focused.get_runtime_id().ok()?;
+    let value_before = value_pattern.get_value().ok()?;
+    Some(RawPasteReplacementToken::new(
+        runtime_id,
+        value_before,
+        raw_text.to_string(),
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn replace_raw_paste_suffix_if_unchanged_windows(
+    token: &RawPasteReplacementToken,
+    polished_text: &str,
+) -> Result<bool, AppError> {
+    use uiautomation::patterns::UIValuePattern;
+    use uiautomation::UIAutomation;
+
+    let automation = UIAutomation::new()
+        .map_err(|e| AppError::Other(format!("初始化 UI Automation 失败: {}", e)))?;
+    let focused = match automation.get_focused_element() {
+        Ok(element) => element,
+        Err(e) => {
+            log::debug!("raw-first 替换跳过：无法读取当前焦点控件: {}", e);
+            return Ok(false);
+        }
+    };
+    match focused.get_runtime_id() {
+        Ok(runtime_id) if runtime_id == token.runtime_id => {}
+        Ok(_) => {
+            log::debug!("raw-first 替换跳过：焦点控件已变化");
+            return Ok(false);
+        }
+        Err(e) => {
+            log::debug!("raw-first 替换跳过：无法读取控件 runtime id: {}", e);
+            return Ok(false);
+        }
+    }
+
+    let value_pattern: UIValuePattern = match focused.get_pattern() {
+        Ok(pattern) => pattern,
+        Err(e) => {
+            log::debug!("raw-first 替换跳过：当前控件不支持 ValuePattern: {}", e);
+            return Ok(false);
+        }
+    };
+    let current_value = value_pattern
+        .get_value()
+        .map_err(|e| AppError::Other(format!("读取当前输入框文本失败: {}", e)))?;
+    let Some(replacement_value) = replacement_value_if_raw_suffix_unchanged(
+        &token.value_before,
+        &token.raw_text,
+        polished_text,
+        &current_value,
+    ) else {
+        log::debug!("raw-first 替换跳过：raw 文本后已有用户输入或内容已变化");
+        return Ok(false);
+    };
+
+    value_pattern
+        .set_value(&replacement_value)
+        .map_err(|e| AppError::Other(format!("替换 raw-first 文本失败: {}", e)))?;
+    Ok(true)
+}
+
 #[tauri::command]
 pub async fn copy_to_clipboard(
     app_handle: tauri::AppHandle,
@@ -352,6 +458,77 @@ pub fn write_text_to_clipboard(app_handle: &tauri::AppHandle, text: &str) -> Res
         .clipboard()
         .write_text(text)
         .map_err(|e| AppError::Other(format!("写入剪贴板失败: {}", e)))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawPasteReplacementToken {
+    runtime_id: Vec<i32>,
+    value_before: String,
+    raw_text: String,
+}
+
+impl RawPasteReplacementToken {
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    fn new(runtime_id: Vec<i32>, value_before: String, raw_text: String) -> Self {
+        Self {
+            runtime_id,
+            value_before,
+            raw_text,
+        }
+    }
+}
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+pub fn replacement_value_if_raw_suffix_unchanged(
+    value_before: &str,
+    raw_text: &str,
+    polished_text: &str,
+    current_value: &str,
+) -> Option<String> {
+    if raw_text.is_empty() || raw_text == polished_text {
+        return None;
+    }
+
+    let expected_current = format!("{value_before}{raw_text}");
+    (current_value == expected_current).then(|| format!("{value_before}{polished_text}"))
+}
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+pub fn should_restore_clipboard_after_paste(
+    current_clipboard_text: Option<&str>,
+    paste_text: &str,
+) -> bool {
+    current_clipboard_text == Some(paste_text)
+}
+
+pub fn capture_raw_paste_replacement_target(raw_text: &str) -> Option<RawPasteReplacementToken> {
+    #[cfg(target_os = "windows")]
+    {
+        capture_raw_paste_replacement_target_windows(raw_text)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = raw_text;
+        None
+    }
+}
+
+pub fn replace_raw_paste_suffix_if_unchanged(
+    token: &RawPasteReplacementToken,
+    polished_text: &str,
+) -> Result<bool, AppError> {
+    #[cfg(target_os = "windows")]
+    {
+        replace_raw_paste_suffix_if_unchanged_windows(token, polished_text)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = token;
+        let _ = polished_text;
+        Ok(false)
+    }
 }
 
 #[tauri::command]
@@ -375,26 +552,65 @@ pub async fn paste_text_impl(
 
         if use_clipboard {
             use tauri_plugin_clipboard_manager::ClipboardExt;
+            use uiautomation::clipboards::{Clipboard, Snapshot};
+
+            fn capture_clipboard_snapshot() -> Result<Snapshot, AppError> {
+                let clipboard = Clipboard::open()
+                    .map_err(|e| AppError::Other(format!("打开剪贴板以创建快照失败: {}", e)))?;
+                clipboard
+                    .snapshot(true)
+                    .map_err(|e| AppError::Other(format!("创建剪贴板快照失败: {}", e)))
+            }
+
+            fn restore_clipboard_snapshot(snapshot: Snapshot) -> Result<(), AppError> {
+                let clipboard = Clipboard::open()
+                    .map_err(|e| AppError::Other(format!("打开剪贴板以恢复快照失败: {}", e)))?;
+                clipboard
+                    .restore(snapshot)
+                    .map_err(|e| AppError::Other(format!("恢复剪贴板快照失败: {}", e)))
+            }
+
+            let clipboard_snapshot = capture_clipboard_snapshot()?;
 
             app_handle
                 .clipboard()
                 .write_text(text)
                 .map_err(|e| AppError::Other(format!("写入剪贴板失败: {}", e)))?;
 
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let paste_result = (|| -> Result<(), AppError> {
+                std::thread::sleep(std::time::Duration::from_millis(10));
 
-            release_stuck_modifiers()?;
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                release_stuck_modifiers()?;
+                std::thread::sleep(std::time::Duration::from_millis(20));
 
-            const VK_CONTROL: u16 = 0x11;
-            const VK_V: u16 = 0x56;
-            let inputs = [
-                make_key_input(VK_CONTROL, 0, 0),
-                make_key_input(VK_V, 0, 0),
-                make_key_input(VK_V, 0, KEYEVENTF_KEYUP),
-                make_key_input(VK_CONTROL, 0, KEYEVENTF_KEYUP),
-            ];
-            send_inputs(&inputs)?;
+                const VK_CONTROL: u16 = 0x11;
+                const VK_V: u16 = 0x56;
+                let inputs = [
+                    make_key_input(VK_CONTROL, 0, 0),
+                    make_key_input(VK_V, 0, 0),
+                    make_key_input(VK_V, 0, KEYEVENTF_KEYUP),
+                    make_key_input(VK_CONTROL, 0, KEYEVENTF_KEYUP),
+                ];
+                send_inputs(&inputs)
+            })();
+
+            if paste_result.is_ok() {
+                std::thread::sleep(std::time::Duration::from_millis(CLIPBOARD_RESTORE_DELAY_MS));
+            }
+
+            let current_clipboard_text = app_handle.clipboard().read_text().ok();
+            if should_restore_clipboard_after_paste(current_clipboard_text.as_deref(), text) {
+                if let Err(e) = restore_clipboard_snapshot(clipboard_snapshot) {
+                    log::warn!("{}", e);
+                    if paste_result.is_ok() {
+                        return Err(e);
+                    }
+                }
+            } else {
+                log::debug!("剪贴板内容已变化，跳过恢复以保留用户的新剪贴板内容");
+            }
+
+            paste_result?;
         } else {
             use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SendMessageW};
 
@@ -517,6 +733,8 @@ pub async fn paste_text_impl(
 
 #[cfg(test)]
 mod tests {
+    use super::{replacement_value_if_raw_suffix_unchanged, should_restore_clipboard_after_paste};
+
     #[test]
     fn sendinput_wrapper_treats_partial_sends_as_failure() {
         let source = include_str!("clipboard.rs");
@@ -536,6 +754,106 @@ mod tests {
         assert!(
             source.contains("chunks(") || source.contains("SENDINPUT_CHUNK"),
             "long Unicode paste text must be chunked before SendInput to avoid oversized input arrays"
+        );
+    }
+
+    #[test]
+    fn clipboard_restore_guard_allows_restoring_only_app_written_text() {
+        assert!(should_restore_clipboard_after_paste(
+            Some("dictated clipboard text"),
+            "dictated clipboard text"
+        ));
+    }
+
+    #[test]
+    fn clipboard_restore_guard_preserves_user_clipboard_change() {
+        assert!(!should_restore_clipboard_after_paste(
+            Some("new user clipboard text"),
+            "dictated clipboard text"
+        ));
+    }
+
+    #[test]
+    fn clipboard_restore_guard_skips_unavailable_or_non_text_clipboard() {
+        assert!(!should_restore_clipboard_after_paste(
+            None,
+            "dictated clipboard text"
+        ));
+    }
+
+    #[test]
+    fn clipboard_mode_snapshots_before_write_and_restores_after_paste_attempt() {
+        let source = include_str!("clipboard.rs");
+        let clipboard_branch_start = source
+            .find("if use_clipboard")
+            .expect("clipboard mode branch should exist");
+        let clipboard_branch = &source[clipboard_branch_start..];
+
+        let snapshot_pos = clipboard_branch.find("capture_clipboard_snapshot").expect(
+            "clipboard mode must capture the user's clipboard snapshot before writing paste text",
+        );
+        let write_pos = clipboard_branch
+            .find("write_text(text)")
+            .expect("clipboard mode must write the dictated paste text");
+        assert!(
+            snapshot_pos < write_pos,
+            "clipboard snapshot must be captured before writing the paste text"
+        );
+
+        let paste_attempt_pos = clipboard_branch
+            .find("send_inputs(&inputs)")
+            .expect("clipboard mode must attempt Ctrl+V paste");
+        let restore_guard_pos = clipboard_branch
+            .find("should_restore_clipboard_after_paste")
+            .expect("clipboard mode restore must be guarded by the current clipboard value");
+        let restore_delay_pos = clipboard_branch
+            .find("CLIPBOARD_RESTORE_DELAY_MS")
+            .expect("clipboard mode must delay restore long enough for Ctrl+V to consume text");
+        let restore_pos = clipboard_branch
+            .find("restore_clipboard_snapshot(clipboard_snapshot)")
+            .expect("clipboard mode must restore the previous clipboard snapshot");
+        assert!(
+            paste_attempt_pos < restore_delay_pos
+                && restore_delay_pos < restore_guard_pos
+                && restore_guard_pos < restore_pos,
+            "clipboard restore must wait after the Ctrl+V paste attempt, then run through the restore guard"
+        );
+    }
+
+    #[test]
+    fn raw_suffix_replacement_requires_exact_before_plus_raw_value() {
+        assert_eq!(
+            replacement_value_if_raw_suffix_unchanged("hello ", "wrld", "world", "hello wrld"),
+            Some("hello world".to_string())
+        );
+    }
+
+    #[test]
+    fn raw_suffix_replacement_skips_when_user_typed_after_raw() {
+        assert_eq!(
+            replacement_value_if_raw_suffix_unchanged("hello ", "wrld", "world", "hello wrld!"),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_suffix_replacement_skips_mid_document_insertions() {
+        assert_eq!(
+            replacement_value_if_raw_suffix_unchanged(
+                "hello world",
+                " brave",
+                " brave,",
+                "hello brave world"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_suffix_replacement_skips_when_polish_does_not_change_text() {
+        assert_eq!(
+            replacement_value_if_raw_suffix_unchanged("hello ", "world", "world", "hello world"),
+            None
         );
     }
 }

@@ -107,6 +107,7 @@ body,
   color: var(--color-text-primary);
   white-space: pre-wrap;
   word-break: break-word;
+  min-width: 0;
   /* Smooth the subtle size adjustments when new lines wrap in */
   font-variant-ligatures: common-ligatures contextual;
   font-kerning: normal;
@@ -171,6 +172,19 @@ body,
 }
 
 /* subtitle-stream-badge uses --color-text-tertiary which auto-switches */
+
+.subtitle-raw-first-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  white-space: nowrap;
+  align-self: center;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: rgba(var(--color-accent-rgb), 0.1);
+}
 
 .subtitle-assistant-actions {
   position: absolute;

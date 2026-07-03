@@ -16,6 +16,7 @@ import type {
   LlmReasoningSupport,
   ModelCheckResult,
   OpenaiAuthMode,
+  OpenaiCodexOauthDeviceCodeChallenge,
   OpenaiCodexOauthStatus,
   TranscriptionResult,
   UserProfile,
@@ -84,7 +85,8 @@ function createNoArgCommand<T = string>(
   return () => invokeCommand<T>(command);
 }
 
-export const startFunASR = createNoArgCommand<string>("start_funasr");
+export const startAsrEngine = createNoArgCommand<string>("start_asr_engine");
+export const startFunASR = startAsrEngine;
 export const checkAppUpdate = createNoArgCommand<AppUpdateInfo>("check_app_update");
 
 export function transcribeAudio(audioBase64: string): Promise<TranscriptionResult> {
@@ -95,7 +97,8 @@ export function openAppReleasePage(url?: string | null): Promise<string> {
   return invokeCommand<string>("open_app_release_page", { url: url ?? null });
 }
 
-export const checkFunASRStatus = createNoArgCommand<FunASRStatus>("check_funasr_status");
+export const checkAsrStatus = createNoArgCommand<FunASRStatus>("check_asr_status");
+export const checkFunASRStatus = checkAsrStatus;
 export const checkModelFiles = createNoArgCommand<ModelCheckResult>("check_model_files");
 export const downloadModels = createNoArgCommand<string>("download_models");
 export const cancelModelDownload = createNoArgCommand<string>("cancel_model_download");
@@ -122,6 +125,12 @@ export const showSubtitleWindow = createNoArgCommand<string>("show_subtitle_wind
 export const hideSubtitleWindow = createNoArgCommand<string>("hide_subtitle_window");
 export const getOpenaiCodexOauthStatus = createNoArgCommand<OpenaiCodexOauthStatus>("get_openai_codex_oauth_status");
 export const loginOpenaiCodexOauth = createNoArgCommand<OpenaiCodexOauthStatus>("login_openai_codex_oauth");
+export const startOpenaiCodexOauthDeviceCode = createNoArgCommand<OpenaiCodexOauthDeviceCodeChallenge>("start_openai_codex_oauth_device_code");
+export function completeOpenaiCodexOauthDeviceCode(
+  challenge: OpenaiCodexOauthDeviceCodeChallenge
+): Promise<OpenaiCodexOauthStatus> {
+  return invokeCommand<OpenaiCodexOauthStatus>("complete_openai_codex_oauth_device_code", { challenge });
+}
 export const logoutOpenaiCodexOauth = createNoArgCommand<void>("logout_openai_codex_oauth");
 
 export const unregisterAllHotkeys = createNoArgCommand<string>("unregister_all_hotkeys");
@@ -199,7 +208,7 @@ export function setLlmProviderConfig(
   assistantProvider?: string | null,
   openaiAuthMode?: OpenaiAuthMode | null,
 ): Promise<void> {
-  return invokeCommand<void>("set_llm_provider_config", {
+  const args: InvokeArgs = {
     active,
     customBaseUrl: customBaseUrl ?? null,
     customModel: customModel ?? null,
@@ -207,9 +216,13 @@ export function setLlmProviderConfig(
     assistantReasoningMode: assistantReasoningMode ?? null,
     assistantUseSeparateModel: assistantUseSeparateModel ?? null,
     assistantModel: assistantModel ?? null,
-    assistantProvider: assistantProvider !== undefined ? assistantProvider : null,
     openaiAuthMode: openaiAuthMode ?? null,
-  });
+  };
+  if (assistantProvider !== undefined) {
+    args.assistantProvider = assistantProvider;
+    args.assistantProviderSet = true;
+  }
+  return invokeCommand<void>("set_llm_provider_config", args);
 }
 
 export function setAssistantApiKey(apiKey: string): Promise<void> {
@@ -225,12 +238,14 @@ export function getLlmReasoningSupport(
   baseUrl?: string,
   model?: string,
   apiFormat?: ApiFormat,
+  reasoningMode?: LlmReasoningMode,
 ): Promise<LlmReasoningSupport> {
   return invokeCommand<LlmReasoningSupport>("get_llm_reasoning_support", {
     provider,
     baseUrl: baseUrl ?? null,
     model: model ?? null,
     apiFormat: apiFormat ?? null,
+    reasoningMode: reasoningMode ?? null,
   });
 }
 
@@ -345,12 +360,21 @@ export function setCorrectionValidationConfig(params: {
   provider?: string | null;
   model?: string | null;
 }): Promise<void> {
-  return invokeCommand<void>("set_correction_validation_config", {
+  const args: InvokeArgs = {
     enabled: params.enabled,
-    useSeparateModel: params.useSeparateModel,
-    provider: params.provider,
-    model: params.model,
-  });
+  };
+  if (params.useSeparateModel !== undefined) {
+    args.useSeparateModel = params.useSeparateModel;
+  }
+  if (params.provider !== undefined) {
+    args.provider = params.provider;
+    args.providerSet = true;
+  }
+  if (params.model !== undefined) {
+    args.model = params.model;
+    args.modelSet = true;
+  }
+  return invokeCommand<void>("set_correction_validation_config", args);
 }
 
 /**

@@ -8,7 +8,13 @@ import {
   stopRecording as invokeStopRecording,
   type PermissionDeniedDetails,
 } from "@/api/tauri";
-import type { EditGrabStatus, HistoryItem, RecordingMode } from "@/types";
+import type {
+  EditGrabStatus,
+  HistoryItem,
+  RecordingMode,
+  TranscriptionResultStage,
+  TranscriptionTiming,
+} from "@/types";
 
 interface UseRecordingReturn {
   isRecording: boolean;
@@ -31,6 +37,8 @@ interface UseRecordingReturn {
   charCount: number | null;
   detectedLanguage: string | null;
   editGrabStatus: EditGrabStatus | null;
+  timing: TranscriptionTiming | null;
+  resultStage: TranscriptionResultStage | null;
   history: HistoryItem[];
   resultMode: RecordingMode;
 }
@@ -53,9 +61,10 @@ interface TranscriptionPayload {
   mode?: RecordingMode;
   originalText?: string;
   editGrabStatus?: EditGrabStatus;
+  resultStage?: TranscriptionResultStage;
+  timing?: TranscriptionTiming;
 }
 
-/** 封装 Tauri 事件监听的 useEffect 样板 */
 function useTauriEvent<T>(event: string, handler: (payload: T) => void) {
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -90,6 +99,8 @@ export function useRecording(): UseRecordingReturn {
   const [charCount, setCharCount] = useState<number | null>(null);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [editGrabStatus, setEditGrabStatus] = useState<EditGrabStatus | null>(null);
+  const [timing, setTiming] = useState<TranscriptionTiming | null>(null);
+  const [resultStage, setResultStage] = useState<TranscriptionResultStage | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [resultMode, setResultMode] = useState<RecordingMode>("dictation");
   const latestSessionIdRef = useRef(0);
@@ -102,9 +113,6 @@ export function useRecording(): UseRecordingReturn {
     setIsRecording(payload.isRecording);
     setIsProcessing(payload.isProcessing);
     setError(payload.error ?? null);
-    // recording-state events ride the success path and never carry a
-    // permission payload — clear any stale one so a fresh successful start
-    // doesn't leave a dangling "Open Settings" affordance from a prior fail.
     if (!payload.error) setErrorPermission(null);
     setResultMode(payload.mode ?? "dictation");
   });
@@ -115,9 +123,6 @@ export function useRecording(): UseRecordingReturn {
     const message = payload.message?.trim();
     if (message) {
       setError(message);
-      // Backend events don't carry structured permission details today; this
-      // is a plain string surface and the deeplink path is taken via the
-      // invoke-rejection branch in startRecording / stopRecording.
       setErrorPermission(null);
     }
   });
@@ -129,8 +134,6 @@ export function useRecording(): UseRecordingReturn {
     const rawText = payload.originalText ?? text;
     const now = Date.now();
     const historyId = sessionId > 0 ? `session-${sessionId}` : `session-local-${now}`;
-    // 旧 session 的 final 结果可以进 history，但不能覆盖当前显示。避免的是
-    // 用户已经开始下一段录音后，上一段 ASR 延迟回来闪一下当前画面。
     const staleForDisplay = sessionId > 0 && sessionId < latestSessionIdRef.current;
 
     if (!staleForDisplay && sessionId >= latestDisplayedFinalSessionIdRef.current) {
@@ -142,6 +145,8 @@ export function useRecording(): UseRecordingReturn {
       setCharCount(payload.charCount ?? null);
       setDetectedLanguage(payload.language ?? null);
       setEditGrabStatus(payload.editGrabStatus ?? null);
+      setTiming(payload.timing ?? null);
+      setResultStage(payload.resultStage ?? null);
       setResultMode(payload.mode ?? "dictation");
     }
 
@@ -152,8 +157,11 @@ export function useRecording(): UseRecordingReturn {
             id: historyId,
             text,
             originalText: rawText,
-            timestamp: now, timeDisplay: new Date(now).toLocaleTimeString(),
+            timestamp: now,
+            timeDisplay: new Date(now).toLocaleTimeString(),
             editGrabStatus: payload.editGrabStatus,
+            resultStage: payload.resultStage,
+            timing: payload.timing,
           },
           ...prev.filter((item) => item.id !== historyId),
         ].slice(0, 20)
@@ -166,7 +174,6 @@ export function useRecording(): UseRecordingReturn {
     else if (status === "error") toast.error(i18n.t("toast.aiPolishFailed", { error: errMsg }), { duration: 2500 });
   });
 
-  /** Capture err's user-facing message + structured permission payload (if any). */
   const captureError = useCallback((err: unknown) => {
     setError(err instanceof Error ? err.message : String(err));
     setErrorPermission(isPermissionDeniedError(err) ? err.details : null);
@@ -199,10 +206,24 @@ export function useRecording(): UseRecordingReturn {
   }, [isRecording, captureError]);
 
   return {
-    isRecording, isProcessing, startRecording, stopRecording,
-    error, errorPermission, transcriptionResult, setTranscriptionResult,
-    originalAsrText, editBaselineText, setEditBaselineText,
-    durationSec, charCount, detectedLanguage, editGrabStatus, history,
+    isRecording,
+    isProcessing,
+    startRecording,
+    stopRecording,
+    error,
+    errorPermission,
+    transcriptionResult,
+    setTranscriptionResult,
+    originalAsrText,
+    editBaselineText,
+    setEditBaselineText,
+    durationSec,
+    charCount,
+    detectedLanguage,
+    editGrabStatus,
+    timing,
+    resultStage,
+    history,
     resultMode,
   };
 }

@@ -233,19 +233,28 @@ pub async fn set_llm_provider_config(
     assistant_reasoning_mode: Option<LlmReasoningMode>,
     assistant_use_separate_model: Option<bool>,
     assistant_model: Option<String>,
-    assistant_provider: Option<Option<String>>,
+    assistant_provider: Option<String>,
+    assistant_provider_set: Option<bool>,
     openai_auth_mode: Option<crate::state::user_profile::OpenaiAuthMode>,
 ) -> Result<(), String> {
-    let normalized_base_url = custom_base_url
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let normalized_model = custom_model
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+    let active_uses_custom_endpoint = active == "custom"
+        || state.with_profile(|profile| {
+            profile
+                .llm_provider
+                .custom_providers
+                .iter()
+                .any(|provider| provider.id == active)
+        });
+    let (normalized_base_url, normalized_model) = normalize_llm_config_update_fields(
+        active_uses_custom_endpoint,
+        custom_base_url,
+        custom_model,
+    )?;
     let assistant_model_provided = assistant_model.is_some();
     let normalized_assistant_model = assistant_model
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+    let normalized_assistant_provider = normalize_optional_string_update(assistant_provider);
 
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.llm_provider.active = active.clone();
@@ -262,8 +271,8 @@ pub async fn set_llm_provider_config(
         if assistant_model_provided {
             profile.llm_provider.assistant_model = normalized_assistant_model.clone();
         }
-        if let Some(ap) = &assistant_provider {
-            profile.llm_provider.assistant_provider = ap.clone();
+        if optional_field_update_requested(&normalized_assistant_provider, assistant_provider_set) {
+            profile.llm_provider.assistant_provider = normalized_assistant_provider.clone();
         }
         if let Some(mode) = openai_auth_mode {
             profile.llm_provider.openai_auth_mode = Some(mode);
@@ -298,6 +307,7 @@ pub async fn get_llm_reasoning_support(
     base_url: Option<String>,
     model: Option<String>,
     api_format: Option<ApiFormat>,
+    reasoning_mode: Option<LlmReasoningMode>,
 ) -> Result<llm_provider::LlmReasoningSupport, String> {
     let endpoint = llm_provider::endpoint_for_preview(
         provider.trim(),
@@ -305,12 +315,11 @@ pub async fn get_llm_reasoning_support(
         model.as_deref(),
         api_format.unwrap_or(ApiFormat::OpenaiCompat),
     );
-    let uses_responses_api = endpoint.api_format == ApiFormat::OpenaiCompat
-        && endpoint.api_url.contains("/v1/responses");
-    Ok(llm_provider::reasoning_support(
-        &endpoint,
-        uses_responses_api,
-    ))
+    let uses_responses_api = llm_provider::endpoint_uses_responses_api(&endpoint);
+    Ok(match reasoning_mode {
+        Some(mode) => llm_provider::reasoning_support_for_mode(&endpoint, uses_responses_api, mode),
+        None => llm_provider::reasoning_support(&endpoint, uses_responses_api),
+    })
 }
 
 /// 校验单个 provider 字段：name。trim 后非空、字符数不超过 128。
@@ -370,6 +379,37 @@ fn normalize_custom_provider_fields(
     let normalized_url = validate_provider_base_url(base_url)?;
     let normalized_model = validate_provider_model(model)?;
     Ok((normalized_name, normalized_url, normalized_model))
+}
+
+fn normalize_llm_config_update_fields(
+    active_uses_custom_endpoint: bool,
+    custom_base_url: Option<String>,
+    custom_model: Option<String>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let normalized_base_url = match custom_base_url {
+        Some(value) if value.trim().is_empty() => None,
+        Some(value) if active_uses_custom_endpoint => Some(validate_provider_base_url(&value)?),
+        Some(value) => Some(value.trim().to_string()),
+        None => None,
+    };
+    let normalized_model = match custom_model {
+        Some(value) if value.trim().is_empty() => None,
+        Some(value) if active_uses_custom_endpoint => Some(validate_provider_model(&value)?),
+        Some(value) => Some(value.trim().to_string()),
+        None => None,
+    };
+
+    Ok((normalized_base_url, normalized_model))
+}
+
+fn normalize_optional_string_update(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn optional_field_update_requested<T>(value: &Option<T>, field_set: Option<bool>) -> bool {
+    field_set.unwrap_or(value.is_some())
 }
 
 #[tauri::command]
@@ -708,19 +748,23 @@ pub async fn set_correction_validation_config(
     state: tauri::State<'_, AppState>,
     enabled: bool,
     use_separate_model: Option<bool>,
-    provider: Option<Option<String>>,
-    model: Option<Option<String>>,
+    provider: Option<String>,
+    provider_set: Option<bool>,
+    model: Option<String>,
+    model_set: Option<bool>,
 ) -> Result<(), String> {
+    let normalized_provider = normalize_optional_string_update(provider);
+    let normalized_model = normalize_optional_string_update(model);
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.correction_validation_enabled = enabled;
         if let Some(sep) = use_separate_model {
             profile.llm_provider.validation_use_separate_model = sep;
         }
-        if let Some(p) = provider {
-            profile.llm_provider.validation_provider = p;
+        if optional_field_update_requested(&normalized_provider, provider_set) {
+            profile.llm_provider.validation_provider = normalized_provider.clone();
         }
-        if let Some(m) = model {
-            profile.llm_provider.validation_model = m;
+        if optional_field_update_requested(&normalized_model, model_set) {
+            profile.llm_provider.validation_model = normalized_model.clone();
         }
     });
     Ok(())
@@ -986,5 +1030,70 @@ mod validator_tests {
             Ok("gpt-4"),
             "返回值必须是 trim 后的字符串"
         );
+    }
+
+    #[test]
+    fn llm_config_update_rejects_invalid_custom_endpoint_base_url() {
+        let err = normalize_llm_config_update_fields(
+            true,
+            Some("ftp://example.com".to_string()),
+            Some("model".to_string()),
+        )
+        .expect_err("自定义 endpoint 编辑必须复用 base_url 校验");
+
+        assert!(
+            err.contains("仅支持 http/https"),
+            "错误必须来自统一 base_url 校验；got {err:?}"
+        );
+    }
+
+    #[test]
+    fn llm_config_update_normalizes_custom_endpoint_base_url() {
+        let (base_url, model) = normalize_llm_config_update_fields(
+            true,
+            Some(" https://example.com/// ".to_string()),
+            Some(" model ".to_string()),
+        )
+        .expect("合法自定义 endpoint 字段必须通过");
+
+        assert_eq!(base_url.as_deref(), Some("https://example.com"));
+        assert_eq!(model.as_deref(), Some("model"));
+    }
+
+    #[test]
+    fn llm_config_update_keeps_blank_fields_as_none() {
+        let (base_url, model) = normalize_llm_config_update_fields(
+            true,
+            Some("   ".to_string()),
+            Some("   ".to_string()),
+        )
+        .expect("空白可选字段应视为未提供");
+
+        assert_eq!(base_url, None);
+        assert_eq!(model, None);
+    }
+
+    #[test]
+    fn optional_field_update_requires_set_flag_for_explicit_clear() {
+        let no_value: Option<String> = None;
+        let value = Some("provider".to_string());
+
+        assert!(!optional_field_update_requested(&no_value, None));
+        assert!(optional_field_update_requested(&value, None));
+        assert!(optional_field_update_requested(&no_value, Some(true)));
+        assert!(!optional_field_update_requested(&value, Some(false)));
+    }
+
+    #[test]
+    fn optional_string_update_trims_and_treats_blank_as_clear_value() {
+        assert_eq!(
+            normalize_optional_string_update(Some(" openai ".to_string())).as_deref(),
+            Some("openai")
+        );
+        assert_eq!(
+            normalize_optional_string_update(Some("   ".to_string())),
+            None
+        );
+        assert_eq!(normalize_optional_string_update(None), None);
     }
 }

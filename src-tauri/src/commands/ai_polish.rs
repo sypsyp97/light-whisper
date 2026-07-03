@@ -216,7 +216,7 @@ pub async fn list_ai_models(
         .collect::<Vec<_>>();
 
     let mut models = models;
-    models.sort_by(|a, b| a.id.to_lowercase().cmp(&b.id.to_lowercase()));
+    models.sort_by_key(|a| a.id.to_lowercase());
     models.dedup_by(|a, b| a.id == b.id);
 
     Ok(AiModelListPayload { models, source_url })

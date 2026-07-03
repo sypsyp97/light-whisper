@@ -320,6 +320,95 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
     });
   });
 
+  it("updates the same session from raw ASR preview to polished final result", async () => {
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 30,
+        text: "ni hao",
+        originalText: "ni hao",
+        interim: false,
+        resultStage: "raw",
+        timing: { asrMs: 42, totalMs: 45, rawFirst: { status: "pasted" } },
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.transcriptionResult).toBe("ni hao");
+      expect(result.current.originalAsrText).toBe("ni hao");
+      expect(result.current.editBaselineText).toBe("ni hao");
+      expect(result.current.resultStage).toBe("raw");
+      expect((result.current.history[0] as { resultStage?: string }).resultStage).toBe("raw");
+      expect((result.current.history[0] as { timing?: { asrMs?: number } }).timing?.asrMs).toBe(42);
+      expect((result.current.history[0] as { timing?: { rawFirst?: { status?: string } } }).timing?.rawFirst?.status).toBe("pasted");
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 30,
+        text: "你好。",
+        originalText: "ni hao",
+        interim: false,
+        resultStage: "polished",
+        timing: { asrMs: 42, polishMs: 900, totalMs: 948, rawFirst: { status: "replaced" } },
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.transcriptionResult).toBe("你好。");
+      expect(result.current.originalAsrText).toBe("ni hao");
+      expect(result.current.editBaselineText).toBe("你好。");
+      expect(result.current.resultStage).toBe("polished");
+      expect(result.current.history).toHaveLength(1);
+      expect(result.current.history[0].text).toBe("你好。");
+      expect((result.current.history[0] as { resultStage?: string }).resultStage).toBe("polished");
+      expect((result.current.history[0] as { timing?: { polishMs?: number; totalMs?: number } }).timing?.polishMs).toBe(900);
+      expect((result.current.history[0] as { timing?: { polishMs?: number; totalMs?: number } }).timing?.totalMs).toBe(948);
+      expect((result.current.history[0] as { timing?: { rawFirst?: { status?: string } } }).timing?.rawFirst?.status).toBe("replaced");
+    });
+  });
+
+  it("marks the same session as polished when AI polish completes without text changes", async () => {
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 31,
+        text: "unchanged text",
+        originalText: "unchanged text",
+        interim: false,
+        resultStage: "raw",
+        timing: { asrMs: 42, totalMs: 45, rawFirst: { status: "preview_only" } },
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.transcriptionResult).toBe("unchanged text");
+      expect(result.current.resultStage).toBe("raw");
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 31,
+        text: "unchanged text",
+        originalText: "unchanged text",
+        interim: false,
+        resultStage: "polished",
+        timing: { asrMs: 42, polishMs: 900, totalMs: 948, rawFirst: { status: "preview_only" } },
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.transcriptionResult).toBe("unchanged text");
+      expect(result.current.resultStage).toBe("polished");
+      expect(result.current.history).toHaveLength(1);
+      expect((result.current.history[0] as { resultStage?: string }).resultStage).toBe("polished");
+    });
+  });
+
   it("recording-state from an older session must be ignored", async () => {
     const { result } = renderHook(() => useRecording());
     await flushMicrotasks();

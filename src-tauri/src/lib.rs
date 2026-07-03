@@ -166,8 +166,10 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::funasr::start_asr_engine,
             commands::funasr::start_funasr,
             commands::funasr::transcribe_audio,
+            commands::funasr::check_asr_status,
             commands::funasr::check_funasr_status,
             commands::funasr::check_model_files,
             commands::funasr::download_models,
@@ -188,6 +190,8 @@ pub fn run() {
             commands::clipboard::copy_to_clipboard,
             commands::clipboard::paste_text,
             commands::codex_oauth::login_openai_codex_oauth,
+            commands::codex_oauth::start_openai_codex_oauth_device_code,
+            commands::codex_oauth::complete_openai_codex_oauth_device_code,
             commands::codex_oauth::logout_openai_codex_oauth,
             commands::codex_oauth::get_openai_codex_oauth_status,
             commands::window::hide_main_window,
@@ -273,9 +277,7 @@ fn spawn_first_launch_permission_prompts(app_handle: tauri::AppHandle) {
         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
         log::info!("首次权限请求任务已启动");
 
-        use crate::services::permissions_service::{
-            request_permission, PermissionKind,
-        };
+        use crate::services::permissions_service::{request_permission, PermissionKind};
 
         let kinds = [
             ("屏幕录制", PermissionKind::Screen),
@@ -295,11 +297,7 @@ fn spawn_first_launch_permission_prompts(app_handle: tauri::AppHandle) {
         }
 
         if let Err(err) = std::fs::write(&marker_path, b"prompted\n") {
-            log::warn!(
-                "写入权限提示标记失败: {} ({})",
-                marker_path.display(),
-                err
-            );
+            log::warn!("写入权限提示标记失败: {} ({})", marker_path.display(), err);
         } else {
             log::info!("已写入首次权限提示标记: {}", marker_path.display());
         }

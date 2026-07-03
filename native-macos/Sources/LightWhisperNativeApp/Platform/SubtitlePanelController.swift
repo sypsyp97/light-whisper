@@ -70,78 +70,104 @@ final class SubtitlePanelController {
         let onClose: () -> Void
 
         var body: some View {
+            content
+                .padding(.horizontal, 24)
+                .padding(.vertical, 18)
+                .frame(maxWidth: .infinity)
+                .background(panelBackground)
+                .padding(.horizontal, 32)
+                .padding(.top, 20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(Color.clear)
+        }
+
+        private var content: some View {
             VStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(state.accentColor)
-                        .frame(width: 10, height: 10)
-                    Text(state.phaseLabel)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.85))
-                    Spacer()
-                    if state.isInteractive {
-                        Button(state.copyFeedback ? "Copied" : "Copy") {
-                            onCopy()
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(state.accentColor.opacity(0.22), in: Capsule())
-                        .foregroundStyle(.white)
-
-                        Button("Close") {
-                            onClose()
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(AppTheme.canvas.opacity(0.12), in: Capsule())
-                        .foregroundStyle(.white)
-                    }
-                }
-
-                if !state.detail.isEmpty {
-                    Text(state.detail)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.72))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                Text(state.text)
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(alignment: .bottom, spacing: 4) {
-                    ForEach(0..<18, id: \.self) { index in
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(state.accentColor.opacity(index < activeBarCount ? 1 : 0.18))
-                            .frame(width: 8, height: barHeight(for: index))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                header
+                detail
+                transcript
+                waveform
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 18)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(AppTheme.ink.opacity(0.92))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 26, style: .continuous)
-                            .stroke(Color.white.opacity(0.06), lineWidth: 1)
-                            .padding(1)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 26, style: .continuous)
-                            .stroke(state.accentColor.opacity(0.28), lineWidth: 1)
-                    )
-            )
-            .padding(.horizontal, 32)
-            .padding(.top, 20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color.clear)
+        }
+
+        private var header: some View {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(state.accentColor)
+                    .frame(width: 10, height: 10)
+                Text(state.phaseLabel)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                Spacer()
+                if state.isInteractive {
+                    actionButtons
+                }
+            }
+        }
+
+        private var actionButtons: some View {
+            HStack(spacing: 8) {
+                Button(state.copyFeedback ? "Copied" : "Copy") {
+                    onCopy()
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(state.accentColor.opacity(0.22), in: Capsule())
+                .foregroundStyle(.white)
+
+                Button("Close") {
+                    onClose()
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(AppTheme.canvas.opacity(0.12), in: Capsule())
+                .foregroundStyle(.white)
+            }
+        }
+
+        @ViewBuilder
+        private var detail: some View {
+            if !state.detail.isEmpty {
+                Text(state.detail)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+
+        private var transcript: some View {
+            Text(state.text)
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        private var waveform: some View {
+            HStack(alignment: .bottom, spacing: 4) {
+                ForEach(0..<18, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(state.accentColor.opacity(index < activeBarCount ? 1 : 0.18))
+                        .frame(width: 8, height: barHeight(for: index))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        private var panelBackground: some View {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(AppTheme.ink.opacity(0.92))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                        .padding(1)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .stroke(state.accentColor.opacity(0.28), lineWidth: 1)
+                )
         }
 
         private var activeBarCount: Int {

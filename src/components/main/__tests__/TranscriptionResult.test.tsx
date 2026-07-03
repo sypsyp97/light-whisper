@@ -49,4 +49,67 @@ describe("TranscriptionResult", () => {
     render(<TranscriptionResult {...baseProps()} />);
     expect(screen.getByTestId("main-result-text")).toBeInTheDocument();
   });
+
+  it("shows ASR, AI polish, and total latency when timing is available", () => {
+    render(
+      <TranscriptionResult
+        {...baseProps({
+          timing: { asrMs: 42, polishMs: 900, totalMs: 948, rawFirst: { status: "replaced" } },
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/result.latency.asr/)).toBeInTheDocument();
+    expect(screen.getByText(/result.latency.ai/)).toBeInTheDocument();
+    expect(screen.getByText(/result.latency.total/)).toBeInTheDocument();
+    expect(screen.getByText(/result.rawFirst.replaced/)).toBeInTheDocument();
+  });
+
+  it("shows polish complete after a polished preview-only result arrives", () => {
+    render(
+      <TranscriptionResult
+        {...baseProps({
+          text: "你好。",
+          originalText: "ni hao",
+          durationSec: null,
+          charCount: null,
+          timing: { asrMs: 42, polishMs: 900, totalMs: 948, rawFirst: { status: "preview_only" } },
+          resultStage: "polished",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("result.rawFirst.polished_preview")).toBeInTheDocument();
+    expect(screen.queryByText("result.rawFirst.preview_only")).not.toBeInTheDocument();
+  });
+
+  it("keeps raw preview read-only and allows editing after polished result", () => {
+    const { rerender } = render(
+      <TranscriptionResult
+        {...baseProps({
+          text: "ni hao",
+          originalText: "ni hao",
+          durationSec: null,
+          charCount: null,
+          resultStage: "raw",
+        })}
+      />,
+    );
+
+    expect(screen.getByLabelText("result.editableTranscription")).toHaveAttribute("readonly");
+
+    rerender(
+      <TranscriptionResult
+        {...baseProps({
+          text: "你好。",
+          originalText: "ni hao",
+          durationSec: null,
+          charCount: null,
+          resultStage: "polished",
+        })}
+      />,
+    );
+
+    expect(screen.getByLabelText("result.editableTranscription")).not.toHaveAttribute("readonly");
+  });
 });

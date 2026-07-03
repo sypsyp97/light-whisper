@@ -2080,6 +2080,7 @@ pub(crate) fn register_translation_hotkey_inner(
     app_handle: tauri::AppHandle,
     shortcut: Option<String>,
 ) -> Result<String, AppError> {
+    #[allow(clippy::needless_return)]
     #[cfg(not(target_os = "windows"))]
     {
         return update_non_windows_hotkey(
@@ -2148,6 +2149,7 @@ pub(crate) fn register_assistant_hotkey_inner(
     app_handle: tauri::AppHandle,
     shortcut: Option<String>,
 ) -> Result<String, AppError> {
+    #[allow(clippy::needless_return)]
     #[cfg(not(target_os = "windows"))]
     {
         return update_non_windows_hotkey(

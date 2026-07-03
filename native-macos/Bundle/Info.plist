@@ -2,37 +2,37 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
-    <key>CFBundleDisplayName</key>
-    <string>Light Whisper</string>
-    <key>CFBundleExecutable</key>
-    <string>LightWhisperNativeApp</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.light-whisper.desktop</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>LightWhisperNativeApp</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.3.3</string>
-    <key>CFBundleVersion</key>
-    <string>1.3.3</string>
-    <key>LSApplicationCategoryType</key>
-    <string>public.app-category.productivity</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Light Whisper uses Automation to paste transcribed text into the active app.</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Light Whisper needs microphone access to record and transcribe your speech.</string>
-    <key>NSScreenCaptureUsageDescription</key>
-    <string>Light Whisper captures the current screen only when screen context is enabled for assistant or AI polish.</string>
-    <key>NSSupportsAutomaticGraphicsSwitching</key>
-    <true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Light Whisper</string>
+	<key>CFBundleExecutable</key>
+	<string>LightWhisperNativeApp</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.light-whisper.desktop</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>LightWhisperNativeApp</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.3.10</string>
+	<key>CFBundleVersion</key>
+	<string>1.3.10</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Light Whisper uses Automation to paste transcribed text into the active app.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Light Whisper needs microphone access to record and transcribe your speech.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Light Whisper captures the current screen only when screen context is enabled for assistant or AI polish.</string>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
 </dict>
 </plist>

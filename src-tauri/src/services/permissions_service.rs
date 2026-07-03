@@ -439,7 +439,10 @@ mod tests {
     fn parse_permission_kind_rejects_unknown_slugs() {
         assert!(parse_permission_kind("camera").is_none());
         assert!(parse_permission_kind("").is_none());
-        assert!(parse_permission_kind("Microphone").is_none(), "case-sensitive");
+        assert!(
+            parse_permission_kind("Microphone").is_none(),
+            "case-sensitive"
+        );
     }
 
     #[test]
@@ -449,22 +452,17 @@ mod tests {
         // want — pin each one so we can't silently send users to the wrong
         // pane on a refactor.
         assert!(
-            permission_settings_url(PermissionKind::Microphone)
-                .ends_with("Privacy_Microphone"),
+            permission_settings_url(PermissionKind::Microphone).ends_with("Privacy_Microphone"),
         );
+        assert!(permission_settings_url(PermissionKind::Accessibility)
+            .ends_with("Privacy_Accessibility"),);
         assert!(
-            permission_settings_url(PermissionKind::Accessibility)
-                .ends_with("Privacy_Accessibility"),
-        );
-        assert!(
-            permission_settings_url(PermissionKind::Screen)
-                .ends_with("Privacy_ScreenCapture"),
+            permission_settings_url(PermissionKind::Screen).ends_with("Privacy_ScreenCapture"),
             "Screen permission lives in the Screen RECORDING pane (Privacy_ScreenCapture), \
              not Privacy_Screen — calling the wrong pane sends the user to a 404 settings tab.",
         );
         assert!(
-            permission_settings_url(PermissionKind::Automation)
-                .ends_with("Privacy_Automation"),
+            permission_settings_url(PermissionKind::Automation).ends_with("Privacy_Automation"),
         );
         for kind in [
             PermissionKind::Microphone,

@@ -3,6 +3,7 @@ import { Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import IconButton from "@/components/ui/IconButton";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
+import type { EditGrabStatus, TranscriptionResultStage, TranscriptionTiming } from "@/types";
 
 export interface TranscriptionResultProps {
   text: string;
@@ -11,6 +12,9 @@ export interface TranscriptionResultProps {
   durationSec: number | null;
   charCount: number | null;
   detectedLanguage: string | null;
+  editGrabStatus?: EditGrabStatus | null;
+  timing?: TranscriptionTiming | null;
+  resultStage?: TranscriptionResultStage | null;
   onChange: (next: string) => void;
   onSubmitCorrection: (original: string, corrected: string, raw: string | null) => void;
   onCopy: () => void;
@@ -23,6 +27,9 @@ export function TranscriptionResult({
   durationSec,
   charCount,
   detectedLanguage,
+  editGrabStatus,
+  timing,
+  resultStage,
   onChange,
   onSubmitCorrection,
   onCopy,
@@ -54,6 +61,28 @@ export function TranscriptionResult({
   const cpm = durationSec && durationSec > 0 && charCount
     ? Math.round((charCount / durationSec) * 60)
     : 0;
+  const editGrabHintKey =
+    editGrabStatus === "timeout" || editGrabStatus === "empty"
+      ? `result.editGrab.${editGrabStatus}`
+      : null;
+  const latencyParts = [
+    timing?.asrMs != null ? t("result.latency.asr", { ms: timing.asrMs }) : null,
+    timing?.polishMs != null ? t("result.latency.ai", { ms: timing.polishMs }) : null,
+    timing?.totalMs != null ? t("result.latency.total", { ms: timing.totalMs }) : null,
+  ].filter((part): part is string => Boolean(part));
+  const rawFirstStatusKey =
+    timing?.rawFirst?.status === "preview_only" && resultStage === "polished"
+      ? "polished_preview"
+      : timing?.rawFirst?.status;
+  const rawFirstStatus = rawFirstStatusKey
+    ? t(`result.rawFirst.${rawFirstStatusKey}`)
+    : null;
+  const isRawPreview = resultStage === "raw";
+  const showMeta =
+    (charCount != null && durationSec != null && durationSec > 0)
+    || latencyParts.length > 0
+    || rawFirstStatus
+    || editGrabHintKey;
 
   return (
     <div className="lw-result" data-testid="main-result">
@@ -72,16 +101,30 @@ export function TranscriptionResult({
         onChange={(e) => handleChange(e.target.value)}
         aria-label={t("result.editableTranscription")}
         rows={Math.max(2, draft.split("\n").length)}
+        readOnly={isRawPreview}
         data-testid="main-result-text"
       />
-      {charCount != null && durationSec != null && durationSec > 0 && (
+      {showMeta && (
         <p className="lw-result-stats" data-testid="main-result-stats">
-          {detectedLanguage && <span>{detectedLanguage} · </span>}
-          {t("result.stats", {
-            chars: charCount,
-            duration: durationSec.toFixed(1),
-            cpm,
-          })}
+          {charCount != null && durationSec != null && durationSec > 0 && (
+            <>
+              {detectedLanguage && <span>{detectedLanguage} · </span>}
+              {t("result.stats", {
+                chars: charCount,
+                duration: durationSec.toFixed(1),
+                cpm,
+              })}
+            </>
+          )}
+          {latencyParts.length > 0 && (
+            <span className="result-latency">{latencyParts.join(" · ")}</span>
+          )}
+          {rawFirstStatus && (
+            <span className="result-raw-first">{rawFirstStatus}</span>
+          )}
+          {editGrabHintKey && (
+            <span className="result-edit-grab-hint">{t(editGrabHintKey)}</span>
+          )}
         </p>
       )}
     </div>

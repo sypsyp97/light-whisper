@@ -7,12 +7,20 @@ use crate::state::AppState;
 use crate::utils::{paths, AppError};
 
 #[tauri::command]
-pub async fn start_funasr(
+pub async fn start_asr_engine(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, AppError> {
     funasr_service::start_server(&app_handle, state.inner()).await?;
-    Ok("FunASR 服务器启动成功".to_string())
+    Ok("ASR 引擎启动成功".to_string())
+}
+
+#[tauri::command]
+pub async fn start_funasr(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, AppError> {
+    start_asr_engine(app_handle, state).await
 }
 
 /// IPC 音频上限。前端是受信任的（同进程渲染器），但仍统一卡上限：
@@ -53,11 +61,19 @@ pub async fn transcribe_audio(
 }
 
 #[tauri::command]
-pub async fn check_funasr_status(
+pub async fn check_asr_status(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<funasr_service::FunASRStatus, AppError> {
     funasr_service::check_status(state.inner(), &app_handle).await
+}
+
+#[tauri::command]
+pub async fn check_funasr_status(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<funasr_service::FunASRStatus, AppError> {
+    check_asr_status(app_handle, state).await
 }
 
 #[tauri::command]
@@ -84,9 +100,7 @@ pub async fn download_models(
 }
 
 #[tauri::command]
-pub async fn cancel_model_download(
-    _state: tauri::State<'_, AppState>,
-) -> Result<String, AppError> {
+pub async fn cancel_model_download(_state: tauri::State<'_, AppState>) -> Result<String, AppError> {
     Ok("当前 mac 分支没有本地模型下载任务".to_string())
 }
 

@@ -1,7 +1,8 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use rand::{distributions::Alphanumeric, rngs::OsRng, Rng};
+use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri_plugin_keyring::KeyringExt;
@@ -50,6 +51,15 @@ pub struct OpenaiCodexOauthStatus {
     pub expires_at_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenaiCodexOauthDeviceCodeChallenge {
+    pub verification_url: String,
+    pub user_code: String,
+    pub device_auth_id: String,
+    pub interval_secs: u64,
+}
+
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     #[serde(default)]
@@ -64,6 +74,32 @@ struct TokenResponse {
 #[derive(Debug, Deserialize)]
 struct TokenExchangeResponse {
     access_token: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DeviceCodeRequest {
+    client_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeviceCodeResponse {
+    device_auth_id: String,
+    #[serde(alias = "user_code", alias = "usercode")]
+    user_code: String,
+    #[serde(default, deserialize_with = "deserialize_interval_secs")]
+    interval: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct DeviceCodePollRequest {
+    device_auth_id: String,
+    user_code: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeviceCodeAuthorizationResponse {
+    authorization_code: String,
+    code_verifier: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -116,6 +152,24 @@ struct CallbackListeners {
     ipv4: TcpListener,
     ipv6: Option<TcpListener>,
     port: u16,
+}
+
+fn deserialize_interval_secs<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Number(number) => number
+            .as_u64()
+            .ok_or_else(|| de::Error::custom("interval must be a positive integer")),
+        serde_json::Value::String(value) => value
+            .trim()
+            .parse::<u64>()
+            .map_err(|err| de::Error::custom(format!("invalid interval: {err}"))),
+        serde_json::Value::Null => Ok(0),
+        _ => Err(de::Error::custom("interval must be a string or number")),
+    }
 }
 
 fn now_ms() -> u64 {
@@ -569,6 +623,90 @@ async fn exchange_code_for_tokens(
         .map_err(|err| format!("解析 OAuth token 响应失败: {err}"))
 }
 
+async fn request_device_code(
+    client: &reqwest::Client,
+) -> Result<OpenaiCodexOauthDeviceCodeChallenge, String> {
+    let response = client
+        .post(format!("{ISSUER}/api/accounts/deviceauth/usercode"))
+        .json(&DeviceCodeRequest {
+            client_id: CLIENT_ID.to_string(),
+        })
+        .send()
+        .await
+        .map_err(|err| format!("请求 OpenAI Codex 设备码失败: {err}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Err(
+                "当前 OpenAI Codex 登录服务未启用设备码登录，请使用浏览器登录。".to_string(),
+            );
+        }
+        return Err(format!("请求 OpenAI Codex 设备码失败 {status}: {body}"));
+    }
+
+    let payload = response
+        .json::<DeviceCodeResponse>()
+        .await
+        .map_err(|err| format!("解析 OpenAI Codex 设备码响应失败: {err}"))?;
+
+    Ok(OpenaiCodexOauthDeviceCodeChallenge {
+        verification_url: format!("{ISSUER}/codex/device"),
+        user_code: payload.user_code,
+        device_auth_id: payload.device_auth_id,
+        interval_secs: payload.interval.max(1),
+    })
+}
+
+async fn poll_device_code_authorization(
+    client: &reqwest::Client,
+    challenge: &OpenaiCodexOauthDeviceCodeChallenge,
+) -> Result<DeviceCodeAuthorizationResponse, String> {
+    let url = format!("{ISSUER}/api/accounts/deviceauth/token");
+    let max_wait = Duration::from_secs(15 * 60);
+    let interval = Duration::from_secs(challenge.interval_secs.clamp(1, 30));
+    let start = Instant::now();
+
+    loop {
+        let response = client
+            .post(&url)
+            .json(&DeviceCodePollRequest {
+                device_auth_id: challenge.device_auth_id.clone(),
+                user_code: challenge.user_code.clone(),
+            })
+            .send()
+            .await
+            .map_err(|err| format!("轮询 OpenAI Codex 设备码授权失败: {err}"))?;
+
+        let status = response.status();
+        if status.is_success() {
+            let payload = response
+                .json::<DeviceCodeAuthorizationResponse>()
+                .await
+                .map_err(|err| format!("解析 OpenAI Codex 设备码授权响应失败: {err}"))?;
+            if payload.authorization_code.trim().is_empty()
+                || payload.code_verifier.trim().is_empty()
+            {
+                return Err("OpenAI Codex 设备码授权响应缺少授权码，请重试。".to_string());
+            }
+            return Ok(payload);
+        }
+
+        if status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::NOT_FOUND {
+            if start.elapsed() >= max_wait {
+                return Err("OpenAI Codex 设备码登录超时，请重新开始登录。".to_string());
+            }
+            let remaining = max_wait.saturating_sub(start.elapsed());
+            tokio::time::sleep(interval.min(remaining)).await;
+            continue;
+        }
+
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("OpenAI Codex 设备码授权失败 {status}: {body}"));
+    }
+}
+
 async fn refresh_tokens(
     client: &reqwest::Client,
     refresh_token: &str,
@@ -690,6 +828,59 @@ fn session_needs_refresh(session: &OpenaiCodexOauthSession) -> bool {
 
 fn session_has_runtime_auth_material(session: &OpenaiCodexOauthSession) -> bool {
     !session.api_key.trim().is_empty() || !session.access_token.trim().is_empty()
+}
+
+async fn session_from_token_response(
+    state: &AppState,
+    token_response: TokenResponse,
+) -> Result<OpenaiCodexOauthSession, String> {
+    let id_token = match token_response.id_token.clone() {
+        Some(id_token) if !id_token.trim().is_empty() => id_token,
+        _ => return Err("OAuth 响应缺少 id_token，无法继续。".to_string()),
+    };
+    let refresh_token = match token_response
+        .refresh_token
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+    {
+        Some(refresh_token) => refresh_token,
+        None => return Err("OAuth 响应缺少 refresh_token，无法继续。".to_string()),
+    };
+    let api_key = match exchange_id_token_for_api_key(&state.http_client, &id_token).await {
+        Ok(api_key) => api_key,
+        Err(err) => {
+            log::warn!(
+                "OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}",
+                err
+            );
+            String::new()
+        }
+    };
+
+    let mut session = OpenaiCodexOauthSession {
+        id_token,
+        access_token: token_response.access_token,
+        refresh_token,
+        api_key,
+        expires_at_ms: token_response
+            .expires_in
+            .map(|expires_in| now_ms().saturating_add(expires_in * 1000)),
+        account_id: None,
+        email: None,
+        plan_type: None,
+    };
+    enrich_session_from_tokens(&mut session, None);
+    Ok(session)
+}
+
+fn persist_login_session(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    session: OpenaiCodexOauthSession,
+) -> Result<OpenaiCodexOauthStatus, String> {
+    save_session_to_storage(app_handle, &session)?;
+    state.set_openai_codex_oauth_session(Some(session.clone()));
+    Ok(make_status(Some(&session)))
 }
 
 pub(crate) fn should_prewarm_runtime_session(
@@ -871,59 +1062,23 @@ pub async fn login(
             }
         };
 
-    let id_token = match token_response.id_token.clone() {
-        Some(id_token) if !id_token.trim().is_empty() => id_token,
-        _ => {
-            let err = "OAuth 响应缺少 id_token，无法继续。".to_string();
-            let html = callback_html("Authorization Failed", &err, false);
-            let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-            return Err(err);
-        }
-    };
-    let refresh_token = match token_response
-        .refresh_token
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-    {
-        Some(refresh_token) => refresh_token,
-        None => {
-            let err = "OAuth 响应缺少 refresh_token，无法继续。".to_string();
-            let html = callback_html("Authorization Failed", &err, false);
-            let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-            return Err(err);
-        }
-    };
-    let api_key = match exchange_id_token_for_api_key(&state.http_client, &id_token).await {
-        Ok(api_key) => api_key,
+    let session = match session_from_token_response(state, token_response).await {
+        Ok(session) => session,
         Err(err) => {
-            log::warn!(
-                "OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}",
-                err
-            );
-            String::new()
+            let html = callback_html("Authorization Failed", &err, false);
+            let _ = respond_with_html(&mut stream, "200 OK", &html).await;
+            return Err(err);
         }
     };
 
-    let mut session = OpenaiCodexOauthSession {
-        id_token,
-        access_token: token_response.access_token,
-        refresh_token,
-        api_key,
-        expires_at_ms: token_response
-            .expires_in
-            .map(|expires_in| now_ms().saturating_add(expires_in * 1000)),
-        account_id: None,
-        email: None,
-        plan_type: None,
+    let status = match persist_login_session(app_handle, state, session) {
+        Ok(status) => status,
+        Err(err) => {
+            let html = callback_html("Authorization Failed", &err, false);
+            let _ = respond_with_html(&mut stream, "200 OK", &html).await;
+            return Err(err);
+        }
     };
-    enrich_session_from_tokens(&mut session, None);
-
-    if let Err(err) = save_session_to_storage(app_handle, &session) {
-        let html = callback_html("Authorization Failed", &err, false);
-        let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-        return Err(err);
-    }
-    state.set_openai_codex_oauth_session(Some(session.clone()));
     let html = callback_html(
         "Authorization Successful",
         "可以关闭这个页面并返回轻语。",
@@ -931,7 +1086,38 @@ pub async fn login(
     );
     let _ = respond_with_html(&mut stream, "200 OK", &html).await;
 
-    Ok(make_status(Some(&session)))
+    Ok(status)
+}
+
+pub async fn start_device_code_login(
+    state: &AppState,
+) -> Result<OpenaiCodexOauthDeviceCodeChallenge, String> {
+    let challenge = request_device_code(&state.http_client).await?;
+    if let Err(err) = webbrowser::open(&challenge.verification_url) {
+        log::warn!(
+            "打开 OpenAI Codex 设备码验证页失败，前端将展示 URL: {}",
+            err
+        );
+    }
+    Ok(challenge)
+}
+
+pub async fn complete_device_code_login(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    challenge: OpenaiCodexOauthDeviceCodeChallenge,
+) -> Result<OpenaiCodexOauthStatus, String> {
+    let authorization = poll_device_code_authorization(&state.http_client, &challenge).await?;
+    let redirect_uri = format!("{ISSUER}/deviceauth/callback");
+    let token_response = exchange_code_for_tokens(
+        &state.http_client,
+        &authorization.authorization_code,
+        &redirect_uri,
+        &authorization.code_verifier,
+    )
+    .await?;
+    let session = session_from_token_response(state, token_response).await?;
+    persist_login_session(app_handle, state, session)
 }
 
 pub fn logout(app_handle: &tauri::AppHandle, state: &AppState) {
@@ -991,5 +1177,46 @@ pub async fn resolve_api_key_for_provider(
             })
             .ok_or_else(|| "编码 OpenAI Codex bearer 会话失败".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_code_response_accepts_string_interval_and_usercode_alias() {
+        let payload = serde_json::json!({
+            "device_auth_id": "device-auth",
+            "usercode": "ABCD-1234",
+            "interval": "7"
+        });
+
+        let parsed: DeviceCodeResponse =
+            serde_json::from_value(payload).expect("device code response should parse");
+
+        assert_eq!(parsed.device_auth_id, "device-auth");
+        assert_eq!(parsed.user_code, "ABCD-1234");
+        assert_eq!(parsed.interval, 7);
+    }
+
+    #[test]
+    fn device_code_challenge_uses_camel_case_wire_shape() {
+        let challenge = OpenaiCodexOauthDeviceCodeChallenge {
+            verification_url: "https://auth.openai.com/codex/device".to_string(),
+            user_code: "ABCD-1234".to_string(),
+            device_auth_id: "device-auth".to_string(),
+            interval_secs: 5,
+        };
+
+        let wire = serde_json::to_value(challenge).expect("challenge should serialize");
+
+        assert_eq!(
+            wire["verificationUrl"],
+            "https://auth.openai.com/codex/device"
+        );
+        assert_eq!(wire["userCode"], "ABCD-1234");
+        assert_eq!(wire["deviceAuthId"], "device-auth");
+        assert_eq!(wire["intervalSecs"], 5);
     }
 }

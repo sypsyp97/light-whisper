@@ -319,4 +319,154 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
 
     expect(container.querySelector(".subtitle-root")).not.toBeNull();
   });
+
+  it("F. shows raw-first status as raw text is replaced by polished text", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 20,
+        isRecording: true,
+        isProcessing: false,
+      });
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 20,
+        text: "ni hao",
+        interim: false,
+        resultStage: "raw",
+        timing: { rawFirst: { status: "pasted" } },
+      });
+    });
+
+    expect(readSubtitleText(container)).toContain("ni hao");
+    expect(screen.getByText("subtitle.rawFirst.pasted")).toBeInTheDocument();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 20,
+        text: "你好。",
+        interim: false,
+        polished: true,
+        resultStage: "polished",
+        timing: { rawFirst: { status: "replaced" } },
+      });
+    });
+
+    expect(readSubtitleText(container)).toContain("你好。");
+    expect(screen.getByText("subtitle.rawFirst.replaced")).toBeInTheDocument();
+  });
+
+  it("G. changes preview-only label after polished subtitle preview arrives", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 21,
+        isRecording: true,
+        isProcessing: false,
+      });
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 21,
+        text: "ni hao",
+        interim: false,
+        resultStage: "raw",
+        timing: { rawFirst: { status: "preview_only" } },
+      });
+    });
+
+    expect(readSubtitleText(container)).toContain("ni hao");
+    expect(screen.getByText("subtitle.rawFirst.preview_only")).toBeInTheDocument();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 21,
+        text: "你好。",
+        interim: false,
+        polished: true,
+        resultStage: "polished",
+        timing: { rawFirst: { status: "preview_only" } },
+      });
+    });
+
+    expect(readSubtitleText(container)).toContain("你好。");
+    expect(screen.getByText("subtitle.rawFirst.polished_preview")).toBeInTheDocument();
+    expect(screen.queryByText("subtitle.rawFirst.preview_only")).not.toBeInTheDocument();
+  });
+
+  it("H. keeps raw preview visible while waiting for the polished result", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 22,
+        isRecording: true,
+        isProcessing: false,
+      });
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 22,
+        text: "long raw preview",
+        interim: false,
+        resultStage: "raw",
+        timing: { rawFirst: { status: "preview_only" } },
+      });
+    });
+
+    await advance(5000);
+
+    expect(readSubtitleText(container)).toContain("long raw preview");
+    const capsule = container.querySelector(".subtitle-capsule");
+    expect(capsule).not.toBeNull();
+    expect(capsule?.classList.contains("subtitle-fade-out")).toBe(false);
+    expect(screen.getByText("subtitle.rawFirst.preview_only")).toBeInTheDocument();
+  });
+
+  it("I. changes preview-only label after AI polish returns unchanged text", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 23,
+        isRecording: true,
+        isProcessing: false,
+      });
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 23,
+        text: "unchanged text",
+        interim: false,
+        resultStage: "raw",
+        timing: { rawFirst: { status: "preview_only" } },
+      });
+    });
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 23,
+        text: "unchanged text",
+        interim: false,
+        polished: false,
+        resultStage: "polished",
+        timing: { rawFirst: { status: "preview_only" } },
+      });
+    });
+
+    expect(readSubtitleText(container)).toContain("unchanged text");
+    expect(screen.getByText("subtitle.rawFirst.polished_preview")).toBeInTheDocument();
+    expect(screen.queryByText("subtitle.rawFirst.preview_only")).not.toBeInTheDocument();
+  });
 });
