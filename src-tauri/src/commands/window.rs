@@ -78,6 +78,30 @@ fn find_cursor_monitor(_app_handle: &tauri::AppHandle) -> Option<tauri::Monitor>
     None
 }
 
+#[cfg(target_os = "macos")]
+fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow) {
+    use objc2_app_kit::{NSScreenSaverWindowLevel, NSWindow, NSWindowCollectionBehavior};
+
+    match window.ns_window() {
+        Ok(raw_window) if !raw_window.is_null() => unsafe {
+            let ns_window: &NSWindow = &*(raw_window as *mut NSWindow);
+            let mut behavior = ns_window.collectionBehavior();
+            behavior |= NSWindowCollectionBehavior::CanJoinAllSpaces;
+            behavior |= NSWindowCollectionBehavior::FullScreenAuxiliary;
+            behavior |= NSWindowCollectionBehavior::Stationary;
+            behavior |= NSWindowCollectionBehavior::IgnoresCycle;
+            behavior &= !NSWindowCollectionBehavior::FullScreenNone;
+            ns_window.setCollectionBehavior(behavior);
+            ns_window.setLevel(NSScreenSaverWindowLevel);
+        },
+        Ok(_) => log::warn!("字幕窗口 NSWindow 句柄为空，无法应用全屏 Space 行为"),
+        Err(err) => log::warn!("获取字幕窗口 NSWindow 失败: {}", err),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_macos_subtitle_fullscreen_behavior(_window: &tauri::WebviewWindow) {}
+
 fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64) {
     let monitor = find_cursor_monitor(app_handle)
         .or_else(|| {
@@ -139,6 +163,8 @@ fn reinforce_subtitle_topmost(window: &tauri::WebviewWindow) {
     if let Err(err) = window.set_visible_on_all_workspaces(true) {
         log::warn!("设置字幕窗口全空间可见失败: {}", err);
     }
+
+    apply_macos_subtitle_fullscreen_behavior(window);
 
     #[cfg(target_os = "windows")]
     force_window_topmost(window);
