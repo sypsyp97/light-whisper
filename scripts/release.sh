@@ -31,7 +31,7 @@ scripts/sync-version.sh "$VERSION"
 
 # 2. 构建 Tauri macOS app / DMG
 echo "[2/6] 构建 Tauri macOS app / DMG"
-pnpm tauri build
+bash scripts/build-tauri-dmg.sh
 
 # 3. 验证 DMG
 echo "[3/6] 验证 DMG"
