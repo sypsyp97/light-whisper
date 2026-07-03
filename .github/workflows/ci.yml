@@ -26,6 +26,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          package-manager-cache: false
       - run: corepack enable
       - run: corepack prepare pnpm@9.15.9 --activate
       - run: pnpm install --frozen-lockfile
@@ -50,11 +51,10 @@ jobs:
   swift:
     name: Swift native experiment (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15]
+        os: [macos-15]
     steps:
       - uses: actions/checkout@v5
       - run: swift build --package-path native-macos
