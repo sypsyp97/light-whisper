@@ -79,7 +79,7 @@ fn find_cursor_monitor(_app_handle: &tauri::AppHandle) -> Option<tauri::Monitor>
 }
 
 #[cfg(target_os = "macos")]
-fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow) {
+fn apply_macos_subtitle_fullscreen_behavior_on_main(window: &tauri::WebviewWindow) {
     use objc2_app_kit::{NSScreenSaverWindowLevel, NSWindow, NSWindowCollectionBehavior};
 
     match window.ns_window() {
@@ -96,6 +96,17 @@ fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow) {
         },
         Ok(_) => log::warn!("字幕窗口 NSWindow 句柄为空，无法应用全屏 Space 行为"),
         Err(err) => log::warn!("获取字幕窗口 NSWindow 失败: {}", err),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow) {
+    let window = window.clone();
+    let task_window = window.clone();
+    if let Err(err) = window.run_on_main_thread(move || {
+        apply_macos_subtitle_fullscreen_behavior_on_main(&task_window);
+    }) {
+        log::warn!("调度字幕窗口 macOS 全屏 Space 行为失败: {}", err);
     }
 }
 
@@ -134,6 +145,31 @@ fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64
             0.0,
             0.0,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn macos_nswindow_behavior_is_dispatched_to_main_thread() {
+        let source = include_str!("window.rs");
+        let scheduler_start = source
+            .find("fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow)")
+            .expect("macOS subtitle fullscreen behavior scheduler should exist");
+        let scheduler = &source[scheduler_start..];
+        let scheduler_end = scheduler
+            .find("#[cfg(not(target_os = \"macos\"))]")
+            .expect("scheduler should end before non-macOS stub");
+        let scheduler_body = &scheduler[..scheduler_end];
+
+        assert!(
+            scheduler_body.contains("run_on_main_thread(move ||"),
+            "raw AppKit NSWindow collection behavior must be scheduled onto the main thread"
+        );
+        assert!(
+            !scheduler_body.contains("ns_window.setCollectionBehavior"),
+            "main-thread scheduler must not mutate NSWindow collection behavior directly"
+        );
     }
 }
 

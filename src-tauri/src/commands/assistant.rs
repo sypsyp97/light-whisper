@@ -19,9 +19,10 @@ pub async fn set_assistant_hotkey(
     crate::commands::hotkey::register_assistant_hotkey_inner(app_handle, normalized.clone())
         .map_err(|err| err.to_string())?;
 
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.assistant_hotkey = normalized;
-    });
+    })
+    .await?;
     Ok(())
 }
 
@@ -36,9 +37,10 @@ pub async fn set_assistant_system_prompt(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
 
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.assistant_system_prompt = prompt;
-    });
+    })
+    .await?;
     Ok(())
 }
 
@@ -53,9 +55,10 @@ pub async fn set_assistant_screen_context_enabled(
             .map_err(|err| err.to_string())?;
     }
 
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.assistant_screen_context_enabled = enabled;
-    });
+    })
+    .await?;
     Ok(())
 }
 
@@ -77,13 +80,14 @@ pub async fn set_web_search_config(
     provider: WebSearchProvider,
     max_results: Option<u8>,
 ) -> Result<(), String> {
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.web_search.enabled = enabled;
         profile.web_search.provider = provider;
         if let Some(n) = max_results {
             profile.web_search.max_results = n.clamp(1, 10);
         }
-    });
+    })
+    .await?;
     log::info!("联网搜索配置已更新: enabled={enabled}");
     Ok(())
 }
@@ -94,9 +98,9 @@ pub async fn set_web_search_api_key(
     state: tauri::State<'_, AppState>,
     api_key: String,
 ) -> Result<(), String> {
-    state.set_web_search_api_key(api_key.clone());
     let keyring_user = web_search_keyring_user(&WebSearchProvider::Tavily);
-    llm_provider::save_or_delete_api_key(&app_handle, keyring_user, &api_key);
+    llm_provider::save_or_delete_api_key(&app_handle, keyring_user, &api_key)?;
+    state.set_web_search_api_key(api_key.clone());
     Ok(())
 }
 

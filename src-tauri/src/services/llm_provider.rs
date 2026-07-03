@@ -1302,20 +1302,30 @@ pub fn build_auth_headers(
     Ok(headers)
 }
 
-/// 保存或删除 API Key：非空则写入密钥环，空则删除
-pub fn save_or_delete_api_key(app_handle: &tauri::AppHandle, keyring_user: &str, api_key: &str) {
+/// 保存或删除 API Key：非空则写入密钥环，空则删除。
+///
+/// 非空写入失败必须返回错误，否则设置页会显示已保存但重启后读不到 key。
+pub fn save_or_delete_api_key(
+    app_handle: &tauri::AppHandle,
+    keyring_user: &str,
+    api_key: &str,
+) -> Result<(), String> {
     if !api_key.is_empty() {
         if let Err(e) = app_handle
             .keyring()
             .set_password(KEYRING_SERVICE, keyring_user, api_key)
         {
-            log::warn!("保存 API Key 到密钥环失败: {e}");
+            return Err(format!("保存 API Key 到密钥环失败: {e}"));
         }
     } else {
-        let _ = app_handle
+        if let Err(e) = app_handle
             .keyring()
-            .delete_password(KEYRING_SERVICE, keyring_user);
+            .delete_password(KEYRING_SERVICE, keyring_user)
+        {
+            log::warn!("删除 API Key 密钥环条目失败: {e}");
+        }
     }
+    Ok(())
 }
 
 pub fn load_api_key_for_provider(app_handle: &tauri::AppHandle, provider: &str) -> String {

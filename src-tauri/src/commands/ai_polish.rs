@@ -28,14 +28,16 @@ pub async fn set_ai_polish_config(
     api_key: String,
     provider: Option<String>,
 ) -> Result<(), String> {
+    let provider =
+        normalize_provider_alias(provider).unwrap_or_else(|| state.active_llm_provider());
+    let keyring_user = llm_provider::keyring_user_for_provider(&provider);
+
+    llm_provider::save_or_delete_api_key(&app_handle, &keyring_user, &api_key)?;
+
     state
         .profile
         .ai_polish_enabled
         .store(enabled, Ordering::Release);
-
-    let provider =
-        normalize_provider_alias(provider).unwrap_or_else(|| state.active_llm_provider());
-    let keyring_user = llm_provider::keyring_user_for_provider(&provider);
 
     if provider == state.active_llm_provider() {
         state.set_ai_polish_api_key(api_key.clone());
@@ -46,8 +48,6 @@ pub async fn set_ai_polish_config(
     if assistant_provider == provider {
         state.set_assistant_api_key(api_key.clone());
     }
-
-    llm_provider::save_or_delete_api_key(&app_handle, &keyring_user, &api_key);
 
     log::info!(
         "AI 润色配置已更新: enabled={}, provider={}",
@@ -73,9 +73,10 @@ pub async fn set_ai_polish_screen_context_enabled(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.ai_polish_screen_context_enabled = enabled;
-    });
+    })
+    .await?;
     Ok(())
 }
 
@@ -276,11 +277,11 @@ pub async fn set_assistant_api_key(
 
     let current_assistant_provider =
         state.with_profile(|p| p.llm_provider.resolve_assistant_provider());
+    llm_provider::save_or_delete_api_key(&app_handle, &keyring_user, &api_key)?;
+
     if provider == current_assistant_provider {
         state.set_assistant_api_key(api_key.clone());
     }
-
-    llm_provider::save_or_delete_api_key(&app_handle, &keyring_user, &api_key);
 
     // 若与润色共享 provider，同步润色缓存
     let polish_provider = state.active_llm_provider();

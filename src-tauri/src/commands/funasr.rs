@@ -247,7 +247,8 @@ pub async fn set_online_asr_api_key(
         _ => active_user,
     };
 
-    llm_provider::save_or_delete_api_key(&app_handle, target_user, &api_key);
+    llm_provider::save_or_delete_api_key(&app_handle, target_user, &api_key)
+        .map_err(AppError::Other)?;
 
     // 只有当目标槽和当前活跃槽一致时，才更新运行时缓存与就绪状态，
     // 否则会把一个不相关的 key 写进 state 造成状态与 UI 不一致。

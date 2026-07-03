@@ -258,7 +258,7 @@ pub async fn set_llm_provider_config(
     let normalized_assistant_provider =
         normalize_optional_string_update(assistant_provider).map(normalize_provider_alias);
 
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.llm_provider.active = active.clone();
         if let Some(mode) = polish_reasoning_mode {
             profile.llm_provider.polish_reasoning_mode = Some(mode);
@@ -298,7 +298,8 @@ pub async fn set_llm_provider_config(
         } else {
             profile.llm_provider.custom_model = normalized_model.clone();
         }
-    });
+    })
+    .await?;
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
 }
@@ -320,7 +321,7 @@ pub async fn set_assistant_llm_config(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         if let Some(enabled) = use_separate_model {
             profile.llm_provider.assistant_use_separate_model = enabled;
         }
@@ -333,7 +334,8 @@ pub async fn set_assistant_llm_config(
         if let Some(mode) = reasoning_mode {
             profile.llm_provider.assistant_reasoning_mode = Some(mode);
         }
-    });
+    })
+    .await?;
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
 }
@@ -468,17 +470,15 @@ pub async fn add_custom_provider(
     let (name, base_url, model) = normalize_custom_provider_fields(&name, &base_url, &model)?;
     // 用毫秒时间戳生成 id 在 UI 快速点击时可能撞 ID（同一毫秒两次添加）；
     // 拼一段随机后缀 + 在 push 前查重，确保 id 唯一。
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
     let mut id = format!(
         "custom_{}_{:08x}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis(),
-        rng.gen::<u32>()
+        rand::random::<u32>()
     );
-    let assigned_id = profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    let assigned_id = profile_service::update_profile_and_save(state.inner(), |profile| {
         // 极小概率撞 ID 时再随机一次。
         while profile
             .llm_provider
@@ -486,7 +486,7 @@ pub async fn add_custom_provider(
             .iter()
             .any(|p| p.id == id)
         {
-            id = format!("custom_{:016x}", rng.gen::<u64>());
+            id = format!("custom_{:016x}", rand::random::<u64>());
         }
         let provider = CustomProvider {
             id: id.clone(),
@@ -497,7 +497,8 @@ pub async fn add_custom_provider(
         };
         profile.llm_provider.custom_providers.push(provider);
         id.clone()
-    });
+    })
+    .await?;
     Ok(assigned_id)
 }
 
@@ -524,7 +525,7 @@ pub async fn update_custom_provider(
         None => None,
     };
 
-    let found = profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    let found = profile_service::update_profile_and_save(state.inner(), |profile| {
         if let Some(cp) = profile
             .llm_provider
             .custom_providers
@@ -547,7 +548,8 @@ pub async fn update_custom_provider(
         } else {
             false
         }
-    });
+    })
+    .await?;
     if !found {
         return Err(format!("找不到自定义服务商: {}", id));
     }
@@ -560,7 +562,7 @@ pub async fn remove_custom_provider(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         let fallback_provider = profile.llm_provider.fallback_provider_after_removal(&id);
         profile.llm_provider.custom_providers.retain(|p| p.id != id);
         if profile.llm_provider.active == id {
@@ -569,7 +571,8 @@ pub async fn remove_custom_provider(
         if profile.llm_provider.assistant_provider.as_deref() == Some(&*id) {
             profile.llm_provider.assistant_provider = None;
         }
-    });
+    })
+    .await?;
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
 }
@@ -584,8 +587,8 @@ pub async fn set_translation_target(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let auto_enabled_polish =
-        target.is_some() && !state.profile.ai_polish_enabled.load(Ordering::Acquire);
+    let previous_polish_enabled = state.profile.ai_polish_enabled.load(Ordering::Acquire);
+    let auto_enabled_polish = target.is_some() && !previous_polish_enabled;
 
     if auto_enabled_polish {
         state
@@ -594,9 +597,19 @@ pub async fn set_translation_target(
             .store(true, Ordering::Release);
     }
 
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    if let Err(err) = profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.translation_target = target;
-    });
+    })
+    .await
+    {
+        if auto_enabled_polish {
+            state
+                .profile
+                .ai_polish_enabled
+                .store(previous_polish_enabled, Ordering::Release);
+        }
+        return Err(err);
+    }
     Ok(auto_enabled_polish)
 }
 
@@ -615,9 +628,10 @@ pub async fn set_translation_hotkey(
     crate::commands::hotkey::register_translation_hotkey_inner(app_handle, normalized.clone())
         .map_err(|err| err.to_string())?;
 
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.translation_hotkey = normalized;
-    });
+    })
+    .await?;
     Ok(())
 }
 
@@ -626,9 +640,10 @@ pub async fn set_openai_fast_mode(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.llm_provider.openai_fast_mode = enabled;
-    });
+    })
+    .await?;
     Ok(())
 }
 
@@ -640,9 +655,10 @@ pub async fn set_custom_prompt(
     let prompt = prompt
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    profile_service::update_profile_and_schedule(state.inner(), |p| {
+    profile_service::update_profile_and_save(state.inner(), |p| {
         p.custom_prompt = prompt;
-    });
+    })
+    .await?;
     Ok(())
 }
 
@@ -800,7 +816,7 @@ pub async fn set_correction_validation_config(
 ) -> Result<(), String> {
     let normalized_provider = normalize_optional_string_update(provider);
     let normalized_model = normalize_optional_string_update(model);
-    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+    profile_service::update_profile_and_save(state.inner(), |profile| {
         profile.correction_validation_enabled = enabled;
         if let Some(sep) = use_separate_model {
             profile.llm_provider.validation_use_separate_model = sep;
@@ -811,7 +827,8 @@ pub async fn set_correction_validation_config(
         if optional_field_update_requested(&normalized_model, model_set) {
             profile.llm_provider.validation_model = normalized_model.clone();
         }
-    });
+    })
+    .await?;
     Ok(())
 }
 

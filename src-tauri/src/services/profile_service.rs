@@ -199,11 +199,28 @@ pub fn update_profile_and_schedule<R>(
     result
 }
 
+pub async fn update_profile_and_save<R>(
+    state: &AppState,
+    f: impl FnOnce(&mut UserProfile) -> R,
+) -> Result<R, String> {
+    let (result, _) = state.update_profile(f);
+    let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
+    take_pending_profile_save_if(|pending| pending.generation <= generation);
+
+    let _write_guard = profile_save_lock().lock().await;
+    let profile = state.snapshot_profile();
+    write_profile_async(&profile).await?;
+    Ok(result)
+}
+
 pub async fn save_profile_async(profile: &UserProfile) -> Result<(), String> {
     let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
     take_pending_profile_save_if(|pending| pending.generation <= generation);
 
     let _write_guard = profile_save_lock().lock().await;
+    if profile_save_generation().load(Ordering::SeqCst) != generation {
+        return Ok(());
+    }
     write_profile_async(profile).await
 }
 
