@@ -9,7 +9,6 @@ import {
   removeCorrection,
   validateCorrections,
   setCorrectionValidationConfig,
-  setLlmProviderConfig,
 } from "@/api/tauri";
 import type { HotWord, CorrectionPattern, UserProfile } from "@/types";
 import Field from "@/components/ui/Field";
@@ -161,6 +160,18 @@ function CorrectionRulesModal({
     });
   }, [corrections, filter, search]);
 
+  const validationProviderOptions = useMemo(() => [
+    { value: "openai", label: "OpenAI", description: t("settings.openaiDesc") },
+    { value: "deepseek", label: "DeepSeek", description: t("settings.deepseekDesc") },
+    { value: "cerebras", label: "Cerebras", description: t("settings.cerebrasDesc") },
+    { value: "siliconflow", label: "SiliconFlow", description: t("settings.siliconflowDesc") },
+    ...(profile?.llm_provider.custom_providers ?? []).map((provider) => ({
+      value: provider.id,
+      label: provider.name,
+      description: provider.base_url,
+    })),
+  ], [profile?.llm_provider.custom_providers, t]);
+
   const handleRemove = useCallback(async (c: CorrectionPattern) => {
     try { await removeCorrection(c.original, c.corrected); } catch { /* */ }
   }, []);
@@ -186,7 +197,6 @@ function CorrectionRulesModal({
         provider: validationProvider || null,
         model: validationModel || null,
       });
-      await setLlmProviderConfig("", undefined, undefined, undefined, undefined, undefined, undefined, null);
     } catch { /* */ }
   }, [validationEnabled, validationProvider, validationModel]);
 
@@ -262,17 +272,12 @@ function CorrectionRulesModal({
           {separateModel && (
             <>
               <Field label={t("settings.provider")}>
-                <Picker
-                  value={validationProvider}
-                  options={[
-                    { value: "openai", label: "OpenAI" },
-                    { value: "deepseek", label: "DeepSeek" },
-                    { value: "cerebras", label: "Cerebras" },
-                    { value: "siliconflow", label: "SiliconFlow" },
-                  ]}
-                  onChange={setValidationProvider}
-                  data-testid="correction-validation-provider"
-                />
+	                <Picker
+	                  value={validationProvider}
+	                  options={validationProviderOptions}
+	                  onChange={setValidationProvider}
+	                  data-testid="correction-validation-provider"
+	                />
               </Field>
               <Field label={t("settings.modelLabel")}>
                 <TextInput

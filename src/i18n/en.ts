@@ -333,6 +333,8 @@ const en: TranslationSchema = {
     deepseekDesc: "Official compatible API",
     cerebrasDesc: "Ultra-fast inference",
     siliconflowDesc: "OpenAI compatible",
+    customCompatLabel: "Custom Compatible",
+    customCompatDesc: "OpenAI-compatible endpoint with custom Base URL",
     assistant: "Voice Assistant",
     assistantHint: "Assistant mode treats your speech as task instructions — generating emails, messages, translations, or answers — displayed in a floating panel for you to copy.",
     screenContextAssistantHint: "Capture screen content to help the assistant understand context. Models without image support will fall back to text only.",

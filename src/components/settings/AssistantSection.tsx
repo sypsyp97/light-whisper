@@ -7,7 +7,7 @@ import {
   setAssistantSystemPrompt,
   setAssistantApiKey,
   getAssistantApiKey,
-  setLlmProviderConfig,
+  setAssistantLlmConfig,
   listAiModels,
   setWebSearchConfig,
   setWebSearchApiKey,
@@ -15,6 +15,7 @@ import {
   getUserProfile,
 } from "@/api/tauri";
 import type {
+  CustomProvider,
   LlmReasoningMode,
   WebSearchProvider,
 } from "@/types";
@@ -39,6 +40,7 @@ export function AssistantSection() {
   const [screenContext, setScreenContext] = useState(false);
   const [useSeparate, setUseSeparate] = useState(false);
   const [provider, setProvider] = useState("cerebras");
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [reasoningMode, setReasoningMode] = useState<LlmReasoningMode>("provider_default");
@@ -56,6 +58,7 @@ export function AssistantSection() {
       setSystemPrompt(profile.assistant_system_prompt ?? "");
       const llm = profile.llm_provider;
       setUseSeparate(Boolean(llm.assistant_use_separate_model));
+      setCustomProviders(llm.custom_providers ?? []);
       setProvider(normalizeProviderId(llm.assistant_provider || llm.active));
       setModel(llm.assistant_model ?? "");
       setReasoningMode(llm.assistant_reasoning_mode ?? "provider_default");
@@ -80,8 +83,8 @@ export function AssistantSection() {
     label: t("settings.assistantHotkeyLabel"),
   });
 
-  const apiKeySave = useDebouncedCallback((v: string) => {
-    void setAssistantApiKey(v).catch(() => {});
+  const apiKeySave = useDebouncedCallback((v: string, saveProvider: string) => {
+    void setAssistantApiKey(v, saveProvider).catch(() => {});
   }, 900, { onUnmount: "flush" });
 
   const promptSave = useDebouncedCallback((v: string) => {
@@ -130,44 +133,58 @@ export function AssistantSection() {
     const effectiveModel = patch.model ?? model;
     const effectiveReasoning = patch.reasoning ?? reasoningMode;
     const effectiveUseSeparate = patch.useSeparate ?? useSeparate;
-    try {
-      await setLlmProviderConfig(
-        effectiveProvider,
-        undefined,
-        undefined,
-        undefined,
-        effectiveReasoning,
-        effectiveUseSeparate,
-        effectiveModel,
-        effectiveProvider,
-      );
-    } catch { /* */ }
+    return setAssistantLlmConfig({
+      provider: effectiveProvider,
+      model: effectiveModel,
+      reasoningMode: effectiveReasoning,
+      useSeparateModel: effectiveUseSeparate,
+    });
   }, [provider, model, reasoningMode, useSeparate]);
 
   const handleUseSeparate = useCallback(async (next: boolean) => {
+    const prev = useSeparate;
+    apiKeySave.flush();
     setUseSeparate(next);
-    await persistLlm({ useSeparate: next });
-  }, [persistLlm]);
+    try { await persistLlm({ useSeparate: next }); }
+    catch { setUseSeparate(prev); }
+  }, [apiKeySave, persistLlm, useSeparate]);
 
   const handleProviderChange = useCallback(async (next: string) => {
-    setProvider(next);
-    await persistLlm({ provider: next });
-  }, [persistLlm]);
+    const prev = provider;
+    const prevModel = model;
+    const normalizedNext = normalizeProviderId(next);
+    const nextCustomProvider = customProviders.find((item) => item.id === normalizedNext);
+    const nextModel = nextCustomProvider?.model ?? model;
+    apiKeySave.flush();
+    setProvider(normalizedNext);
+    setModel(nextModel);
+    try {
+      await persistLlm({ provider: normalizedNext, model: nextModel });
+      setApiKey(await getAssistantApiKey());
+    } catch {
+      setProvider(prev);
+      setModel(prevModel);
+    }
+  }, [apiKeySave, customProviders, model, persistLlm, provider]);
 
   const handleModelChange = useCallback(async (next: string) => {
+    const prev = model;
     setModel(next);
-    await persistLlm({ model: next });
-  }, [persistLlm]);
+    try { await persistLlm({ model: next }); }
+    catch { setModel(prev); }
+  }, [model, persistLlm]);
 
   const handleReasoningChange = useCallback(async (next: LlmReasoningMode) => {
+    const prev = reasoningMode;
     setReasoningMode(next);
-    await persistLlm({ reasoning: next });
-  }, [persistLlm]);
+    try { await persistLlm({ reasoning: next }); }
+    catch { setReasoningMode(prev); }
+  }, [reasoningMode, persistLlm]);
 
   const handleApiKeyChange = useCallback((v: string) => {
     setApiKey(v);
-    apiKeySave.schedule(v);
-  }, [apiKeySave]);
+    apiKeySave.schedule(v, provider);
+  }, [apiKeySave, provider]);
 
   const handlePromptChange = useCallback((v: string) => {
     setSystemPrompt(v);
@@ -198,18 +215,24 @@ export function AssistantSection() {
 
   useEffect(() => {
     if (!apiKey || !provider) return;
-    void listAiModels(provider, undefined, apiKey).then((res) => {
+    const customProvider = customProviders.find((item) => item.id === provider);
+    void listAiModels(provider, customProvider?.base_url, apiKey).then((res) => {
       setModels(res.models.map((m) => m.id));
     }).catch(() => {});
-  }, [apiKey, provider]);
+  }, [apiKey, customProviders, provider]);
 
-  const providerOptions = [
-    { value: "openai", label: "OpenAI" },
-    { value: "deepseek", label: "DeepSeek" },
-    { value: "cerebras", label: "Cerebras" },
-    { value: "siliconflow", label: "SiliconFlow" },
-    { value: "custom", label: t("settings.customCompatLabel") },
-  ];
+  const providerOptions = useMemo(() => [
+    { value: "openai", label: "OpenAI", description: t("settings.openaiDesc") },
+    { value: "deepseek", label: "DeepSeek", description: t("settings.deepseekDesc") },
+    { value: "cerebras", label: "Cerebras", description: t("settings.cerebrasDesc") },
+    { value: "siliconflow", label: "SiliconFlow", description: t("settings.siliconflowDesc") },
+    { value: "custom", label: t("settings.customCompatLabel"), description: t("settings.customCompatDesc") },
+    ...customProviders.map((item) => ({
+      value: item.id,
+      label: item.name,
+      description: item.base_url,
+    })),
+  ], [customProviders, t]);
 
   const reasoningOptions: Array<{ value: LlmReasoningMode; label: string }> = [
     { value: "provider_default", label: t("settings.reasoningDefault") },

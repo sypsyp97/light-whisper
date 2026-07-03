@@ -169,4 +169,17 @@ describe("AiPolishSection", () => {
     });
     expect(screen.getByTestId("polish-model-picker")).toHaveTextContent("o3-mini");
   });
+
+  it("flushes pending API key saves to the provider that was active while typing", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<AiPolishSection />);
+
+    await user.type(await screen.findByTestId("polish-api-key"), "sk-openai");
+    await user.click(screen.getByTestId("polish-provider-picker"));
+    await user.click(await screen.findByTestId("polish-provider-picker-option-deepseek"));
+
+    await waitFor(() => {
+      expect(vi.mocked(api.setAiPolishConfig)).toHaveBeenCalledWith(false, "sk-openai", "openai");
+    });
+  });
 });

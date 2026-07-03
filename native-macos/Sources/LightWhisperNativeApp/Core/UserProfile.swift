@@ -534,8 +534,21 @@ public struct UserProfile: Codable, Equatable, Sendable {
 
 public enum UserProfileNormalizer {
     public static func normalize(_ profile: inout UserProfile) {
+        normalizeProviderAliases(&profile.llmProvider)
         migrateCustomProvider(&profile.llmProvider)
         migrateReasoningModes(&profile.llmProvider)
+    }
+
+    private static func normalizeProviderAliases(_ config: inout LLMProviderConfig) {
+        if config.active == "custom_compat" {
+            config.active = "custom"
+        }
+        if config.assistantProvider == "custom_compat" {
+            config.assistantProvider = "custom"
+        }
+        if config.validationProvider == "custom_compat" {
+            config.validationProvider = "custom"
+        }
     }
 
     private static func migrateReasoningModes(_ config: inout LLMProviderConfig) {
@@ -548,7 +561,10 @@ public enum UserProfileNormalizer {
     }
 
     private static func migrateCustomProvider(_ config: inout LLMProviderConfig) {
-        guard config.active == "custom", config.customProviders.isEmpty else {
+        let referencesLegacyCustom = config.active == "custom"
+            || config.assistantProvider == "custom"
+            || config.validationProvider == "custom"
+        guard referencesLegacyCustom, config.customProviders.isEmpty else {
             return
         }
 
@@ -567,7 +583,15 @@ public enum UserProfileNormalizer {
                 apiFormat: .openaiCompat
             ),
         ]
-        config.active = "custom_migrated"
+        if config.active == "custom" {
+            config.active = "custom_migrated"
+        }
+        if config.assistantProvider == "custom" {
+            config.assistantProvider = "custom_migrated"
+        }
+        if config.validationProvider == "custom" {
+            config.validationProvider = "custom_migrated"
+        }
         config.customBaseURL = nil
         config.customModel = nil
     }

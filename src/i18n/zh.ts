@@ -331,6 +331,8 @@ const zh = {
     deepseekDesc: "官方兼容接口",
     cerebrasDesc: "极速推理",
     siliconflowDesc: "OpenAI 兼容",
+    customCompatLabel: "自定义兼容",
+    customCompatDesc: "使用自定义 Base URL 的 OpenAI 兼容接口",
     assistant: "语音助手",
     assistantHint: "助手模式会把你的语音当成任务指令，生成邮件、消息、翻译或回答，并显示在结果浮层中供你复制使用。",
     screenContextAssistantHint: "截取当前屏幕内容辅助助手理解上下文。不支持图片的模型会自动回退到纯文本。",

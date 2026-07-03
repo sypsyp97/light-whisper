@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { setTranslationHotkey, setTranslationTarget, getUserProfile } from "@/api/tauri";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
-import { AI_POLISH_ENABLED_KEY } from "@/lib/constants";
+import { AI_POLISH_ENABLED_CHANGED_EVENT, AI_POLISH_ENABLED_KEY } from "@/lib/constants";
 import { writeLocalStorage } from "@/lib/storage";
 import Field from "@/components/ui/Field";
 import Button from "@/components/ui/Button";
@@ -19,15 +19,21 @@ export function TranslationSection() {
   const [hotkey, setHotkeyState] = useState<string | null>(null);
   const [target, setTargetState] = useState<string>("");
   const [isCustom, setIsCustom] = useState(false);
+  const savedTargetRef = useRef("");
+
+  const applyTargetState = useCallback((next: string) => {
+    setTargetState(next);
+    setIsCustom(Boolean(next) && !PRESET_LANGS.includes(next));
+  }, []);
 
   useEffect(() => {
     void getUserProfile().then((profile) => {
       setHotkeyState(profile.translation_hotkey ?? null);
       const tgt = profile.translation_target ?? "";
-      setTargetState(tgt);
-      setIsCustom(Boolean(tgt) && !PRESET_LANGS.includes(tgt));
+      savedTargetRef.current = tgt;
+      applyTargetState(tgt);
     }).catch(() => {});
-  }, []);
+  }, [applyTargetState]);
 
   const capture = useHotkeyCapture({
     save: async (shortcut) => {
@@ -49,12 +55,16 @@ export function TranslationSection() {
       const autoPolish = await setTranslationTarget(next);
       if (next) {
         writeLocalStorage(AI_POLISH_ENABLED_KEY, "true");
+        window.dispatchEvent(new Event(AI_POLISH_ENABLED_CHANGED_EVENT));
       }
+      savedTargetRef.current = next ?? "";
       if (autoPolish) {
         toast.success(t("toast.translationAutoPolish"));
       }
+      return true;
     } catch {
       toast.error(t("toast.translationSaveFailed"));
+      return false;
     }
   }, [t]);
 
@@ -62,25 +72,34 @@ export function TranslationSection() {
     if (next === "__off") {
       setIsCustom(false);
       setTargetState("");
-      await persistTarget(null);
+      if (!await persistTarget(null)) {
+        applyTargetState(savedTargetRef.current);
+      }
       return;
     }
     if (next === "__custom") {
       setIsCustom(true);
+      setTargetState("");
       return;
     }
     setIsCustom(false);
     setTargetState(next);
-    await persistTarget(next);
-  }, [persistTarget]);
+    if (!await persistTarget(next)) {
+      applyTargetState(savedTargetRef.current);
+    }
+  }, [applyTargetState, persistTarget]);
 
   const handleCustomChange = useCallback((v: string) => {
     setTargetState(v);
   }, []);
 
   const handleCustomBlur = useCallback(() => {
-    void persistTarget(target || null);
-  }, [target, persistTarget]);
+    const next = target.trim();
+    setTargetState(next);
+    void persistTarget(next || null).then((ok) => {
+      if (!ok) applyTargetState(savedTargetRef.current);
+    });
+  }, [applyTargetState, target, persistTarget]);
 
   const options = [
     { value: "__off", label: t("settings.off") },
@@ -121,7 +140,7 @@ export function TranslationSection() {
           )}
         </div>
       </Field>
-      <Field label={t("settings.selectLanguage")}>
+      <Field label={t("settings.selectLanguage")} hint={t("settings.translationSelectHint")}>
         <Picker
           value={pickerValue}
           options={options}

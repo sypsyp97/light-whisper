@@ -45,6 +45,7 @@ vi.mock("@/api/tauri", () => ({
   setAssistantScreenContextEnabled: vi.fn(async () => undefined),
   setAssistantApiKey: vi.fn(async () => undefined),
   getAssistantApiKey: vi.fn(async () => ""),
+  setAssistantLlmConfig: vi.fn(async () => undefined),
   setWebSearchConfig: vi.fn(async () => undefined),
   setWebSearchApiKey: vi.fn(async () => undefined),
   getWebSearchApiKey: vi.fn(async () => ""),

@@ -263,6 +263,66 @@ struct CompatibilityTests {
     }
 
     @Test
+    func legacyAssistantOnlyCustomProviderMigratesWithoutChangingActiveProvider() throws {
+        let legacyProfileJSON = """
+        {
+          "llm_provider": {
+            "active": "openai",
+            "assistant_use_separate_model": true,
+            "assistant_provider": "custom_compat",
+            "custom_base_url": "https://assistant.example.com",
+            "custom_model": "assistant-model",
+            "custom_providers": []
+          }
+        }
+        """
+        var profile: UserProfile = try decode(UserProfile.self, from: legacyProfileJSON)
+
+        UserProfileNormalizer.normalize(&profile)
+
+        let json = try encodeJSONObject(profile)
+        let llmProvider = try #require(json["llm_provider"] as? [String: Any])
+        let customProviders = try #require(llmProvider["custom_providers"] as? [[String: Any]])
+        let migrated = try #require(customProviders.first)
+
+        #expect(llmProvider["active"] as? String == "openai")
+        #expect(llmProvider["assistant_provider"] as? String == "custom_migrated")
+        #expect(migrated["id"] as? String == "custom_migrated")
+        #expect(migrated["base_url"] as? String == "https://assistant.example.com")
+        #expect(migrated["model"] as? String == "assistant-model")
+    }
+
+    @Test
+    func legacyValidationOnlyCustomProviderMigratesWithoutChangingActiveProvider() throws {
+        let legacyProfileJSON = """
+        {
+          "llm_provider": {
+            "active": "openai",
+            "validation_use_separate_model": true,
+            "validation_provider": "custom_compat",
+            "custom_base_url": "https://validator.example.com",
+            "custom_model": "validator-model",
+            "custom_providers": []
+          }
+        }
+        """
+        var profile: UserProfile = try decode(UserProfile.self, from: legacyProfileJSON)
+
+        UserProfileNormalizer.normalize(&profile)
+
+        let json = try encodeJSONObject(profile)
+        let llmProvider = try #require(json["llm_provider"] as? [String: Any])
+        let customProviders = try #require(llmProvider["custom_providers"] as? [[String: Any]])
+        let migrated = try #require(customProviders.first)
+
+        #expect(llmProvider["active"] as? String == "openai")
+        #expect(llmProvider["validation_provider"] as? String == "custom_migrated")
+        #expect(migrated["id"] as? String == "custom_migrated")
+        #expect(migrated["base_url"] as? String == "https://validator.example.com")
+        #expect(migrated["model"] as? String == "validator-model")
+    }
+
+    @Test
     func missingSplitReasoningModesFallBackToLegacyMode() throws {
         let profileJSON = """
         {

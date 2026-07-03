@@ -26,16 +26,20 @@ pub async fn set_ai_polish_config(
     state: tauri::State<'_, AppState>,
     enabled: bool,
     api_key: String,
+    provider: Option<String>,
 ) -> Result<(), String> {
     state
         .profile
         .ai_polish_enabled
         .store(enabled, Ordering::Release);
 
-    let provider = state.active_llm_provider();
+    let provider =
+        normalize_provider_alias(provider).unwrap_or_else(|| state.active_llm_provider());
     let keyring_user = llm_provider::keyring_user_for_provider(&provider);
 
-    state.set_ai_polish_api_key(api_key.clone());
+    if provider == state.active_llm_provider() {
+        state.set_ai_polish_api_key(api_key.clone());
+    }
 
     // 若助手与润色共享 provider，同步助手缓存
     let assistant_provider = state.with_profile(|p| p.llm_provider.resolve_assistant_provider());
@@ -264,11 +268,17 @@ pub async fn set_assistant_api_key(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     api_key: String,
+    provider: Option<String>,
 ) -> Result<(), String> {
-    let provider = state.with_profile(|p| p.llm_provider.resolve_assistant_provider());
+    let provider = normalize_provider_alias(provider)
+        .unwrap_or_else(|| state.with_profile(|p| p.llm_provider.resolve_assistant_provider()));
     let keyring_user = llm_provider::keyring_user_for_provider(&provider);
 
-    state.set_assistant_api_key(api_key.clone());
+    let current_assistant_provider =
+        state.with_profile(|p| p.llm_provider.resolve_assistant_provider());
+    if provider == current_assistant_provider {
+        state.set_assistant_api_key(api_key.clone());
+    }
 
     llm_provider::save_or_delete_api_key(&app_handle, &keyring_user, &api_key);
 
@@ -280,6 +290,19 @@ pub async fn set_assistant_api_key(
 
     log::info!("助手 API Key 已更新: provider={}", provider);
     Ok(())
+}
+
+fn normalize_provider_alias(provider: Option<String>) -> Option<String> {
+    provider
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            if value == "custom_compat" {
+                "custom".to_string()
+            } else {
+                value
+            }
+        })
 }
 
 #[tauri::command]

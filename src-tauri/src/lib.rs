@@ -222,6 +222,7 @@ pub fn run() {
             commands::profile::add_hot_word,
             commands::profile::remove_hot_word,
             commands::profile::set_llm_provider_config,
+            commands::profile::set_assistant_llm_config,
             commands::profile::get_llm_reasoning_support,
             commands::profile::export_user_profile,
             commands::profile::import_user_profile,

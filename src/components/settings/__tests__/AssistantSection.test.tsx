@@ -24,6 +24,7 @@ vi.mock("@/api/tauri", () => ({
   setAssistantApiKey: vi.fn(async () => undefined),
   getAssistantApiKey: vi.fn(async () => ""),
   setLlmProviderConfig: vi.fn(async () => undefined),
+  setAssistantLlmConfig: vi.fn(async () => undefined),
   setWebSearchConfig: vi.fn(async () => undefined),
   setWebSearchApiKey: vi.fn(async () => undefined),
   getWebSearchApiKey: vi.fn(async () => ""),
@@ -118,12 +119,82 @@ describe("AssistantSection", () => {
     await user.click(screen.getByTestId("assistant-model-picker-option-custom-value"));
 
     await waitFor(() => {
-      const saved = vi.mocked(api.setLlmProviderConfig).mock.calls.some((call) => (
-        call[0] === "custom"
-        && call[6] === "assistant-model-x"
-        && call[7] === "custom"
+      const saved = vi.mocked(api.setAssistantLlmConfig).mock.calls.some((call) => (
+        call[0].provider === "custom"
+        && call[0].model === "assistant-model-x"
       ));
       expect(saved).toBe(true);
+    });
+    expect(vi.mocked(api.setLlmProviderConfig)).not.toHaveBeenCalled();
+  });
+
+  it("shows named custom providers and saves them without changing the polish provider", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    vi.mocked(api.getUserProfile).mockResolvedValueOnce({
+      hot_words: [],
+      correction_patterns: [],
+      vocab_frequency: {},
+      total_transcriptions: 0,
+      last_updated: 0,
+      llm_provider: {
+        active: "openai",
+        assistant_use_separate_model: true,
+        assistant_provider: "openai",
+        custom_providers: [{
+          id: "provider-id",
+          name: "OpenRouter",
+          base_url: "https://openrouter.ai/api/v1",
+          model: "openai/gpt-4o-mini",
+          api_format: "openai_compat",
+        }],
+      },
+      assistant_hotkey: null,
+      assistant_system_prompt: null,
+      assistant_screen_context_enabled: false,
+      web_search: { enabled: false, provider: "model_native", max_results: 5 },
+    });
+
+    render(<AssistantSection />);
+    await user.click(await screen.findByTestId("assistant-provider-picker"));
+    await user.click(await screen.findByTestId("assistant-provider-picker-option-provider-id"));
+
+    await waitFor(() => {
+      expect(vi.mocked(api.setAssistantLlmConfig)).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "provider-id",
+        model: "openai/gpt-4o-mini",
+      }));
+    });
+    expect(vi.mocked(api.setLlmProviderConfig)).not.toHaveBeenCalled();
+    expect(screen.getByTestId("assistant-provider-picker")).toHaveTextContent("OpenRouter");
+  });
+
+  it("flushes pending assistant API key saves before switching providers", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    vi.mocked(api.getUserProfile).mockResolvedValueOnce({
+      hot_words: [],
+      correction_patterns: [],
+      vocab_frequency: {},
+      total_transcriptions: 0,
+      last_updated: 0,
+      llm_provider: {
+        active: "openai",
+        assistant_use_separate_model: true,
+        assistant_provider: "openai",
+        custom_providers: [],
+      },
+      assistant_hotkey: null,
+      assistant_system_prompt: null,
+      assistant_screen_context_enabled: false,
+      web_search: { enabled: false, provider: "model_native", max_results: 5 },
+    });
+
+    render(<AssistantSection />);
+    await user.type(await screen.findByTestId("assistant-api-key"), "sk-openai");
+    await user.click(screen.getByTestId("assistant-provider-picker"));
+    await user.click(await screen.findByTestId("assistant-provider-picker-option-deepseek"));
+
+    await waitFor(() => {
+      expect(vi.mocked(api.setAssistantApiKey)).toHaveBeenCalledWith("sk-openai", "openai");
     });
   });
 });

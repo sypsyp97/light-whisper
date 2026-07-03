@@ -162,8 +162,8 @@ export function setSoundEnabled(enabled: boolean): Promise<void> {
   return invokeCommand<void>("set_sound_enabled", { enabled });
 }
 
-export function setAiPolishConfig(enabled: boolean, apiKey: string): Promise<void> {
-  return invokeCommand<void>("set_ai_polish_config", { enabled, apiKey });
+export function setAiPolishConfig(enabled: boolean, apiKey: string, provider?: string): Promise<void> {
+  return invokeCommand<void>("set_ai_polish_config", { enabled, apiKey, provider: provider ?? null });
 }
 
 export function getAiPolishApiKey(): Promise<string> {
@@ -225,8 +225,26 @@ export function setLlmProviderConfig(
   return invokeCommand<void>("set_llm_provider_config", args);
 }
 
-export function setAssistantApiKey(apiKey: string): Promise<void> {
-  return invokeCommand<void>("set_assistant_api_key", { apiKey });
+export function setAssistantLlmConfig(params: {
+  provider?: string | null;
+  model?: string | null;
+  reasoningMode?: LlmReasoningMode | null;
+  useSeparateModel?: boolean | null;
+}): Promise<void> {
+  const args: InvokeArgs = {
+    model: params.model ?? null,
+    reasoningMode: params.reasoningMode ?? null,
+    useSeparateModel: params.useSeparateModel ?? null,
+  };
+  if (params.provider !== undefined) {
+    args.provider = params.provider;
+    args.providerSet = true;
+  }
+  return invokeCommand<void>("set_assistant_llm_config", args);
+}
+
+export function setAssistantApiKey(apiKey: string, provider?: string): Promise<void> {
+  return invokeCommand<void>("set_assistant_api_key", { apiKey, provider: provider ?? null });
 }
 
 export function getAssistantApiKey(): Promise<string> {

@@ -85,7 +85,10 @@ fn migrate_reasoning_modes(profile: &mut UserProfile) {
 /// 迁移旧版单 custom provider 到 custom_providers 列表
 fn migrate_custom_provider(profile: &mut UserProfile) {
     let config = &mut profile.llm_provider;
-    if config.active != "custom" || !config.custom_providers.is_empty() {
+    let references_legacy_custom = config.active == "custom"
+        || config.assistant_provider.as_deref() == Some("custom")
+        || config.validation_provider.as_deref() == Some("custom");
+    if !references_legacy_custom || !config.custom_providers.is_empty() {
         return;
     }
     let base_url = config.custom_base_url.clone().unwrap_or_default();
@@ -101,7 +104,9 @@ fn migrate_custom_provider(profile: &mut UserProfile) {
         api_format: ApiFormat::default(),
     };
     config.custom_providers.push(provider);
-    config.active = "custom_migrated".to_string();
+    if config.active == "custom" {
+        config.active = "custom_migrated".to_string();
+    }
     if config.assistant_provider.as_deref() == Some("custom") {
         config.assistant_provider = Some("custom_migrated".to_string());
     }
@@ -838,5 +843,49 @@ mod tests {
             Some("custom_migrated")
         );
         assert_eq!(profile.llm_provider.custom_providers.len(), 1);
+    }
+
+    #[test]
+    fn normalize_profile_migrates_assistant_only_legacy_custom_provider() {
+        let mut profile = UserProfile::default();
+        profile.llm_provider.active = "openai".to_string();
+        profile.llm_provider.assistant_use_separate_model = true;
+        profile.llm_provider.assistant_provider = Some("custom_compat".to_string());
+        profile.llm_provider.custom_base_url = Some("https://assistant.example.com".to_string());
+        profile.llm_provider.custom_model = Some("assistant-model".to_string());
+
+        normalize_profile(&mut profile);
+
+        assert_eq!(profile.llm_provider.active, "openai");
+        assert_eq!(
+            profile.llm_provider.assistant_provider.as_deref(),
+            Some("custom_migrated")
+        );
+        assert_eq!(profile.llm_provider.custom_providers.len(), 1);
+        let migrated = &profile.llm_provider.custom_providers[0];
+        assert_eq!(migrated.base_url, "https://assistant.example.com");
+        assert_eq!(migrated.model, "assistant-model");
+    }
+
+    #[test]
+    fn normalize_profile_migrates_validation_only_legacy_custom_provider() {
+        let mut profile = UserProfile::default();
+        profile.llm_provider.active = "openai".to_string();
+        profile.llm_provider.validation_use_separate_model = true;
+        profile.llm_provider.validation_provider = Some("custom_compat".to_string());
+        profile.llm_provider.custom_base_url = Some("https://validator.example.com".to_string());
+        profile.llm_provider.custom_model = Some("validator-model".to_string());
+
+        normalize_profile(&mut profile);
+
+        assert_eq!(profile.llm_provider.active, "openai");
+        assert_eq!(
+            profile.llm_provider.validation_provider.as_deref(),
+            Some("custom_migrated")
+        );
+        assert_eq!(profile.llm_provider.custom_providers.len(), 1);
+        let migrated = &profile.llm_provider.custom_providers[0];
+        assert_eq!(migrated.base_url, "https://validator.example.com");
+        assert_eq!(migrated.model, "validator-model");
     }
 }

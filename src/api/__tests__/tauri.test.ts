@@ -376,6 +376,76 @@ describe("setLlmProviderConfig payload", () => {
   });
 });
 
+describe("assistant and API key provider-scoped payloads", () => {
+  it("setAssistantLlmConfig uses the dedicated assistant command", async () => {
+    const mod = await import("@/api/tauri");
+    const { setAssistantLlmConfig } = mod as {
+      setAssistantLlmConfig: (params: {
+        provider?: string | null;
+        model?: string | null;
+        reasoningMode?: string | null;
+        useSeparateModel?: boolean | null;
+      }) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setAssistantLlmConfig({
+      provider: "provider-id",
+      model: "assistant-model",
+      reasoningMode: "light",
+      useSeparateModel: true,
+    });
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "set_assistant_llm_config",
+      expect.objectContaining({
+        provider: "provider-id",
+        providerSet: true,
+        model: "assistant-model",
+        reasoningMode: "light",
+        useSeparateModel: true,
+      }),
+    );
+  });
+
+  it("setAiPolishConfig includes the provider that owns the API key edit", async () => {
+    const mod = await import("@/api/tauri");
+    const { setAiPolishConfig } = mod as {
+      setAiPolishConfig: (enabled: boolean, apiKey: string, provider?: string) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setAiPolishConfig(true, "sk-value", "openai");
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "set_ai_polish_config",
+      expect.objectContaining({
+        enabled: true,
+        apiKey: "sk-value",
+        provider: "openai",
+      }),
+    );
+  });
+
+  it("setAssistantApiKey includes the provider that owns the API key edit", async () => {
+    const mod = await import("@/api/tauri");
+    const { setAssistantApiKey } = mod as {
+      setAssistantApiKey: (apiKey: string, provider?: string) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setAssistantApiKey("sk-value", "deepseek");
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "set_assistant_api_key",
+      expect.objectContaining({
+        apiKey: "sk-value",
+        provider: "deepseek",
+      }),
+    );
+  });
+});
+
 describe("setCorrectionValidationConfig payload", () => {
   it("omits provider/model set flags when those fields are not updated", async () => {
     const mod = await import("@/api/tauri");

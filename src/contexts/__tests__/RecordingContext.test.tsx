@@ -26,7 +26,7 @@ const tauriMock = vi.hoisted(() => ({
   setInputDevice: vi.fn<(name?: string | null) => Promise<void>>(),
   setSoundEnabled: vi.fn<(enabled: boolean) => Promise<void>>(),
   setRecordingMode: vi.fn<(toggle: boolean) => Promise<void>>(),
-  setAiPolishConfig: vi.fn<(enabled: boolean, apiKey: string) => Promise<void>>(),
+  setAiPolishConfig: vi.fn<(enabled: boolean, apiKey: string, provider?: string) => Promise<void>>(),
   getAiPolishApiKey: vi.fn<() => Promise<string>>(),
 }));
 

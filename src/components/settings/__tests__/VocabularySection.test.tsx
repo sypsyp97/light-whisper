@@ -20,6 +20,7 @@ vi.mock("@/api/tauri", () => ({
   removeCorrection: vi.fn(async () => undefined),
   validateCorrections: vi.fn(async () => 2),
   setCorrectionValidationConfig: vi.fn(async () => undefined),
+  setLlmProviderConfig: vi.fn(async () => undefined),
 }));
 
 vi.mock("@tauri-apps/api/event", async () => {
@@ -69,5 +70,49 @@ describe("VocabularySection", () => {
     await waitFor(() => {
       expect(vi.mocked(api.validateCorrections)).toHaveBeenCalled();
     });
+  });
+
+  it("toggling validation separate model does not mutate the main polish provider", async () => {
+    render(<VocabularySection />);
+    await userEvent.click(screen.getByTestId("correction-rules-btn"));
+    await userEvent.click(await screen.findByTestId("correction-validation-separate-toggle"));
+
+    await waitFor(() => {
+      expect(vi.mocked(api.setCorrectionValidationConfig)).toHaveBeenCalledWith(expect.objectContaining({
+        useSeparateModel: true,
+      }));
+    });
+    expect(vi.mocked(api.setLlmProviderConfig)).not.toHaveBeenCalled();
+  });
+
+  it("shows named custom providers in correction validation provider picker", async () => {
+    vi.mocked(api.getUserProfile).mockResolvedValueOnce({
+      hot_words: [],
+      correction_patterns: [],
+      vocab_frequency: {},
+      total_transcriptions: 0,
+      last_updated: 0,
+      correction_validation_enabled: true,
+      llm_provider: {
+        active: "openai",
+        validation_use_separate_model: true,
+        validation_provider: "provider-id",
+        validation_model: "validator-model",
+        custom_providers: [{
+          id: "provider-id",
+          name: "OpenRouter",
+          base_url: "https://openrouter.ai/api/v1",
+          model: "openai/gpt-4o-mini",
+          api_format: "openai_compat",
+        }],
+      },
+    });
+
+    render(<VocabularySection />);
+    await userEvent.click(screen.getByTestId("correction-rules-btn"));
+    const picker = await screen.findByTestId("correction-validation-provider");
+    expect(picker).toHaveTextContent("OpenRouter");
+    await userEvent.click(picker);
+    expect(await screen.findByTestId("correction-validation-provider-option-provider-id")).toHaveTextContent("OpenRouter");
   });
 });

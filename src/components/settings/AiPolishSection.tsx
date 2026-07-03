@@ -24,7 +24,7 @@ import type {
   OpenaiAuthMode,
   OpenaiCodexOauthStatus,
 } from "@/types";
-import { AI_POLISH_ENABLED_KEY } from "@/lib/constants";
+import { AI_POLISH_ENABLED_CHANGED_EVENT, AI_POLISH_ENABLED_KEY } from "@/lib/constants";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import Field from "@/components/ui/Field";
 import Toggle from "@/components/ui/Toggle";
@@ -71,6 +71,12 @@ export function AiPolishSection() {
   useEffect(() => { modelRef.current = model; }, [model]);
   useEffect(() => { reasoningModeRef.current = reasoningMode; }, [reasoningMode]);
 
+  useEffect(() => {
+    const syncEnabled = () => setEnabled(readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
+    window.addEventListener(AI_POLISH_ENABLED_CHANGED_EVENT, syncEnabled);
+    return () => window.removeEventListener(AI_POLISH_ENABLED_CHANGED_EVENT, syncEnabled);
+  }, []);
+
   const customProviderFor = useCallback((id: string, list = customProviders) => (
     list.find((item) => item.id === id)
   ), [customProviders]);
@@ -101,8 +107,8 @@ export function AiPolishSection() {
     void getOpenaiCodexOauthStatus().then(setOauthStatus).catch(() => {});
   }, []);
 
-  const apiKeySave = useDebouncedCallback((enabledValue: boolean, value: string) => {
-    void setAiPolishConfig(enabledValue, value).catch(() => toast.error(t("toast.aiPolishFailed", { error: "" })));
+  const apiKeySave = useDebouncedCallback((enabledValue: boolean, value: string, saveProvider: string) => {
+    void setAiPolishConfig(enabledValue, value, saveProvider).catch(() => toast.error(t("toast.aiPolishFailed", { error: "" })));
   }, 900, { onUnmount: "flush" });
 
   const persistProviderConfig = useCallback((patch: {
@@ -140,7 +146,14 @@ export function AiPolishSection() {
   const handleEnable = useCallback(async (next: boolean) => {
     setEnabled(next);
     writeLocalStorage(AI_POLISH_ENABLED_KEY, next ? "true" : "false");
-    try { await setAiPolishConfig(next, apiKey); } catch { setEnabled(!next); }
+    window.dispatchEvent(new Event(AI_POLISH_ENABLED_CHANGED_EVENT));
+    try {
+      await setAiPolishConfig(next, apiKey, providerRef.current);
+    } catch {
+      setEnabled(!next);
+      writeLocalStorage(AI_POLISH_ENABLED_KEY, !next ? "true" : "false");
+      window.dispatchEvent(new Event(AI_POLISH_ENABLED_CHANGED_EVENT));
+    }
   }, [apiKey]);
 
   const handleScreenContext = useCallback(async (next: boolean) => {
@@ -154,6 +167,7 @@ export function AiPolishSection() {
     const prev = provider;
     const prevBaseUrl = baseUrlRef.current;
     const prevModel = modelRef.current;
+    apiKeySave.flush();
     baseUrlSave.cancel();
     const normalizedNext = normalizeProviderId(next);
     const customProvider = customProviderFor(normalizedNext);
@@ -176,11 +190,11 @@ export function AiPolishSection() {
       baseUrlRef.current = prevBaseUrl;
       modelRef.current = prevModel;
     }
-  }, [baseUrlSave, provider, customProviderFor, persistProviderConfig]);
+  }, [apiKeySave, baseUrlSave, provider, customProviderFor, persistProviderConfig]);
 
   const handleApiKeyChange = useCallback((v: string) => {
     setApiKey(v);
-    apiKeySave.schedule(enabled, v);
+    apiKeySave.schedule(enabled, v, providerRef.current);
   }, [apiKeySave, enabled]);
 
   const handleBaseUrlChange = useCallback((v: string) => {
@@ -269,10 +283,17 @@ export function AiPolishSection() {
   }, [provider, baseUrl, model]);
 
   const providerOptions = useMemo(() => {
-    const presets = PRESETS.map((p) => ({ value: p, label: p }));
+    const presetLabels: Record<(typeof PRESETS)[number], { label: string; description?: string }> = {
+      openai: { label: "OpenAI", description: t("settings.openaiDesc") },
+      deepseek: { label: "DeepSeek", description: t("settings.deepseekDesc") },
+      cerebras: { label: "Cerebras", description: t("settings.cerebrasDesc") },
+      siliconflow: { label: "SiliconFlow", description: t("settings.siliconflowDesc") },
+      custom: { label: t("settings.customCompatLabel"), description: t("settings.customCompatDesc") },
+    };
+    const presets = PRESETS.map((p) => ({ value: p, ...presetLabels[p] }));
     const custom = customProviders.map((p) => ({ value: p.id, label: p.name, description: p.base_url }));
     return [...presets, ...custom];
-  }, [customProviders]);
+  }, [customProviders, t]);
 
   const modelOptions = useMemo(() => {
     const list = models.map((m) => ({ value: m, label: m }));

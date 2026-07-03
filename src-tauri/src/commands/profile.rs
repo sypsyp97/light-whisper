@@ -304,6 +304,41 @@ pub async fn set_llm_provider_config(
 }
 
 #[tauri::command]
+pub async fn set_assistant_llm_config(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    provider: Option<String>,
+    provider_set: Option<bool>,
+    model: Option<String>,
+    reasoning_mode: Option<LlmReasoningMode>,
+    use_separate_model: Option<bool>,
+) -> Result<(), String> {
+    let normalized_provider =
+        normalize_optional_string_update(provider).map(normalize_provider_alias);
+    let model_provided = model.is_some();
+    let normalized_model = model
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        if let Some(enabled) = use_separate_model {
+            profile.llm_provider.assistant_use_separate_model = enabled;
+        }
+        if optional_field_update_requested(&normalized_provider, provider_set) {
+            profile.llm_provider.assistant_provider = normalized_provider.clone();
+        }
+        if model_provided {
+            profile.llm_provider.assistant_model = normalized_model.clone();
+        }
+        if let Some(mode) = reasoning_mode {
+            profile.llm_provider.assistant_reasoning_mode = Some(mode);
+        }
+    });
+    llm_provider::sync_runtime_api_key(&app_handle, state.inner());
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_llm_reasoning_support(
     provider: String,
     base_url: Option<String>,
