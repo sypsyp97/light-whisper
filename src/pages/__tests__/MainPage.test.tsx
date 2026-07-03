@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("@/api/tauri", () => ({
@@ -7,6 +7,7 @@ vi.mock("@/api/tauri", () => ({
   submitUserCorrection: vi.fn(async () => undefined),
   hideMainWindow: vi.fn(async () => "ok"),
   openPermissionSettings: vi.fn(async () => undefined),
+  resetPermission: vi.fn(async () => ({ granted: false, canRequest: true })),
 }));
 
 vi.mock("@tauri-apps/api/event", async () => {
@@ -88,13 +89,17 @@ describe("MainPage", () => {
     expect(screen.getByTestId("main-result")).toBeInTheDocument();
   });
 
-  it("shows an Open Settings button when the recording error is a PermissionDenied", async () => {
+  it("shows a reset permission button when the recording error is a PermissionDenied", async () => {
     // The whole point of the structured-error refactor: a permission denial
-    // must surface a one-click deeplink, not a multi-line opaque toast.
+    // must surface a one-click recovery path, not a multi-line opaque toast.
     const apiMod = await import("@/api/tauri");
     const openSpy = vi.mocked(
       (apiMod as unknown as { openPermissionSettings: ReturnType<typeof vi.fn> })
         .openPermissionSettings,
+    );
+    const resetSpy = vi.mocked(
+      (apiMod as unknown as { resetPermission: ReturnType<typeof vi.fn> })
+        .resetPermission,
     );
     renderWithRecordingContext(<MainPage onNavigate={onNavigate} animClass="" />, {
       recordingError: "需要「麦克风」权限",
@@ -104,9 +109,12 @@ describe("MainPage", () => {
           "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
       },
     });
-    const btn = screen.getByTestId("main-perm-open-settings-btn");
+    const btn = screen.getByTestId("main-perm-reset-btn");
     await userEvent.click(btn);
-    expect(openSpy).toHaveBeenCalledWith("microphone");
+    await waitFor(() => {
+      expect(resetSpy).toHaveBeenCalledWith("microphone");
+      expect(openSpy).toHaveBeenCalledWith("microphone");
+    });
   });
 
   it("falls back to the retry button when the error is a model error (not permission)", () => {
@@ -118,7 +126,7 @@ describe("MainPage", () => {
     });
     expect(screen.getByTestId("main-retry-btn")).toBeInTheDocument();
     expect(
-      screen.queryByTestId("main-perm-open-settings-btn"),
+      screen.queryByTestId("main-perm-reset-btn"),
     ).not.toBeInTheDocument();
   });
 });

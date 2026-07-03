@@ -6,6 +6,7 @@ import {
   openPermissionSettings,
   pasteText,
   requestPermission,
+  resetPermission,
   type PermissionKind,
   type PermissionStatus,
 } from "@/api/tauri";
@@ -110,6 +111,17 @@ export function PermissionsSection() {
     }
   }, []);
 
+  const handleReset = useCallback(async (kind: PermissionKind) => {
+    try {
+      const status = await resetPermission(kind);
+      setStatuses((s) => ({ ...s, [kind]: status }));
+      toast.success(t("toast.permissionReset"));
+      void openPermissionSettings(kind).catch(() => undefined);
+    } catch {
+      toast.error(t("toast.permissionResetFailed"));
+    }
+  }, [t]);
+
   const handlePasteTest = useCallback(async () => {
     try {
       await pasteText("ok", "clipboard");
@@ -195,6 +207,14 @@ export function PermissionsSection() {
                   </Button>
                 </>
               )}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void handleReset(kind)}
+                data-testid={`perm-reset-${kind}`}
+              >
+                {translate("settings.permReset", "Reset")}
+              </Button>
             </div>
           </div>
         );

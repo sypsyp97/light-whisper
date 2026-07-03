@@ -1,6 +1,6 @@
 use crate::services::permissions_service::{
     check_permission as do_check, open_settings_pane, parse_permission_kind,
-    request_permission as do_request, PermissionStatus,
+    request_permission as do_request, reset_permission as do_reset, PermissionStatus,
 };
 use crate::utils::AppError;
 
@@ -16,6 +16,17 @@ pub async fn request_permission(kind: String) -> Result<PermissionStatus, String
     let parsed =
         parse_permission_kind(&kind).ok_or_else(|| format!("unknown permission kind: {}", kind))?;
     Ok(do_request(parsed).await)
+}
+
+#[tauri::command]
+pub async fn reset_permission(
+    app_handle: tauri::AppHandle,
+    kind: String,
+) -> Result<PermissionStatus, AppError> {
+    let parsed = parse_permission_kind(&kind)
+        .ok_or_else(|| AppError::Other(format!("unknown permission kind: {}", kind)))?;
+    let bundle_identifier = app_handle.config().identifier.clone();
+    do_reset(parsed, &bundle_identifier).await
 }
 
 /// Open the macOS Privacy & Security pane corresponding to `kind`.

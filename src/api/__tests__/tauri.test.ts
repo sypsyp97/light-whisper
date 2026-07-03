@@ -241,6 +241,16 @@ describe("openPermissionSettings", () => {
       { kind: "accessibility" },
     );
   });
+
+  it("resetPermission invokes the reset_permission IPC command with the given kind", async () => {
+    invokeMock.invoke.mockResolvedValueOnce({ granted: false, canRequest: true });
+    const { resetPermission } = await import("@/api/tauri");
+    await resetPermission("screen");
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "reset_permission",
+      { kind: "screen" },
+    );
+  });
 });
 
 describe("engine-neutral ASR commands", () => {

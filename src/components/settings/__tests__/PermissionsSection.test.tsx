@@ -8,6 +8,7 @@ vi.mock("@/api/tauri", () => ({
     canRequest: kind !== "microphone",
   })),
   requestPermission: vi.fn(async () => ({ granted: true, canRequest: false })),
+  resetPermission: vi.fn(async () => ({ granted: false, canRequest: true })),
   openPermissionSettings: vi.fn(async () => undefined),
   pasteText: vi.fn(async () => "ok"),
 }));
@@ -20,6 +21,7 @@ import { PermissionsSection } from "@/components/settings/PermissionsSection";
 const api = apiModule as unknown as {
   checkPermission: ReturnType<typeof vi.fn>;
   requestPermission: ReturnType<typeof vi.fn>;
+  resetPermission: ReturnType<typeof vi.fn>;
   openPermissionSettings: ReturnType<typeof vi.fn>;
   pasteText: ReturnType<typeof vi.fn>;
 };
@@ -119,6 +121,16 @@ describe("PermissionsSection", () => {
           "automation",
         ]),
       );
+    });
+  });
+
+  it("reset button resets the app TCC row and opens the matching settings pane", async () => {
+    render(<PermissionsSection />);
+    const btn = await screen.findByTestId("perm-reset-microphone");
+    await userEvent.click(btn);
+    await waitFor(() => {
+      expect(vi.mocked(api.resetPermission)).toHaveBeenCalledWith("microphone");
+      expect(vi.mocked(api.openPermissionSettings)).toHaveBeenCalledWith("microphone");
     });
   });
 });

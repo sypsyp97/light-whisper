@@ -768,7 +768,7 @@
 }
 .lw-settings-row-main { font-size: 13px; font-weight: 500; color: var(--lw-text); }
 .lw-settings-row-desc { font-size: 11px; color: var(--lw-text-tertiary); line-height: 1.5; }
-.lw-settings-row-control { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.lw-settings-row-control { flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 
 .lw-settings-back {
   display: inline-flex;

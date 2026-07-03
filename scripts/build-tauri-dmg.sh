@@ -6,6 +6,7 @@ TAURI_CONF="$ROOT/src-tauri/tauri.conf.json"
 RUN_TAURI_BUILD="${RUN_TAURI_BUILD:-1}"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+KEEP_MACOS_BUNDLE="${KEEP_MACOS_BUNDLE:-0}"
 
 if [[ ! -f "$TAURI_CONF" ]]; then
   echo "Missing Tauri config: $TAURI_CONF" >&2
@@ -115,5 +116,9 @@ if [[ -n "$NOTARY_PROFILE" ]]; then
   xcrun stapler staple "$DMG_PATH" >/dev/null
 fi
 
-echo "$APP_DIR"
+if [[ "$KEEP_MACOS_BUNDLE" != "1" ]]; then
+  rm -rf "$APP_DIR"
+  rmdir "$(dirname "$APP_DIR")" >/dev/null 2>&1 || true
+fi
+
 echo "$DMG_PATH"

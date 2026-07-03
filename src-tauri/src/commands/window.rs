@@ -79,12 +79,17 @@ fn find_cursor_monitor(_app_handle: &tauri::AppHandle) -> Option<tauri::Monitor>
 }
 
 #[cfg(target_os = "macos")]
-fn apply_macos_subtitle_fullscreen_behavior_on_main(window: &tauri::WebviewWindow) {
+fn apply_macos_subtitle_fullscreen_behavior_on_main(
+    window: &tauri::WebviewWindow,
+    order_front: bool,
+) {
     use objc2_app_kit::{NSScreenSaverWindowLevel, NSWindow, NSWindowCollectionBehavior};
 
     match window.ns_window() {
         Ok(raw_window) if !raw_window.is_null() => unsafe {
             let ns_window: &NSWindow = &*(raw_window as *mut NSWindow);
+            ns_window.setHidesOnDeactivate(false);
+            ns_window.setCanHide(false);
             let mut behavior = ns_window.collectionBehavior();
             behavior |= NSWindowCollectionBehavior::CanJoinAllSpaces;
             behavior |= NSWindowCollectionBehavior::FullScreenAuxiliary;
@@ -93,6 +98,9 @@ fn apply_macos_subtitle_fullscreen_behavior_on_main(window: &tauri::WebviewWindo
             behavior &= !NSWindowCollectionBehavior::FullScreenNone;
             ns_window.setCollectionBehavior(behavior);
             ns_window.setLevel(NSScreenSaverWindowLevel);
+            if order_front {
+                ns_window.orderFrontRegardless();
+            }
         },
         Ok(_) => log::warn!("字幕窗口 NSWindow 句柄为空，无法应用全屏 Space 行为"),
         Err(err) => log::warn!("获取字幕窗口 NSWindow 失败: {}", err),
@@ -100,18 +108,18 @@ fn apply_macos_subtitle_fullscreen_behavior_on_main(window: &tauri::WebviewWindo
 }
 
 #[cfg(target_os = "macos")]
-fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow) {
+fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow, order_front: bool) {
     let window = window.clone();
     let task_window = window.clone();
     if let Err(err) = window.run_on_main_thread(move || {
-        apply_macos_subtitle_fullscreen_behavior_on_main(&task_window);
+        apply_macos_subtitle_fullscreen_behavior_on_main(&task_window, order_front);
     }) {
         log::warn!("调度字幕窗口 macOS 全屏 Space 行为失败: {}", err);
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-fn apply_macos_subtitle_fullscreen_behavior(_window: &tauri::WebviewWindow) {}
+fn apply_macos_subtitle_fullscreen_behavior(_window: &tauri::WebviewWindow, _order_front: bool) {}
 
 fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64) {
     let monitor = find_cursor_monitor(app_handle)
@@ -154,7 +162,7 @@ mod tests {
     fn macos_nswindow_behavior_is_dispatched_to_main_thread() {
         let source = include_str!("window.rs");
         let scheduler_start = source
-            .find("fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow)")
+            .find("fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow, order_front: bool)")
             .expect("macOS subtitle fullscreen behavior scheduler should exist");
         let scheduler = &source[scheduler_start..];
         let scheduler_end = scheduler
@@ -170,6 +178,25 @@ mod tests {
             !scheduler_body.contains("ns_window.setCollectionBehavior"),
             "main-thread scheduler must not mutate NSWindow collection behavior directly"
         );
+    }
+
+    #[test]
+    fn macos_nswindow_behavior_prevents_hide_and_orders_front_when_showing() {
+        let source = include_str!("window.rs");
+        let behavior_start = source
+            .find("fn apply_macos_subtitle_fullscreen_behavior_on_main")
+            .expect("macOS raw NSWindow behavior should exist");
+        let behavior = &source[behavior_start..];
+        let behavior_end = behavior
+            .find("#[cfg(target_os = \"macos\")]\nfn apply_macos_subtitle_fullscreen_behavior")
+            .expect("raw NSWindow helper should end before scheduler");
+        let body = &behavior[..behavior_end];
+
+        assert!(body.contains("setHidesOnDeactivate(false)"));
+        assert!(body.contains("setCanHide(false)"));
+        assert!(body.contains("FullScreenAuxiliary"));
+        assert!(body.contains("NSScreenSaverWindowLevel"));
+        assert!(body.contains("orderFrontRegardless()"));
     }
 }
 
@@ -190,7 +217,7 @@ fn apply_subtitle_layout(
     Ok(())
 }
 
-fn reinforce_subtitle_topmost(window: &tauri::WebviewWindow) {
+fn reinforce_subtitle_topmost(window: &tauri::WebviewWindow, order_front: bool) {
     let _ = window.set_always_on_top(false);
     if let Err(err) = window.set_always_on_top(true) {
         log::warn!("设置字幕窗口置顶失败: {}", err);
@@ -200,7 +227,7 @@ fn reinforce_subtitle_topmost(window: &tauri::WebviewWindow) {
         log::warn!("设置字幕窗口全空间可见失败: {}", err);
     }
 
-    apply_macos_subtitle_fullscreen_behavior(window);
+    apply_macos_subtitle_fullscreen_behavior(window, order_front);
 
     #[cfg(target_os = "windows")]
     force_window_topmost(window);
@@ -257,7 +284,7 @@ pub async fn create_subtitle_window(app_handle: tauri::AppHandle) -> Result<Stri
     if let Err(err) = window.set_ignore_cursor_events(true) {
         log::warn!("设置字幕窗口鼠标穿透失败，继续运行: {}", err);
     }
-    reinforce_subtitle_topmost(&window);
+    reinforce_subtitle_topmost(&window, false);
 
     Ok("字幕窗口已创建".to_string())
 }
@@ -277,7 +304,7 @@ pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String
         .show()
         .map_err(|e| tauri_error("显示字幕窗口失败", e))?;
 
-    reinforce_subtitle_topmost(&window);
+    reinforce_subtitle_topmost(&window, true);
 
     if let Err(err) = set_subtitle_window_interactive(&app_handle, false) {
         log::warn!("重新设置字幕窗口鼠标穿透失败: {}", err);

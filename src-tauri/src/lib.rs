@@ -247,6 +247,7 @@ pub fn run() {
             commands::assistant::get_web_search_api_key,
             commands::permissions::check_permission,
             commands::permissions::request_permission,
+            commands::permissions::reset_permission,
             commands::permissions::open_permission_settings,
         ])
         .run(tauri::generate_context!())

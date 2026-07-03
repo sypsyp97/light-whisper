@@ -4,7 +4,13 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecordingContext } from "@/contexts/RecordingContext";
-import { copyToClipboard, openPermissionSettings, submitUserCorrection } from "@/api/tauri";
+import {
+  copyToClipboard,
+  openPermissionSettings,
+  resetPermission,
+  submitUserCorrection,
+  type PermissionKind,
+} from "@/api/tauri";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { ONBOARDING_DISMISSED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import TitleBar from "@/components/main/TitleBar";
@@ -113,6 +119,15 @@ export default function MainPage({ onNavigate, animClass }: MainPageProps) {
     writeLocalStorage(ONBOARDING_DISMISSED_KEY, "true");
   }, []);
 
+  const handlePermissionRecovery = useCallback((kind: PermissionKind) => {
+    resetPermission(kind)
+      .then(() => toast.success(t("toast.permissionReset")))
+      .catch(() => toast.error(t("toast.permissionResetFailed")))
+      .finally(() => {
+        void openPermissionSettings(kind);
+      });
+  }, [t]);
+
   const engineLabel = device === "cloud" ? "Online" : device ?? "";
   const showError = (recordingError || modelError) && !errorBannerDismissed;
   const errorMessage = recordingError || modelError || "";
@@ -122,11 +137,11 @@ export default function MainPage({ onNavigate, animClass }: MainPageProps) {
 
   const bannerAction = errorIsPermission && recordingErrorPermission
     ? {
-        label: t("settings.permOpenSettings", { defaultValue: "Open Settings" }),
+        label: t("settings.permReset", { defaultValue: "Reset Permission" }),
         onClick: () => {
-          void openPermissionSettings(recordingErrorPermission.kind);
+          handlePermissionRecovery(recordingErrorPermission.kind);
         },
-        testId: "main-perm-open-settings-btn",
+        testId: "main-perm-reset-btn",
       }
     : errorIsModel && retryModel
       ? {

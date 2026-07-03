@@ -75,6 +75,71 @@ pub async fn request_permission(kind: PermissionKind) -> PermissionStatus {
     }
 }
 
+pub async fn reset_permission(
+    kind: PermissionKind,
+    bundle_identifier: &str,
+) -> Result<PermissionStatus, AppError> {
+    reset_permission_decision(kind, bundle_identifier).await?;
+    Ok(check_permission(kind).await)
+}
+
+pub fn permission_tcc_service(kind: PermissionKind) -> &'static str {
+    match kind {
+        PermissionKind::Microphone => "Microphone",
+        PermissionKind::Accessibility => "Accessibility",
+        PermissionKind::Screen => "ScreenCapture",
+        PermissionKind::Automation => "AppleEvents",
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn reset_permission_decision(
+    kind: PermissionKind,
+    bundle_identifier: &str,
+) -> Result<(), AppError> {
+    let bundle_identifier = bundle_identifier.trim();
+    if bundle_identifier.is_empty() {
+        return Err(AppError::Other(
+            "无法重置权限：当前应用 bundle identifier 为空".into(),
+        ));
+    }
+
+    let output = tokio::process::Command::new("tccutil")
+        .arg("reset")
+        .arg(permission_tcc_service(kind))
+        .arg(bundle_identifier)
+        .output()
+        .await
+        .map_err(|err| AppError::Other(format!("启动 tccutil 失败: {}", err)))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let detail = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("exit={:?}", output.status.code())
+    };
+    Err(AppError::Other(format!(
+        "重置 {} 权限失败: {}",
+        permission_kind_tag(kind),
+        detail
+    )))
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn reset_permission_decision(
+    _kind: PermissionKind,
+    _bundle_identifier: &str,
+) -> Result<(), AppError> {
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 async fn check_microphone() -> PermissionStatus {
     if probe_microphone_stream(false).await {
@@ -477,6 +542,26 @@ mod tests {
                 "all settings URLs must use the x-apple.systempreferences scheme",
             );
         }
+    }
+
+    #[test]
+    fn permission_kinds_map_to_tccutil_services() {
+        assert_eq!(
+            permission_tcc_service(PermissionKind::Microphone),
+            "Microphone"
+        );
+        assert_eq!(
+            permission_tcc_service(PermissionKind::Accessibility),
+            "Accessibility"
+        );
+        assert_eq!(
+            permission_tcc_service(PermissionKind::Screen),
+            "ScreenCapture"
+        );
+        assert_eq!(
+            permission_tcc_service(PermissionKind::Automation),
+            "AppleEvents"
+        );
     }
 
     #[test]

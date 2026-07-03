@@ -469,6 +469,10 @@ export function requestPermission(kind: PermissionKind): Promise<PermissionStatu
   return invokeCommand<PermissionStatus>("request_permission", { kind });
 }
 
+export function resetPermission(kind: PermissionKind): Promise<PermissionStatus> {
+  return invokeCommand<PermissionStatus>("reset_permission", { kind });
+}
+
 /**
  * Open the macOS Privacy & Security pane that controls `kind`. On non-macOS
  * the backend returns a no-op `Ok(())`, so it's safe to invoke unconditionally.
