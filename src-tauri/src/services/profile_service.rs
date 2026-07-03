@@ -53,9 +53,23 @@ pub fn load_profile() -> UserProfile {
 }
 
 pub fn normalize_profile(profile: &mut UserProfile) -> ProfileCleanupStats {
+    normalize_provider_aliases(profile);
     migrate_custom_provider(profile);
     migrate_reasoning_modes(profile);
     cleanup_profile(profile)
+}
+
+fn normalize_provider_aliases(profile: &mut UserProfile) {
+    let config = &mut profile.llm_provider;
+    if config.active == "custom_compat" {
+        config.active = "custom".to_string();
+    }
+    if config.assistant_provider.as_deref() == Some("custom_compat") {
+        config.assistant_provider = Some("custom".to_string());
+    }
+    if config.validation_provider.as_deref() == Some("custom_compat") {
+        config.validation_provider = Some("custom".to_string());
+    }
 }
 
 fn migrate_reasoning_modes(profile: &mut UserProfile) {
@@ -88,6 +102,12 @@ fn migrate_custom_provider(profile: &mut UserProfile) {
     };
     config.custom_providers.push(provider);
     config.active = "custom_migrated".to_string();
+    if config.assistant_provider.as_deref() == Some("custom") {
+        config.assistant_provider = Some("custom_migrated".to_string());
+    }
+    if config.validation_provider.as_deref() == Some("custom") {
+        config.validation_provider = Some("custom_migrated".to_string());
+    }
     config.custom_base_url = None;
     config.custom_model = None;
     log::info!("已迁移旧版 custom provider 到 custom_providers");
@@ -782,7 +802,8 @@ fn extract_diff_segments(original: &str, polished: &str) -> Vec<(String, String)
 
 #[cfg(test)]
 mod tests {
-    use super::collect_diff_correction_pairs;
+    use super::{collect_diff_correction_pairs, normalize_profile};
+    use crate::state::user_profile::UserProfile;
 
     #[test]
     fn collect_diff_correction_pairs_merges_and_dedupes_baselines() {
@@ -794,5 +815,28 @@ mod tests {
                 ("x".to_string(), "z".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn normalize_profile_migrates_custom_compat_alias() {
+        let mut profile = UserProfile::default();
+        profile.llm_provider.active = "custom_compat".to_string();
+        profile.llm_provider.assistant_provider = Some("custom_compat".to_string());
+        profile.llm_provider.validation_provider = Some("custom_compat".to_string());
+        profile.llm_provider.custom_base_url = Some("https://example.com".to_string());
+        profile.llm_provider.custom_model = Some("model-a".to_string());
+
+        normalize_profile(&mut profile);
+
+        assert_eq!(profile.llm_provider.active, "custom_migrated");
+        assert_eq!(
+            profile.llm_provider.assistant_provider.as_deref(),
+            Some("custom_migrated")
+        );
+        assert_eq!(
+            profile.llm_provider.validation_provider.as_deref(),
+            Some("custom_migrated")
+        );
+        assert_eq!(profile.llm_provider.custom_providers.len(), 1);
     }
 }

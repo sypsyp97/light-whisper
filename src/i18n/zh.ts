@@ -275,6 +275,7 @@ const zh = {
     modelNameLabel: "模型名称",
     openModelList: "打开模型列表",
     searchModelPlaceholder: "搜索模型名称，回车确认",
+    useCustomModel: "使用 {{model}}",
     searchModelLabel: "搜索模型",
     fetching: "拉取中...",
     fetchModelsFromApi: "正在从官方接口拉取模型列表...",

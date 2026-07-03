@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -38,7 +38,11 @@ import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 
-const PRESETS = ["openai", "deepseek", "cerebras", "siliconflow", "custom_compat"] as const;
+const PRESETS = ["openai", "deepseek", "cerebras", "siliconflow", "custom"] as const;
+
+function normalizeProviderId(id: string | null | undefined): string {
+  return id === "custom_compat" ? "custom" : id || "cerebras";
+}
 
 export function AiPolishSection() {
   const { t } = useTranslation();
@@ -57,20 +61,42 @@ export function AiPolishSection() {
   const [authMode, setAuthMode] = useState<OpenaiAuthMode>("api_key");
   const [oauthStatus, setOauthStatus] = useState<OpenaiCodexOauthStatus>({ loggedIn: false });
   const [fastMode, setFastMode] = useState(false);
+  const providerRef = useRef(provider);
+  const baseUrlRef = useRef(baseUrl);
+  const modelRef = useRef(model);
+  const reasoningModeRef = useRef(reasoningMode);
+
+  useEffect(() => { providerRef.current = provider; }, [provider]);
+  useEffect(() => { baseUrlRef.current = baseUrl; }, [baseUrl]);
+  useEffect(() => { modelRef.current = model; }, [model]);
+  useEffect(() => { reasoningModeRef.current = reasoningMode; }, [reasoningMode]);
+
+  const customProviderFor = useCallback((id: string, list = customProviders) => (
+    list.find((item) => item.id === id)
+  ), [customProviders]);
 
   useEffect(() => {
     void getAiPolishApiKey().then(setApiKey).catch(() => {});
     void getUserProfile().then((profile) => {
       const llm = profile.llm_provider;
-      setProvider(llm.active || "cerebras");
+      const active = normalizeProviderId(llm.active);
+      const activeCustomProvider = (llm.custom_providers ?? []).find((item) => item.id === active);
+      const nextBaseUrl = activeCustomProvider?.base_url ?? llm.custom_base_url ?? "";
+      const nextModel = activeCustomProvider?.model ?? llm.custom_model ?? "";
+      const nextReasoningMode = llm.polish_reasoning_mode ?? "provider_default";
+      setProvider(active);
       setCustomProviders(llm.custom_providers ?? []);
-      setBaseUrl(llm.custom_base_url ?? "");
-      setModel(llm.custom_model ?? "");
-      setReasoningMode(llm.polish_reasoning_mode ?? "provider_default");
+      setBaseUrl(nextBaseUrl);
+      setModel(nextModel);
+      setReasoningMode(nextReasoningMode);
       setAuthMode(llm.openai_auth_mode ?? "api_key");
       setFastMode(Boolean(llm.openai_fast_mode));
       setScreenContext(Boolean(profile.ai_polish_screen_context_enabled));
       setCustomPromptState(profile.custom_prompt ?? "");
+      providerRef.current = active;
+      baseUrlRef.current = nextBaseUrl;
+      modelRef.current = nextModel;
+      reasoningModeRef.current = nextReasoningMode;
     }).catch(() => {});
     void getOpenaiCodexOauthStatus().then(setOauthStatus).catch(() => {});
   }, []);
@@ -79,8 +105,32 @@ export function AiPolishSection() {
     void setAiPolishConfig(enabledValue, value).catch(() => toast.error(t("toast.aiPolishFailed", { error: "" })));
   }, 900, { onUnmount: "flush" });
 
+  const persistProviderConfig = useCallback((patch: {
+    provider?: string;
+    baseUrl?: string;
+    model?: string;
+    reasoningMode?: LlmReasoningMode;
+    authMode?: OpenaiAuthMode;
+  } = {}) => {
+    const nextProvider = patch.provider ?? providerRef.current;
+    const nextBaseUrl = patch.baseUrl ?? baseUrlRef.current;
+    const nextModel = patch.model ?? modelRef.current;
+    const nextReasoningMode = patch.reasoningMode ?? reasoningModeRef.current;
+    return setLlmProviderConfig(
+      nextProvider,
+      nextBaseUrl,
+      nextModel,
+      nextReasoningMode,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      patch.authMode,
+    );
+  }, []);
+
   const baseUrlSave = useDebouncedCallback((value: string) => {
-    void setLlmProviderConfig(provider, value, model, reasoningMode).catch(() => {});
+    void persistProviderConfig({ baseUrl: value }).catch(() => {});
   }, 900, { onUnmount: "flush" });
 
   const promptSave = useDebouncedCallback((value: string) => {
@@ -102,11 +152,31 @@ export function AiPolishSection() {
 
   const handleProviderChange = useCallback(async (next: string) => {
     const prev = provider;
+    const prevBaseUrl = baseUrlRef.current;
+    const prevModel = modelRef.current;
     baseUrlSave.cancel();
-    setProvider(next);
-    try { await setLlmProviderConfig(next, baseUrl, model, reasoningMode); }
-    catch { setProvider(prev); }
-  }, [baseUrlSave, provider, baseUrl, model, reasoningMode]);
+    const normalizedNext = normalizeProviderId(next);
+    const customProvider = customProviderFor(normalizedNext);
+    const nextBaseUrl = customProvider ? customProvider.base_url : normalizedNext === "custom" ? baseUrlRef.current : "";
+    const nextModel = customProvider ? customProvider.model : modelRef.current;
+    setProvider(normalizedNext);
+    setBaseUrl(nextBaseUrl);
+    setModel(nextModel);
+    providerRef.current = normalizedNext;
+    baseUrlRef.current = nextBaseUrl;
+    modelRef.current = nextModel;
+    try {
+      await persistProviderConfig({ provider: normalizedNext, baseUrl: nextBaseUrl, model: nextModel });
+      setApiKey(await getAiPolishApiKey());
+    } catch {
+      setProvider(prev);
+      setBaseUrl(prevBaseUrl);
+      setModel(prevModel);
+      providerRef.current = prev;
+      baseUrlRef.current = prevBaseUrl;
+      modelRef.current = prevModel;
+    }
+  }, [baseUrlSave, provider, customProviderFor, persistProviderConfig]);
 
   const handleApiKeyChange = useCallback((v: string) => {
     setApiKey(v);
@@ -115,6 +185,7 @@ export function AiPolishSection() {
 
   const handleBaseUrlChange = useCallback((v: string) => {
     setBaseUrl(v);
+    baseUrlRef.current = v;
     baseUrlSave.schedule(v);
   }, [baseUrlSave]);
 
@@ -122,26 +193,28 @@ export function AiPolishSection() {
     const prev = model;
     baseUrlSave.cancel();
     setModel(next);
-    try { await setLlmProviderConfig(provider, baseUrl, next, reasoningMode); }
-    catch { setModel(prev); }
-  }, [baseUrlSave, model, provider, baseUrl, reasoningMode]);
+    modelRef.current = next;
+    try { await persistProviderConfig({ model: next }); }
+    catch { setModel(prev); modelRef.current = prev; }
+  }, [baseUrlSave, model, persistProviderConfig]);
 
   const handleReasoningChange = useCallback(async (next: LlmReasoningMode) => {
     const prev = reasoningMode;
     baseUrlSave.cancel();
     setReasoningMode(next);
-    try { await setLlmProviderConfig(provider, baseUrl, model, next); }
-    catch { setReasoningMode(prev); }
-  }, [baseUrlSave, reasoningMode, provider, baseUrl, model]);
+    reasoningModeRef.current = next;
+    try { await persistProviderConfig({ reasoningMode: next }); }
+    catch { setReasoningMode(prev); reasoningModeRef.current = prev; }
+  }, [baseUrlSave, reasoningMode, persistProviderConfig]);
 
   const handleAuthModeChange = useCallback(async (next: OpenaiAuthMode) => {
     const prev = authMode;
     baseUrlSave.cancel();
     setAuthMode(next);
     try {
-      await setLlmProviderConfig(provider, baseUrl, model, reasoningMode, undefined, undefined, undefined, undefined, next);
+      await persistProviderConfig({ authMode: next });
     } catch { setAuthMode(prev); }
-  }, [baseUrlSave, authMode, provider, baseUrl, model, reasoningMode]);
+  }, [baseUrlSave, authMode, persistProviderConfig]);
 
   const handleOauthLogin = useCallback(async () => {
     try {
@@ -215,7 +288,7 @@ export function AiPolishSection() {
     { value: "deep", label: t("settings.reasoningDeep"), description: t("settings.reasoningDeepDesc") },
   ];
 
-  const showCustomBaseUrl = provider === "custom_compat" || customProviders.some((p) => p.id === provider);
+  const showCustomBaseUrl = provider === "custom" || customProviders.some((p) => p.id === provider);
   const isOpenai = provider === "openai";
   const showFastMode = isOpenai && oauthStatus.loggedIn && authMode === "oauth";
   const hideApiKey = isOpenai && authMode === "oauth" && oauthStatus.loggedIn;
@@ -337,6 +410,8 @@ export function AiPolishSection() {
           options={modelOptions}
           onChange={(v) => void handleModelChange(v)}
           searchable
+          allowCustomValue
+          customValueLabel={(value) => t("settings.useCustomModel", { model: value })}
           placeholder={t("settings.searchModelPlaceholder")}
           data-testid="polish-model-picker"
         />
@@ -363,7 +438,22 @@ export function AiPolishSection() {
       <AddProviderModal
         open={showAddProvider}
         onClose={() => setShowAddProvider(false)}
-        onAdd={(provider) => { setCustomProviders((p) => [...p, provider]); }}
+        onAdd={(provider) => {
+          setCustomProviders((items) => [...items, provider]);
+          setProvider(provider.id);
+          setBaseUrl(provider.base_url);
+          setModel(provider.model);
+          providerRef.current = provider.id;
+          baseUrlRef.current = provider.base_url;
+          modelRef.current = provider.model;
+          void persistProviderConfig({
+            provider: provider.id,
+            baseUrl: provider.base_url,
+            model: provider.model,
+          }).then(async () => {
+            setApiKey(await getAiPolishApiKey());
+          }).catch(() => {});
+        }}
       />
     </section>
   );
@@ -405,13 +495,28 @@ function AddProviderModal({
     >
       <div className="lw-stack lw-stack--md">
         <Field label={t("settings.providerName")}>
-          <TextInput value={name} onChange={setName} placeholder={t("settings.providerNameLabel")} />
+          <TextInput
+            value={name}
+            onChange={setName}
+            placeholder={t("settings.providerNameLabel")}
+            data-testid="custom-provider-name"
+          />
         </Field>
         <Field label={t("settings.baseUrl")}>
-          <TextInput value={baseUrl} onChange={setBaseUrl} placeholder={t("settings.baseUrlPlaceholder")} />
+          <TextInput
+            value={baseUrl}
+            onChange={setBaseUrl}
+            placeholder={t("settings.baseUrlPlaceholder")}
+            data-testid="custom-provider-base-url"
+          />
         </Field>
         <Field label={t("settings.defaultModel")}>
-          <TextInput value={model} onChange={setModel} placeholder={t("settings.modelNamePlaceholder")} />
+          <TextInput
+            value={model}
+            onChange={setModel}
+            placeholder={t("settings.modelNamePlaceholder")}
+            data-testid="custom-provider-model"
+          />
         </Field>
         <Field label={t("settings.apiFormatLabel")}>
           <Segmented
@@ -425,7 +530,9 @@ function AddProviderModal({
         </Field>
         <div className="lw-inline" style={{ justifyContent: "flex-end" }}>
           <Button variant="ghost" onClick={onClose}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => void submit()}>{t("common.add")}</Button>
+          <Button variant="primary" onClick={() => void submit()} data-testid="custom-provider-submit">
+            {t("common.add")}
+          </Button>
         </div>
       </div>
     </Modal>

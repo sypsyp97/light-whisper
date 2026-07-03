@@ -237,6 +237,7 @@ pub async fn set_llm_provider_config(
     assistant_provider_set: Option<bool>,
     openai_auth_mode: Option<crate::state::user_profile::OpenaiAuthMode>,
 ) -> Result<(), String> {
+    let active = normalize_provider_alias(active);
     let active_uses_custom_endpoint = active == "custom"
         || state.with_profile(|profile| {
             profile
@@ -254,7 +255,8 @@ pub async fn set_llm_provider_config(
     let normalized_assistant_model = assistant_model
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let normalized_assistant_provider = normalize_optional_string_update(assistant_provider);
+    let normalized_assistant_provider =
+        normalize_optional_string_update(assistant_provider).map(normalize_provider_alias);
 
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.llm_provider.active = active.clone();
@@ -410,6 +412,14 @@ fn normalize_optional_string_update(value: Option<String>) -> Option<String> {
 
 fn optional_field_update_requested<T>(value: &Option<T>, field_set: Option<bool>) -> bool {
     field_set.unwrap_or(value.is_some())
+}
+
+fn normalize_provider_alias(provider: String) -> String {
+    if provider == "custom_compat" {
+        "custom".to_string()
+    } else {
+        provider
+    }
 }
 
 #[tauri::command]

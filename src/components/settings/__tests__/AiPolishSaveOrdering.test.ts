@@ -11,7 +11,7 @@ function expectCancelBeforeImmediateSave(marker: string) {
   const start = source.indexOf(marker);
   expect(start).toBeGreaterThanOrEqual(0);
 
-  const save = source.indexOf("await setLlmProviderConfig(", start);
+  const save = source.indexOf("await persistProviderConfig(", start);
   expect(save).toBeGreaterThan(start);
 
   const cancel = source.indexOf("baseUrlSave.cancel();", start);

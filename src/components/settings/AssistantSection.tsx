@@ -29,6 +29,10 @@ import TextArea from "@/components/ui/TextArea";
 import Button from "@/components/ui/Button";
 import Kbd from "@/components/ui/Kbd";
 
+function normalizeProviderId(id: string | null | undefined): string {
+  return id === "custom_compat" ? "custom" : id || "cerebras";
+}
+
 export function AssistantSection() {
   const { t } = useTranslation();
   const [assistantHotkey, setAssistantHotkeyState] = useState<string | null>(null);
@@ -52,7 +56,7 @@ export function AssistantSection() {
       setSystemPrompt(profile.assistant_system_prompt ?? "");
       const llm = profile.llm_provider;
       setUseSeparate(Boolean(llm.assistant_use_separate_model));
-      setProvider(llm.assistant_provider || llm.active || "cerebras");
+      setProvider(normalizeProviderId(llm.assistant_provider || llm.active));
       setModel(llm.assistant_model ?? "");
       setReasoningMode(llm.assistant_reasoning_mode ?? "provider_default");
       const ws = profile.web_search;
@@ -204,7 +208,7 @@ export function AssistantSection() {
     { value: "deepseek", label: "DeepSeek" },
     { value: "cerebras", label: "Cerebras" },
     { value: "siliconflow", label: "SiliconFlow" },
-    { value: "custom_compat", label: t("settings.customCompatLabel") },
+    { value: "custom", label: t("settings.customCompatLabel") },
   ];
 
   const reasoningOptions: Array<{ value: LlmReasoningMode; label: string }> = [
@@ -294,6 +298,8 @@ export function AssistantSection() {
               options={modelOptions}
               onChange={(v) => void handleModelChange(v)}
               searchable
+              allowCustomValue
+              customValueLabel={(value) => t("settings.useCustomModel", { model: value })}
               data-testid="assistant-model-picker"
             />
           </Field>

@@ -36,6 +36,20 @@ vi.mock("@tauri-apps/api/event", async () => {
 
 import * as api from "@/api/tauri";
 import { AiPolishSection } from "@/components/settings/AiPolishSection";
+import type { UserProfile } from "@/types";
+
+const baseProfile = {
+  hot_words: [],
+  correction_patterns: [],
+  vocab_frequency: {},
+  total_transcriptions: 0,
+  last_updated: 0,
+  llm_provider: {
+    active: "openai",
+    custom_providers: [],
+    openai_auth_mode: "api_key",
+  },
+} satisfies UserProfile;
 
 describe("AiPolishSection", () => {
   beforeEach(() => {
@@ -85,5 +99,74 @@ describe("AiPolishSection", () => {
   it("renders custom prompt textarea", async () => {
     render(<AiPolishSection />);
     expect(await screen.findByTestId("polish-custom-prompt")).toBeInTheDocument();
+  });
+
+  it("loads the active custom provider base URL and model", async () => {
+    vi.mocked(api.getUserProfile).mockResolvedValueOnce({
+      ...baseProfile,
+      llm_provider: {
+        ...baseProfile.llm_provider,
+        active: "provider-id",
+        custom_providers: [{
+          id: "provider-id",
+          name: "OpenRouter",
+          base_url: "https://openrouter.ai/api/v1",
+          model: "openai/gpt-4o-mini",
+          api_format: "openai_compat",
+        }],
+      },
+    });
+
+    render(<AiPolishSection />);
+
+    expect(await screen.findByTestId("polish-base-url")).toHaveValue("https://openrouter.ai/api/v1");
+    await waitFor(() => {
+      expect(screen.getByTestId("polish-model-picker")).toHaveTextContent("openai/gpt-4o-mini");
+    });
+  });
+
+  it("selects and saves a newly added custom provider", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<AiPolishSection />);
+
+    await user.click(await screen.findByTestId("polish-provider-picker"));
+    await user.click(screen.getByRole("button", { name: /settings\.addCustomProvider|添加自定义服务商|Add Custom Provider/ }));
+    await user.type(screen.getByTestId("custom-provider-name"), "OpenRouter");
+    await user.type(screen.getByTestId("custom-provider-base-url"), "https://openrouter.ai/api/v1");
+    await user.type(screen.getByTestId("custom-provider-model"), "openai/gpt-4o-mini");
+    await user.click(screen.getByTestId("custom-provider-submit"));
+
+    await waitFor(() => {
+      expect(vi.mocked(api.addCustomProvider)).toHaveBeenCalledWith(
+        "OpenRouter",
+        "https://openrouter.ai/api/v1",
+        "openai/gpt-4o-mini",
+        "openai_compat",
+      );
+    });
+    await waitFor(() => {
+      const saved = vi.mocked(api.setLlmProviderConfig).mock.calls.some((call) => (
+        call[0] === "provider-id"
+        && call[1] === "https://openrouter.ai/api/v1"
+        && call[2] === "openai/gpt-4o-mini"
+      ));
+      expect(saved).toBe(true);
+    });
+    expect(screen.getByTestId("polish-provider-picker")).toHaveTextContent("OpenRouter");
+  });
+
+  it("saves a manually typed model name from the picker", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<AiPolishSection />);
+
+    await user.click(await screen.findByTestId("polish-model-picker"));
+    await user.type(screen.getByTestId("polish-model-picker-search"), "o3-mini");
+    await user.click(screen.getByTestId("polish-model-picker-option-custom-value"));
+
+    await waitFor(() => {
+      const saved = vi.mocked(api.setLlmProviderConfig).mock.calls.some((call) => call[2] === "o3-mini");
+      expect(saved).toBe(true);
+    });
+    expect(screen.getByTestId("polish-model-picker")).toHaveTextContent("o3-mini");
   });
 });

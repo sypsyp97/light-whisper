@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { setTranslationHotkey, setTranslationTarget, getUserProfile } from "@/api/tauri";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
+import { AI_POLISH_ENABLED_KEY } from "@/lib/constants";
+import { writeLocalStorage } from "@/lib/storage";
 import Field from "@/components/ui/Field";
 import Button from "@/components/ui/Button";
 import Picker from "@/components/ui/Picker";
@@ -45,7 +47,12 @@ export function TranslationSection() {
   const persistTarget = useCallback(async (next: string | null) => {
     try {
       const autoPolish = await setTranslationTarget(next);
-      if (autoPolish) toast.success(t("toast.translationAutoPolish"));
+      if (next) {
+        writeLocalStorage(AI_POLISH_ENABLED_KEY, "true");
+      }
+      if (autoPolish) {
+        toast.success(t("toast.translationAutoPolish"));
+      }
     } catch {
       toast.error(t("toast.translationSaveFailed"));
     }

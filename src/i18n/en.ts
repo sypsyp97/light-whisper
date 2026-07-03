@@ -277,6 +277,7 @@ const en: TranslationSchema = {
     modelNameLabel: "Model name",
     openModelList: "Open model list",
     searchModelPlaceholder: "Search model name, Enter to confirm",
+    useCustomModel: "Use {{model}}",
     searchModelLabel: "Search model",
     fetching: "Fetching...",
     fetchModelsFromApi: "Fetching model list from API...",

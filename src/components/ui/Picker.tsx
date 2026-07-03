@@ -17,6 +17,8 @@ export interface PickerProps<T extends string> {
   onChange: (next: T) => void;
   placeholder?: string;
   searchable?: boolean;
+  allowCustomValue?: boolean;
+  customValueLabel?: (value: string) => string;
   renderTrigger?: (opt: PickerOption<T> | undefined) => ReactNode;
   footer?: ReactNode;
   disabled?: boolean;
@@ -29,6 +31,8 @@ export function Picker<T extends string>({
   onChange,
   placeholder,
   searchable,
+  allowCustomValue,
+  customValueLabel,
   renderTrigger,
   footer,
   disabled,
@@ -60,6 +64,10 @@ export function Picker<T extends string>({
   const filtered = searchable && query
     ? options.filter((o) => `${o.label} ${o.description ?? ""}`.toLowerCase().includes(query.toLowerCase()))
     : options;
+  const customValue = query.trim();
+  const showCustomValue =
+    Boolean(searchable && allowCustomValue && customValue)
+    && !options.some((o) => o.value === customValue || o.label.toLowerCase() === customValue.toLowerCase());
 
   const popoverTestId = testId ? `${testId}-popover` : undefined;
 
@@ -98,7 +106,7 @@ export function Picker<T extends string>({
           )}
           <div className="lw-picker-list">
             {filtered.length === 0 ? (
-              <div className="lw-picker-empty">{t("settings.noMatchingProvider")}</div>
+              showCustomValue ? null : <div className="lw-picker-empty">{t("settings.noMatchingProvider")}</div>
             ) : (
               filtered.map((opt) => (
                 <button
@@ -122,6 +130,24 @@ export function Picker<T extends string>({
                   {opt.description && <span className="lw-picker-option-desc">{opt.description}</span>}
                 </button>
               ))
+            )}
+            {showCustomValue && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                className="lw-picker-option"
+                data-testid={testId ? `${testId}-option-custom-value` : undefined}
+                onClick={() => {
+                  onChange(customValue as T);
+                  setOpen(false);
+                  setQuery("");
+                }}
+              >
+                <span className="lw-picker-option-label">
+                  {customValueLabel ? customValueLabel(customValue) : customValue}
+                </span>
+              </button>
             )}
           </div>
           {footer && <div className="lw-picker-footer">{footer}</div>}

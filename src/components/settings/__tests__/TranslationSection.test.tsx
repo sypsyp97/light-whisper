@@ -25,10 +25,12 @@ vi.mock("@tauri-apps/api/event", async () => {
 
 import * as api from "@/api/tauri";
 import { TranslationSection } from "@/components/settings/TranslationSection";
+import { AI_POLISH_ENABLED_KEY } from "@/lib/constants";
 
 describe("TranslationSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   it("renders the section wrapper", () => {
@@ -54,6 +56,17 @@ describe("TranslationSection", () => {
     await userEvent.click(option);
     await waitFor(() => {
       expect(vi.mocked(api.setTranslationTarget)).toHaveBeenCalled();
+    });
+  });
+
+  it("selecting a target language keeps AI polish enabled across restart", async () => {
+    render(<TranslationSection />);
+    const picker = await screen.findByTestId("translation-target-picker");
+    await userEvent.click(picker);
+    await userEvent.click(await screen.findByTestId("translation-target-picker-option-English"));
+
+    await waitFor(() => {
+      expect(localStorage.getItem(AI_POLISH_ENABLED_KEY)).toBe("true");
     });
   });
 });

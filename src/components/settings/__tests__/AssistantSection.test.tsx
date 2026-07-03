@@ -91,4 +91,39 @@ describe("AssistantSection", () => {
       expect(vi.mocked(api.setWebSearchConfig)).toHaveBeenCalled();
     });
   });
+
+  it("normalizes the legacy custom provider id and saves typed assistant model names", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    vi.mocked(api.getUserProfile).mockResolvedValueOnce({
+      hot_words: [],
+      correction_patterns: [],
+      vocab_frequency: {},
+      total_transcriptions: 0,
+      last_updated: 0,
+      llm_provider: {
+        active: "custom_compat",
+        assistant_use_separate_model: true,
+        assistant_provider: "custom_compat",
+        custom_providers: [],
+      },
+      assistant_hotkey: null,
+      assistant_system_prompt: null,
+      assistant_screen_context_enabled: false,
+      web_search: { enabled: false, provider: "model_native", max_results: 5 },
+    });
+
+    render(<AssistantSection />);
+    await user.click(await screen.findByTestId("assistant-model-picker"));
+    await user.type(screen.getByTestId("assistant-model-picker-search"), "assistant-model-x");
+    await user.click(screen.getByTestId("assistant-model-picker-option-custom-value"));
+
+    await waitFor(() => {
+      const saved = vi.mocked(api.setLlmProviderConfig).mock.calls.some((call) => (
+        call[0] === "custom"
+        && call[6] === "assistant-model-x"
+        && call[7] === "custom"
+      ));
+      expect(saved).toBe(true);
+    });
+  });
 });
