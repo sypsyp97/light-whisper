@@ -50,13 +50,25 @@ const tauriEvents = vi.hoisted(() => {
   return { listen, emit, reset };
 });
 
+const apiMocks = vi.hoisted(() => ({
+  copyToClipboard: vi.fn(async () => undefined),
+  getCurrentRecordingState: vi.fn(async () => ({
+    sessionId: null as number | null,
+    isRecording: false,
+    isProcessing: false,
+    mode: "dictation" as const,
+  })),
+  hideSubtitleWindow: vi.fn(async () => undefined),
+}));
+
 vi.mock("@tauri-apps/api/event", () => ({
   listen: tauriEvents.listen,
 }));
 
 vi.mock("@/api/tauri", () => ({
-  copyToClipboard: vi.fn(async () => undefined),
-  hideSubtitleWindow: vi.fn(async () => undefined),
+  copyToClipboard: apiMocks.copyToClipboard,
+  getCurrentRecordingState: apiMocks.getCurrentRecordingState,
+  hideSubtitleWindow: apiMocks.hideSubtitleWindow,
 }));
 
 vi.mock("react-i18next", () => {
@@ -90,6 +102,12 @@ import SubtitleOverlay from "@/pages/SubtitleOverlay";
 
 beforeEach(() => {
   tauriEvents.reset();
+  apiMocks.getCurrentRecordingState.mockResolvedValue({
+    sessionId: null as number | null,
+    isRecording: false,
+    isProcessing: false,
+    mode: "dictation",
+  });
   // jsdom does not provide window.matchMedia; SubtitleOverlay's theme effect
   // calls it on mount and registers a "change" listener.
   Object.defineProperty(window, "matchMedia", {
@@ -147,6 +165,21 @@ function readSubtitleText(container: HTMLElement): string {
 }
 
 describe("SubtitleOverlay stale-flash cleanup", () => {
+  it("hydrates an already-active recording when a new subtitle window mounts", async () => {
+    apiMocks.getCurrentRecordingState.mockResolvedValueOnce({
+      sessionId: 42,
+      isRecording: true,
+      isProcessing: false,
+      mode: "dictation",
+    });
+
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    expect(screen.getByText("subtitle.listening")).toBeInTheDocument();
+    expect(container.querySelector(".subtitle-dot-recording")).not.toBeNull();
+  });
+
   it("A. clears state after the fade completes", async () => {
     // Cleanup target: idle reset must occur after fade delay (~2000ms) +
     // animation (~300ms) + small buffer. 5000ms is well past any plausible

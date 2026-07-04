@@ -197,6 +197,7 @@ final class SubtitlePanelController {
         updateState(mode: mode, phase: phase, text: text, detail: detail, interactive: interactive)
         let panel = panel ?? makePanel()
         panel.ignoresMouseEvents = !interactive
+        reinforcePanelWindowing(panel)
         layout(panel)
         panel.orderFrontRegardless()
     }
@@ -230,6 +231,7 @@ final class SubtitlePanelController {
             )
             return
         }
+        reinforcePanelWindowing(panel)
         layout(panel)
     }
 
@@ -286,14 +288,12 @@ final class SubtitlePanelController {
             backing: .buffered,
             defer: false
         )
-        panel.level = .screenSaver
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
-        panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.ignoresMouseEvents = true
+        reinforcePanelWindowing(panel)
         panel.contentViewController = NSHostingController(
             rootView: OverlayView(
                 state: state,
@@ -303,6 +303,19 @@ final class SubtitlePanelController {
         )
         self.panel = panel
         return panel
+    }
+
+    private func reinforcePanelWindowing(_ panel: NSPanel) {
+        panel.level = .screenSaver
+        panel.hidesOnDeactivate = false
+        panel.canHide = false
+        panel.collectionBehavior = [
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .stationary,
+            .transient,
+            .ignoresCycle
+        ]
     }
 
     private func layout(_ panel: NSPanel) {

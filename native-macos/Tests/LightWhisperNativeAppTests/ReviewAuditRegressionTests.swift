@@ -206,6 +206,27 @@ struct ReviewAuditRegressionTests {
     }
 
     @Test
+    func subtitleOverlayReinforcesFullscreenPanelVisibility() throws {
+        let fixture = try ReviewAuditFixture()
+        let source = try fixture.packageContents(
+            of: "Sources/LightWhisperNativeApp/Platform/SubtitlePanelController.swift"
+        )
+        let windowingSegment = try fixture.segment(
+            in: source,
+            from: "private func reinforcePanelWindowing(_ panel: NSPanel)",
+            to: "private func layout(_ panel: NSPanel)"
+        )
+
+        #expect(windowingSegment.contains("panel.level = .screenSaver"))
+        #expect(windowingSegment.contains("panel.hidesOnDeactivate = false"))
+        #expect(windowingSegment.contains("panel.canHide = false"))
+        #expect(windowingSegment.contains(".canJoinAllSpaces"))
+        #expect(windowingSegment.contains(".fullScreenAuxiliary"))
+        #expect(windowingSegment.contains(".transient"))
+        #expect(source.contains("reinforcePanelWindowing(panel)\n        layout(panel)"))
+    }
+
+    @Test
     func cleanupScriptCoversCurrentBundleIdentifierToo() throws {
         let fixture = try ReviewAuditFixture()
         let script = try fixture.packageContents(of: "scripts/clear-legacy-permissions.sh")

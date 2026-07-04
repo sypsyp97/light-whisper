@@ -3,6 +3,7 @@ use std::sync::{
     Arc,
 };
 
+use serde::Serialize;
 use tauri::Emitter;
 
 use crate::services::audio_service;
@@ -15,6 +16,15 @@ use crate::utils::AppError;
 pub(crate) const RECORDING_NOT_READY_ERROR: &str = "语音识别服务尚未就绪，请等待初始化完成";
 pub(crate) const RECORDING_ALREADY_ACTIVE_ERROR: &str = "已有录音正在进行中";
 pub(crate) const RECORDING_START_CANCELLED_ERROR: &str = "录音启动已取消";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentRecordingState {
+    pub session_id: Option<u64>,
+    pub is_recording: bool,
+    pub is_processing: bool,
+    pub mode: RecordingMode,
+}
 
 fn clear_pending_recording_if_current(state: &AppState, session_id: u64) {
     let mut guard = state.recording.recording.lock();
@@ -187,6 +197,29 @@ pub(crate) async fn start_recording_inner(
         trigger.mode().as_str()
     );
     Ok(session_id)
+}
+
+#[tauri::command]
+pub fn get_current_recording_state(
+    state: tauri::State<'_, AppState>,
+) -> Result<CurrentRecordingState, AppError> {
+    let guard = state.recording.recording.lock();
+    let payload = match guard.as_ref() {
+        Some(slot) => CurrentRecordingState {
+            session_id: Some(slot.session_id()),
+            is_recording: true,
+            is_processing: false,
+            mode: slot.trigger().mode(),
+        },
+        None => CurrentRecordingState {
+            session_id: None,
+            is_recording: false,
+            is_processing: false,
+            mode: RecordingMode::Dictation,
+        },
+    };
+
+    Ok(payload)
 }
 
 pub(crate) async fn stop_recording_inner(

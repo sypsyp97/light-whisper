@@ -674,14 +674,14 @@
   overflow: hidden;
 }
 
-/* Top nav: one horizontal row of tabs that scrolls horizontally on overflow.
-   Apple's `sub-nav-frosted` is the closest analogue — quiet chrome that
-   recedes behind the active section name. */
+/* Settings nav scrolls with the settings content; only its horizontal tab row
+   scroll is independent. */
 .lw-settings-nav {
   flex-shrink: 0;
   display: flex;
   flex-direction: row;
   gap: 2px;
+  margin: 0 -24px;
   padding: 0 16px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -725,14 +725,13 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 24px 48px;
+  padding: 0 24px 48px;
   display: flex;
   flex-direction: column;
   gap: 20px;
   scroll-behavior: smooth;
 }
-/* Sections get scroll-margin so they don't hide behind the sticky top nav
-   when the user clicks a tab and the content jumps. */
+/* Sections get a small scroll margin when the user clicks a tab. */
 .lw-settings-content > [data-nav-id] {
   scroll-margin-top: 8px;
 }

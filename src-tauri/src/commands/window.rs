@@ -31,6 +31,38 @@ fn force_window_topmost(window: &tauri::WebviewWindow) {
     }
 }
 
+#[cfg(target_os = "macos")]
+type AXUIElementRef = *const std::ffi::c_void;
+#[cfg(target_os = "macos")]
+type AXValueRef = *const std::ffi::c_void;
+#[cfg(target_os = "macos")]
+type AXError = i32;
+#[cfg(target_os = "macos")]
+type AXValueType = u32;
+
+#[cfg(target_os = "macos")]
+const K_AX_ERROR_SUCCESS: AXError = 0;
+#[cfg(target_os = "macos")]
+const K_AX_VALUE_CGPOINT_TYPE: AXValueType = 1;
+#[cfg(target_os = "macos")]
+const K_AX_VALUE_CGSIZE_TYPE: AXValueType = 2;
+
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementCopyAttributeValue(
+        element: AXUIElementRef,
+        attribute: core_foundation_sys::string::CFStringRef,
+        value: *mut core_foundation::base::CFTypeRef,
+    ) -> AXError;
+    fn AXValueGetValue(
+        value: AXValueRef,
+        the_type: AXValueType,
+        value_ptr: *mut std::ffi::c_void,
+    ) -> core_foundation_sys::base::Boolean;
+}
+
 const DEFAULT_SUBTITLE_WINDOW_WIDTH: f64 = 1280.0;
 const DEFAULT_SUBTITLE_WINDOW_HEIGHT: f64 = 720.0;
 
@@ -48,34 +80,139 @@ fn require_window(
         .ok_or_else(|| AppError::Tauri(missing_message.to_string()))
 }
 
-/// 获取光标所在显示器（物理坐标比对）
-#[cfg(target_os = "windows")]
-fn find_cursor_monitor(app_handle: &tauri::AppHandle) -> Option<tauri::Monitor> {
-    use windows_sys::Win32::Foundation::POINT;
-    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
-
-    let mut point = POINT { x: 0, y: 0 };
-    if unsafe { GetCursorPos(&mut point) } == 0 {
-        return None;
+#[cfg(target_os = "macos")]
+fn find_frontmost_monitor(app_handle: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    let (center_x, center_y) = macos_focused_window_center()?;
+    match app_handle.monitor_from_point(center_x, center_y) {
+        Ok(monitor) => monitor,
+        Err(err) => {
+            log::warn!(
+                "获取前台窗口所在显示器失败，字幕窗口将回退到光标显示器: {}",
+                err
+            );
+            None
+        }
     }
-
-    app_handle
-        .available_monitors()
-        .ok()?
-        .into_iter()
-        .find(|monitor| {
-            let pos = monitor.position();
-            let size = monitor.size();
-            point.x >= pos.x
-                && point.x < pos.x + size.width as i32
-                && point.y >= pos.y
-                && point.y < pos.y + size.height as i32
-        })
 }
 
-#[cfg(not(target_os = "windows"))]
-fn find_cursor_monitor(_app_handle: &tauri::AppHandle) -> Option<tauri::Monitor> {
+#[cfg(not(target_os = "macos"))]
+fn find_frontmost_monitor(_app_handle: &tauri::AppHandle) -> Option<tauri::Monitor> {
     None
+}
+
+#[cfg(target_os = "macos")]
+fn macos_focused_window_center() -> Option<(f64, f64)> {
+    use core_foundation::{
+        base::{CFRelease, CFTypeRef, TCFType},
+        string::CFString,
+    };
+    use core_graphics::geometry::{CGPoint, CGSize};
+    use std::ptr;
+
+    unsafe fn copy_macos_ax_attribute(
+        element: AXUIElementRef,
+        attribute: core_foundation_sys::string::CFStringRef,
+    ) -> Option<core_foundation::base::CFTypeRef> {
+        let mut value: core_foundation::base::CFTypeRef = ptr::null_mut();
+        let status = AXUIElementCopyAttributeValue(element, attribute, &mut value);
+        if status == K_AX_ERROR_SUCCESS && !value.is_null() {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    unsafe fn copy_macos_ax_cgpoint(
+        element: AXUIElementRef,
+        attribute: core_foundation_sys::string::CFStringRef,
+    ) -> Option<CGPoint> {
+        let value = copy_macos_ax_attribute(element, attribute)?;
+        let mut point = CGPoint::default();
+        let ok = AXValueGetValue(
+            value as AXValueRef,
+            K_AX_VALUE_CGPOINT_TYPE,
+            &mut point as *mut _ as *mut std::ffi::c_void,
+        ) != 0;
+        CFRelease(value);
+        ok.then_some(point)
+    }
+
+    unsafe fn copy_macos_ax_cgsize(
+        element: AXUIElementRef,
+        attribute: core_foundation_sys::string::CFStringRef,
+    ) -> Option<CGSize> {
+        let value = copy_macos_ax_attribute(element, attribute)?;
+        let mut size = CGSize::default();
+        let ok = AXValueGetValue(
+            value as AXValueRef,
+            K_AX_VALUE_CGSIZE_TYPE,
+            &mut size as *mut _ as *mut std::ffi::c_void,
+        ) != 0;
+        CFRelease(value);
+        ok.then_some(size)
+    }
+
+    unsafe {
+        let system_wide = AXUIElementCreateSystemWide();
+        if system_wide.is_null() {
+            return None;
+        }
+
+        let focused_window_attr = CFString::from_static_string("AXFocusedWindow");
+        let position_attr = CFString::from_static_string("AXPosition");
+        let size_attr = CFString::from_static_string("AXSize");
+
+        let focused_window =
+            match copy_macos_ax_attribute(system_wide, focused_window_attr.as_concrete_TypeRef()) {
+                Some(value) => value,
+                None => {
+                    CFRelease(system_wide as CFTypeRef);
+                    return None;
+                }
+            };
+
+        let position = copy_macos_ax_cgpoint(
+            focused_window as AXUIElementRef,
+            position_attr.as_concrete_TypeRef(),
+        );
+        let size = copy_macos_ax_cgsize(
+            focused_window as AXUIElementRef,
+            size_attr.as_concrete_TypeRef(),
+        );
+
+        CFRelease(focused_window);
+        CFRelease(system_wide as CFTypeRef);
+
+        let CGPoint { x, y } = position?;
+        let CGSize { width, height } = size?;
+        if width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+
+        Some((x + width / 2.0, y + height / 2.0))
+    }
+}
+
+/// 获取光标所在显示器（物理坐标比对）
+fn find_cursor_monitor(app_handle: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    let position = match app_handle.cursor_position() {
+        Ok(position) => position,
+        Err(err) => {
+            log::warn!("获取光标位置失败，字幕窗口将回退到主窗口显示器: {}", err);
+            return None;
+        }
+    };
+
+    match app_handle.monitor_from_point(position.x, position.y) {
+        Ok(monitor) => monitor,
+        Err(err) => {
+            log::warn!(
+                "获取光标所在显示器失败，字幕窗口将回退到主窗口显示器: {}",
+                err
+            );
+            None
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -90,17 +227,25 @@ fn apply_macos_subtitle_fullscreen_behavior_on_main(
             let ns_window: &NSWindow = &*(raw_window as *mut NSWindow);
             ns_window.setHidesOnDeactivate(false);
             ns_window.setCanHide(false);
+
             let mut behavior = ns_window.collectionBehavior();
             behavior |= NSWindowCollectionBehavior::CanJoinAllSpaces;
             behavior |= NSWindowCollectionBehavior::FullScreenAuxiliary;
             behavior |= NSWindowCollectionBehavior::Stationary;
+            behavior |= NSWindowCollectionBehavior::Transient;
             behavior |= NSWindowCollectionBehavior::IgnoresCycle;
             behavior &= !NSWindowCollectionBehavior::FullScreenNone;
             ns_window.setCollectionBehavior(behavior);
             ns_window.setLevel(NSScreenSaverWindowLevel);
+            ns_window.setIgnoresMouseEvents(true);
             if order_front {
                 ns_window.orderFrontRegardless();
             }
+            log::info!(
+                "已加固字幕窗口 macOS 全屏行为: level=screenSaver, collection_behavior={:#x}, order_front={}",
+                behavior.bits(),
+                order_front
+            );
         },
         Ok(_) => log::warn!("字幕窗口 NSWindow 句柄为空，无法应用全屏 Space 行为"),
         Err(err) => log::warn!("获取字幕窗口 NSWindow 失败: {}", err),
@@ -121,8 +266,21 @@ fn apply_macos_subtitle_fullscreen_behavior(window: &tauri::WebviewWindow, order
 #[cfg(not(target_os = "macos"))]
 fn apply_macos_subtitle_fullscreen_behavior(_window: &tauri::WebviewWindow, _order_front: bool) {}
 
+#[cfg(target_os = "macos")]
+fn reset_macos_subtitle_window_for_active_space(app_handle: &tauri::AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("subtitle") {
+        if let Err(err) = window.destroy() {
+            log::warn!("销毁旧字幕窗口以重新绑定全屏 Space 失败: {}", err);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn reset_macos_subtitle_window_for_active_space(_app_handle: &tauri::AppHandle) {}
+
 fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64) {
-    let monitor = find_cursor_monitor(app_handle)
+    let monitor = find_frontmost_monitor(app_handle)
+        .or_else(|| find_cursor_monitor(app_handle))
         .or_else(|| {
             app_handle
                 .get_webview_window("main")
@@ -181,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn macos_nswindow_behavior_prevents_hide_and_orders_front_when_showing() {
+    fn macos_subtitle_behavior_uses_webview_nswindow_without_isa_swap() {
         let source = include_str!("window.rs");
         let behavior_start = source
             .find("fn apply_macos_subtitle_fullscreen_behavior_on_main")
@@ -192,11 +350,120 @@ mod tests {
             .expect("raw NSWindow helper should end before scheduler");
         let body = &behavior[..behavior_end];
 
+        assert!(body.contains("NSWindow"));
+        assert!(!body.contains("NSPanel"));
+        assert!(!body.contains("object_setClass"));
+        assert!(!body.contains("NSWindowStyleMask::NonactivatingPanel"));
         assert!(body.contains("setHidesOnDeactivate(false)"));
         assert!(body.contains("setCanHide(false)"));
         assert!(body.contains("FullScreenAuxiliary"));
+        assert!(body.contains("CanJoinAllSpaces"));
+        assert!(body.contains("Stationary"));
+        assert!(body.contains("Transient"));
+        assert!(body.contains("IgnoresCycle"));
         assert!(body.contains("NSScreenSaverWindowLevel"));
+        assert!(body.contains("setIgnoresMouseEvents(true)"));
         assert!(body.contains("orderFrontRegardless()"));
+    }
+
+    #[test]
+    fn subtitle_layout_prefers_frontmost_then_cursor_monitor() {
+        let source = include_str!("window.rs");
+        let cursor_start = source
+            .find("fn find_cursor_monitor(app_handle: &tauri::AppHandle)")
+            .expect("cursor monitor helper should exist");
+        let cursor_segment = &source[cursor_start..];
+        let cursor_end = cursor_segment
+            .find("#[cfg(target_os = \"macos\")]")
+            .expect("cursor monitor helper should end before macOS window behavior");
+        let cursor_body = &cursor_segment[..cursor_end];
+        let layout_start = source
+            .find("fn resolve_subtitle_layout(app_handle: &tauri::AppHandle)")
+            .expect("subtitle layout resolver should exist");
+        let layout_segment = &source[layout_start..];
+        let layout_end = layout_segment
+            .find("#[cfg(test)]")
+            .expect("layout resolver should end before tests");
+        let layout_body = &layout_segment[..layout_end];
+
+        assert!(cursor_body.contains("cursor_position()"));
+        assert!(cursor_body.contains("monitor_from_point(position.x, position.y)"));
+        assert!(layout_body.contains("find_frontmost_monitor(app_handle)"));
+        assert!(layout_body.contains("find_cursor_monitor(app_handle)"));
+        assert!(
+            layout_body
+                .find("find_frontmost_monitor(app_handle)")
+                .expect("frontmost monitor should be queried")
+                < layout_body
+                    .find("find_cursor_monitor(app_handle)")
+                    .expect("cursor monitor should be queried"),
+            "subtitle layout should prefer the focused/frontmost window before cursor fallback"
+        );
+        assert!(
+            !cursor_body.contains("cfg(target_os = \"windows\")"),
+            "cursor monitor selection must also run on macOS fullscreen Spaces"
+        );
+    }
+
+    #[test]
+    fn macos_frontmost_monitor_uses_accessibility_focused_window_frame() {
+        let source = include_str!("window.rs");
+        let helper_start = source
+            .find("fn macos_focused_window_center() -> Option<(f64, f64)>")
+            .expect("macOS focused-window helper should exist");
+        let helper_segment = &source[helper_start..];
+        let helper_end = helper_segment
+            .find("/// 获取光标所在显示器")
+            .expect("focused-window helper should end before cursor helper");
+        let helper_body = &helper_segment[..helper_end];
+        let monitor_start = source
+            .find("fn find_frontmost_monitor(app_handle: &tauri::AppHandle)")
+            .expect("frontmost monitor helper should exist");
+        let monitor_segment = &source[monitor_start..];
+        let monitor_end = monitor_segment
+            .find("#[cfg(not(target_os = \"macos\"))]")
+            .expect("frontmost monitor helper should end before non-macOS stub");
+        let monitor_body = &monitor_segment[..monitor_end];
+
+        assert!(helper_body.contains("AXFocusedWindow"));
+        assert!(helper_body.contains("AXPosition"));
+        assert!(helper_body.contains("AXSize"));
+        assert!(helper_body.contains("K_AX_VALUE_CGPOINT_TYPE"));
+        assert!(helper_body.contains("K_AX_VALUE_CGSIZE_TYPE"));
+        assert!(monitor_body.contains("monitor_from_point(center_x, center_y)"));
+    }
+
+    #[test]
+    fn macos_show_recreates_subtitle_window_for_active_space() {
+        let source = include_str!("window.rs");
+        let reset_start = source
+            .find("fn reset_macos_subtitle_window_for_active_space")
+            .expect("macOS subtitle Space reset helper should exist");
+        let reset_segment = &source[reset_start..];
+        let reset_end = reset_segment
+            .find("#[cfg(not(target_os = \"macos\"))]")
+            .expect("macOS reset helper should end before non-macOS stub");
+        let reset_body = &reset_segment[..reset_end];
+        let show_start = source
+            .find("pub async fn show_subtitle_window")
+            .expect("subtitle show command should exist");
+        let show_segment = &source[show_start..];
+        let show_end = show_segment
+            .find("#[tauri::command]\npub async fn hide_subtitle_window")
+            .expect("show command should end before hide command");
+        let show_body = &show_segment[..show_end];
+
+        assert!(reset_body.contains("window.destroy()"));
+        assert!(show_body.contains("reset_macos_subtitle_window_for_active_space(&app_handle)"));
+        assert!(
+            show_body
+                .find("reset_macos_subtitle_window_for_active_space(&app_handle)")
+                .expect("reset should run in show command")
+                < show_body
+                    .find("create_subtitle_window(app_handle.clone()).await")
+                    .expect("create should run after reset"),
+            "macOS show should recreate the subtitle window before showing so it joins the active fullscreen Space"
+        );
     }
 }
 
@@ -291,6 +558,8 @@ pub async fn create_subtitle_window(app_handle: tauri::AppHandle) -> Result<Stri
 
 #[tauri::command]
 pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String, AppError> {
+    reset_macos_subtitle_window_for_active_space(&app_handle);
+
     if app_handle.get_webview_window("subtitle").is_none() {
         create_subtitle_window(app_handle.clone()).await?;
     }

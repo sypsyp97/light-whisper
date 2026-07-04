@@ -18,12 +18,20 @@ import type {
   OpenaiAuthMode,
   OpenaiCodexOauthDeviceCodeChallenge,
   OpenaiCodexOauthStatus,
+  RecordingMode,
   TranscriptionResult,
   UserProfile,
   WebSearchProvider,
 } from "@/types";
 
 type InvokeArgs = Record<string, unknown>;
+
+export interface CurrentRecordingState {
+  sessionId: number | null;
+  isRecording: boolean;
+  isProcessing: boolean;
+  mode: RecordingMode;
+}
 
 export class IpcError extends Error {
   readonly code: string;
@@ -123,6 +131,8 @@ export function pasteText(
 export const hideMainWindow = createNoArgCommand<string>("hide_main_window");
 export const showSubtitleWindow = createNoArgCommand<string>("show_subtitle_window");
 export const hideSubtitleWindow = createNoArgCommand<string>("hide_subtitle_window");
+export const getCurrentRecordingState =
+  createNoArgCommand<CurrentRecordingState>("get_current_recording_state");
 export const getOpenaiCodexOauthStatus = createNoArgCommand<OpenaiCodexOauthStatus>("get_openai_codex_oauth_status");
 export const loginOpenaiCodexOauth = createNoArgCommand<OpenaiCodexOauthStatus>("login_openai_codex_oauth");
 export const startOpenaiCodexOauthDeviceCode = createNoArgCommand<OpenaiCodexOauthDeviceCodeChallenge>("start_openai_codex_oauth_device_code");

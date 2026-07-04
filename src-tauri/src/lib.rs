@@ -205,6 +205,7 @@ pub fn run() {
             commands::hotkey::get_hotkey_diagnostic,
             commands::audio::start_recording,
             commands::audio::stop_recording,
+            commands::audio::get_current_recording_state,
             commands::audio::test_microphone,
             commands::audio::list_input_devices,
             commands::audio::set_input_device,
@@ -355,6 +356,7 @@ fn spawn_funasr_startup(app_handle: tauri::AppHandle) {
     });
 }
 
+#[cfg(not(target_os = "macos"))]
 fn spawn_subtitle_prewarm(app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -363,6 +365,11 @@ fn spawn_subtitle_prewarm(app_handle: tauri::AppHandle) {
             Err(err) => log::warn!("字幕窗口预创建失败（首次录音会重试）: {}", err),
         }
     });
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_subtitle_prewarm(_app_handle: tauri::AppHandle) {
+    log::info!("macOS 跳过字幕窗口预创建，将在显示时绑定当前全屏 Space");
 }
 
 fn spawn_openai_codex_oauth_prewarm(app_handle: tauri::AppHandle) {

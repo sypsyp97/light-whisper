@@ -130,6 +130,14 @@ describe("SettingsPage", () => {
     }
   });
 
+  it("keeps the settings nav inside the scrolling content", () => {
+    const { container } = render(<SettingsPage onNavigate={onNavigate} active animClass="" />);
+    const content = container.querySelector(".lw-settings-content");
+    const nav = screen.getByTestId("settings-nav");
+
+    expect(content).toContainElement(nav);
+  });
+
   it("clicking the back button navigates to main", async () => {
     render(<SettingsPage onNavigate={onNavigate} active animClass="" />);
     await userEvent.click(screen.getByTestId("settings-back-btn"));

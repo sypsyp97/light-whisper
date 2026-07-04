@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type UIEvent, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
-import { copyToClipboard, hideSubtitleWindow } from "@/api/tauri";
+import { copyToClipboard, getCurrentRecordingState, hideSubtitleWindow } from "@/api/tauri";
 import { readLocalStorage } from "@/lib/storage";
 import { THEME_STORAGE_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
 import { useSmoothText, segmentGraphemes } from "@/hooks/useSmoothText";
@@ -79,6 +79,35 @@ export default function SubtitleOverlay() {
     }
   }, []);
 
+  const applyRecordingState = useCallback((payload: RecordingState) => {
+    const { sessionId, isRecording, isProcessing, mode } = payload;
+    if (typeof sessionId === "number") {
+      if (sessionId < latestSessionIdRef.current) return;
+      latestSessionIdRef.current = sessionId;
+    }
+    setMode(mode ?? "dictation");
+
+    if (isRecording) {
+      clearFadeTimer();
+      setFadingOut(false);
+      setText("");
+      setRawFirstStatus(null);
+      setResultStage(null);
+      setWaveformBars([]);
+      setAssistantCopied(false);
+      shouldAutoScrollRef.current = true;
+      setPhase("recording");
+      return;
+    }
+
+    if (isProcessing) {
+      clearFadeTimer();
+      setFadingOut(false);
+      setWaveformBars([]);
+      setPhase("processing");
+    }
+  }, [clearFadeTimer]);
+
   // 主题同步：读取初始值 + 监听主窗口的 localStorage 变更
   useEffect(() => {
     const applyTheme = () => {
@@ -123,37 +152,23 @@ export default function SubtitleOverlay() {
     void (async () => {
       try {
         unlisten = await listen<RecordingState>("recording-state", (event) => {
-          const { sessionId, isRecording, isProcessing, mode } = event.payload;
-          if (typeof sessionId === "number") {
-            if (sessionId < latestSessionIdRef.current) return;
-            latestSessionIdRef.current = sessionId;
-          }
-          setMode(mode ?? "dictation");
-
-          if (isRecording) {
-            clearFadeTimer();
-            setFadingOut(false);
-            setText("");
-            setRawFirstStatus(null);
-            setResultStage(null);
-            setWaveformBars([]);
-            setAssistantCopied(false);
-            shouldAutoScrollRef.current = true;
-            setPhase("recording");
-            return;
-          }
-
-          if (isProcessing) {
-            clearFadeTimer();
-            setFadingOut(false);
-            setWaveformBars([]);
-            setPhase("processing");
-          }
+          applyRecordingState(event.payload);
         });
 
         if (disposed && unlisten) {
           unlisten();
           unlisten = null;
+          return;
+        }
+
+        const current = await getCurrentRecordingState();
+        if (!disposed && (current.isRecording || current.isProcessing)) {
+          applyRecordingState({
+            sessionId: current.sessionId ?? undefined,
+            isRecording: current.isRecording,
+            isProcessing: current.isProcessing,
+            mode: current.mode,
+          });
         }
       } catch {
         // 忽略事件监听初始化失败
@@ -165,7 +180,7 @@ export default function SubtitleOverlay() {
       unlisten?.();
       clearFadeTimer();
     };
-  }, [clearFadeTimer]);
+  }, [applyRecordingState, clearFadeTimer]);
 
   // 监听 AI 润色状态（含流式进度）
   const [streamTokens, setStreamTokens] = useState(0);

@@ -120,8 +120,8 @@ export default function SettingsPage({ onNavigate, animClass }: SettingsPageProp
         <div className="lw-titlebar-right" />
       </header>
       <div className="lw-settings-body">
-        <SettingsNav items={navItems} activeId={activeId} onNavigate={handleNavigate} />
         <div ref={contentRef} className="lw-settings-content">
+          <SettingsNav items={navItems} activeId={activeId} onNavigate={handleNavigate} />
           <AppearanceSection />
           <EngineSection />
           <HotkeySection />
