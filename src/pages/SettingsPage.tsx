@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
@@ -429,6 +429,7 @@ export default function SettingsPage({
   const [modelsDirCustom, setModelsDirCustom] = useState(false);
   const [modelsDirMigrating, setModelsDirMigrating] = useState(false);
   const [modelsMigrateMsg, setModelsMigrateMsg] = useState("");
+  const [lastExportPath, setLastExportPath] = useState("");
 
   // --- AI models ---
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
@@ -1992,6 +1993,27 @@ export default function SettingsPage({
     setWebSearchMaxResultsState(value);
     webSearchConfigSave.schedule(webSearchEnabled, webSearchProvider, value);
   }, [webSearchEnabled, webSearchProvider, webSearchConfigSave]);
+
+  const handleExportConfig = useCallback(async () => {
+    try {
+      const path = await exportUserProfile();
+      if (!path) return;
+      setLastExportPath(path);
+      toast.success(t("toast.configExported"));
+    } catch {
+      toast.error(t("toast.configExportFailed"));
+    }
+  }, [t]);
+
+  const handleCopyExportPath = useCallback(async () => {
+    if (!lastExportPath) return;
+    try {
+      await copyToClipboard(lastExportPath);
+      toast.success(t("common.copiedToClipboard"));
+    } catch {
+      toast.error(t("common.copyFailed"));
+    }
+  }, [lastExportPath, t]);
 
   return (
     <div className="page-root">
@@ -3937,19 +3959,7 @@ export default function SettingsPage({
             <div style={{ display: "flex", gap: 6 }}>
               <button
                 className="btn-ghost"
-                onClick={async () => {
-                  try {
-                    const data = await exportUserProfile();
-                    const blob = new Blob([data], { type: "application/json" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = "light-whisper-profile.json";
-                    a.click();
-                    setTimeout(() => URL.revokeObjectURL(url), 200);
-                    toast.success(t("toast.configExported"));
-                  } catch { toast.error(t("toast.configExportFailed")); }
-                }}
+                onClick={handleExportConfig}
                 style={{ flex: 1, fontSize: 12, padding: "8px" }}
               >
                 <Download size={13} style={{ marginRight: 4 }} />{t("settings.exportConfig")}
@@ -3978,6 +3988,25 @@ export default function SettingsPage({
                 <Upload size={13} style={{ marginRight: 4 }} />{t("settings.importConfig")}
               </button>
             </div>
+            {lastExportPath ? (
+              <div className="export-path-row">
+                <div className="export-path-body">
+                  <span className="export-path-label">{t("settings.exportPath")}</span>
+                  <code className="export-path-value" title={lastExportPath}>
+                    {lastExportPath}
+                  </code>
+                </div>
+                <button
+                  type="button"
+                  className="export-path-copy"
+                  onClick={handleCopyExportPath}
+                  aria-label={t("settings.copyExportPath")}
+                  title={t("settings.copyExportPath")}
+                >
+                  <Copy size={13} />
+                </button>
+              </div>
+            ) : null}
           </section>
 
           {/* Permissions */}

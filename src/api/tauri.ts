@@ -247,7 +247,7 @@ export function getLlmReasoningSupport(
   });
 }
 
-export const exportUserProfile = createNoArgCommand<string>("export_user_profile");
+export const exportUserProfile = createNoArgCommand<string | null>("export_user_profile");
 export const getHotkeyDiagnostic = createNoArgCommand<HotkeyDiagnostic>("get_hotkey_diagnostic");
 
 export function importUserProfile(jsonData: string): Promise<void> {

@@ -414,6 +414,8 @@ const en: TranslationSchema = {
     correctionValidationFailed: "Audit failed: {{error}}",
     data: "Data",
     exportConfig: "Export Config",
+    exportPath: "Export path",
+    copyExportPath: "Copy export path",
     importConfig: "Import Config",
     permissions: "Permissions",
     accessibilityPaste: "Accessibility / Paste",

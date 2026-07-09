@@ -412,6 +412,8 @@ const zh = {
     correctionValidationFailed: "审核失败: {{error}}",
     data: "数据",
     exportConfig: "导出配置",
+    exportPath: "导出路径",
+    copyExportPath: "复制导出路径",
     importConfig: "导入配置",
     permissions: "权限",
     accessibilityPaste: "辅助功能 / 粘贴",

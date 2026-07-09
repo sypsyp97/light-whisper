@@ -1,9 +1,13 @@
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use crate::services::llm_client::{LlmRequestOptions, LlmUserInput};
 use crate::services::{codex_oauth_service, llm_client, llm_provider, profile_service};
 use crate::state::user_profile::*;
 use crate::state::AppState;
+use crate::utils::paths;
+
+const PROFILE_EXPORT_FILE_NAME: &str = "light-whisper-profile.json";
 
 #[tauri::command]
 pub async fn submit_user_correction(
@@ -412,6 +416,13 @@ fn optional_field_update_requested<T>(value: &Option<T>, field_set: Option<bool>
     field_set.unwrap_or(value.is_some())
 }
 
+fn normalize_profile_export_path(mut path: PathBuf) -> PathBuf {
+    if path.extension().is_none() {
+        path.set_extension("json");
+    }
+    path
+}
+
 #[tauri::command]
 pub async fn add_custom_provider(
     state: tauri::State<'_, AppState>,
@@ -602,9 +613,31 @@ pub async fn set_custom_prompt(
 }
 
 #[tauri::command]
-pub async fn export_user_profile(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    serde_json::to_string_pretty(&state.snapshot_profile())
-        .map_err(|e| format!("序列化失败: {}", e))
+pub async fn export_user_profile(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let data = serde_json::to_string_pretty(&state.snapshot_profile())
+        .map_err(|e| format!("序列化失败: {}", e))?;
+    let selected_path = tokio::task::spawn_blocking(|| {
+        let mut dialog = rfd::FileDialog::new()
+            .add_filter("JSON", &["json"])
+            .set_file_name(PROFILE_EXPORT_FILE_NAME);
+        if let Some(dir) = dirs::download_dir() {
+            dialog = dialog.set_directory(dir);
+        }
+        dialog.save_file()
+    })
+    .await
+    .map_err(|e| format!("选择导出路径失败: {}", e))?;
+
+    let Some(path) = selected_path.map(normalize_profile_export_path) else {
+        return Ok(None);
+    };
+
+    tokio::fs::write(&path, data)
+        .await
+        .map_err(|e| format!("写入导出文件失败: {}", e))?;
+    Ok(Some(paths::strip_win_prefix(&path)))
 }
 
 #[tauri::command]
@@ -1095,5 +1128,25 @@ mod validator_tests {
             None
         );
         assert_eq!(normalize_optional_string_update(None), None);
+    }
+
+    #[test]
+    fn profile_export_path_appends_json_extension_when_missing() {
+        let path = normalize_profile_export_path(std::path::PathBuf::from("profile-backup"));
+
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("profile-backup.json")
+        );
+    }
+
+    #[test]
+    fn profile_export_path_keeps_existing_extension() {
+        let path = normalize_profile_export_path(std::path::PathBuf::from("profile-backup.txt"));
+
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("profile-backup.txt")
+        );
     }
 }
