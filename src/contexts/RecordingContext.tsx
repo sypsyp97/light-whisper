@@ -16,6 +16,7 @@ import type {
 
 interface RecordingContextValue {
   // recording
+  isStarting: boolean;
   isRecording: boolean;
   isProcessing: boolean;
   startRecording: () => Promise<void>;
@@ -57,6 +58,7 @@ const RecordingContext = createContext<RecordingContextValue | null>(null);
 
 export function RecordingProvider({ children }: { children: ReactNode }) {
   const {
+    isStarting,
     isRecording,
     isProcessing,
     startRecording,
@@ -158,6 +160,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const contextValue: RecordingContextValue = useMemo(() => ({
+    isStarting,
     isRecording,
     isProcessing,
     startRecording,
@@ -192,7 +195,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     setHotkey,
     hotkeyDiagnostic,
   }), [
-    isRecording, isProcessing, startRecording, stopRecording, recordingError,
+    isStarting, isRecording, isProcessing, startRecording, stopRecording, recordingError,
     transcriptionResult, setTranscriptionResult, originalAsrText,
     editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, timing, resultStage, history, resultMode,

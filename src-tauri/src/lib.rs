@@ -201,6 +201,7 @@ pub fn run() {
             commands::hotkey::get_hotkey_diagnostic,
             commands::audio::start_recording,
             commands::audio::stop_recording,
+            commands::audio::get_recording_snapshot,
             commands::audio::test_microphone,
             commands::audio::list_input_devices,
             commands::audio::set_input_device,

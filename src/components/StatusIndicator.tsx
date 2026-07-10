@@ -6,6 +6,7 @@ import type { ModelStage } from "@/hooks/useModelStatus";
 interface StatusIndicatorProps {
   stage: ModelStage;
   isReady: boolean;
+  isStarting: boolean;
   isRecording: boolean;
   isProcessing: boolean;
   device: string | null;
@@ -34,6 +35,7 @@ function getLoadingProgress(message: string | null): number | null {
 }
 
 function getStatusText(
+  isStarting: boolean,
   isRecording: boolean,
   isProcessing: boolean,
   isReady: boolean,
@@ -42,6 +44,7 @@ function getStatusText(
   downloadMessage: string | null,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): string {
+  if (isStarting) return t("status.connectingMicrophone");
   if (isRecording) return t("status.listening");
   if (isProcessing) return t("status.recognizing");
   if (isReady) return t("status.clickToStart");
@@ -62,7 +65,7 @@ function getChipLabel(stage: ModelStage, downloadMessage: string | null, t: (key
 }
 
 export default function StatusIndicator({
-  stage, isReady, isRecording, isProcessing,
+  stage, isReady, isStarting, isRecording, isProcessing,
   device, gpuName, downloadProgress, downloadMessage,
   isDownloading, downloadModels, cancelDownload, children,
 }: StatusIndicatorProps) {
@@ -93,11 +96,11 @@ export default function StatusIndicator({
       {children}
 
       <p
-        key={isRecording ? "recording" : isProcessing ? "processing" : isReady ? "ready" : stage}
+        key={isStarting ? "starting" : isRecording ? "recording" : isProcessing ? "processing" : isReady ? "ready" : stage}
         aria-live="polite"
         className="status-text animate-text-swap"
       >
-        {getStatusText(isRecording, isProcessing, isReady, stage, downloadProgress, downloadMessage, t)}
+        {getStatusText(isStarting, isRecording, isProcessing, isReady, stage, downloadProgress, downloadMessage, t)}
       </p>
 
       {stage === "need_download" && !isDownloading && (

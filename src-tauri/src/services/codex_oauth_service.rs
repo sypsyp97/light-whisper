@@ -20,6 +20,7 @@ const ISSUER: &str = "https://auth.openai.com";
 pub const ORIGINATOR: &str = "codex_cli_rs";
 pub const CHATGPT_BEARER_USER_AGENT: &str = "codex-cli";
 pub const CHATGPT_CODEX_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+pub const CHATGPT_CODEX_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
 const DEFAULT_CALLBACK_PORT: u16 = 1455;
 const CALLBACK_PATH: &str = "/auth/callback";
 const SESSION_KEYRING_USER: &str = "openai-codex-oauth";
@@ -324,7 +325,7 @@ fn base64_url_encode(bytes: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
-fn encode_chatgpt_bearer_token(token: &ChatgptBearerToken) -> Option<String> {
+pub(crate) fn encode_chatgpt_bearer_token(token: &ChatgptBearerToken) -> Option<String> {
     let raw = serde_json::to_vec(token).ok()?;
     Some(format!(
         "{CHATGPT_BEARER_PREFIX}{}",
@@ -359,6 +360,22 @@ pub fn decode_oauth_api_key(input: &str) -> Option<String> {
 
 pub fn is_oauth_origin_auth(input: &str) -> bool {
     decode_chatgpt_bearer_token(input).is_some() || decode_oauth_api_key(input).is_some()
+}
+
+/// Returns the refreshed ChatGPT bearer material already held by the current
+/// OAuth session. Model discovery uses this even when inference prefers the
+/// OAuth-derived API key, because the Codex catalog is account- and plan-aware.
+pub fn current_chatgpt_bearer_token(state: &AppState) -> Option<ChatgptBearerToken> {
+    let session = state.read_openai_codex_oauth_session()?;
+    let access_token = session.access_token.trim();
+    if access_token.is_empty() {
+        return None;
+    }
+
+    Some(ChatgptBearerToken {
+        access_token: access_token.to_string(),
+        account_id: session.account_id,
+    })
 }
 
 fn generate_pkce_pair() -> (String, String) {
@@ -1131,6 +1148,17 @@ pub async fn resolve_api_key_for_provider(
     provider: &str,
     manual_api_key: &str,
 ) -> Result<String, String> {
+    resolve_api_key_for_provider_with_auth_mode(app_handle, state, provider, manual_api_key, None)
+        .await
+}
+
+pub async fn resolve_api_key_for_provider_with_auth_mode(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    provider: &str,
+    manual_api_key: &str,
+    auth_mode_override: Option<OpenaiAuthMode>,
+) -> Result<String, String> {
     let manual_api_key = manual_api_key.trim();
 
     // 非 OpenAI provider：直接返回用户填的 key（可能为空，由调用方决定报错）
@@ -1142,7 +1170,7 @@ pub async fn resolve_api_key_for_provider(
     // 那就按 OAuth 登录状态智能推断：登录过 → Oauth；没登录 → ApiKey。
     // 这跟前端的默认计算保持一致，避免前后端对同一条 profile 给出不同决策。
     let stored_mode = state.llm_provider_config().openai_auth_mode;
-    let effective_mode = stored_mode.unwrap_or_else(|| {
+    let effective_mode = auth_mode_override.or(stored_mode).unwrap_or_else(|| {
         if state.read_openai_codex_oauth_session().is_some() {
             OpenaiAuthMode::Oauth
         } else {

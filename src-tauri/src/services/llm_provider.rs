@@ -621,6 +621,9 @@ const GPT5_EFFORTS: &[&str] = &["minimal", "low", "medium", "high"];
 const GPT5_1_EFFORTS: &[&str] = &["none", "low", "medium", "high"];
 const GPT5_2_54_EFFORTS: &[&str] = &["none", "low", "medium", "high", "xhigh"];
 const GPT5_5_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
+// The public API also accepts `none`, while the Codex OAuth catalog starts at
+// `low`. Use the common set so the same saved mode works with either credential.
+const GPT5_6_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 const GPT5_PRO_EFFORTS: &[&str] = &["high"];
 const GPT5_2_54_PRO_EFFORTS: &[&str] = &["medium", "high", "xhigh"];
 const GPT5_2_3_CODEX_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
@@ -657,6 +660,8 @@ fn openai_gpt5_reasoning_efforts(model: &str) -> Option<&'static [&'static str]>
         }
         "gpt-5.5" => Some(GPT5_5_EFFORTS),
         _ if tail.starts_with("gpt-5.5-") => Some(GPT5_5_EFFORTS),
+        "gpt-5.6" => Some(GPT5_6_EFFORTS),
+        _ if tail.starts_with("gpt-5.6-") => Some(GPT5_6_EFFORTS),
         "gpt-5" => Some(GPT5_EFFORTS),
         _ if tail.starts_with("gpt-5-") => Some(GPT5_EFFORTS),
         _ => None,
@@ -2013,6 +2018,23 @@ mod tests {
             reasoning_support(&endpoint, true).strategy.as_deref(),
             Some("openai_reasoning_effort")
         );
+    }
+
+    #[test]
+    fn openai_gpt5_6_family_supports_off_through_deep() {
+        for model in ["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
+            let endpoint = endpoint_for_preview(OPENAI, None, Some(model), ApiFormat::OpenaiCompat);
+
+            assert_eq!(
+                reasoning_efforts_for_modes(&endpoint),
+                strings(&["low", "medium", "high", "xhigh"]),
+                "unexpected reasoning mapping for {model}"
+            );
+            assert_eq!(
+                reasoning_support(&endpoint, true).strategy.as_deref(),
+                Some("openai_reasoning_effort")
+            );
+        }
     }
 
     #[test]

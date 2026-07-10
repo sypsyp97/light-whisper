@@ -33,6 +33,7 @@ const zh = {
   },
   status: {
     online: "在线",
+    connectingMicrophone: "正在连接麦克风...",
     listening: "正在聆听...",
     recognizing: "识别中...",
     clickToStart: "点击开始录音",
@@ -49,9 +50,17 @@ const zh = {
     cancelDownload: "取消下载",
   },
   recording: {
+    cancelStart: "取消连接麦克风",
     stop: "停止录音",
     processing: "识别中",
     start: "开始录音",
+    outcome: {
+      too_short: "录音太短，请再说一次",
+      no_speech: "没有听清，请再说一次",
+      asr_error: "识别失败，请重试",
+      processing_error: "处理失败，请重试",
+      start_error: "麦克风连接失败，请重试",
+    },
   },
   result: {
     title: "识别结果",
@@ -78,6 +87,7 @@ const zh = {
     },
   },
   subtitle: {
+    connectingMicrophone: "正在连接麦克风...",
     aiListening: "AI 助手聆听中...",
     listening: "正在聆听...",
     aiGenerating: "AI 生成中...",

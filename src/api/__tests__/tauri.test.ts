@@ -186,6 +186,39 @@ describe("normalizeInvokeError -> IpcError", () => {
   });
 });
 
+describe("getRecordingSnapshot", () => {
+  it("invokes the session snapshot command without arguments", async () => {
+    const snapshot = {
+      sessionId: 42,
+      revision: 3,
+      phase: "processing",
+      mode: "dictation",
+    };
+    invokeMock.invoke.mockResolvedValueOnce(snapshot);
+
+    const { getRecordingSnapshot } = await import("@/api/tauri");
+    await expect(getRecordingSnapshot()).resolves.toEqual(snapshot);
+    expect(invokeMock.invoke).toHaveBeenCalledWith("get_recording_snapshot");
+  });
+});
+
+describe("listAiModels payload", () => {
+  it("forwards an explicit cache-bypassing refresh", async () => {
+    invokeMock.invoke.mockResolvedValueOnce({ models: [], sourceUrl: "" });
+
+    const { listAiModels } = await import("@/api/tauri");
+    await listAiModels("openai", undefined, "", true, "api_key");
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("list_ai_models", {
+      provider: "openai",
+      baseUrl: null,
+      apiKey: "",
+      forceRefresh: true,
+      openaiAuthMode: "api_key",
+    });
+  });
+});
+
 describe("setLlmProviderConfig payload", () => {
   it("omits assistantProvider when the caller does not update it", async () => {
     const mod = await import("@/api/tauri");

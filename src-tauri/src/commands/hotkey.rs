@@ -1,6 +1,6 @@
 use crate::commands::audio::{
     start_recording_inner, stop_recording_inner, RECORDING_ALREADY_ACTIVE_ERROR,
-    RECORDING_NOT_READY_ERROR,
+    RECORDING_NOT_READY_ERROR, RECORDING_START_CANCELLED_ERROR,
 };
 use crate::state::{AppState, RecordingSlot, RecordingTrigger};
 use crate::utils::AppError;
@@ -33,6 +33,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
+
+fn is_ignorable_start_audio_error(message: &str) -> bool {
+    message == RECORDING_NOT_READY_ERROR
+        || message == RECORDING_ALREADY_ACTIVE_ERROR
+        || message == RECORDING_START_CANCELLED_ERROR
+}
 /// RegisterHotKey probe uses this atom ID
 #[cfg(target_os = "windows")]
 const PROBE_HOTKEY_ID: i32 = 0x4C57; // "LW"
@@ -377,14 +383,27 @@ fn handle_hotkey_start(
                     trigger.mode().as_str()
                 );
             }
-            Err(AppError::Audio(message))
-                if message == RECORDING_NOT_READY_ERROR
-                    || message == RECORDING_ALREADY_ACTIVE_ERROR =>
-            {
+            Err(AppError::Audio(message)) if is_ignorable_start_audio_error(&message) => {
                 if is_toggle_mode() {
                     reset_hotkey_gate_for_trigger(trigger);
                 }
                 log::debug!("忽略热键 {} 的开始请求: {}", shortcut_label, message);
+            }
+            Err(AppError::Audio(message)) => {
+                if is_toggle_mode() {
+                    reset_hotkey_gate_for_trigger(trigger);
+                }
+                // Audio startup failures already publish a session-scoped
+                // recording-state + start_error from start_recording_inner.
+                // Keep diagnostics here without a second unscoped event that
+                // could land after a newer session has started.
+                log::warn!("热键 {} 开始录音失败: {}", shortcut_label, message);
+                update_hotkey_diagnostic_for_trigger(&app_handle, trigger, |diagnostic| {
+                    let now_ms = now_unix_ms();
+                    diagnostic.last_error = Some(message.clone());
+                    diagnostic.last_event = Some("error".to_string());
+                    diagnostic.last_event_at_ms = Some(now_ms);
+                });
             }
             Err(err) => {
                 if is_toggle_mode() {
@@ -408,26 +427,17 @@ fn handle_hotkey_stop(
     app_handle: tauri::AppHandle,
     shortcut_label: String,
     trigger: RecordingTrigger,
+    expected_session_id: u64,
 ) {
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();
-
-        let matches_trigger = state
-            .recording
-            .recording
-            .lock()
-            .as_ref()
-            .is_some_and(|slot| slot.trigger() == trigger);
-        if !matches_trigger {
-            log::debug!(
-                "忽略热键 {} 的停止请求：当前活跃录音不属于 trigger={:?}",
-                shortcut_label,
-                trigger
-            );
-            return;
-        }
-
-        match stop_recording_inner(app_handle.clone(), state.inner()).await {
+        match stop_recording_inner(
+            app_handle.clone(),
+            state.inner(),
+            Some((expected_session_id, trigger)),
+        )
+        .await
+        {
             Ok(Some(session_id)) => {
                 log::info!(
                     "热键 {} 触发录音停止 (session {}, mode={})",
@@ -452,6 +462,30 @@ fn handle_hotkey_stop(
             }
         }
     });
+}
+
+fn handle_current_hotkey_stop(
+    app_handle: tauri::AppHandle,
+    shortcut_label: String,
+    trigger: RecordingTrigger,
+) {
+    let expected_session_id = app_handle
+        .state::<AppState>()
+        .recording
+        .recording
+        .lock()
+        .as_ref()
+        .filter(|slot| slot.trigger() == trigger)
+        .map(RecordingSlot::session_id);
+    if let Some(session_id) = expected_session_id {
+        handle_hotkey_stop(app_handle, shortcut_label, trigger, session_id);
+    } else {
+        log::debug!(
+            "忽略热键 {} 的停止请求：当前活跃录音不属于 trigger={:?}",
+            shortcut_label,
+            trigger
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -503,7 +537,7 @@ fn dispatch_hotkey_press(
                 diagnostic.last_event_at_ms = Some(now_ms);
                 diagnostic.last_released_at_ms = Some(now_ms);
             });
-            handle_hotkey_stop(app_handle.clone(), shortcut_label.to_string(), trigger);
+            handle_current_hotkey_stop(app_handle.clone(), shortcut_label.to_string(), trigger);
         } else {
             // Turn on — apply debounce
             let now_ms = now_unix_ms();
@@ -579,7 +613,7 @@ fn dispatch_hotkey_release(
             diagnostic.last_event_at_ms = Some(now_ms);
             diagnostic.last_released_at_ms = Some(now_ms);
         });
-        handle_hotkey_stop(app_handle.clone(), shortcut_label.to_string(), trigger);
+        handle_current_hotkey_stop(app_handle.clone(), shortcut_label.to_string(), trigger);
     }
 }
 
@@ -2044,17 +2078,18 @@ pub async fn set_recording_mode(
     // If switching from toggle→hold while toggle is active, stop recording
     if !toggle {
         let state = _app_handle.state::<AppState>();
-        let active_trigger = state
+        let active_session = state
             .recording
             .recording
             .lock()
             .as_ref()
-            .map(RecordingSlot::trigger);
-        if let Some(trigger) = active_trigger {
+            .map(|slot| (slot.session_id(), slot.trigger()));
+        if let Some((session_id, trigger)) = active_session {
             handle_hotkey_stop(
                 _app_handle.clone(),
                 "切换到按住模式，停止当前录音".to_string(),
                 trigger,
+                session_id,
             );
         }
     }
@@ -2113,6 +2148,16 @@ pub async fn get_hotkey_diagnostic(
 
 #[cfg(test)]
 mod tests {
+    use super::{is_ignorable_start_audio_error, RECORDING_START_CANCELLED_ERROR};
+
+    #[test]
+    fn quick_cancel_is_not_rebroadcast_as_a_start_error() {
+        assert!(is_ignorable_start_audio_error(
+            RECORDING_START_CANCELLED_ERROR
+        ));
+        assert!(!is_ignorable_start_audio_error("麦克风不可用"));
+    }
+
     #[test]
     fn low_level_hook_callback_does_not_lock_state_slot() {
         let source = include_str!("hotkey.rs");

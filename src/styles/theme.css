@@ -454,12 +454,6 @@ textarea,
 .page-exit-left   { animation: page-exit-to-left 0.14s cubic-bezier(0.4, 0, 1, 1) forwards; }
 .page-exit-right  { animation: page-exit-to-right 0.14s cubic-bezier(0.4, 0, 1, 1) forwards; }
 
-/* Settings section cascade entrance */
-@keyframes settings-section-in {
-  from { opacity: 0; transform: translateY(10px) scale(0.985); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-
 /* Skeleton shimmer — processing state */
 @keyframes skeleton-shimmer {
   from { transform: translateX(-100%); }
@@ -506,7 +500,6 @@ textarea,
   border: 1px solid var(--color-border-subtle);
   box-shadow: var(--shadow-card);
   padding: 14px;
-  animation: settings-section-in 0.4s var(--ease-out-expo) both;
   transition: background-color 0.3s var(--ease-out-expo),
               box-shadow 0.3s var(--ease-out-expo),
               border-color 0.3s var(--ease-out-expo);

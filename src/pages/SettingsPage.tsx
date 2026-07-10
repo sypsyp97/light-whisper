@@ -434,11 +434,16 @@ export default function SettingsPage({
   // --- AI models ---
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
   const [assistantModels, setAssistantModels] = useState<AiModelInfo[]>([]);
+  const aiModelsRequestIdRef = useRef(0);
+  const assistantModelsRequestIdRef = useRef(0);
+  const aiModelsContextRef = useRef<string | null>(null);
+  const assistantModelsContextRef = useRef<string | null>(null);
   const [assistantModelsLoading, setAssistantModelsLoading] = useState(false);
   const [aiModelSearch, setAiModelSearch] = useState("");
   const [assistantModelSearch, setAssistantModelSearch] = useState("");
   const [aiModelsLoading, setAiModelsLoading] = useState(false);
   const [aiModelsError, setAiModelsError] = useState("");
+  const [assistantModelsError, setAssistantModelsError] = useState("");
   const [aiModelsSourceUrl, setAiModelsSourceUrl] = useState("");
   const [providerSearch, setProviderSearch] = useState("");
   const [assistantProviderSearch, setAssistantProviderSearch] = useState("");
@@ -494,16 +499,38 @@ export default function SettingsPage({
   // 的默认推断逻辑完全对齐，避免 UI 显示和实际请求走向不一致。
   const effectiveOpenaiAuthMode: OpenaiAuthMode =
     openaiAuthMode ?? (openaiCodexOauthStatus.loggedIn ? "oauth" : "api_key");
-  const polishUsesOpenaiOauth =
-    llmProvider === "openai"
-    && effectiveOpenaiAuthMode === "oauth"
-    && openaiCodexOauthStatus.loggedIn;
   const assistantUsesOpenaiOauth =
     effectiveAssistantProvider === "openai"
     && effectiveOpenaiAuthMode === "oauth"
     && openaiCodexOauthStatus.loggedIn;
-  const polishHasAuth = !!aiPolishApiKey.trim() || polishUsesOpenaiOauth;
-  const assistantHasAuth = !!assistantManualApiKey || assistantUsesOpenaiOauth;
+  const polishHasAuth = llmProvider === "openai"
+    ? (effectiveOpenaiAuthMode === "oauth" ? openaiCodexOauthStatus.loggedIn : !!polishManualApiKey)
+    : !!polishManualApiKey;
+  const assistantHasAuth = effectiveAssistantProvider === "openai"
+    ? (effectiveOpenaiAuthMode === "oauth" ? openaiCodexOauthStatus.loggedIn : !!assistantManualApiKey)
+    : !!assistantManualApiKey;
+  const oauthModelIdentity = [
+    openaiCodexOauthStatus.loggedIn ? "connected" : "disconnected",
+    openaiCodexOauthStatus.accountId ?? "",
+    openaiCodexOauthStatus.email ?? "",
+  ].join(":");
+  const polishModelsContext = JSON.stringify([
+    llmProvider,
+    customBaseUrl.trim(),
+    llmProvider === "openai" && effectiveOpenaiAuthMode === "oauth"
+      ? `oauth:${oauthModelIdentity}`
+      : `key:${polishManualApiKey}`,
+  ]);
+  const assistantCustomProvider = customProviders.find(
+    (provider) => provider.id === effectiveAssistantProvider,
+  );
+  const assistantModelsContext = JSON.stringify([
+    effectiveAssistantProvider,
+    assistantCustomProvider?.base_url ?? findLlmPreset(effectiveAssistantProvider).baseUrl,
+    effectiveAssistantProvider === "openai" && effectiveOpenaiAuthMode === "oauth"
+      ? `oauth:${oauthModelIdentity}`
+      : `key:${assistantManualApiKey}`,
+  ]);
 
   // --- Profile & misc ---
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -1075,12 +1102,16 @@ export default function SettingsPage({
   }, [picker.active]);
 
   const refreshAiModels = useCallback(async (silent = false) => {
+    const requestId = ++aiModelsRequestIdRef.current;
+    const requestContext = polishModelsContext;
     const apiKey = aiPolishApiKey.trim();
     const baseUrl = customBaseUrl.trim();
-    if (!apiKey && !polishUsesOpenaiOauth) {
+    if (!polishHasAuth) {
       setAiModels([]);
       setAiModelsSourceUrl("");
       setAiModelsError(t("settings.apiKeyOrLoginMissing"));
+      setAiModelsLoading(false);
+      aiModelsContextRef.current = null;
       return;
     }
 
@@ -1090,19 +1121,34 @@ export default function SettingsPage({
     }
 
     try {
-      const payload = await listAiModels(llmProvider, baseUrl || undefined, apiKey);
+      const payload = await listAiModels(
+        llmProvider,
+        baseUrl || undefined,
+        apiKey,
+        !silent,
+        llmProvider === "openai" ? effectiveOpenaiAuthMode : undefined,
+      );
+      if (requestId !== aiModelsRequestIdRef.current) return;
       setAiModels(payload.models);
       setAiModelsSourceUrl(payload.sourceUrl);
       setAiModelsError(payload.models.length === 0 ? t("settings.modelListEmpty") : "");
+      aiModelsContextRef.current = requestContext;
     } catch (err) {
+      if (requestId !== aiModelsRequestIdRef.current) return;
       const message = err instanceof Error ? err.message : t("settings.fetchModelsFailed");
-      setAiModels([]);
-      setAiModelsSourceUrl("");
+      const canKeepCurrentModels = aiModelsContextRef.current === requestContext;
+      if (!canKeepCurrentModels) {
+        setAiModels([]);
+        setAiModelsSourceUrl("");
+        aiModelsContextRef.current = null;
+      }
       setAiModelsError(message);
     } finally {
-      setAiModelsLoading(false);
+      if (requestId === aiModelsRequestIdRef.current) {
+        setAiModelsLoading(false);
+      }
     }
-  }, [aiPolishApiKey, customBaseUrl, llmProvider, polishUsesOpenaiOauth, t]);
+  }, [aiPolishApiKey, customBaseUrl, effectiveOpenaiAuthMode, llmProvider, polishHasAuth, polishModelsContext, t]);
 
   const aiModelsFetch = useDebouncedCallback((silent: boolean) => {
     void refreshAiModels(silent);
@@ -1110,15 +1156,22 @@ export default function SettingsPage({
 
   // 助手独立模型列表：provider 不同时独立拉取，相同时复用润色列表
   const refreshAssistantModels = useCallback(async (silent = false) => {
+    const requestId = ++assistantModelsRequestIdRef.current;
+    const requestContext = assistantModelsContext;
     // 同 provider 时复用润色模型列表
     if (effectiveAssistantProvider === llmProvider) {
       setAssistantModels(aiModels);
+      setAssistantModelsLoading(false);
+      setAssistantModelsError("");
+      assistantModelsContextRef.current = requestContext;
       return;
     }
     const apiKey = assistantApiKeyState.trim();
-    const assistantOauthReady = effectiveAssistantProvider === "openai" && openaiCodexOauthStatus.loggedIn;
-    if (!apiKey && !assistantOauthReady) {
+    if (!assistantHasAuth) {
       setAssistantModels([]);
+      setAssistantModelsLoading(false);
+      setAssistantModelsError("");
+      assistantModelsContextRef.current = null;
       return;
     }
     // 解析助手 provider 的 base_url
@@ -1126,15 +1179,36 @@ export default function SettingsPage({
     const baseUrl = cp ? cp.base_url : findLlmPreset(effectiveAssistantProvider).baseUrl;
 
     setAssistantModelsLoading(true);
-    try {
-      const payload = await listAiModels(effectiveAssistantProvider, baseUrl || undefined, apiKey);
-      setAssistantModels(payload.models);
-    } catch {
-      if (!silent) setAssistantModels([]);
-    } finally {
-      setAssistantModelsLoading(false);
+    if (!silent) {
+      setAssistantModelsError("");
     }
-  }, [aiModels, assistantApiKeyState, customProviders, effectiveAssistantProvider, llmProvider, openaiCodexOauthStatus.loggedIn]);
+    try {
+      const payload = await listAiModels(
+        effectiveAssistantProvider,
+        baseUrl || undefined,
+        apiKey,
+        !silent,
+        effectiveAssistantProvider === "openai" ? effectiveOpenaiAuthMode : undefined,
+      );
+      if (requestId !== assistantModelsRequestIdRef.current) return;
+      setAssistantModels(payload.models);
+      setAssistantModelsError(payload.models.length === 0 ? t("settings.modelListEmpty") : "");
+      assistantModelsContextRef.current = requestContext;
+    } catch (err) {
+      if (requestId !== assistantModelsRequestIdRef.current) return;
+      const message = err instanceof Error ? err.message : t("settings.fetchModelsFailed");
+      const canKeepCurrentModels = assistantModelsContextRef.current === requestContext;
+      if (!canKeepCurrentModels) {
+        setAssistantModels([]);
+        assistantModelsContextRef.current = null;
+      }
+      setAssistantModelsError(message);
+    } finally {
+      if (requestId === assistantModelsRequestIdRef.current) {
+        setAssistantModelsLoading(false);
+      }
+    }
+  }, [aiModels, assistantApiKeyState, assistantHasAuth, assistantModelsContext, customProviders, effectiveAssistantProvider, effectiveOpenaiAuthMode, llmProvider, t]);
 
   const assistantModelsFetch = useDebouncedCallback((silent: boolean) => {
     void refreshAssistantModels(silent);
@@ -1143,6 +1217,8 @@ export default function SettingsPage({
   useEffect(() => {
     if (!polishHasAuth) {
       aiModelsFetch.cancel();
+      aiModelsRequestIdRef.current += 1;
+      aiModelsContextRef.current = null;
       setAiModels([]);
       setAiModelsSourceUrl("");
       setAiModelsError("");
@@ -1150,31 +1226,58 @@ export default function SettingsPage({
       return;
     }
 
+    if (aiModelsContextRef.current !== polishModelsContext) {
+      aiModelsContextRef.current = null;
+      setAiModels([]);
+      setAiModelsSourceUrl("");
+      setAiModelsError("");
+    }
+
     aiModelsFetch.schedule(true);
 
     return () => {
       aiModelsFetch.cancel();
+      aiModelsRequestIdRef.current += 1;
     };
-  }, [aiModelsFetch, customBaseUrl, llmProvider, polishHasAuth]);
+  }, [aiModelsFetch, polishHasAuth, polishModelsContext]);
 
   // 助手独立模型列表自动刷新
   useEffect(() => {
     if (!assistantUseSeparateModel) {
+      assistantModelsFetch.cancel();
+      assistantModelsRequestIdRef.current += 1;
+      assistantModelsContextRef.current = null;
+      setAssistantModels([]);
+      setAssistantModelsError("");
+      setAssistantModelsLoading(false);
       return;
     }
     if (effectiveAssistantProvider === llmProvider) {
       // 同 provider 时直接同步润色列表
       setAssistantModels(aiModels);
+      assistantModelsContextRef.current = assistantModelsContext;
       return;
     }
     if (!assistantHasAuth) {
       assistantModelsFetch.cancel();
+      assistantModelsRequestIdRef.current += 1;
+      assistantModelsContextRef.current = null;
       setAssistantModels([]);
+      setAssistantModelsLoading(false);
+      setAssistantModelsError("");
       return;
     }
+    if (assistantModelsContextRef.current !== assistantModelsContext) {
+      assistantModelsContextRef.current = null;
+      setAssistantModels([]);
+      setAssistantModelsError("");
+    }
     assistantModelsFetch.schedule(true);
-    return () => { assistantModelsFetch.cancel(); };
-  }, [aiModels, assistantHasAuth, assistantModelsFetch, assistantUseSeparateModel, effectiveAssistantProvider, llmProvider]);
+    return () => {
+      assistantModelsFetch.cancel();
+      assistantModelsRequestIdRef.current += 1;
+    };
+  }, [aiModels, assistantHasAuth, assistantModelsContext, assistantModelsFetch, assistantUseSeparateModel, effectiveAssistantProvider, llmProvider]);
 
   const handleAddHotWord = useCallback(() => {
     const word = newHotWord.trim();
@@ -1259,15 +1362,20 @@ export default function SettingsPage({
     setOpenaiCodexOauthLoading(true);
     try {
       await logoutOpenaiCodexOauth();
+      aiModelsRequestIdRef.current += 1;
+      assistantModelsRequestIdRef.current += 1;
       const status = { loggedIn: false } as OpenaiCodexOauthStatus;
       setOpenaiCodexOauthStatus(status);
       setOpenaiCodexOauthDeviceCode(null);
-      if (!aiPolishApiKey.trim()) {
+      if (llmProvider === "openai") {
+        aiModelsContextRef.current = null;
         setAiModels([]);
         setAiModelsSourceUrl("");
       }
-      if (!assistantApiKeyState.trim()) {
+      if (effectiveAssistantProvider === "openai") {
+        assistantModelsContextRef.current = null;
         setAssistantModels([]);
+        setAssistantModelsError("");
       }
       toast.success(t("toast.codexOauthLogoutSuccess"));
     } catch (err) {
@@ -1275,7 +1383,7 @@ export default function SettingsPage({
     } finally {
       setOpenaiCodexOauthLoading(false);
     }
-  }, [aiPolishApiKey, assistantApiKeyState, t]);
+  }, [effectiveAssistantProvider, llmProvider, t]);
   const handleOpenaiFastModeToggle = useCallback((enabled: boolean) => {
     setOpenaiFastModeState(enabled);
     setOpenaiFastMode(enabled).catch(() => {
@@ -2065,7 +2173,7 @@ export default function SettingsPage({
           <div className="settings-sections">
 
           {/* Appearance */}
-          <section className="settings-card" data-nav-id="appearance" style={{ animationDelay: "0ms", position: "relative", zIndex: picker.isOpen("language") ? 8 : "auto" }}>
+          <section className="settings-card" data-nav-id="appearance" style={{ position: "relative", zIndex: picker.isOpen("language") ? 8 : "auto" }}>
             <div className="settings-section-header">
               {isDark ? <Moon size={15} className="icon-accent" /> : <Sun size={15} className="icon-accent" />}
               <h2 className="settings-section-title">{t("settings.appearance")}</h2>
@@ -2133,7 +2241,6 @@ export default function SettingsPage({
             className="settings-card"
             data-nav-id="engine"
             style={{
-              animationDelay: "40ms",
               position: "relative",
               zIndex: (picker.isOpen("engine") || picker.isOpen("alibabaModel")) ? 8 : "auto",
             }}
@@ -2418,7 +2525,6 @@ export default function SettingsPage({
             className="settings-card"
             data-nav-id="hotkey"
             style={{
-              animationDelay: "80ms",
               position: "relative",
               zIndex: picker.isOpen("recordingMode") ? 9 : "auto",
             }}
@@ -2525,7 +2631,6 @@ export default function SettingsPage({
             className="settings-card"
             data-nav-id="microphone"
             style={{
-              animationDelay: "120ms",
               position: "relative",
               zIndex: picker.isOpen("microphone") ? 8 : "auto",
             }}
@@ -2657,7 +2762,7 @@ export default function SettingsPage({
           </section>
 
           {/* Input Method */}
-          <section className="settings-card" data-nav-id="input" style={{ animationDelay: "160ms" }}>
+          <section className="settings-card" data-nav-id="input">
             <div className="settings-section-header">
               <ClipboardPaste size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.inputMethod")}</h2>
@@ -2709,7 +2814,6 @@ export default function SettingsPage({
             className="settings-card"
             data-nav-id="ai-polish"
             style={{
-              animationDelay: "200ms",
               position: "relative",
               zIndex: picker.isOpen("provider") || picker.isOpen("model") || picker.isOpen("polishReasoning") ? 8 : "auto",
             }}
@@ -3063,7 +3167,10 @@ export default function SettingsPage({
                           <button
                             type="button"
                             className="btn-ghost btn-ghost-sm"
-                            onClick={() => { void refreshAiModels(); }}
+                            onClick={() => {
+                              aiModelsFetch.cancel();
+                              void refreshAiModels();
+                            }}
                             disabled={aiModelsLoading}
                             style={{ opacity: aiModelsLoading ? 0.7 : 1 }}
                           >
@@ -3193,7 +3300,6 @@ export default function SettingsPage({
             className="settings-card"
             data-nav-id="assistant"
             style={{
-              animationDelay: "240ms",
               position: "relative",
               zIndex: picker.isOpen("assistantModel") || picker.isOpen("assistantReasoning") || picker.isOpen("webSearchProvider") ? 8 : "auto",
             }}
@@ -3449,7 +3555,15 @@ export default function SettingsPage({
                           <button
                             type="button"
                             className="btn-ghost btn-ghost-sm"
-                            onClick={() => { void (assistantProviderDiffers ? refreshAssistantModels() : refreshAiModels()); }}
+                            onClick={() => {
+                              if (assistantProviderDiffers) {
+                                assistantModelsFetch.cancel();
+                                void refreshAssistantModels();
+                              } else {
+                                aiModelsFetch.cancel();
+                                void refreshAiModels();
+                              }
+                            }}
                             disabled={assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading}
                             style={{ opacity: (assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading) ? 0.7 : 1 }}
                           >
@@ -3488,7 +3602,8 @@ export default function SettingsPage({
                                 ? t("settings.fetchModelsFromApi")
                                 : (assistantProviderDiffers && !assistantHasAuth)
                                   ? t("settings.fillAssistantApiKeyOrLogin")
-                                  : aiModelsError || t("settings.fillApiKeyOrLogin")}
+                                  : (assistantProviderDiffers ? assistantModelsError : aiModelsError)
+                                    || t("settings.fillApiKeyOrLogin")}
                             </div>
                           )}
                         </div>
@@ -3693,7 +3808,7 @@ export default function SettingsPage({
           </section>
 
           {/* Translation */}
-          <section className="settings-card" data-nav-id="translation" style={{ animationDelay: "280ms" }}>
+          <section className="settings-card" data-nav-id="translation">
             <div className="settings-section-header">
               <Languages size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.translation")}</h2>
@@ -3833,7 +3948,7 @@ export default function SettingsPage({
           </section>
 
           {/* Smart Vocabulary */}
-          <section className="settings-card" data-nav-id="vocabulary" style={{ animationDelay: "320ms" }}>
+          <section className="settings-card" data-nav-id="vocabulary">
             <div className="settings-section-header">
               <BookOpen size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.vocabulary")}</h2>
@@ -3951,7 +4066,7 @@ export default function SettingsPage({
           </section>
 
           {/* Profile Export/Import */}
-          <section className="settings-card" data-nav-id="misc" style={{ animationDelay: "360ms" }}>
+          <section className="settings-card" data-nav-id="misc">
             <div className="settings-section-header">
               <Download size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.data")}</h2>
@@ -4010,7 +4125,7 @@ export default function SettingsPage({
           </section>
 
           {/* Permissions */}
-          <section className="settings-card" style={{ animationDelay: "400ms" }}>
+          <section className="settings-card">
             <div className="settings-section-header">
               <Accessibility size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.permissions")}</h2>
@@ -4032,7 +4147,7 @@ export default function SettingsPage({
           </section>
 
           {/* Startup */}
-          <section className="settings-card" style={{ animationDelay: "440ms" }}>
+          <section className="settings-card">
             <div className="settings-section-header">
               <Power size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.startup")}</h2>
@@ -4054,7 +4169,7 @@ export default function SettingsPage({
             </div>
           </section>
 
-          <section className="settings-card" style={{ animationDelay: "480ms" }}>
+          <section className="settings-card">
             <div className="settings-section-header">
               <Download size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.update")}</h2>

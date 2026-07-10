@@ -35,6 +35,7 @@ const en: TranslationSchema = {
   },
   status: {
     online: "Online",
+    connectingMicrophone: "Connecting to microphone...",
     listening: "Listening...",
     recognizing: "Recognizing...",
     clickToStart: "Click to start recording",
@@ -51,9 +52,17 @@ const en: TranslationSchema = {
     cancelDownload: "Cancel Download",
   },
   recording: {
+    cancelStart: "Cancel microphone connection",
     stop: "Stop Recording",
     processing: "Processing",
     start: "Start Recording",
+    outcome: {
+      too_short: "Recording was too short. Please try again.",
+      no_speech: "I couldn't hear that. Please try again.",
+      asr_error: "Recognition failed. Please try again.",
+      processing_error: "Processing failed. Please try again.",
+      start_error: "Couldn't connect to the microphone. Please try again.",
+    },
   },
   result: {
     title: "Result",
@@ -80,6 +89,7 @@ const en: TranslationSchema = {
     },
   },
   subtitle: {
+    connectingMicrophone: "Connecting to microphone...",
     aiListening: "AI assistant listening...",
     listening: "Listening...",
     aiGenerating: "AI generating...",

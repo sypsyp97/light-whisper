@@ -1,8 +1,8 @@
 use std::sync::atomic::Ordering;
 
-use crate::state::AppState;
+use crate::state::{AppState, RecordingMode, RecordingPhase};
 use crate::utils::AppError;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// 使用 Windows API 强制将窗口置于最顶层
 #[cfg(target_os = "windows")]
@@ -151,15 +151,15 @@ pub async fn hide_main_window(app_handle: tauri::AppHandle) -> Result<String, Ap
     Ok("主窗口已隐藏".to_string())
 }
 
-pub async fn create_subtitle_window(app_handle: tauri::AppHandle) -> Result<String, AppError> {
+fn create_subtitle_window_unlocked(app_handle: &tauri::AppHandle) -> Result<String, AppError> {
     if app_handle.get_webview_window("subtitle").is_some() {
         return Ok("字幕窗口已存在".to_string());
     }
 
-    let (logical_width, logical_height, x, y) = resolve_subtitle_layout(&app_handle);
+    let (logical_width, logical_height, x, y) = resolve_subtitle_layout(app_handle);
 
     let window = tauri::WebviewWindowBuilder::new(
-        &app_handle,
+        app_handle,
         "subtitle",
         tauri::WebviewUrl::App("/?window=subtitle".into()),
     )
@@ -184,20 +184,112 @@ pub async fn create_subtitle_window(app_handle: tauri::AppHandle) -> Result<Stri
     Ok("字幕窗口已创建".to_string())
 }
 
-#[tauri::command]
-pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String, AppError> {
-    if app_handle.get_webview_window("subtitle").is_none() {
-        create_subtitle_window(app_handle.clone()).await?;
+pub async fn create_subtitle_window(app_handle: tauri::AppHandle) -> Result<String, AppError> {
+    let state = app_handle.state::<AppState>();
+    let _window_op = state.recording.subtitle_window_op.lock().await;
+    create_subtitle_window_unlocked(&app_handle)
+}
+
+pub(crate) fn reserve_subtitle_show_generation(app_handle: &tauri::AppHandle) -> u64 {
+    app_handle
+        .state::<AppState>()
+        .recording
+        .subtitle_show_gen
+        .fetch_add(1, Ordering::AcqRel)
+        + 1
+}
+
+fn session_show_is_current(app_handle: &tauri::AppHandle, session_id: u64, show_gen: u64) -> bool {
+    let state = app_handle.state::<AppState>();
+    let slot = state
+        .recording
+        .recording
+        .lock()
+        .as_ref()
+        .map(|slot| (slot.session_id(), slot.subtitle_show_gen()));
+    show_guard_matches(
+        state.recording.subtitle_show_gen.load(Ordering::Acquire),
+        slot,
+        session_id,
+        show_gen,
+    )
+}
+
+fn show_guard_matches(
+    current_gen: u64,
+    slot: Option<(u64, u64)>,
+    requested_session_id: u64,
+    requested_gen: u64,
+) -> bool {
+    current_gen == requested_gen && slot == Some((requested_session_id, requested_gen))
+}
+
+fn hide_guard_matches(
+    current_gen: u64,
+    current_session_id: u64,
+    recording_active: bool,
+    requested_session_id: u64,
+    requested_gen: u64,
+) -> bool {
+    current_gen == requested_gen && current_session_id == requested_session_id && !recording_active
+}
+
+fn stale_session_show_result(session_id: u64, show_gen: u64) -> String {
+    log::debug!(
+        "忽略过期字幕显示请求 (session {}, generation {})",
+        session_id,
+        show_gen
+    );
+    "字幕窗口显示请求已过期".to_string()
+}
+
+fn show_subtitle_window_unlocked(
+    app_handle: &tauri::AppHandle,
+    session: Option<(u64, u64)>,
+) -> Result<String, AppError> {
+    if let Some((session_id, show_gen)) = session {
+        if !session_show_is_current(app_handle, session_id, show_gen) {
+            return Ok(stale_session_show_result(session_id, show_gen));
+        }
     }
 
-    let window = require_window(&app_handle, "subtitle", "字幕窗口创建后仍不存在")?;
-    if let Err(err) = apply_subtitle_layout(&app_handle, &window) {
+    if app_handle.get_webview_window("subtitle").is_none() {
+        create_subtitle_window_unlocked(app_handle)?;
+    }
+
+    if let Some((session_id, show_gen)) = session {
+        if !session_show_is_current(app_handle, session_id, show_gen) {
+            return Ok(stale_session_show_result(session_id, show_gen));
+        }
+    }
+
+    let window = require_window(app_handle, "subtitle", "字幕窗口创建后仍不存在")?;
+    if let Err(err) = apply_subtitle_layout(app_handle, &window) {
         log::warn!("刷新字幕窗口布局失败，继续尝试显示: {}", err);
     }
 
-    window
-        .show()
-        .map_err(|e| tauri_error("显示字幕窗口失败", e))?;
+    if let Some((session_id, show_gen)) = session {
+        // Keep the recording slot locked through the synchronous OS show call.
+        // A quick cancel therefore either wins before this check (no show) or
+        // waits until the window is visible and then schedules a guarded hide.
+        let state = app_handle.state::<AppState>();
+        if state.recording.subtitle_show_gen.load(Ordering::Acquire) != show_gen {
+            return Ok(stale_session_show_result(session_id, show_gen));
+        }
+        let recording = state.recording.recording.lock();
+        if !recording.as_ref().is_some_and(|slot| {
+            slot.session_id() == session_id && slot.subtitle_show_gen() == show_gen
+        }) {
+            return Ok(stale_session_show_result(session_id, show_gen));
+        }
+        window
+            .show()
+            .map_err(|e| tauri_error("显示字幕窗口失败", e))?;
+    } else {
+        window
+            .show()
+            .map_err(|e| tauri_error("显示字幕窗口失败", e))?;
+    }
 
     // 确保窗口在最顶层（Windows 上 hide/show 后可能丢失置顶状态）
     // 先用 Tauri API 置顶
@@ -209,22 +301,54 @@ pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String
     #[cfg(target_os = "windows")]
     force_window_topmost(&window);
 
-    if let Err(err) = set_subtitle_window_interactive(&app_handle, false) {
+    if let Err(err) = set_subtitle_window_interactive(app_handle, false) {
         log::warn!("重新设置字幕窗口鼠标穿透失败: {}", err);
     }
-
-    // 递增"显示代"，使之前排队的 schedule_hide 全部作废
-    let state = app_handle.state::<AppState>();
-    state
-        .recording
-        .subtitle_show_gen
-        .fetch_add(1, Ordering::Relaxed);
 
     Ok("字幕窗口已显示".to_string())
 }
 
 #[tauri::command]
+pub async fn show_subtitle_window(app_handle: tauri::AppHandle) -> Result<String, AppError> {
+    reserve_subtitle_show_generation(&app_handle);
+    let state = app_handle.state::<AppState>();
+    let _window_op = state.recording.subtitle_window_op.lock().await;
+    show_subtitle_window_unlocked(&app_handle, None)
+}
+
+pub(crate) async fn show_subtitle_window_for_session(
+    app_handle: tauri::AppHandle,
+    session_id: u64,
+    show_gen: u64,
+) -> Result<String, AppError> {
+    let state = app_handle.state::<AppState>();
+    let _window_op = state.recording.subtitle_window_op.lock().await;
+    show_subtitle_window_unlocked(&app_handle, Some((session_id, show_gen)))
+}
+
+pub(crate) async fn set_subtitle_window_interactive_for_session(
+    app_handle: &tauri::AppHandle,
+    session_id: u64,
+    show_gen: u64,
+    interactive: bool,
+) -> Result<bool, AppError> {
+    let state = app_handle.state::<AppState>();
+    let _window_op = state.recording.subtitle_window_op.lock().await;
+    let recording = state.recording.recording.lock();
+    if state.recording.subtitle_show_gen.load(Ordering::Acquire) != show_gen
+        || state.recording.session_counter.load(Ordering::Acquire) != session_id
+        || recording.is_some()
+    {
+        return Ok(false);
+    }
+    set_subtitle_window_interactive(app_handle, interactive)?;
+    Ok(true)
+}
+
+#[tauri::command]
 pub async fn hide_subtitle_window(app_handle: tauri::AppHandle) -> Result<String, AppError> {
+    let state = app_handle.state::<AppState>();
+    let _window_op = state.recording.subtitle_window_op.lock().await;
     hide_subtitle_window_inner(&app_handle)
 }
 
@@ -237,5 +361,83 @@ pub fn hide_subtitle_window_inner(app_handle: &tauri::AppHandle) -> Result<Strin
         Ok("字幕窗口已隐藏".to_string())
     } else {
         Ok("字幕窗口不存在".to_string())
+    }
+}
+
+pub(crate) fn schedule_subtitle_hide(
+    app_handle: &tauri::AppHandle,
+    session_id: u64,
+    show_gen: u64,
+    mode: RecordingMode,
+    delay_ms: u64,
+) {
+    let app = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+
+        let state = app.state::<AppState>();
+        let _window_op = state.recording.subtitle_window_op.lock().await;
+        let recording = state.recording.recording.lock();
+        if !hide_guard_matches(
+            state.recording.subtitle_show_gen.load(Ordering::Acquire),
+            state.recording.session_counter.load(Ordering::Acquire),
+            recording.is_some(),
+            session_id,
+            show_gen,
+        ) {
+            return;
+        }
+
+        let idle = state.recording.transition_snapshot_while_recording_locked(
+            session_id,
+            RecordingPhase::Idle,
+            mode,
+            None,
+            None,
+        );
+        let hide_result = hide_subtitle_window_inner(&app);
+        if hide_result.is_ok() {
+            state
+                .recording
+                .clear_snapshot_while_recording_locked(session_id);
+        }
+        drop(recording);
+
+        if let Some(idle) = idle {
+            let _ = app.emit(
+                "recording-state",
+                serde_json::json!({
+                    "sessionId": idle.session_id,
+                    "revision": idle.revision,
+                    "phase": idle.phase,
+                    "isStarting": false,
+                    "isRecording": false,
+                    "isProcessing": false,
+                    "mode": idle.mode,
+                }),
+            );
+        }
+        if let Err(err) = hide_result {
+            log::warn!("隐藏字幕窗口失败: {}", err);
+        }
+    });
+}
+
+#[cfg(test)]
+mod recording_window_guard_tests {
+    use super::{hide_guard_matches, show_guard_matches};
+
+    #[test]
+    fn stale_show_cannot_overtake_a_new_session() {
+        assert!(!show_guard_matches(2, Some((2, 2)), 1, 1));
+        assert!(show_guard_matches(2, Some((2, 2)), 2, 2));
+    }
+
+    #[test]
+    fn old_hide_cannot_hide_a_new_or_active_session() {
+        assert!(!hide_guard_matches(2, 2, true, 1, 1));
+        assert!(!hide_guard_matches(2, 2, false, 1, 1));
+        assert!(!hide_guard_matches(2, 2, true, 2, 2));
+        assert!(hide_guard_matches(2, 2, false, 2, 2));
     }
 }

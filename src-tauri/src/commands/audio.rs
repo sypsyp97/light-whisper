@@ -7,8 +7,8 @@ use tauri::Emitter;
 
 use crate::services::audio_service;
 use crate::state::{
-    AppState, PendingRecordingSession, RecordingMode, RecordingSession, RecordingSlot,
-    RecordingTrigger,
+    AppState, PendingRecordingSession, RecordingMode, RecordingOutcomeKind, RecordingPhase,
+    RecordingSession, RecordingSlot, RecordingSnapshot, RecordingTrigger,
 };
 use crate::utils::AppError;
 
@@ -16,11 +16,62 @@ pub(crate) const RECORDING_NOT_READY_ERROR: &str = "语音识别服务尚未就�
 pub(crate) const RECORDING_ALREADY_ACTIVE_ERROR: &str = "已有录音正在进行中";
 pub(crate) const RECORDING_START_CANCELLED_ERROR: &str = "录音启动已取消";
 
-fn clear_pending_recording_if_current(state: &AppState, session_id: u64) {
-    let mut guard = state.recording.recording.lock();
-    if matches!(guard.as_ref(), Some(RecordingSlot::Starting(s)) if s.session_id == session_id) {
-        *guard = None;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CaptureStartErrorResolution {
+    Cancelled,
+    StartError,
+    Stale,
+}
+
+fn resolve_capture_start_error(
+    stop_requested: bool,
+    owns_start: bool,
+) -> CaptureStartErrorResolution {
+    if stop_requested {
+        CaptureStartErrorResolution::Cancelled
+    } else if owns_start {
+        CaptureStartErrorResolution::StartError
+    } else {
+        CaptureStartErrorResolution::Stale
     }
+}
+
+fn emit_recording_state(
+    app_handle: &tauri::AppHandle,
+    snapshot: &RecordingSnapshot,
+    is_starting: bool,
+    is_recording: bool,
+    is_processing: bool,
+    error: Option<&str>,
+) {
+    let mut payload = serde_json::json!({
+        "sessionId": snapshot.session_id,
+        "revision": snapshot.revision,
+        "phase": snapshot.phase,
+        "isStarting": is_starting,
+        "isRecording": is_recording,
+        "isProcessing": is_processing,
+        "mode": snapshot.mode,
+    });
+    if let Some(error) = error {
+        payload["error"] = serde_json::json!(error);
+    }
+    let _ = app_handle.emit("recording-state", payload);
+}
+
+fn emit_start_error(app_handle: &tauri::AppHandle, snapshot: &RecordingSnapshot, error: &str) {
+    emit_recording_state(app_handle, snapshot, false, false, false, Some(error));
+    let _ = app_handle.emit(
+        "recording-outcome",
+        serde_json::json!({
+            "sessionId": snapshot.session_id,
+            "revision": snapshot.revision,
+            "phase": snapshot.phase,
+            "outcome": RecordingOutcomeKind::StartError,
+            "mode": snapshot.mode,
+            "detail": error,
+        }),
+    );
 }
 
 pub(crate) async fn start_recording_inner(
@@ -38,7 +89,7 @@ pub(crate) async fn start_recording_inner(
 
     audio_service::stop_microphone_level_monitor(state);
 
-    let (session_id, stop_flag, stop_notify) = {
+    let (session_id, show_gen, stop_flag, stop_notify, starting_snapshot) = {
         let mut guard = state.recording.recording.lock();
         if guard.is_some() {
             return Err(AppError::Audio(RECORDING_ALREADY_ACTIVE_ERROR.into()));
@@ -48,15 +99,47 @@ pub(crate) async fn start_recording_inner(
             .session_counter
             .fetch_add(1, Ordering::Relaxed)
             + 1;
+        // Reserve the generation before spawning any async window work. A
+        // delayed show from this session can never advance the generation
+        // after a newer session has already reserved its own.
+        let show_gen = crate::commands::window::reserve_subtitle_show_generation(&app_handle);
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_notify = Arc::new(tokio::sync::Notify::new());
         *guard = Some(RecordingSlot::Starting(PendingRecordingSession {
             session_id,
+            subtitle_show_gen: show_gen,
             trigger,
             stop_flag: stop_flag.clone(),
             stop_notify: stop_notify.clone(),
         }));
-        (session_id, stop_flag, stop_notify)
+        let slot_snapshot = guard
+            .as_ref()
+            .expect("starting slot was just installed")
+            .snapshot(0);
+        let snapshot = state
+            .recording
+            .transition_snapshot_while_recording_locked(
+                session_id,
+                slot_snapshot.phase,
+                slot_snapshot.mode,
+                None,
+                None,
+            )
+            .expect("new recording session must own the latest snapshot");
+        (session_id, show_gen, stop_flag, stop_notify, snapshot)
+    };
+
+    emit_recording_state(&app_handle, &starting_snapshot, true, false, false, None);
+
+    // Window creation/layout and the synchronous cpal startup happen in
+    // parallel. We still join the show task before interpreting the capture
+    // result so a start_error cannot schedule a hide against a pre-show gen.
+    let show_task = {
+        let app = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            crate::commands::window::show_subtitle_window_for_session(app, session_id, show_gen)
+                .await
+        })
     };
 
     let samples: Arc<parking_lot::Mutex<Vec<i16>>> =
@@ -64,35 +147,107 @@ pub(crate) async fn start_recording_inner(
     let interim_cache: Arc<parking_lot::Mutex<Option<crate::state::InterimCache>>> =
         Arc::new(parking_lot::Mutex::new(None));
 
-    let (audio_thread, actual_sample_rate) = match audio_service::spawn_audio_capture_thread(
-        stop_flag.clone(),
-        samples.clone(),
-        state.selected_input_device_name(),
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            clear_pending_recording_if_current(state, session_id);
-            return Err(e);
-        }
+    let capture_task = {
+        let capture_stop = stop_flag.clone();
+        let capture_samples = samples.clone();
+        let selected_device = state.selected_input_device_name();
+        tokio::task::spawn_blocking(move || {
+            audio_service::spawn_audio_capture_thread(
+                capture_stop,
+                capture_samples,
+                selected_device,
+            )
+        })
     };
 
-    if stop_flag.load(Ordering::Relaxed) {
-        clear_pending_recording_if_current(state, session_id);
-        audio_service::discard_recording(RecordingSession {
+    match show_task.await {
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) => log::warn!("显示字幕窗口失败（录音继续）: {}", err),
+        Err(err) => log::warn!("字幕窗口显示任务异常结束（录音继续）: {}", err),
+    }
+    let capture_result = match capture_task.await {
+        Ok(result) => result,
+        Err(err) => Err(AppError::Audio(format!("录音启动任务异常结束: {}", err))),
+    };
+
+    // Cancellation wins over a simultaneous capture error. This keeps a
+    // quick tap from being presented as a microphone failure.
+    if stop_flag.load(Ordering::Acquire) {
+        if let Ok((audio_thread, actual_sample_rate)) = capture_result {
+            audio_service::discard_recording(RecordingSession {
+                session_id,
+                subtitle_show_gen: show_gen,
+                trigger,
+                stop_flag,
+                stop_notify,
+                samples,
+                sample_rate: actual_sample_rate,
+                audio_thread: Some(audio_thread),
+                interim_task: None,
+                interim_cache,
+                edit_grab: edit_grab.take(),
+            })
+            .await;
+        }
+        crate::commands::window::schedule_subtitle_hide(
+            &app_handle,
             session_id,
-            trigger,
-            stop_flag,
-            stop_notify,
-            samples,
-            sample_rate: actual_sample_rate,
-            audio_thread: Some(audio_thread),
-            interim_task: None,
-            interim_cache,
-            edit_grab: edit_grab.take(),
-        })
-        .await;
+            show_gen,
+            trigger.mode(),
+            0,
+        );
         return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
     }
+
+    let (audio_thread, actual_sample_rate) = match capture_result {
+        Ok(result) => result,
+        Err(error) => {
+            let detail = error.to_string();
+            let (resolution, outcome_snapshot) = {
+                let mut guard = state.recording.recording.lock();
+                let owns_start = matches!(
+                    guard.as_ref(),
+                    Some(RecordingSlot::Starting(p)) if p.session_id == session_id
+                );
+                let resolution =
+                    resolve_capture_start_error(stop_flag.load(Ordering::Acquire), owns_start);
+                let snapshot = if resolution == CaptureStartErrorResolution::StartError {
+                    *guard = None;
+                    state.recording.transition_snapshot_while_recording_locked(
+                        session_id,
+                        RecordingPhase::Outcome,
+                        trigger.mode(),
+                        Some(RecordingOutcomeKind::StartError),
+                        Some(&detail),
+                    )
+                } else {
+                    None
+                };
+                (resolution, snapshot)
+            };
+            if resolution == CaptureStartErrorResolution::Cancelled {
+                crate::commands::window::schedule_subtitle_hide(
+                    &app_handle,
+                    session_id,
+                    show_gen,
+                    trigger.mode(),
+                    0,
+                );
+                return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
+            }
+            if let Some(snapshot) = outcome_snapshot {
+                emit_start_error(&app_handle, &snapshot, &detail);
+                crate::commands::window::schedule_subtitle_hide(
+                    &app_handle,
+                    session_id,
+                    show_gen,
+                    trigger.mode(),
+                    audio_service::RESULT_HIDE_DELAY_MS,
+                );
+            }
+            return Err(error);
+        }
+    };
 
     let interim_task = audio_service::spawn_interim_loop(
         app_handle.clone(),
@@ -114,6 +269,7 @@ pub(crate) async fn start_recording_inner(
 
     let mut session = Some(RecordingSession {
         session_id,
+        subtitle_show_gen: show_gen,
         trigger,
         stop_flag,
         stop_notify,
@@ -125,16 +281,27 @@ pub(crate) async fn start_recording_inner(
         edit_grab: edit_grab.take(),
     });
 
-    let cancelled = {
+    let (cancelled, recording_snapshot) = {
         let mut guard = state.recording.recording.lock();
         match guard.as_ref() {
             Some(RecordingSlot::Starting(p)) if p.session_id == session_id => {
                 if let Some(s) = session.take() {
                     *guard = Some(RecordingSlot::Active(s));
                 }
-                None
+                let slot_snapshot = guard
+                    .as_ref()
+                    .expect("active slot was just installed")
+                    .snapshot(0);
+                let snapshot = state.recording.transition_snapshot_while_recording_locked(
+                    session_id,
+                    slot_snapshot.phase,
+                    slot_snapshot.mode,
+                    None,
+                    None,
+                );
+                (None, snapshot)
             }
-            _ => session.take(),
+            _ => (session.take(), None),
         }
     };
 
@@ -142,30 +309,18 @@ pub(crate) async fn start_recording_inner(
         s.stop_flag.store(true, Ordering::Relaxed);
         s.stop_notify.notify_waiters();
         audio_service::discard_recording(s).await;
+        crate::commands::window::schedule_subtitle_hide(
+            &app_handle,
+            session_id,
+            show_gen,
+            trigger.mode(),
+            0,
+        );
         return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
     }
 
-    // 先发 recording-state，后显示字幕窗口。show_subtitle_window 在 Windows 上
-    // CreateWindow + 布局会花 50-100ms，这段窗口里前端如果还没收到本会话的
-    // recording-state，上一 session 的延迟 transcription-result 会钻进来覆盖当前
-    // 显示（useRecording 的 stale 过滤只能挡住已登记的 latestSessionIdRef）。
-    let _ = app_handle.emit(
-        "recording-state",
-        serde_json::json!({
-            "sessionId": session_id,
-            "isRecording": true,
-            "isProcessing": false,
-            "mode": trigger.mode().as_str(),
-        }),
-    );
-
-    {
-        let app = app_handle.clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(e) = crate::commands::window::show_subtitle_window(app).await {
-                log::warn!("显示字幕窗口失败（录音继续）: {}", e);
-            }
-        });
+    if let Some(snapshot) = recording_snapshot {
+        emit_recording_state(&app_handle, &snapshot, false, true, false, None);
     }
 
     if state.ui.sound_enabled.load(Ordering::Acquire) {
@@ -186,39 +341,78 @@ pub(crate) async fn start_recording_inner(
 pub(crate) async fn stop_recording_inner(
     app_handle: tauri::AppHandle,
     state: &AppState,
+    expected_session: Option<(u64, RecordingTrigger)>,
 ) -> Result<Option<u64>, AppError> {
-    let recording = state.recording.recording.lock().take();
+    let (recording, transition) = {
+        let mut guard = state.recording.recording.lock();
+        if let Some((expected_session_id, expected_trigger)) = expected_session {
+            let matches_expected = guard.as_ref().is_some_and(|slot| {
+                slot.session_id() == expected_session_id && slot.trigger() == expected_trigger
+            });
+            if !matches_expected {
+                return Ok(None);
+            }
+        }
+        let recording = guard.take();
+        if let Some(slot) = recording.as_ref() {
+            match slot {
+                RecordingSlot::Starting(pending) => {
+                    pending.stop_flag.store(true, Ordering::Release);
+                    pending.stop_notify.notify_waiters();
+                }
+                RecordingSlot::Active(session) => {
+                    session.stop_flag.store(true, Ordering::Release);
+                    session.stop_notify.notify_waiters();
+                }
+            }
+        }
+        let transition = match recording.as_ref() {
+            Some(RecordingSlot::Starting(p)) => {
+                state.recording.transition_snapshot_while_recording_locked(
+                    p.session_id,
+                    RecordingPhase::Idle,
+                    p.trigger.mode(),
+                    None,
+                    None,
+                )
+            }
+            Some(RecordingSlot::Active(session)) => {
+                state.recording.transition_snapshot_while_recording_locked(
+                    session.session_id,
+                    RecordingPhase::Processing,
+                    session.trigger.mode(),
+                    None,
+                    None,
+                )
+            }
+            None => None,
+        };
+        (recording, transition)
+    };
 
-    let recording = match recording {
-        Some(s) => s,
+    let session = match recording {
         None => {
             log::warn!("stop_recording 被调用但没有活跃的录音会话");
             return Ok(None);
         }
-    };
-
-    let session = match recording {
-        RecordingSlot::Starting(p) => {
-            p.stop_flag.store(true, Ordering::Relaxed);
-            p.stop_notify.notify_waiters();
+        Some(RecordingSlot::Starting(p)) => {
             log::info!("录音启动阶段已取消 (session {})", p.session_id);
-            let _ = app_handle.emit(
-                "recording-state",
-                serde_json::json!({
-                    "sessionId": p.session_id,
-                    "isRecording": false,
-                    "isProcessing": false,
-                    "mode": p.trigger.mode().as_str(),
-                }),
+            if let Some(snapshot) = transition.as_ref() {
+                emit_recording_state(&app_handle, snapshot, false, false, false, None);
+            }
+            crate::commands::window::schedule_subtitle_hide(
+                &app_handle,
+                p.session_id,
+                p.subtitle_show_gen,
+                p.trigger.mode(),
+                0,
             );
             return Ok(Some(p.session_id));
         }
-        RecordingSlot::Active(s) => s,
+        Some(RecordingSlot::Active(s)) => s,
     };
 
     let session_id = session.session_id;
-    session.stop_flag.store(true, Ordering::Relaxed);
-    session.stop_notify.notify_waiters();
     if state.ui.sound_enabled.load(Ordering::Acquire) {
         match session.trigger.mode() {
             RecordingMode::Dictation => crate::utils::sound::play_stop_sound(),
@@ -226,15 +420,9 @@ pub(crate) async fn stop_recording_inner(
         }
     }
     log::info!("正在停止录音 (session {})", session_id);
-    let _ = app_handle.emit(
-        "recording-state",
-        serde_json::json!({
-            "sessionId": session_id,
-            "isRecording": false,
-            "isProcessing": true,
-            "mode": session.trigger.mode().as_str(),
-        }),
-    );
+    if let Some(snapshot) = transition.as_ref() {
+        emit_recording_state(&app_handle, snapshot, false, false, true, None);
+    }
 
     tokio::spawn(async move {
         audio_service::finalize_recording(app_handle, session).await;
@@ -262,8 +450,13 @@ pub async fn stop_recording(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), AppError> {
-    let _ = stop_recording_inner(app_handle, state.inner()).await?;
+    let _ = stop_recording_inner(app_handle, state.inner(), None).await?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_recording_snapshot(state: tauri::State<'_, AppState>) -> Option<RecordingSnapshot> {
+    state.recording.snapshot()
 }
 
 #[tauri::command]
@@ -335,5 +528,38 @@ pub async fn set_input_method(
             "未知的输入方式: {}，可选值: sendInput, clipboard",
             other
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_error_after_stop_is_cancelled() {
+        assert_eq!(
+            resolve_capture_start_error(true, false),
+            CaptureStartErrorResolution::Cancelled
+        );
+        assert_eq!(
+            resolve_capture_start_error(true, true),
+            CaptureStartErrorResolution::Cancelled
+        );
+    }
+
+    #[test]
+    fn owned_capture_error_is_presented_as_start_error() {
+        assert_eq!(
+            resolve_capture_start_error(false, true),
+            CaptureStartErrorResolution::StartError
+        );
+    }
+
+    #[test]
+    fn superseded_capture_error_is_stale() {
+        assert_eq!(
+            resolve_capture_start_error(false, false),
+            CaptureStartErrorResolution::Stale
+        );
     }
 }

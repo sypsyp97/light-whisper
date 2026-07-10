@@ -34,6 +34,7 @@ const tauriMock = vi.hoisted(() => ({
 // real Tauri listeners / pollers.
 vi.mock("@/hooks/useRecording", () => ({
   useRecording: () => ({
+    isStarting: false,
     isRecording: false,
     isProcessing: false,
     startRecording: vi.fn(),

@@ -6,6 +6,7 @@ const EQ_BAR_COUNT = 5;
 const EQ_BAR_DELAY_STEP = 0.12;
 
 interface RecordingButtonProps {
+  isStarting: boolean;
   isRecording: boolean;
   isProcessing: boolean;
   isReady: boolean;
@@ -13,17 +14,24 @@ interface RecordingButtonProps {
 }
 
 export default function RecordingButton({
-  isRecording, isProcessing, isReady, onToggle,
+  isStarting, isRecording, isProcessing, isReady, onToggle,
 }: RecordingButtonProps) {
   const { t } = useTranslation();
-  const prevRecording = useRef(isRecording);
+  const isActive = isStarting || isRecording;
+  const prevActive = useRef(isActive);
 
   useEffect(() => {
-    prevRecording.current = isRecording;
-  }, [isRecording]);
+    prevActive.current = isActive;
+  }, [isActive]);
 
-  const isIdle = !isRecording && !isProcessing;
-  const label = isRecording ? t("recording.stop") : isProcessing ? t("recording.processing") : t("recording.start");
+  const isIdle = !isStarting && !isRecording && !isProcessing;
+  const label = isStarting
+    ? t("recording.cancelStart")
+    : isRecording
+      ? t("recording.stop")
+      : isProcessing
+        ? t("recording.processing")
+        : t("recording.start");
 
   return (
     <div className="record-btn-wrapper">
@@ -34,9 +42,9 @@ export default function RecordingButton({
         </>
       )}
       <button
-        className={`record-btn${isRecording !== prevRecording.current ? " animate-record-enter" : ""}`}
+        className={`record-btn${isActive !== prevActive.current ? " animate-record-enter" : ""}`}
         aria-label={label}
-        aria-pressed={isRecording}
+        aria-pressed={isActive}
         disabled={!isReady || isProcessing}
         onClick={onToggle}
         style={{
@@ -55,6 +63,7 @@ export default function RecordingButton({
             ))}
           </div>
         )}
+        {isStarting && <Loader2 size={18} className="animate-spin" strokeWidth={1.5} />}
         {isIdle && isReady && (
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />

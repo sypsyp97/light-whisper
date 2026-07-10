@@ -12,6 +12,7 @@ import type {
 } from "@/types";
 
 interface UseRecordingReturn {
+  isStarting: boolean;
   isRecording: boolean;
   isProcessing: boolean;
   startRecording: () => Promise<void>;
@@ -34,6 +35,8 @@ interface UseRecordingReturn {
 
 interface RecordingStatePayload {
   sessionId: number;
+  revision?: number;
+  isStarting?: boolean;
   isRecording: boolean;
   isProcessing: boolean;
   error?: string;
@@ -78,6 +81,7 @@ function useTauriEvent<T>(event: string, handler: (payload: T) => void) {
 
 export function useRecording(): UseRecordingReturn {
   const [isRecording, setIsRecording] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transcriptionResult, setTranscriptionResult] = useState<string | null>(null);
@@ -92,12 +96,22 @@ export function useRecording(): UseRecordingReturn {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [resultMode, setResultMode] = useState<RecordingMode>("dictation");
   const latestSessionIdRef = useRef(0);
+  const latestRecordingStateRevisionRef = useRef(-1);
   const latestDisplayedFinalSessionIdRef = useRef(0);
 
   useTauriEvent<RecordingStatePayload>("recording-state", (payload) => {
     const sessionId = Number(payload.sessionId || 0);
     if (sessionId < latestSessionIdRef.current) return;
-    latestSessionIdRef.current = sessionId;
+    if (sessionId > latestSessionIdRef.current) {
+      latestSessionIdRef.current = sessionId;
+      latestRecordingStateRevisionRef.current = -1;
+    }
+    const revision = Number(payload.revision);
+    const hasRevision = Number.isSafeInteger(revision) && revision >= 0;
+    if (hasRevision && revision <= latestRecordingStateRevisionRef.current) return;
+    if (!hasRevision && latestRecordingStateRevisionRef.current >= 0) return;
+    if (hasRevision) latestRecordingStateRevisionRef.current = revision;
+    setIsStarting(payload.isStarting ?? false);
     setIsRecording(payload.isRecording);
     setIsProcessing(payload.isProcessing);
     setError(payload.error ?? null);
@@ -165,6 +179,7 @@ export function useRecording(): UseRecordingReturn {
       const sessionId = await invokeStartRecording();
       if (Number.isFinite(sessionId) && sessionId > latestSessionIdRef.current) {
         latestSessionIdRef.current = sessionId;
+        latestRecordingStateRevisionRef.current = -1;
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -172,9 +187,10 @@ export function useRecording(): UseRecordingReturn {
   }, []);
 
   const stopRecording = useCallback(async (): Promise<void> => {
-    if (isRecording) {
+    if (isStarting || isRecording) {
+      setIsStarting(false);
       setIsRecording(false);
-      setIsProcessing(true);
+      setIsProcessing(isRecording);
     }
     try {
       await invokeStopRecording();
@@ -182,10 +198,10 @@ export function useRecording(): UseRecordingReturn {
       if (isRecording) setIsProcessing(false);
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [isRecording]);
+  }, [isRecording, isStarting]);
 
   return {
-    isRecording, isProcessing, startRecording, stopRecording,
+    isStarting, isRecording, isProcessing, startRecording, stopRecording,
     error, transcriptionResult, setTranscriptionResult,
     originalAsrText, editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, history,

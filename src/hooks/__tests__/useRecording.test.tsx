@@ -424,6 +424,53 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
     });
     expect(result.current.isRecording).toBe(true);
   });
+
+  it("keeps a newer Processing revision ahead of a late Recording revision", async () => {
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 40,
+        revision: 3,
+        isRecording: false,
+        isProcessing: true,
+      });
+      tauriEvents.emit("recording-state", {
+        sessionId: 40,
+        revision: 2,
+        isRecording: true,
+        isProcessing: false,
+      });
+    });
+
+    expect(result.current.isRecording).toBe(false);
+    expect(result.current.isProcessing).toBe(true);
+  });
+
+  it("exposes microphone startup as a cancellable state", async () => {
+    tauriInvokeMocks.stopRecording.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 41,
+        revision: 1,
+        isStarting: true,
+        isRecording: false,
+        isProcessing: false,
+      });
+    });
+
+    expect(result.current.isStarting).toBe(true);
+    await act(async () => {
+      await result.current.stopRecording();
+    });
+    expect(tauriInvokeMocks.stopRecording).toHaveBeenCalledOnce();
+    expect(result.current.isStarting).toBe(false);
+    expect(result.current.isProcessing).toBe(false);
+  });
 });
 
 describe("useRecording stopRecording return type", () => {

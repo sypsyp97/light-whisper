@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { prefersReducedMotion } from "@/lib/motion";
 
 interface SmoothTextOptions {
   /** Graphemes advanced per 16.67ms baseline frame. */
@@ -14,11 +15,6 @@ const DEFAULTS: Required<SmoothTextOptions> = {
   snapThreshold: 240,
   maxCatchup: 5,
 };
-
-function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" &&
-    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-}
 
 /** Grapheme-aware split: keeps emoji + ZWJ sequences + CJK whole. */
 export function segmentGraphemes(text: string): string[] {

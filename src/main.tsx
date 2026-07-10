@@ -1,8 +1,9 @@
-import React, { Suspense, lazy, useState, useRef, useCallback } from "react";
+import React, { Suspense, lazy, useState, useRef, useCallback, useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { RecordingProvider } from "./contexts/RecordingContext";
+import { prefersReducedMotion } from "./lib/motion";
 import MainPage from "./pages/MainPage";
 import { useTheme } from "./hooks/useTheme";
 import i18n from "./i18n";
@@ -10,7 +11,8 @@ import "./styles/theme.css";
 import "./styles/pages.css";
 
 type View = "main" | "settings";
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const loadSettingsPage = () => import("./pages/SettingsPage");
+const SettingsPage = lazy(loadSettingsPage);
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -46,29 +48,58 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-function App() {
+export function App() {
   const [view, setView] = useState<View>("main");
   const [animClass, setAnimClass] = useState("");
   const isTransitioning = useRef(false);
   useTheme();
+
+  useEffect(() => {
+    const preloadTimer = window.setTimeout(() => {
+      void loadSettingsPage().catch((error) => {
+        console.error("Settings page preload failed:", error);
+      });
+    }, 400);
+
+    return () => window.clearTimeout(preloadTimer);
+  }, []);
 
   // Page navigation with directional slide while only mounting the active page
   const navigateTo = useCallback((target: View) => {
     if (isTransitioning.current || target === view) return;
     isTransitioning.current = true;
 
-    const exitClass = target === "settings" ? "page-exit-left" : "page-exit-right";
-    const enterClass = target === "settings" ? "page-enter-right" : "page-enter-left";
-
-    setAnimClass(exitClass);
-    setTimeout(() => {
-      setView(target);
-      setAnimClass(enterClass);
-      setTimeout(() => {
+    const startTransition = () => {
+      if (prefersReducedMotion()) {
         setAnimClass("");
+        setView(target);
         isTransitioning.current = false;
-      }, 180);
-    }, 140);
+        return;
+      }
+
+      const exitClass = target === "settings" ? "page-exit-left" : "page-exit-right";
+      const enterClass = target === "settings" ? "page-enter-right" : "page-enter-left";
+
+      setAnimClass(exitClass);
+      setTimeout(() => {
+        setView(target);
+        setAnimClass(enterClass);
+        setTimeout(() => {
+          setAnimClass("");
+          isTransitioning.current = false;
+        }, 180);
+      }, 140);
+    };
+
+    if (target === "settings") {
+      void loadSettingsPage().then(startTransition).catch((error) => {
+        isTransitioning.current = false;
+        console.error("Settings page load failed:", error);
+      });
+      return;
+    }
+
+    startTransition();
   }, [view]);
 
   return (

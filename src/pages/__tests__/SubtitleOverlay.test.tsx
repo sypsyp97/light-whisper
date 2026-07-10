@@ -47,8 +47,13 @@ const tauriEvents = vi.hoisted(() => {
     for (const h of Array.from(set)) h({ payload });
   };
   const reset = () => handlers.clear();
-  return { listen, emit, reset };
+  const handlerCount = (event: string) => handlers.get(event)?.size ?? 0;
+  return { listen, emit, reset, handlerCount };
 });
+
+const tauriApiMocks = vi.hoisted(() => ({
+  getRecordingSnapshot: vi.fn(),
+}));
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: tauriEvents.listen,
@@ -56,6 +61,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("@/api/tauri", () => ({
   copyToClipboard: vi.fn(async () => undefined),
+  getRecordingSnapshot: tauriApiMocks.getRecordingSnapshot,
   hideSubtitleWindow: vi.fn(async () => undefined),
 }));
 
@@ -90,6 +96,8 @@ import SubtitleOverlay from "@/pages/SubtitleOverlay";
 
 beforeEach(() => {
   tauriEvents.reset();
+  tauriApiMocks.getRecordingSnapshot.mockReset();
+  tauriApiMocks.getRecordingSnapshot.mockResolvedValue(null);
   // jsdom does not provide window.matchMedia; SubtitleOverlay's theme effect
   // calls it on mount and registers a "change" listener.
   Object.defineProperty(window, "matchMedia", {
@@ -468,5 +476,550 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     expect(readSubtitleText(container)).toContain("unchanged text");
     expect(screen.getByText("subtitle.rawFirst.polished_preview")).toBeInTheDocument();
     expect(screen.queryByText("subtitle.rawFirst.preview_only")).not.toBeInTheDocument();
+  });
+
+  it.each(["too_short", "no_speech", "asr_error", "processing_error", "start_error"] as const)(
+    "J. shows the %s terminal outcome long enough to read",
+    async (outcome) => {
+      const { container } = render(<SubtitleOverlay />);
+      await flushAsyncListeners();
+
+      await act(async () => {
+        tauriEvents.emit("recording-state", {
+          sessionId: 40,
+          isRecording: false,
+          isProcessing: true,
+          mode: "dictation",
+        });
+        tauriEvents.emit("recording-outcome", {
+          sessionId: 40,
+          outcome,
+          mode: "dictation",
+          detail: "technical detail stays out of the primary UI",
+        });
+      });
+
+      expect(screen.getByText(`recording.outcome.${outcome}`)).toBeInTheDocument();
+      expect(screen.queryByText("technical detail stays out of the primary UI")).not.toBeInTheDocument();
+
+      await advance(1400);
+      expect(screen.getByText(`recording.outcome.${outcome}`)).toBeInTheDocument();
+      expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(false);
+
+      await advance(700);
+      expect(screen.queryByText(`recording.outcome.${outcome}`)).not.toBeInTheDocument();
+      expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(true);
+    },
+  );
+
+  it("K. ignores an older session outcome after a newer recording takes over", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 51,
+        isRecording: true,
+        isProcessing: false,
+        mode: "dictation",
+      });
+      tauriEvents.emit("recording-outcome", {
+        sessionId: 50,
+        outcome: "asr_error",
+        mode: "dictation",
+      });
+    });
+
+    expect(screen.queryByText("recording.outcome.asr_error")).not.toBeInTheDocument();
+    expect(screen.getByText("subtitle.listening")).toBeInTheDocument();
+  });
+
+  it("L. preserves partial assistant text after a processing error without presenting success actions", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 60,
+        status: "started",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 60,
+        chunk: "partial answer",
+      });
+      tauriEvents.emit("recording-outcome", {
+        sessionId: 60,
+        outcome: "processing_error",
+        mode: "assistant",
+      });
+    });
+
+    expect(readSubtitleText(container)).toContain("partial answer");
+    expect(screen.getByText("recording.outcome.processing_error")).toBeInTheDocument();
+    expect(container.querySelector(".subtitle-capsule-assistant")).not.toBeNull();
+    expect(container.querySelector(".subtitle-copy-button")).toBeNull();
+  });
+
+  it("M. ignores terminal outcomes without a valid session identity", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 70,
+        isRecording: true,
+        isProcessing: false,
+        mode: "dictation",
+      });
+      tauriEvents.emit("recording-outcome", {
+        outcome: "asr_error",
+        mode: "dictation",
+      });
+      tauriEvents.emit("recording-outcome", {
+        sessionId: 0,
+        outcome: "processing_error",
+        mode: "dictation",
+      });
+      tauriEvents.emit("recording-outcome", {
+        sessionId: Number.NaN,
+        outcome: "too_short",
+        mode: "dictation",
+      });
+    });
+
+    expect(screen.getByText("subtitle.listening")).toBeInTheDocument();
+    expect(screen.queryByText("recording.outcome.asr_error")).not.toBeInTheDocument();
+    expect(screen.queryByText("recording.outcome.processing_error")).not.toBeInTheDocument();
+    expect(screen.queryByText("recording.outcome.too_short")).not.toBeInTheDocument();
+  });
+
+  it("N. cancels an old outcome cleanup when a newer recording starts", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-outcome", {
+        sessionId: 80,
+        outcome: "no_speech",
+        mode: "dictation",
+      });
+    });
+    await advance(1000);
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 81,
+        isRecording: true,
+        isProcessing: false,
+        mode: "dictation",
+      });
+    });
+    await advance(2000);
+
+    expect(screen.getByText("subtitle.listening")).toBeInTheDocument();
+    expect(screen.queryByText("recording.outcome.no_speech")).not.toBeInTheDocument();
+  });
+
+  it("O. hydrates a cold-mounted starting session after both lifecycle listeners are ready", async () => {
+    tauriApiMocks.getRecordingSnapshot.mockImplementationOnce(async () => {
+      expect(tauriEvents.handlerCount("recording-state")).toBe(1);
+      expect(tauriEvents.handlerCount("recording-outcome")).toBe(1);
+      return {
+        sessionId: 90,
+        revision: 1,
+        phase: "starting",
+        mode: "dictation",
+      };
+    });
+
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    expect(screen.getByText("subtitle.connectingMicrophone")).toBeInTheDocument();
+    const bars = Array.from(container.querySelectorAll<HTMLElement>(".subtitle-waveform-indicator-bar"));
+    expect(bars).toHaveLength(9);
+    expect(bars.every((bar) => bar.style.height === "2px")).toBe(true);
+  });
+
+  it("P. ignores a late same-session Starting snapshot after live Recording wins", async () => {
+    let resolveSnapshot!: (snapshot: unknown) => void;
+    tauriApiMocks.getRecordingSnapshot.mockReturnValueOnce(new Promise((resolve) => {
+      resolveSnapshot = resolve;
+    }));
+
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 91,
+        revision: 2,
+        isStarting: false,
+        isRecording: true,
+        isProcessing: false,
+        mode: "dictation",
+      });
+    });
+    expect(screen.getByText("subtitle.listening")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveSnapshot({
+        sessionId: 91,
+        revision: 1,
+        phase: "starting",
+        mode: "dictation",
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("subtitle.listening")).toBeInTheDocument();
+    expect(screen.queryByText("subtitle.connectingMicrophone")).not.toBeInTheDocument();
+  });
+
+  it("Q. preserves the same nine waveform nodes from Starting through live Recording updates", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 92,
+        revision: 1,
+        isStarting: true,
+        isRecording: false,
+        isProcessing: false,
+        mode: "assistant",
+      });
+    });
+    const startingIndicator = container.querySelector(".subtitle-waveform-indicator");
+    const startingBars = Array.from(container.querySelectorAll<HTMLElement>(".subtitle-waveform-indicator-bar"));
+    expect(startingBars).toHaveLength(9);
+    expect(startingBars.every((bar) => bar.style.height === "2px")).toBe(true);
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 92,
+        revision: 2,
+        isStarting: false,
+        isRecording: true,
+        isProcessing: false,
+        mode: "assistant",
+      });
+      tauriEvents.emit("waveform", {
+        sessionId: 92,
+        bars: [0.25, 0.5, 0.75, 1, 0.6, 0.4, 0.2, 0.1, 0],
+      });
+    });
+
+    const recordingIndicator = container.querySelector(".subtitle-waveform-indicator");
+    const recordingBars = Array.from(container.querySelectorAll<HTMLElement>(".subtitle-waveform-indicator-bar"));
+    expect(recordingIndicator).toBe(startingIndicator);
+    expect(recordingBars).toHaveLength(9);
+    recordingBars.forEach((bar, index) => expect(bar).toBe(startingBars[index]));
+    expect(recordingBars.map((bar) => bar.style.height)).toEqual([
+      "4px", "8px", "12px", "16px", "9.6px", "6.4px", "3.2px", "2px", "2px",
+    ]);
+  });
+
+  it("R. lets start_error consume the same revision as a terminal no-op state", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 93,
+        revision: 1,
+        isStarting: true,
+        isRecording: false,
+        isProcessing: false,
+        mode: "dictation",
+      });
+      tauriEvents.emit("recording-state", {
+        sessionId: 93,
+        revision: 2,
+        phase: "outcome",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: false,
+        mode: "dictation",
+      });
+      tauriEvents.emit("recording-state", {
+        sessionId: 93,
+        revision: 1,
+        phase: "recording",
+        isStarting: false,
+        isRecording: true,
+        isProcessing: false,
+        mode: "dictation",
+      });
+      tauriEvents.emit("recording-outcome", {
+        sessionId: 93,
+        revision: 2,
+        outcome: "start_error",
+        mode: "dictation",
+        detail: "device internals stay hidden",
+      });
+    });
+
+    expect(screen.getByText("recording.outcome.start_error")).toBeInTheDocument();
+    expect(screen.queryByText("device internals stay hidden")).not.toBeInTheDocument();
+  });
+
+  it("S. rejects a lower-revision Recording event after Processing already advanced", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 94,
+        revision: 3,
+        isStarting: false,
+        isRecording: false,
+        isProcessing: true,
+        mode: "dictation",
+      });
+      tauriEvents.emit("recording-state", {
+        sessionId: 94,
+        revision: 2,
+        isStarting: false,
+        isRecording: true,
+        isProcessing: false,
+        mode: "dictation",
+      });
+    });
+
+    expect(screen.getByText("subtitle.recognizing")).toBeInTheDocument();
+    expect(screen.queryByText("subtitle.listening")).not.toBeInTheDocument();
+  });
+
+  it("T. fades a quick-cancelled Starting session to idle", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 95,
+        revision: 1,
+        isStarting: true,
+        isRecording: false,
+        isProcessing: false,
+        mode: "dictation",
+      });
+      tauriEvents.emit("recording-state", {
+        sessionId: 95,
+        revision: 2,
+        isStarting: false,
+        isRecording: false,
+        isProcessing: false,
+        mode: "dictation",
+      });
+    });
+
+    expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(true);
+    await advance(500);
+    expect(screen.queryByText("subtitle.connectingMicrophone")).not.toBeInTheDocument();
+    expect(container.querySelectorAll(".subtitle-waveform-indicator-bar")).toHaveLength(0);
+  });
+
+  it("U. clears an old outcome timer when a newer session starts connecting", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-outcome", {
+        sessionId: 96,
+        revision: 4,
+        outcome: "start_error",
+        mode: "dictation",
+      });
+    });
+    await advance(1000);
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 97,
+        revision: 1,
+        isStarting: true,
+        isRecording: false,
+        isProcessing: false,
+        mode: "dictation",
+      });
+    });
+    await advance(2000);
+
+    expect(screen.getByText("subtitle.connectingMicrophone")).toBeInTheDocument();
+    expect(screen.queryByText("recording.outcome.start_error")).not.toBeInTheDocument();
+    expect(container.querySelectorAll(".subtitle-waveform-indicator-bar")).toHaveLength(9);
+    expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(false);
+  });
+
+  it("V. keeps an idle tombstone ahead of a stale same-session Starting event", async () => {
+    tauriApiMocks.getRecordingSnapshot.mockResolvedValueOnce({
+      sessionId: 98,
+      revision: 5,
+      phase: "idle",
+      mode: "dictation",
+    });
+
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 98,
+        revision: 4,
+        isStarting: true,
+        isRecording: false,
+        isProcessing: false,
+        mode: "dictation",
+      });
+    });
+
+    expect(screen.queryByText("subtitle.connectingMicrophone")).not.toBeInTheDocument();
+    expect(container.querySelectorAll(".subtitle-waveform-indicator-bar")).toHaveLength(0);
+    expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(true);
+  });
+
+  it("W. seals a terminal outcome against late same-session content events", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 99,
+        status: "started",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 99,
+        chunk: "useful partial",
+      });
+      tauriEvents.emit("recording-outcome", {
+        sessionId: 99,
+        revision: 5,
+        outcome: "processing_error",
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 99,
+        chunk: " late chunk",
+      });
+      tauriEvents.emit("ai-polish-status", {
+        sessionId: 99,
+        status: "polishing",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 99,
+        text: "late success",
+        interim: false,
+        mode: "assistant",
+      });
+    });
+
+    expect(readSubtitleText(container)).toContain("useful partial");
+    expect(readSubtitleText(container)).not.toContain("late chunk");
+    expect(readSubtitleText(container)).not.toContain("late success");
+    expect(screen.getByText("recording.outcome.processing_error")).toBeInTheDocument();
+
+    await advance(2000);
+    expect(screen.queryByText("recording.outcome.processing_error")).not.toBeInTheDocument();
+    expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(true);
+  });
+
+  it("X. seals the gap between terminal state and its same-revision outcome", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 100,
+        status: "started",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 100,
+        chunk: "partial before failure",
+      });
+      tauriEvents.emit("recording-state", {
+        sessionId: 100,
+        revision: 6,
+        phase: "outcome",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: false,
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 100,
+        chunk: " late gap chunk",
+      });
+      tauriEvents.emit("recording-outcome", {
+        sessionId: 100,
+        revision: 6,
+        outcome: "processing_error",
+        mode: "assistant",
+      });
+    });
+
+    expect(readSubtitleText(container)).toContain("partial before failure");
+    expect(readSubtitleText(container)).not.toContain("late gap chunk");
+    expect(screen.getByText("recording.outcome.processing_error")).toBeInTheDocument();
+  });
+
+  it("Y. restores a missed start_error from a cold-mount snapshot", async () => {
+    tauriApiMocks.getRecordingSnapshot.mockResolvedValueOnce({
+      sessionId: 101,
+      revision: 4,
+      phase: "outcome",
+      mode: "dictation",
+      outcome: "start_error",
+      detail: "private device detail",
+    });
+
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    expect(screen.getByText("recording.outcome.start_error")).toBeInTheDocument();
+    expect(screen.queryByText("private device detail")).not.toBeInTheDocument();
+    await advance(1400);
+    expect(screen.getByText("recording.outcome.start_error")).toBeInTheDocument();
+    await advance(600);
+    expect(screen.queryByText("recording.outcome.start_error")).not.toBeInTheDocument();
+    expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(true);
+  });
+
+  it("Z. keeps a quick-cancel Idle sealed against late same-session content", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 102,
+        revision: 1,
+        phase: "starting",
+        isStarting: true,
+        isRecording: false,
+        isProcessing: false,
+        mode: "assistant",
+      });
+      tauriEvents.emit("recording-state", {
+        sessionId: 102,
+        revision: 2,
+        phase: "idle",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: false,
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 102,
+        status: "started",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 102,
+        chunk: "late content",
+      });
+    });
+
+    await advance(500);
+    expect(readSubtitleText(container)).not.toContain("late content");
+    expect(screen.queryByText("subtitle.aiGenerating")).not.toBeInTheDocument();
+    expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(true);
   });
 });

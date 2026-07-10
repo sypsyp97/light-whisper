@@ -20,7 +20,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
 }) {
   const { t } = useTranslation();
   const {
-    isRecording, isProcessing, startRecording, stopRecording,
+    isStarting, isRecording, isProcessing, startRecording, stopRecording,
     recordingError, transcriptionResult, originalAsrText, editBaselineText, setEditBaselineText, setTranscriptionResult,
     durationSec, charCount, detectedLanguage, editGrabStatus, timing, resultStage, history, recordingMode, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
@@ -102,8 +102,8 @@ export default function MainPage({ onNavigate, animClass = "" }: {
 
   const handleToggleRecording = useCallback(() => {
     if (!isReady) return;
-    isRecording ? stopRecording() : startRecording();
-  }, [isReady, isRecording, stopRecording, startRecording]);
+    (isStarting || isRecording) ? stopRecording() : startRecording();
+  }, [isReady, isStarting, isRecording, stopRecording, startRecording]);
 
   return (
     <div className="page-root">
@@ -132,6 +132,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
           <StatusIndicator
             stage={stage}
             isReady={isReady}
+            isStarting={isStarting}
             isRecording={isRecording}
             isProcessing={isProcessing}
             device={device}
@@ -143,6 +144,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
             cancelDownload={cancelDownload}
           >
             <RecordingButton
+              isStarting={isStarting}
               isRecording={isRecording}
               isProcessing={isProcessing}
               isReady={isReady}

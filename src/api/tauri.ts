@@ -18,12 +18,29 @@ import type {
   OpenaiAuthMode,
   OpenaiCodexOauthDeviceCodeChallenge,
   OpenaiCodexOauthStatus,
+  RecordingMode,
   TranscriptionResult,
   UserProfile,
   WebSearchProvider,
 } from "@/types";
 
 type InvokeArgs = Record<string, unknown>;
+
+export type RecordingOutcomeKind =
+  | "too_short"
+  | "no_speech"
+  | "asr_error"
+  | "processing_error"
+  | "start_error";
+
+export interface RecordingSnapshot {
+  sessionId: number;
+  revision: number;
+  phase: "idle" | "starting" | "recording" | "processing" | "outcome";
+  mode: RecordingMode;
+  outcome?: RecordingOutcomeKind;
+  detail?: string;
+}
 
 export class IpcError extends Error {
   readonly code: string;
@@ -143,6 +160,7 @@ export function registerAssistantHotkey(shortcut: string): Promise<string> {
 
 export const startRecording = createNoArgCommand<number>("start_recording");
 export const stopRecording = createNoArgCommand<void>("stop_recording");
+export const getRecordingSnapshot = createNoArgCommand<RecordingSnapshot | null>("get_recording_snapshot");
 export const testMicrophone = createNoArgCommand<string>("test_microphone");
 export const listInputDevices = createNoArgCommand<InputDeviceListPayload>("list_input_devices");
 export const startMicrophoneLevelMonitor = createNoArgCommand<string>("start_microphone_level_monitor");
@@ -176,11 +194,15 @@ export function listAiModels(
   provider: string,
   baseUrl: string | undefined,
   apiKey: string,
+  forceRefresh = false,
+  openaiAuthMode?: OpenaiAuthMode,
 ): Promise<AiModelListPayload> {
   return invokeCommand<AiModelListPayload>("list_ai_models", {
     provider,
     baseUrl: baseUrl ?? null,
     apiKey,
+    forceRefresh,
+    openaiAuthMode: openaiAuthMode ?? null,
   });
 }
 

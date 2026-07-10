@@ -20,6 +20,69 @@ pub enum RecordingMode {
     Assistant,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingPhase {
+    Idle,
+    Starting,
+    Recording,
+    Processing,
+    Outcome,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOutcomeKind {
+    TooShort,
+    NoSpeech,
+    AsrError,
+    ProcessingError,
+    StartError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingSnapshot {
+    pub session_id: u64,
+    pub revision: u64,
+    pub phase: RecordingPhase,
+    pub mode: RecordingMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<RecordingOutcomeKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+impl RecordingSnapshot {
+    pub fn new(session_id: u64, revision: u64, phase: RecordingPhase, mode: RecordingMode) -> Self {
+        Self {
+            session_id,
+            revision,
+            phase,
+            mode,
+            outcome: None,
+            detail: None,
+        }
+    }
+
+    pub fn outcome(
+        session_id: u64,
+        revision: u64,
+        mode: RecordingMode,
+        outcome: RecordingOutcomeKind,
+        detail: Option<&str>,
+    ) -> Self {
+        Self {
+            session_id,
+            revision,
+            phase: RecordingPhase::Outcome,
+            mode,
+            outcome: Some(outcome),
+            detail: detail.map(str::to_owned),
+        }
+    }
+}
+
 impl RecordingMode {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -67,6 +130,7 @@ pub struct InterimCache {
 
 pub struct RecordingSession {
     pub session_id: u64,
+    pub subtitle_show_gen: u64,
     pub trigger: RecordingTrigger,
     pub stop_flag: Arc<AtomicBool>,
     pub stop_notify: Arc<tokio::sync::Notify>,
@@ -83,6 +147,7 @@ pub struct RecordingSession {
 #[derive(Clone)]
 pub struct PendingRecordingSession {
     pub session_id: u64,
+    pub subtitle_show_gen: u64,
     pub trigger: RecordingTrigger,
     pub stop_flag: Arc<AtomicBool>,
     pub stop_notify: Arc<tokio::sync::Notify>,
@@ -106,6 +171,21 @@ impl RecordingSlot {
             Self::Starting(s) => s.trigger,
             Self::Active(s) => s.trigger,
         }
+    }
+
+    pub fn subtitle_show_gen(&self) -> u64 {
+        match self {
+            Self::Starting(s) => s.subtitle_show_gen,
+            Self::Active(s) => s.subtitle_show_gen,
+        }
+    }
+
+    pub fn snapshot(&self, revision: u64) -> RecordingSnapshot {
+        let phase = match self {
+            Self::Starting(_) => RecordingPhase::Starting,
+            Self::Active(_) => RecordingPhase::Recording,
+        };
+        RecordingSnapshot::new(self.session_id(), revision, phase, self.trigger().mode())
     }
 }
 
@@ -181,6 +261,9 @@ impl Default for EngineState {
 /// 当前录音会话 + 粘贴队列 + 麦克风相关运行时
 pub struct RecordingState {
     pub recording: Arc<parking_lot::Mutex<Option<RecordingSlot>>>,
+    recording_snapshot: Arc<parking_lot::Mutex<Option<RecordingSnapshot>>>,
+    snapshot_revision: AtomicU64,
+    pub subtitle_window_op: Mutex<()>,
     pub session_counter: AtomicU64,
     pub pending_paste: Arc<parking_lot::Mutex<Vec<String>>>,
     pub selected_input_device_name: Arc<parking_lot::Mutex<Option<String>>>,
@@ -192,12 +275,79 @@ impl Default for RecordingState {
     fn default() -> Self {
         Self {
             recording: Default::default(),
+            recording_snapshot: Default::default(),
+            snapshot_revision: AtomicU64::new(0),
+            subtitle_window_op: Default::default(),
             session_counter: AtomicU64::new(0),
             pending_paste: Default::default(),
             selected_input_device_name: Default::default(),
             microphone_level_monitor: Default::default(),
             subtitle_show_gen: AtomicU64::new(0),
         }
+    }
+}
+
+impl RecordingState {
+    pub fn snapshot(&self) -> Option<RecordingSnapshot> {
+        self.recording_snapshot.lock().clone()
+    }
+
+    /// Updates presentation state while the caller holds `recording`. Keeping
+    /// the lock order `recording -> recording_snapshot` makes slot promotion
+    /// and its UI revision one atomic transition.
+    pub fn transition_snapshot_while_recording_locked(
+        &self,
+        session_id: u64,
+        phase: RecordingPhase,
+        mode: RecordingMode,
+        outcome: Option<RecordingOutcomeKind>,
+        detail: Option<&str>,
+    ) -> Option<RecordingSnapshot> {
+        if self.session_counter.load(Ordering::Acquire) != session_id {
+            return None;
+        }
+        let revision = self.snapshot_revision.fetch_add(1, Ordering::AcqRel) + 1;
+        let snapshot = match outcome {
+            Some(outcome) if phase == RecordingPhase::Outcome => {
+                RecordingSnapshot::outcome(session_id, revision, mode, outcome, detail)
+            }
+            _ => RecordingSnapshot::new(session_id, revision, phase, mode),
+        };
+        *self.recording_snapshot.lock() = Some(snapshot.clone());
+        Some(snapshot)
+    }
+
+    /// Acquires locks in the canonical order for transitions made outside a
+    /// slot mutation (for example terminal outcomes from finalize tasks).
+    pub fn transition_snapshot_if_current(
+        &self,
+        session_id: u64,
+        phase: RecordingPhase,
+        mode: RecordingMode,
+        outcome: Option<RecordingOutcomeKind>,
+        detail: Option<&str>,
+    ) -> Option<RecordingSnapshot> {
+        let _recording = self.recording.lock();
+        self.transition_snapshot_while_recording_locked(session_id, phase, mode, outcome, detail)
+    }
+
+    /// Clears presentation state while the caller holds `recording`.
+    pub fn clear_snapshot_while_recording_locked(&self, session_id: u64) -> bool {
+        let mut snapshot = self.recording_snapshot.lock();
+        if snapshot
+            .as_ref()
+            .is_some_and(|current| current.session_id == session_id)
+        {
+            *snapshot = None;
+            return true;
+        }
+        false
+    }
+
+    /// Clears presentation state without touching a newer session.
+    pub fn clear_snapshot_if_session(&self, session_id: u64) -> bool {
+        let _recording = self.recording.lock();
+        self.clear_snapshot_while_recording_locked(session_id)
     }
 }
 
@@ -423,5 +573,160 @@ impl AppState {
         let mut guard = self.ui.hotkey_diagnostic.lock();
         let result = f(&mut guard);
         (result, guard.clone())
+    }
+}
+
+#[cfg(test)]
+mod recording_snapshot_tests {
+    use super::*;
+
+    fn pending_slot(session_id: u64, trigger: RecordingTrigger) -> RecordingSlot {
+        RecordingSlot::Starting(PendingRecordingSession {
+            session_id,
+            subtitle_show_gen: 1,
+            trigger,
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            stop_notify: Arc::new(tokio::sync::Notify::new()),
+        })
+    }
+
+    fn active_slot(session_id: u64, trigger: RecordingTrigger) -> RecordingSlot {
+        RecordingSlot::Active(RecordingSession {
+            session_id,
+            subtitle_show_gen: 1,
+            trigger,
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            stop_notify: Arc::new(tokio::sync::Notify::new()),
+            samples: Arc::new(parking_lot::Mutex::new(Vec::new())),
+            sample_rate: 16_000,
+            audio_thread: None,
+            interim_task: None,
+            interim_cache: Arc::new(parking_lot::Mutex::new(None)),
+            edit_grab: None,
+        })
+    }
+
+    #[test]
+    fn recording_snapshot_serializes_as_frontend_contract() {
+        let value = serde_json::to_value(RecordingSnapshot::outcome(
+            42,
+            7,
+            RecordingMode::Assistant,
+            RecordingOutcomeKind::StartError,
+            Some("microphone unavailable"),
+        ))
+        .expect("snapshot should serialize");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "sessionId": 42,
+                "revision": 7,
+                "phase": "outcome",
+                "mode": "assistant",
+                "outcome": "start_error",
+                "detail": "microphone unavailable",
+            })
+        );
+    }
+
+    #[test]
+    fn recording_slot_maps_starting_and_active_phases() {
+        assert_eq!(
+            pending_slot(7, RecordingTrigger::DictationOriginal)
+                .snapshot(1)
+                .phase,
+            RecordingPhase::Starting
+        );
+        let active = active_slot(8, RecordingTrigger::Assistant).snapshot(2);
+        assert_eq!(active.phase, RecordingPhase::Recording);
+        assert_eq!(active.mode, RecordingMode::Assistant);
+    }
+
+    #[test]
+    fn recording_snapshot_clear_is_session_scoped() {
+        let state = RecordingState::default();
+        state.session_counter.store(9, Ordering::Release);
+        assert!(state
+            .transition_snapshot_if_current(
+                9,
+                RecordingPhase::Processing,
+                RecordingMode::Dictation,
+                None,
+                None,
+            )
+            .is_some());
+
+        assert!(!state.clear_snapshot_if_session(8));
+        assert_eq!(
+            state.snapshot().map(|snapshot| snapshot.session_id),
+            Some(9)
+        );
+        assert!(state.clear_snapshot_if_session(9));
+        assert!(state.snapshot().is_none());
+    }
+
+    #[test]
+    fn stale_session_cannot_replace_current_snapshot() {
+        let state = RecordingState::default();
+        state.session_counter.store(11, Ordering::Release);
+        assert!(state
+            .transition_snapshot_if_current(
+                11,
+                RecordingPhase::Recording,
+                RecordingMode::Dictation,
+                None,
+                None,
+            )
+            .is_some());
+        assert!(state
+            .transition_snapshot_if_current(
+                10,
+                RecordingPhase::Outcome,
+                RecordingMode::Assistant,
+                Some(RecordingOutcomeKind::ProcessingError),
+                None,
+            )
+            .is_none());
+        assert_eq!(
+            state.snapshot().map(|snapshot| snapshot.session_id),
+            Some(11)
+        );
+    }
+
+    #[test]
+    fn recording_snapshot_revision_is_monotonic_across_phases() {
+        let state = RecordingState::default();
+        state.session_counter.store(12, Ordering::Release);
+        let starting = state
+            .transition_snapshot_if_current(
+                12,
+                RecordingPhase::Starting,
+                RecordingMode::Dictation,
+                None,
+                None,
+            )
+            .expect("starting snapshot");
+        let recording = state
+            .transition_snapshot_if_current(
+                12,
+                RecordingPhase::Recording,
+                RecordingMode::Dictation,
+                None,
+                None,
+            )
+            .expect("recording snapshot");
+        let processing = state
+            .transition_snapshot_if_current(
+                12,
+                RecordingPhase::Processing,
+                RecordingMode::Dictation,
+                None,
+                None,
+            )
+            .expect("processing snapshot");
+
+        assert!(starting.revision < recording.revision);
+        assert!(recording.revision < processing.revision);
     }
 }
