@@ -44,10 +44,10 @@ body,
   padding: 12px 16px;
   border-radius: 16px;
   background: rgba(26, 25, 23, 0.82);
-  backdrop-filter: blur(16px) saturate(1.6);
-  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(8px) saturate(1.1);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
   max-width: 72vw;
   max-height: 60vh;
   overflow: hidden;
@@ -61,13 +61,17 @@ body,
 .subtitle-capsule-assistant {
   position: relative;
   pointer-events: auto;
-  padding: 48px 16px 16px;
+  padding: 14px 16px;
   max-width: min(760px, 78vw);
   max-height: min(70vh, 720px);
   flex-wrap: wrap;
   background: var(--subtitle-assistant-surface);
   border-color: var(--subtitle-assistant-border);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.24);
+}
+
+.subtitle-capsule-assistant:has(.subtitle-assistant-actions) {
+  padding-top: 48px;
 }
 
 .subtitle-capsule-interactive {
@@ -97,7 +101,7 @@ body,
 [data-theme="light"] .subtitle-capsule {
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
 /* subtitle-text and subtitle-hint now use CSS vars that auto-switch per theme */
@@ -327,6 +331,41 @@ body,
   color: var(--color-text-tertiary);
   font-size: 11px;
   line-height: 1.35;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.subtitle-search-warning button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.subtitle-search-meta {
+  flex: 1 0 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.subtitle-search-query {
+  min-width: 0;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .subtitle-capsule-conversation {

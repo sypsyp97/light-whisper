@@ -1,4 +1,6 @@
+use std::future::Future;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 use tauri_plugin_keyring::KeyringExt;
 
 use crate::services::{assistant_service, llm_provider, profile_service};
@@ -11,6 +13,7 @@ const MAX_CHAT_TURNS: usize = 12;
 const MAX_CHAT_MESSAGE_CHARS: usize = 6_000;
 const MAX_CHAT_INITIAL_RESPONSE_CHARS: usize = 12_000;
 const MAX_CHAT_CONTEXT_CHARS: usize = 24_000;
+const ASSISTANT_RETRY_TIMEOUT_SECS: u64 = 180;
 
 #[tauri::command]
 pub async fn set_assistant_hotkey(
@@ -106,6 +109,48 @@ pub fn cancel_assistant_conversation(state: tauri::State<'_, AppState>) -> bool 
 }
 
 #[tauri::command]
+pub async fn retry_assistant_request(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    session_id: u64,
+    request: String,
+) -> Result<String, AppError> {
+    if session_id == 0 {
+        return Err(AppError::Other("助手会话 ID 无效".to_string()));
+    }
+    let request = validate_chat_text("助手请求", request, MAX_CHAT_MESSAGE_CHARS)?;
+    let (generation, cancel_rx) = begin_assistant_chat_task(state.inner());
+    let timeout_message = format!("助手重试超时（{}秒）", ASSISTANT_RETRY_TIMEOUT_SECS);
+    let result = run_cancellable_assistant_task(
+        assistant_service::generate_content(state.inner(), &request, None, &app_handle, session_id),
+        cancel_rx,
+        Duration::from_secs(ASSISTANT_RETRY_TIMEOUT_SECS),
+        &timeout_message,
+        "助手请求已取消",
+    )
+    .await;
+    clear_assistant_chat_task(state.inner(), generation);
+    result
+}
+
+pub(crate) async fn run_cancellable_assistant_task<T, F>(
+    future: F,
+    cancel_rx: tokio::sync::oneshot::Receiver<()>,
+    timeout: Duration,
+    timeout_message: &str,
+    cancel_message: &str,
+) -> Result<T, AppError>
+where
+    F: Future<Output = Result<T, AppError>>,
+{
+    tokio::select! {
+        result = future => result,
+        _ = tokio::time::sleep(timeout) => Err(AppError::Other(timeout_message.to_string())),
+        _ = cancel_rx => Err(AppError::Other(cancel_message.to_string())),
+    }
+}
+
+#[tauri::command]
 pub async fn open_assistant_source(url: String) -> Result<String, AppError> {
     let target = validate_assistant_source_url(&url)?;
     webbrowser::open(target.as_str())
@@ -153,7 +198,9 @@ fn validate_chat_history(
     Ok(validated)
 }
 
-fn begin_assistant_chat_task(state: &AppState) -> (u64, tokio::sync::oneshot::Receiver<()>) {
+pub(crate) fn begin_assistant_chat_task(
+    state: &AppState,
+) -> (u64, tokio::sync::oneshot::Receiver<()>) {
     let generation = state
         .ui
         .assistant_chat_generation
@@ -171,7 +218,7 @@ fn begin_assistant_chat_task(state: &AppState) -> (u64, tokio::sync::oneshot::Re
     (generation, cancel_rx)
 }
 
-fn clear_assistant_chat_task(state: &AppState, generation: u64) {
+pub(crate) fn clear_assistant_chat_task(state: &AppState, generation: u64) {
     let mut task = state.ui.assistant_chat_cancel.lock();
     if task
         .as_ref()
@@ -302,11 +349,14 @@ pub async fn get_web_search_api_key(
 #[cfg(test)]
 mod tests {
     use super::{
-        begin_assistant_chat_task, cancel_assistant_chat_task, validate_assistant_source_url,
-        validate_chat_history,
+        begin_assistant_chat_task, cancel_assistant_chat_task, clear_assistant_chat_task,
+        run_cancellable_assistant_task, validate_assistant_source_url, validate_chat_history,
+        validate_chat_text,
     };
     use crate::services::assistant_service::AssistantConversationTurn;
     use crate::state::AppState;
+    use crate::utils::AppError;
+    use std::time::Duration;
 
     #[test]
     fn assistant_sources_allow_public_https_only() {
@@ -369,5 +419,99 @@ mod tests {
         assert!(cancel_assistant_chat_task(&state));
         assert!(cancelled.await.is_ok());
         assert!(!cancel_assistant_chat_task(&state));
+    }
+
+    #[tokio::test]
+    async fn cancellable_assistant_task_returns_success() {
+        let (_cancel, cancel_rx) = tokio::sync::oneshot::channel();
+
+        let result = run_cancellable_assistant_task(
+            async { Ok::<_, AppError>("response") },
+            cancel_rx,
+            Duration::from_secs(1),
+            "timed out",
+            "cancelled",
+        )
+        .await;
+
+        assert_eq!(result.unwrap(), "response");
+    }
+
+    #[tokio::test]
+    async fn cancellable_assistant_task_preserves_business_errors() {
+        let (_cancel, cancel_rx) = tokio::sync::oneshot::channel();
+
+        let result = run_cancellable_assistant_task(
+            async { Err::<String, _>(AppError::Other("provider failed".to_string())) },
+            cancel_rx,
+            Duration::from_secs(1),
+            "timed out",
+            "cancelled",
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err().to_string(), "provider failed");
+    }
+
+    #[tokio::test]
+    async fn cancellable_assistant_task_reports_timeout() {
+        let (_cancel, cancel_rx) = tokio::sync::oneshot::channel();
+
+        let result = run_cancellable_assistant_task(
+            std::future::pending::<Result<String, AppError>>(),
+            cancel_rx,
+            Duration::from_millis(5),
+            "retry deadline reached",
+            "cancelled",
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err().to_string(), "retry deadline reached");
+    }
+
+    #[tokio::test]
+    async fn cancellable_assistant_task_reports_cancellation() {
+        let (cancel, cancel_rx) = tokio::sync::oneshot::channel();
+        cancel.send(()).unwrap();
+
+        let result = run_cancellable_assistant_task(
+            std::future::pending::<Result<String, AppError>>(),
+            cancel_rx,
+            Duration::from_secs(1),
+            "timed out",
+            "request cancelled",
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err().to_string(), "request cancelled");
+    }
+
+    #[tokio::test]
+    async fn clearing_an_old_generation_keeps_the_new_task_cancellable() {
+        let state = AppState::default();
+        let (old_generation, old_cancelled) = begin_assistant_chat_task(&state);
+        let (new_generation, new_cancelled) = begin_assistant_chat_task(&state);
+
+        assert!(new_generation > old_generation);
+        assert!(old_cancelled.await.is_ok());
+        clear_assistant_chat_task(&state, old_generation);
+
+        assert!(cancel_assistant_chat_task(&state));
+        assert!(new_cancelled.await.is_ok());
+    }
+
+    #[test]
+    fn chat_text_trims_input_and_accepts_the_exact_character_limit() {
+        assert_eq!(
+            validate_chat_text("消息", "  你好吗  ".to_string(), 3).unwrap(),
+            "你好吗"
+        );
+    }
+
+    #[test]
+    fn chat_text_rejects_empty_and_over_limit_input() {
+        assert!(validate_chat_text("消息", " \n\t ".to_string(), 3).is_err());
+        let error = validate_chat_text("消息", "你好吗啊".to_string(), 3).unwrap_err();
+        assert!(error.to_string().contains("最多 3 个字符"));
     }
 }

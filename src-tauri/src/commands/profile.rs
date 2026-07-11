@@ -154,7 +154,7 @@ async fn extract_corrections_via_llm(
         return Vec::new();
     }
 
-    log::info!("用户纠错 LLM 原始返回: {}", raw);
+    log::info!("用户纠错 LLM 响应完成 ({}字符)", raw.chars().count());
 
     // 解析 JSON 数组或包含数组的对象
     let pairs = parse_correction_pairs(raw);
@@ -162,7 +162,7 @@ async fn extract_corrections_via_llm(
         log::info!("LLM 未提取到词级纠错，回退到本地 diff 学习");
         Vec::new()
     } else {
-        log::info!("LLM 提取用户纠错: {:?}", pairs);
+        log::info!("LLM 提取到 {} 条用户纠错", pairs.len());
         pairs
     }
 }

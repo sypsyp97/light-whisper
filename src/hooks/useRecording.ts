@@ -75,7 +75,6 @@ function useTauriEvent<T>(event: string, handler: (payload: T) => void) {
       unlisten?.();
     };
   // handler is intentionally excluded - callers use refs or stable callbacks
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event]);
 }
 

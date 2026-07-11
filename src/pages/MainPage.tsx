@@ -102,7 +102,11 @@ export default function MainPage({ onNavigate, animClass = "" }: {
 
   const handleToggleRecording = useCallback(() => {
     if (!isReady) return;
-    (isStarting || isRecording) ? stopRecording() : startRecording();
+    if (isStarting || isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
   }, [isReady, isStarting, isRecording, stopRecording, startRecording]);
 
   return (

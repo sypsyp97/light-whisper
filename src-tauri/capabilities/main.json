@@ -1,7 +1,8 @@
 {
-  "identifier": "default",
-  "description": "轻语 Whisper 应用的默认权限配置",
-  "windows": ["main", "subtitle"],
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "主窗口：设置、录音、剪贴板、开机启动与密钥管理",
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:default",

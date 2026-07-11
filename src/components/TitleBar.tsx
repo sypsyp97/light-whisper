@@ -28,19 +28,22 @@ export default function TitleBar({ title, leftAction, rightActions }: TitleBarPr
   };
 
   return (
+    // Window dragging is a pointer-only desktop affordance; keyboard actions
+    // remain on the real buttons rendered in the action slots.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <header
       onMouseDown={startDrag}
       className="title-bar"
       style={{ padding: `0 ${PADDING - 8}px`, justifyContent: rightActions ? "space-between" : "flex-start" }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }} onMouseDown={e => e.stopPropagation()}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {leftAction}
         <span className={`title-text${!leftAction ? " title-text-indented" : ""}`}>
           {title}
         </span>
       </div>
       {rightActions && (
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }} onMouseDown={e => e.stopPropagation()}>
+        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
           {rightActions}
         </div>
       )}

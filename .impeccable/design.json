@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-11T00:00:00Z",
+  "title": "Design System: 轻语 Whisper",
+  "extensions": {
+    "colorMeta": {
+      "signal": { "role": "primary", "displayName": "Warm Signal", "canonical": "#AE5630", "tonalRamp": ["#32170D", "#5B2B18", "#843F24", "#AE5630", "#C97B5A", "#DFA58D", "#EFD0C3", "#FAEEE9"] },
+      "assistant": { "role": "semantic", "displayName": "Assistant", "canonical": "#7557D9", "tonalRamp": ["#24184F", "#382570", "#51379A", "#7557D9", "#9479E8", "#B9A7F2", "#DCD3FA", "#F2EEFE"] },
+      "surface": { "role": "neutral", "displayName": "Quiet Surface", "canonical": "#F5F6F7", "tonalRamp": ["#202326", "#3B3F43", "#595E63", "#7A8086", "#9DA3A9", "#C1C6CA", "#E3E6E8", "#F5F6F7"] }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Product Title", "purpose": "Settings section headings and dialog titles." },
+      "body": { "displayName": "Product Body", "purpose": "Results, descriptions, and assistant messages." },
+      "label": { "displayName": "Compact Label", "purpose": "Controls, metadata, and status text." }
+    },
+    "shadows": [
+      { "name": "popover", "value": "0 6px 12px rgba(26,31,36,.12), 0 2px 4px rgba(26,31,36,.06)", "purpose": "Dropdowns and floating panels only." }
+    ],
+    "motion": [
+      { "name": "standard", "value": "200ms cubic-bezier(.16,1,.3,1)", "purpose": "State transitions without overshoot." }
+    ],
+    "breakpoints": [
+      { "name": "compact", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single high-emphasis action style.",
+      "html": "<button class=\"ds-btn-primary\">继续</button>",
+      "css": ".ds-btn-primary{border:0;border-radius:8px;padding:8px 18px;background:var(--color-accent,#AE5630);color:#fff;font:500 13px system-ui;transition:background .2s cubic-bezier(.16,1,.3,1),transform .14s cubic-bezier(.16,1,.3,1)}.ds-btn-primary:hover{background:#C4633A}.ds-btn-primary:active{transform:scale(.97)}.ds-btn-primary:focus-visible{outline:2px solid var(--color-accent,#AE5630);outline-offset:2px}"
+    },
+    {
+      "name": "Settings Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Compact labeled field on a raised neutral surface.",
+      "html": "<input class=\"ds-input\" value=\"SenseVoice\" aria-label=\"模型\" />",
+      "css": ".ds-input{width:240px;border:1px solid #D5D9DD;border-radius:8px;padding:10px 12px;background:#fff;color:#1A1A18;font:400 12px system-ui}.ds-input:focus-visible{outline:2px solid rgba(174,86,48,.24);border-color:#AE5630}"
+    },
+    {
+      "name": "Settings Card",
+      "kind": "card",
+      "description": "A flat section container with structural border.",
+      "html": "<section class=\"ds-card\"><strong>AI 助手</strong><p>模型与联网搜索设置</p></section>",
+      "css": ".ds-card{width:280px;border:1px solid #D5D9DD;border-radius:12px;padding:16px;background:#fff;color:#1A1A18;font:400 13px system-ui}.ds-card strong{font-weight:600}.ds-card p{margin:6px 0 0;color:#5A5854}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Quiet Instrument",
+    "overview": "A compact desktop instrument with neutral working surfaces, a warm action signal, a distinct violet assistant state, and state-driven motion.",
+    "keyCharacteristics": ["Compact and durable", "Two clear state colors", "Shared light and dark grammar", "Non-overshooting motion"],
+    "rules": [
+      { "name": "The Two-State Rule", "body": "Recording, polish, and primary actions use warm signal; assistant alone uses violet.", "section": "colors" },
+      { "name": "The Flat-by-Default Rule", "body": "Resting surfaces are flat; shadows identify floating structure.", "section": "elevation" }
+    ],
+    "dos": ["Do expose stage, timing, and necessary retry controls for long tasks."],
+    "donts": ["Don't imitate another AI product's full visual language.", "Don't apply assistant violet to recording, polish, or primary actions."]
+  }
+}

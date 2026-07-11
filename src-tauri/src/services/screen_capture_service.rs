@@ -1,6 +1,5 @@
 #[derive(Debug, Clone)]
 pub struct CapturedScreen {
-    pub label: String,
     pub mime_type: String,
     pub data_base64: String,
 }
@@ -103,7 +102,6 @@ fn capture_full_screen_context_with_options(
         }
         total_base64_bytes += data_base64.len();
         captured.push(CapturedScreen {
-            label: friendly_name,
             mime_type: "image/jpeg".to_string(),
             data_base64,
         });

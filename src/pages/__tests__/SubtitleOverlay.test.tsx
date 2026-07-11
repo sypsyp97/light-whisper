@@ -56,6 +56,7 @@ const tauriApiMocks = vi.hoisted(() => ({
   continueAssistantConversation: vi.fn(),
   getRecordingSnapshot: vi.fn(),
   openAssistantSource: vi.fn(),
+  retryAssistantRequest: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -69,6 +70,7 @@ vi.mock("@/api/tauri", () => ({
   getRecordingSnapshot: tauriApiMocks.getRecordingSnapshot,
   hideSubtitleWindow: vi.fn(async () => undefined),
   openAssistantSource: tauriApiMocks.openAssistantSource,
+  retryAssistantRequest: tauriApiMocks.retryAssistantRequest,
 }));
 
 vi.mock("react-i18next", () => {
@@ -110,6 +112,8 @@ beforeEach(() => {
   tauriApiMocks.continueAssistantConversation.mockResolvedValue("follow-up response");
   tauriApiMocks.openAssistantSource.mockReset();
   tauriApiMocks.openAssistantSource.mockResolvedValue("opened");
+  tauriApiMocks.retryAssistantRequest.mockReset();
+  tauriApiMocks.retryAssistantRequest.mockResolvedValue("retried response");
   // jsdom does not provide window.matchMedia; SubtitleOverlay's theme effect
   // calls it on mount and registers a "change" listener.
   Object.defineProperty(window, "matchMedia", {
@@ -1037,7 +1041,37 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(true);
   });
 
-  it("AA. turns an assistant result into a contextual conversation", async () => {
+  it("AA. keeps the initial assistant request compact without a cancel action", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 103,
+        revision: 1,
+        phase: "processing",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: true,
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 103,
+        status: "started",
+        request: "查询今天的发布信息",
+      });
+    });
+
+    expect(container.querySelector(".subtitle-root")).not.toHaveClass("subtitle-root-interactive");
+    expect(screen.queryByRole("button", { name: "common.cancel" })).not.toBeInTheDocument();
+    expect(container.querySelector(".subtitle-assistant-actions")).toBeNull();
+    expect(container.querySelector(".subtitle-capsule-assistant")).toHaveTextContent(
+      "subtitle.aiGenerating",
+    );
+    expect(screen.getByText("subtitle.aiGenerating")).toBeInTheDocument();
+  });
+
+  it("AB. turns an assistant result into a contextual conversation", async () => {
     render(<SubtitleOverlay />);
     await flushAsyncListeners();
 
@@ -1107,7 +1141,7 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     });
   });
 
-  it("AB. renders search sources as clickable actions", async () => {
+  it("AC. renders search sources as clickable actions", async () => {
     render(<SubtitleOverlay />);
     await flushAsyncListeners();
 
@@ -1146,7 +1180,66 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     );
   });
 
-  it("AC. can close a busy conversation and ignores its late response", async () => {
+  it("AD. shows search diagnostics and can retry a failed initial request", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 106,
+        revision: 1,
+        phase: "processing",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: true,
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 106,
+        status: "started",
+        request: "OpenAI 最新价格",
+        searchProvider: "exa",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 106,
+        status: "search_error",
+        query: "OpenAI 最新价格",
+        searchProvider: "exa",
+        elapsedMs: 420,
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 106,
+        status: "done",
+        elapsedMs: 1680,
+        searchElapsedMs: 420,
+        searchProvider: "exa",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 106,
+        text: "暂时无法取得搜索结果。",
+        interim: false,
+        mode: "assistant",
+      });
+    });
+
+    expect(screen.getByText("OpenAI 最新价格")).toBeInTheDocument();
+    expect(screen.getByText("subtitle.conversation.searchProvider")).toBeInTheDocument();
+    expect(screen.getByText("subtitle.conversation.searchTiming")).toBeInTheDocument();
+    expect(screen.getByText("subtitle.conversation.totalTiming")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+
+    expect(tauriApiMocks.retryAssistantRequest).toHaveBeenCalledWith({
+      sessionId: 106,
+      request: "OpenAI 最新价格",
+    });
+    expect(readSubtitleText(container)).toContain("retried response");
+  });
+
+  it("AE. can close a busy conversation and ignores its late response", async () => {
     let resolveRequest: ((value: string) => void) | undefined;
     tauriApiMocks.continueAssistantConversation.mockReturnValueOnce(
       new Promise<string>((resolve) => {
@@ -1203,7 +1296,7 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     expect(screen.queryByText("stale response")).not.toBeInTheDocument();
   });
 
-  it("AD. preserves the reader's scroll position while follow-up text streams", async () => {
+  it("AF. preserves the reader's scroll position while follow-up text streams", async () => {
     render(<SubtitleOverlay />);
     await flushAsyncListeners();
 

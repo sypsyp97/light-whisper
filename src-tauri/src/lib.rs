@@ -240,6 +240,7 @@ pub fn run() {
             commands::assistant::set_assistant_screen_context_enabled,
             commands::assistant::continue_assistant_conversation,
             commands::assistant::cancel_assistant_conversation,
+            commands::assistant::retry_assistant_request,
             commands::assistant::open_assistant_source,
             commands::assistant::set_web_search_config,
             commands::assistant::set_web_search_api_key,

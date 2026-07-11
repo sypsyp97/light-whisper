@@ -18,6 +18,7 @@ import {
   getRecordingSnapshot,
   hideSubtitleWindow,
   openAssistantSource,
+  retryAssistantRequest,
   type AssistantConversationTurn,
   type RecordingOutcomeKind,
   type RecordingSnapshot,
@@ -81,6 +82,11 @@ interface AssistantStreamEvent {
   message?: string;
   source?: AssistantSource;
   sources?: AssistantSource[];
+  query?: string;
+  searchProvider?: "model_native" | "exa" | "tavily";
+  elapsedMs?: number;
+  searchElapsedMs?: number | null;
+  webSearchEnabled?: boolean;
 }
 
 interface ConversationMessage extends AssistantConversationTurn {
@@ -153,6 +159,11 @@ export default function SubtitleOverlay() {
   const [assistantRequest, setAssistantRequest] = useState("");
   const [assistantSources, setAssistantSources] = useState<AssistantSource[]>([]);
   const [assistantSearchError, setAssistantSearchError] = useState(false);
+  const [assistantSearchQuery, setAssistantSearchQuery] = useState("");
+  const [assistantSearchProvider, setAssistantSearchProvider] = useState<string | null>(null);
+  const [assistantSearchElapsedMs, setAssistantSearchElapsedMs] = useState<number | null>(null);
+  const [assistantElapsedMs, setAssistantElapsedMs] = useState<number | null>(null);
+  const [assistantRetryBusy, setAssistantRetryBusy] = useState(false);
   const [conversationOpen, setConversationOpen] = useState(false);
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const [conversationInput, setConversationInput] = useState("");
@@ -203,6 +214,11 @@ export default function SubtitleOverlay() {
     setAssistantRequest("");
     setAssistantSources([]);
     setAssistantSearchError(false);
+    setAssistantSearchQuery("");
+    setAssistantSearchProvider(null);
+    setAssistantSearchElapsedMs(null);
+    setAssistantElapsedMs(null);
+    setAssistantRetryBusy(false);
     setConversationOpen(false);
     setConversationMessages([]);
     setConversationInput("");
@@ -567,7 +583,10 @@ export default function SubtitleOverlay() {
     void (async () => {
       try {
         unlisten = await listen<AssistantStreamEvent>("assistant-stream", (event) => {
-          const { sessionId, chunk, status, request, source, sources } = event.payload;
+          const {
+            sessionId, chunk, status, request, source, sources, query,
+            searchProvider, elapsedMs, searchElapsedMs,
+          } = event.payload;
           if (sessionId === terminalSessionIdRef.current) return;
           if (typeof sessionId === "number") {
             if (sessionId < latestSessionIdRef.current) return;
@@ -584,7 +603,12 @@ export default function SubtitleOverlay() {
             setResultStage(null);
             setOutcome(null);
             setAssistantCopied(false);
+            setAssistantSearchError(false);
+            setAssistantSearchQuery("");
+            setAssistantSearchElapsedMs(null);
+            setAssistantElapsedMs(null);
             if (request?.trim()) setAssistantRequest(request.trim());
+            if (searchProvider) setAssistantSearchProvider(searchProvider);
             shouldAutoScrollRef.current = true;
             updatePhase("polishing");
             return;
@@ -593,6 +617,8 @@ export default function SubtitleOverlay() {
           if (status === "searching") {
             clearFadeTimer();
             setFadingOut(false);
+            if (query?.trim()) setAssistantSearchQuery(query.trim());
+            if (searchProvider) setAssistantSearchProvider(searchProvider);
             updatePhase("searching");
             return;
           }
@@ -600,6 +626,9 @@ export default function SubtitleOverlay() {
           if (status === "search_complete" && Array.isArray(sources)) {
             setAssistantSources((current) => mergeAssistantSources(current, sources));
             setAssistantSearchError(false);
+            if (query?.trim()) setAssistantSearchQuery(query.trim());
+            if (searchProvider) setAssistantSearchProvider(searchProvider);
+            if (typeof elapsedMs === "number") setAssistantSearchElapsedMs(elapsedMs);
             return;
           }
 
@@ -610,6 +639,16 @@ export default function SubtitleOverlay() {
 
           if (status === "search_error") {
             setAssistantSearchError(true);
+            if (query?.trim()) setAssistantSearchQuery(query.trim());
+            if (searchProvider) setAssistantSearchProvider(searchProvider);
+            if (typeof elapsedMs === "number") setAssistantSearchElapsedMs(elapsedMs);
+            return;
+          }
+
+          if (status === "done") {
+            if (typeof elapsedMs === "number") setAssistantElapsedMs(elapsedMs);
+            if (typeof searchElapsedMs === "number") setAssistantSearchElapsedMs(searchElapsedMs);
+            if (searchProvider) setAssistantSearchProvider(searchProvider);
             return;
           }
 
@@ -1063,7 +1102,35 @@ export default function SubtitleOverlay() {
     }
   }, [submitConversationMessage]);
 
-  const assistantOverlayDismissible = assistantInteractive;
+  const handleRetryAssistant = useCallback(async (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const request = assistantRequest.trim();
+    const sessionId = latestSessionIdRef.current;
+    if (!request || !isValidSessionId(sessionId) || assistantRetryBusy) return;
+
+    setAssistantRetryBusy(true);
+    setAssistantSearchError(false);
+    setAssistantSources([]);
+    setAssistantSearchQuery("");
+    setAssistantSearchElapsedMs(null);
+    setAssistantElapsedMs(null);
+    setText("");
+    updatePhase("polishing");
+    try {
+      const result = await retryAssistantRequest({ sessionId, request });
+      const finalText = result.trim();
+      setText(finalText);
+      conversationInitialResponseRef.current = finalText;
+      updatePhase(finalText ? "result" : "outcome");
+    } catch {
+      setAssistantSearchError(true);
+      updatePhase("result");
+    } finally {
+      setAssistantRetryBusy(false);
+    }
+  }, [assistantRequest, assistantRetryBusy, updatePhase]);
+
+  const assistantOverlayDismissible = interactiveAssistantResult || conversationOpen;
 
   const renderSources = (sources: AssistantSource[] | undefined) => {
     if (!sources?.length) return null;
@@ -1088,12 +1155,14 @@ export default function SubtitleOverlay() {
   return (
     <div
       className={`subtitle-root${assistantInteractive ? " subtitle-root-interactive" : ""}`}
+      role="presentation"
       onClick={assistantOverlayDismissible ? closeAssistantOverlay : undefined}
     >
       <div
         className={
           `subtitle-capsule${fadingOut ? " subtitle-fade-out" : ""}${assistantPanelActive ? " subtitle-capsule-assistant" : ""}${assistantInteractive ? " subtitle-capsule-interactive" : ""}${conversationOpen ? " subtitle-capsule-conversation" : ""}`
         }
+        role="presentation"
         onClick={assistantInteractive ? (event) => event.stopPropagation() : undefined}
       >
         {conversationOpen ? (
@@ -1122,6 +1191,7 @@ export default function SubtitleOverlay() {
               ref={conversationListRef}
               className="subtitle-conversation-messages"
               aria-label={t("subtitle.conversation.history")}
+              role="log"
               aria-live="polite"
               aria-busy={conversationBusy}
               tabIndex={0}
@@ -1186,7 +1256,7 @@ export default function SubtitleOverlay() {
           </section>
         ) : (
           <>
-            {assistantPanelActive && phase !== "outcome" && (
+            {interactiveAssistantResult && (
               <div className="subtitle-assistant-actions">
                 <span className={`subtitle-copy-status${assistantCopied ? " is-visible" : ""}`}>
                   {t("common.copied")}
@@ -1249,9 +1319,34 @@ export default function SubtitleOverlay() {
               </div>
             )}
             {isAssistant && phase === "result" && renderSources(assistantSources)}
+            {isAssistant && phase === "result" && (assistantSearchQuery || assistantElapsedMs !== null) && (
+              <div className="subtitle-search-meta" role="status">
+                {assistantSearchQuery && (
+                  <span className="subtitle-search-query" title={assistantSearchQuery}>
+                    {assistantSearchQuery}
+                  </span>
+                )}
+                {assistantSearchProvider && (
+                  <span>{t("subtitle.conversation.searchProvider", { provider: assistantSearchProvider })}</span>
+                )}
+                {assistantSearchElapsedMs !== null && (
+                  <span>{t("subtitle.conversation.searchTiming", { ms: assistantSearchElapsedMs })}</span>
+                )}
+                {assistantElapsedMs !== null && (
+                  <span>{t("subtitle.conversation.totalTiming", { ms: assistantElapsedMs })}</span>
+                )}
+              </div>
+            )}
             {assistantSearchError && isAssistant && phase === "result" && (
               <div className="subtitle-search-warning" role="status">
-                {t("subtitle.conversation.searchFailed")}
+                <span>{t("subtitle.conversation.searchFailed")}</span>
+                <button
+                  type="button"
+                  onClick={handleRetryAssistant}
+                  disabled={assistantRetryBusy}
+                >
+                  {assistantRetryBusy ? t("subtitle.conversation.retrying") : t("common.retry")}
+                </button>
               </div>
             )}
             {hasText && phase === "polishing" && streamTokens > 0 && (

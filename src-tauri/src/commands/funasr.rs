@@ -380,7 +380,11 @@ pub async fn list_alibaba_asr_models(
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        log::warn!("DashScope /v1/models HTTP {}: {}", status, body);
+        log::warn!(
+            "DashScope /v1/models HTTP {}（响应{}字符）",
+            status,
+            body.chars().count()
+        );
         return Ok(fallback());
     }
 

@@ -202,6 +202,25 @@ describe("getRecordingSnapshot", () => {
   });
 });
 
+describe("retryAssistantRequest payload", () => {
+  it("invokes the retry command with the session and original request", async () => {
+    invokeMock.invoke.mockResolvedValueOnce("fresh assistant response");
+
+    const { retryAssistantRequest } = await import("@/api/tauri");
+    await expect(
+      retryAssistantRequest({
+        sessionId: 42,
+        request: "查一下今天的发布状态",
+      }),
+    ).resolves.toBe("fresh assistant response");
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("retry_assistant_request", {
+      sessionId: 42,
+      request: "查一下今天的发布状态",
+    });
+  });
+});
+
 describe("listAiModels payload", () => {
   it("forwards an explicit cache-bypassing refresh", async () => {
     invokeMock.invoke.mockResolvedValueOnce({ models: [], sourceUrl: "" });

@@ -40,7 +40,7 @@ function applyThemeToDOM(isDark: boolean): void {
   }
 
   if (root.classList.contains("no-transition")) {
-    root.offsetHeight; // force reflow
+    void root.offsetHeight; // force reflow
     root.classList.remove("no-transition");
   }
 }

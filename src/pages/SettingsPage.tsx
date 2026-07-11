@@ -2,9 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Mic, Accessibility, Sun, Moon, Monitor, Power, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, Download, Upload, Check, ChevronsUpDown, Languages, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle, Copy } from "lucide-react";
+import { ArrowLeft, Mic, Monitor, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, Check, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { useTheme } from "@/hooks/useTheme";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
@@ -76,7 +75,10 @@ import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
 import TitleBar from "@/components/TitleBar";
-import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
+import AppearanceSettingsSection from "@/components/settings/AppearanceSettingsSection";
+import TranslationSettingsSection from "@/components/settings/TranslationSettingsSection";
+import SystemSettingsSections from "@/components/settings/SystemSettingsSections";
+import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
 import { getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 import {
   resolveAssistantModelForProviderChange,
@@ -94,12 +96,6 @@ import {
 } from "@/lib/llmReasoningProbe";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { useTranslation } from "react-i18next";
-
-const themeOptions = [
-  { mode: "light" as const, icon: Sun, labelKey: "settings.themeLight" },
-  { mode: "dark" as const, icon: Moon, labelKey: "settings.themeDark" },
-  { mode: "system" as const, icon: Monitor, labelKey: "settings.themeSystem" },
-] as const;
 
 const engineOptions = [
   { key: "sensevoice", icon: AudioLines, label: "SenseVoice", labelKey: undefined, descKey: "settings.sensevoiceDesc" },
@@ -291,8 +287,7 @@ export default function SettingsPage({
 }) {
   const pageContentClass = `page-content ${animClass || ""}`.trim();
 
-  const { t, i18n } = useTranslation();
-  const { isDark, theme, setTheme } = useTheme();
+  const { t } = useTranslation();
   const { isRecording, retryModel, hotkeyDisplay, setHotkey, hotkeyError, hotkeyDiagnostic } = useRecordingContext();
 
   // --- Settings nav sections ---
@@ -536,9 +531,6 @@ export default function SettingsPage({
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [newHotWord, setNewHotWord] = useState("");
   const [translationTarget, setTranslationTargetState] = useState<string | null>(null);
-  const [translationPickerOpen, setTranslationPickerOpen] = useState(false);
-  const [customLangInput, setCustomLangInput] = useState("");
-  const [showCustomLangInput, setShowCustomLangInput] = useState(false);
   const [customPromptState, setCustomPromptState] = useState<string>("");
   const [assistantPromptState, setAssistantPromptState] = useState<string>("");
   const [assistantScreenContextEnabled, setAssistantScreenContextEnabledState] = useState(false);
@@ -878,7 +870,9 @@ export default function SettingsPage({
           setOnlineAsrApiKeyState(k || "");
           setOnlineAsrRegion(ep.region);
           setOnlineAsrUrl(ep.url);
-        } catch {}
+        } catch {
+          // Keep the current field values when the secure store is unavailable.
+        }
       }
       retryModel();
     } catch {
@@ -1038,19 +1032,29 @@ export default function SettingsPage({
   const handleAutostartToggle = async () => {
     if (autostartLoading) return;
     const prev = autostart;
-    // Optimistic update: toggle immediately, revert on failure
-    setAutostart(!prev);
+    const next = !prev;
+    // Reflect the requested state immediately, then reconcile it with the
+    // plugin's authoritative value before reporting success.
+    setAutostart(next);
     setAutostartLoading(true);
     try {
       if (prev) {
         await disableAutostart();
-        toast.success(t("toast.autostartDisabled"), { duration: 1100 });
       } else {
         await enableAutostart();
-        toast.success(t("toast.autostartEnabled"), { duration: 1100 });
       }
+      const confirmed = await isAutostartEnabled();
+      setAutostart(confirmed);
+      if (confirmed !== next) {
+        throw new Error("Autostart state was not persisted");
+      }
+      toast.success(t(next ? "toast.autostartEnabled" : "toast.autostartDisabled"), {
+        duration: 1100,
+      });
     } catch {
-      setAutostart(prev); // revert
+      // A failed operation or unreadable confirmation leaves no authoritative
+      // new value, so return to the last confirmed UI state.
+      setAutostart(prev);
       toast.error(t("toast.autostartFailed"));
     } finally {
       setAutostartLoading(false);
@@ -1808,9 +1812,6 @@ export default function SettingsPage({
 
   const handleTranslationSelect = useCallback(async (target: string | null) => {
     setTranslationTargetState(target);
-    setTranslationPickerOpen(false);
-    setShowCustomLangInput(false);
-    setCustomLangInput("");
     try {
       const autoEnabled = await setTranslationTarget(target);
       if (autoEnabled) {
@@ -2123,6 +2124,26 @@ export default function SettingsPage({
     }
   }, [lastExportPath, t]);
 
+  const handleImportConfig = useCallback(async (json: string) => {
+    try {
+      await importUserProfile(json);
+      await refreshProfile();
+      await refreshAiPolishKey();
+      toast.success(t("toast.configImported"));
+    } catch {
+      toast.error(t("toast.configImportFailed"));
+    }
+  }, [refreshAiPolishKey, refreshProfile, t]);
+
+  const handleTestPaste = useCallback(async () => {
+    try {
+      await pasteText(t("settings.testPasteContent"), inputMethod);
+      toast.success(t("toast.pasteOk"));
+    } catch {
+      toast.error(t("toast.pasteFailed"));
+    }
+  }, [inputMethod, t]);
+
   return (
     <div className="page-root">
 
@@ -2172,69 +2193,16 @@ export default function SettingsPage({
         <div className="settings-content" ref={settingsContentRef} style={{ padding: `16px ${PADDING}px 16px` }}>
           <div className="settings-sections">
 
-          {/* Appearance */}
-          <section className="settings-card" data-nav-id="appearance" style={{ position: "relative", zIndex: picker.isOpen("language") ? 8 : "auto" }}>
-            <div className="settings-section-header">
-              {isDark ? <Moon size={15} className="icon-accent" /> : <Sun size={15} className="icon-accent" />}
-              <h2 className="settings-section-title">{t("settings.appearance")}</h2>
-            </div>
-            <div className="settings-grid-3">
-              {themeOptions.map(({ mode, icon: Icon, labelKey }) => (
-                <button
-                  key={mode}
-                  className="theme-btn settings-option-btn theme-option"
-                  aria-label={t("settings.switchToTheme", { label: t(labelKey) })}
-                  aria-pressed={theme === mode}
-                  onClick={() => setTheme(mode)}
-                >
-                  <Icon size={20} strokeWidth={1.5} />
-                  <span className="settings-option-label">{t(labelKey)}</span>
-                </button>
-              ))}
-            </div>
-            <div className="settings-row" style={{ marginTop: 6, gap: 8, alignItems: "center" }}>
-              <Languages size={13} className="icon-tertiary" style={{ flexShrink: 0 }} />
-              <span className="settings-option-desc" style={{ marginRight: "auto" }}>{t("settings.language")}</span>
-              <div ref={picker.setRef("language")} style={{ position: "relative" }}>
-                <button
-                  type="button"
-                  className="picker-inline-button"
-                  data-open={picker.isOpen("language")}
-                  aria-haspopup="listbox"
-                  aria-expanded={picker.isOpen("language")}
-                  aria-label={t("settings.language")}
-                  onClick={() => picker.toggle("language")}
-                  style={{ width: "auto", padding: "4px 10px", gap: 4, fontSize: 12 }}
-                >
-                  <Languages size={13} />
-                </button>
-                {picker.isOpen("language") && (
-                  <div className={picker.popoverClass("language")} style={{ minWidth: 120, left: "auto", right: 0 }}>
-                    <div className="picker-list" role="listbox">
-                      {([
-                        { lang: "zh", label: "中文" },
-                        { lang: "en", label: "English" },
-                      ] as const).map(({ lang, label }) => (
-                        <button
-                          key={lang}
-                          type="button"
-                          className="picker-option"
-                          data-active={i18n.language.startsWith(lang)}
-                          onClick={() => {
-                            i18n.changeLanguage(lang);
-                            writeLocalStorage(LANGUAGE_STORAGE_KEY, lang);
-                            picker.close();
-                          }}
-                        >
-                          <strong style={{ fontSize: 12 }}>{label}</strong>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
+          <AppearanceSettingsSection
+            picker={{
+              isOpen: picker.isOpen("language"),
+              isExpanded: picker.isExpanded("language"),
+              toggle: () => picker.toggle("language"),
+              close: picker.close,
+              setRef: picker.setRef("language"),
+              popoverClass: picker.popoverClass("language"),
+            }}
+          />
 
           {/* Engine */}
           <section
@@ -2261,7 +2229,7 @@ export default function SettingsPage({
                     className="picker-trigger"
                     data-open={picker.isOpen("engine")}
                     aria-haspopup="listbox"
-                    aria-expanded={picker.isOpen("engine")}
+                      aria-expanded={picker.isExpanded("engine")}
                     aria-label={t("settings.engine")}
                     disabled={engineLoading}
                     onClick={() => picker.toggle("engine")}
@@ -2353,9 +2321,13 @@ export default function SettingsPage({
                               try {
                                 const k = await getOnlineAsrApiKey();
                                 setOnlineAsrApiKeyState(k || "");
-                              } catch {}
+                              } catch {
+                                // Preserve the previous key display if secure storage is unavailable.
+                              }
                             }
-                          } catch {}
+                          } catch {
+                            // Keep the current endpoint selection when the backend rejects the change.
+                          }
                         }}
                         style={{ flex: 1 }}
                       >
@@ -2399,7 +2371,7 @@ export default function SettingsPage({
                         className="picker-trigger"
                         data-open={picker.isOpen("alibabaModel")}
                         aria-haspopup="listbox"
-                        aria-expanded={picker.isOpen("alibabaModel")}
+                          aria-expanded={picker.isExpanded("alibabaModel")}
                         aria-label={t("settings.alibabaModelLabel")}
                         onClick={() => picker.toggle("alibabaModel")}
                       >
@@ -2421,7 +2393,9 @@ export default function SettingsPage({
                                   try {
                                     await setAlibabaAsrModel(m);
                                     setAlibabaAsrModelState(m);
-                                  } catch {}
+                                  } catch {
+                                    // Keep the previous model when persistence fails.
+                                  }
                                   picker.close();
                                 }}
                               >
@@ -2582,7 +2556,7 @@ export default function SettingsPage({
                     className="picker-trigger"
                     data-open={picker.isOpen("recordingMode")}
                     aria-haspopup="listbox"
-                    aria-expanded={picker.isOpen("recordingMode")}
+                    aria-expanded={picker.isExpanded("recordingMode")}
                     aria-label={t("settings.recordingModeLabel")}
                     onClick={() => {
                       picker.toggle("recordingMode");
@@ -2662,7 +2636,7 @@ export default function SettingsPage({
                     className="picker-trigger microphone-select"
                     data-open={picker.isOpen("microphone")}
                     aria-haspopup="listbox"
-                    aria-expanded={picker.isOpen("microphone")}
+                    aria-expanded={picker.isExpanded("microphone")}
                     aria-label={t("settings.selectMic")}
                     disabled={deviceListLoading}
                     onClick={() => {
@@ -2889,7 +2863,7 @@ export default function SettingsPage({
                       className="picker-trigger"
                       data-open={picker.isOpen("provider")}
                       aria-haspopup="listbox"
-                      aria-expanded={picker.isOpen("provider")}
+                      aria-expanded={picker.isExpanded("provider")}
                       aria-label={t("settings.selectProvider")}
                       onClick={() => {
                         picker.toggle("provider");
@@ -2926,29 +2900,7 @@ export default function SettingsPage({
                                 <span>{desc}</span>
                                 <code>{baseUrl}</code>
                               </span>
-                              <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                                {isCustom && (
-                                  <span
-                                    role="button"
-                                    tabIndex={0}
-                                    style={{ padding: 2, cursor: "pointer", opacity: 0.5 }}
-                                    aria-label={t("settings.deleteProvider")}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void removeCustomProvider(key).then(async () => { await refreshProfile(); await refreshAiPolishKey(); });
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" || e.key === " ") {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        void removeCustomProvider(key).then(async () => { await refreshProfile(); await refreshAiPolishKey(); });
-                                      }
-                                    }}
-                                  >
-                                    <Trash2 size={12} />
-                                  </span>
-                                )}
-                              </span>
+                              {isCustom && <span className="picker-option-badge">{t("settings.customProvider")}</span>}
                             </button>
                           )) : (
                             <div className="picker-empty">{t("settings.noMatchingProvider")}</div>
@@ -2966,10 +2918,7 @@ export default function SettingsPage({
                               </span>
                             </button>
                           ) : (
-                            <div
-                              style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid var(--color-border)" }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
+                            <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid var(--color-border)" }}>
                               <input className="settings-input" placeholder={t("settings.providerName")} aria-label={t("settings.providerNameLabel")} value={newProviderName} onChange={(e) => setNewProviderName(e.target.value)} style={{ fontSize: 12 }} />
                               <input className="settings-input" placeholder="Base URL" aria-label={t("settings.providerBaseUrlLabel")} value={newProviderBaseUrl} onChange={(e) => setNewProviderBaseUrl(e.target.value)} style={{ fontSize: 12 }} />
                               <input className="settings-input" placeholder={t("settings.defaultModel")} aria-label={t("settings.defaultModelLabel")} value={newProviderModel} onChange={(e) => setNewProviderModel(e.target.value)} style={{ fontSize: 12 }} />
@@ -3034,6 +2983,22 @@ export default function SettingsPage({
                             </div>
                           )}
                         </div>
+                        {customProviders.some((provider) => provider.id === llmProvider) && (
+                          <button
+                            type="button"
+                            className="picker-popover-action is-danger"
+                            onClick={async () => {
+                              const providerId = llmProvider;
+                              await handleProviderSelect("openai");
+                              await removeCustomProvider(providerId);
+                              await refreshProfile();
+                              await refreshAiPolishKey();
+                            }}
+                          >
+                            <Trash2 size={12} aria-hidden="true" />
+                            {t("settings.deleteProvider")}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3133,7 +3098,7 @@ export default function SettingsPage({
                         className="picker-inline-button"
                         data-open={picker.isOpen("model")}
                         aria-haspopup="listbox"
-                        aria-expanded={picker.isOpen("model")}
+                        aria-expanded={picker.isExpanded("model")}
                         onClick={() => {
                           picker.toggle("model");
                         }}
@@ -3227,7 +3192,7 @@ export default function SettingsPage({
                       className="picker-trigger"
                       data-open={picker.isOpen("polishReasoning")}
                       aria-haspopup="listbox"
-                      aria-expanded={picker.isOpen("polishReasoning")}
+                      aria-expanded={picker.isExpanded("polishReasoning")}
                       aria-label={t("settings.polishReasoningLabel")}
                       disabled={polishReasoningModeDisabled}
                       onClick={() => {
@@ -3426,7 +3391,7 @@ export default function SettingsPage({
                         picker.toggle("assistantProvider");
                       }}
                       aria-haspopup="listbox"
-                      aria-expanded={picker.isOpen("assistantProvider")}
+                      aria-expanded={picker.isExpanded("assistantProvider")}
                     >
                       <span className="picker-trigger-copy">
                         <strong>{currentAssistantPreset.label}</strong>
@@ -3521,7 +3486,7 @@ export default function SettingsPage({
                         className="picker-inline-button"
                         data-open={picker.isOpen("assistantModel")}
                         aria-haspopup="listbox"
-                        aria-expanded={picker.isOpen("assistantModel")}
+                        aria-expanded={picker.isExpanded("assistantModel")}
                         onClick={() => {
                           picker.toggle("assistantModel");
                         }}
@@ -3625,7 +3590,7 @@ export default function SettingsPage({
                     className="picker-trigger"
                     data-open={picker.isOpen("assistantReasoning")}
                     aria-haspopup="listbox"
-                    aria-expanded={picker.isOpen("assistantReasoning")}
+                    aria-expanded={picker.isExpanded("assistantReasoning")}
                     aria-label={t("settings.assistantReasoningLabel")}
                     disabled={assistantReasoningModeDisabled}
                     onClick={() => {
@@ -3735,7 +3700,7 @@ export default function SettingsPage({
                         className="picker-trigger"
                         data-open={picker.isOpen("webSearchProvider")}
                         aria-haspopup="listbox"
-                        aria-expanded={picker.isOpen("webSearchProvider")}
+                        aria-expanded={picker.isExpanded("webSearchProvider")}
                         aria-label={t("settings.webSearchProvider")}
                         onClick={() => picker.toggle("webSearchProvider")}
                       >
@@ -3807,145 +3772,18 @@ export default function SettingsPage({
             </div>
           </section>
 
-          {/* Translation */}
-          <section className="settings-card" data-nav-id="translation">
-            <div className="settings-section-header">
-              <Languages size={15} className="icon-accent" />
-              <h2 className="settings-section-title">{t("settings.translation")}</h2>
-            </div>
-            <div className="settings-column" style={{ gap: 10 }}>
-              <div className="settings-row" style={{ alignItems: "center", gap: 10 }}>
-                <button
-                  className="theme-btn hotkey-capture-btn"
-                  onClick={() => translationHotkeyCapture.startCapture()}
-                  disabled={translationHotkeyCapture.saving}
-                  data-capturing={translationHotkeyCapture.capturing}
-                  style={{
-                    cursor: translationHotkeyCapture.saving ? "wait" : "pointer",
-                    opacity: translationHotkeyCapture.saving ? 0.7 : 1,
-                  }}
-                >
-                  {translationHotkeyCapture.capturing
-                    ? t("settings.pressTranslationHotkey")
-                    : translationHotkeyDisplay
-                      ? <Kbd combo={translationHotkeyDisplay} />
-                      : t("settings.noTranslationHotkey")}
-                </button>
-                <button
-                  className="btn-ghost"
-                  onClick={() => handleClearHotkey(setTranslationHotkey, setTranslationHotkeyDisplay, t("settings.translationHotkeyLabel"), translationHotkeyCapture.cancelCapture)}
-                  disabled={translationHotkeyCapture.saving}
-                  style={{
-                    fontSize: 12,
-                    padding: "8px 10px",
-                    cursor: translationHotkeyCapture.saving ? "wait" : "pointer",
-                    opacity: translationHotkeyCapture.saving ? 0.7 : 1,
-                  }}
-                >
-                  {t("common.clear")}
-                </button>
-              </div>
-              <p className="settings-hint" style={{ margin: 0 }}>
-                {t("settings.translationHint")}
-              </p>
-              <div className="settings-row">
-                <span className="permission-label">{translationTarget ? t("settings.targetLanguage", { language: translationTarget }) : t("settings.notEnabled")}</span>
-                <button
-                  className="btn-ghost"
-                  onClick={() => {
-                    setTranslationPickerOpen(v => !v);
-                    if (!translationPickerOpen) {
-                      setShowCustomLangInput(false);
-                      setCustomLangInput("");
-                    }
-                  }}
-                  style={{ fontSize: 12, padding: "6px 10px" }}
-                >
-                  {translationPickerOpen ? t("settings.collapse") : translationTarget ? t("settings.changeTarget") : t("settings.selectLanguage")}
-                </button>
-              </div>
-              {translationPickerOpen && (
-                <div className="settings-column" style={{ gap: 8 }}>
-                  <p className="settings-hint" style={{ margin: 0 }}>
-                    {t("settings.translationSelectHint")}
-                  </p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    <button
-                      type="button"
-                      className="picker-option"
-                      data-active={!translationTarget}
-                      onClick={() => void handleTranslationSelect(null)}
-                      style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
-                    >
-                      {t("settings.off")}
-                    </button>
-                    {["English", "日本語", "한국어", "Français", "Deutsch", "Español", "Русский", "Português"].map(lang => (
-                      <button
-                        key={lang}
-                        type="button"
-                        className="picker-option"
-                        data-active={translationTarget === lang}
-                        onClick={() => void handleTranslationSelect(lang)}
-                        style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
-                      >
-                        {lang}
-                      </button>
-                    ))}
-                    {translationTarget && !["English", "日本語", "한국어", "Français", "Deutsch", "Español", "Русский", "Português"].includes(translationTarget) && (
-                      <button
-                        type="button"
-                        className="picker-option"
-                        data-active={true}
-                        style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
-                      >
-                        {translationTarget}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="picker-option"
-                      data-active={showCustomLangInput}
-                      onClick={() => setShowCustomLangInput(v => !v)}
-                      style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12 }}
-                    >
-                      {t("settings.customLang")}
-                    </button>
-                  </div>
-                  {showCustomLangInput && (
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input
-                        type="text"
-                        className="settings-input"
-                        placeholder={t("settings.customLangPlaceholder")}
-                        aria-label={t("settings.customLangLabel")}
-                        value={customLangInput}
-                        onChange={e => setCustomLangInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === "Enter" && customLangInput.trim()) {
-                            void handleTranslationSelect(customLangInput.trim());
-                          }
-                        }}
-                        style={{ flex: 1 }}
-                        autoFocus
-                      />
-                      <button
-                        className="test-btn"
-                        disabled={!customLangInput.trim()}
-                        onClick={() => {
-                          if (customLangInput.trim()) {
-                            void handleTranslationSelect(customLangInput.trim());
-                          }
-                        }}
-                        style={{ padding: "7px 12px" }}
-                      >
-                        <Check size={14} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </section>
+          <TranslationSettingsSection
+            target={translationTarget}
+            hotkeyDisplay={translationHotkeyDisplay}
+            hotkeyCapture={translationHotkeyCapture}
+            onClearHotkey={() => handleClearHotkey(
+              setTranslationHotkey,
+              setTranslationHotkeyDisplay,
+              t("settings.translationHotkeyLabel"),
+              translationHotkeyCapture.cancelCapture,
+            )}
+            onSelectTarget={handleTranslationSelect}
+          />
 
           {/* Smart Vocabulary */}
           <section className="settings-card" data-nav-id="vocabulary">
@@ -4065,152 +3903,23 @@ export default function SettingsPage({
             </div>
           </section>
 
-          {/* Profile Export/Import */}
-          <section className="settings-card" data-nav-id="misc">
-            <div className="settings-section-header">
-              <Download size={15} className="icon-accent" />
-              <h2 className="settings-section-title">{t("settings.data")}</h2>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button
-                className="btn-ghost"
-                onClick={handleExportConfig}
-                style={{ flex: 1, fontSize: 12, padding: "8px" }}
-              >
-                <Download size={13} style={{ marginRight: 4 }} />{t("settings.exportConfig")}
-              </button>
-              <button
-                className="btn-ghost"
-                onClick={() => {
-                  const input = document.createElement("input");
-                  input.type = "file";
-                  input.accept = ".json";
-                  input.onchange = async (e) => {
-                    const file = (e.target as HTMLInputElement).files?.[0];
-                    if (!file) return;
-                    try {
-                      const text = await file.text();
-                      await importUserProfile(text);
-                      refreshProfile();
-                      await refreshAiPolishKey();
-                      toast.success(t("toast.configImported"));
-                    } catch { toast.error(t("toast.configImportFailed")); }
-                  };
-                  input.click();
-                }}
-                style={{ flex: 1, fontSize: 12, padding: "8px" }}
-              >
-                <Upload size={13} style={{ marginRight: 4 }} />{t("settings.importConfig")}
-              </button>
-            </div>
-            {lastExportPath ? (
-              <div className="export-path-row">
-                <div className="export-path-body">
-                  <span className="export-path-label">{t("settings.exportPath")}</span>
-                  <code className="export-path-value" title={lastExportPath}>
-                    {lastExportPath}
-                  </code>
-                </div>
-                <button
-                  type="button"
-                  className="export-path-copy"
-                  onClick={handleCopyExportPath}
-                  aria-label={t("settings.copyExportPath")}
-                  title={t("settings.copyExportPath")}
-                >
-                  <Copy size={13} />
-                </button>
-              </div>
-            ) : null}
-          </section>
-
-          {/* Permissions */}
-          <section className="settings-card">
-            <div className="settings-section-header">
-              <Accessibility size={15} className="icon-accent" />
-              <h2 className="settings-section-title">{t("settings.permissions")}</h2>
-            </div>
-            <div className="permission-list">
-              <div className="settings-row">
-                <div className="permission-item">
-                  <Accessibility size={14} className="icon-tertiary" />
-                  <span className="permission-label">{t("settings.accessibilityPaste")}</span>
-                </div>
-                <button className="test-btn" onClick={async () => {
-                  try {
-                    await pasteText(t("settings.testPasteContent"), inputMethod);
-                    toast.success(t("toast.pasteOk"));
-                  } catch { toast.error(t("toast.pasteFailed")); }
-                }}>{t("common.test")}</button>
-              </div>
-            </div>
-          </section>
-
-          {/* Startup */}
-          <section className="settings-card">
-            <div className="settings-section-header">
-              <Power size={15} className="icon-accent" />
-              <h2 className="settings-section-title">{t("settings.startup")}</h2>
-            </div>
-            <div className="settings-row">
-              <span className="permission-label">{t("settings.autostart")}</span>
-              <button
-                role="switch"
-                aria-checked={autostart}
-                aria-label={t("settings.autostart")}
-                onClick={handleAutostartToggle}
-                className="toggle-switch"
-                style={{
-                  background: autostart ? "var(--color-accent)" : "var(--color-bg-tertiary)",
-                }}
-              >
-                <div className="toggle-knob" style={{ transform: autostart ? "translateX(20px)" : "translateX(0)" }} />
-              </button>
-            </div>
-          </section>
-
-          <section className="settings-card">
-            <div className="settings-section-header">
-              <Download size={15} className="icon-accent" />
-              <h2 className="settings-section-title">{t("settings.update")}</h2>
-            </div>
-            <div className="settings-row" style={{ gap: 12 }}>
-              <div className="permission-item" style={{ alignItems: "flex-start", flex: 1, minWidth: 0 }}>
-                <Download size={14} className="icon-tertiary" />
-                <div className="settings-column" style={{ gap: 4, minWidth: 0 }}>
-                  <span className="permission-label">{t("settings.checkAppUpdate")}</span>
-                  <p className="settings-hint">
-                    {updateStatusText || t("settings.currentVersion", { version: appVersion || "..." })}
-                  </p>
-                  {latestAvailableVersion ? (
-                    <p className="settings-hint">
-                      {t("settings.newVersionAvailable", { version: latestAvailableVersion })}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-              <button
-                className="test-btn"
-                onClick={() => { void (latestAvailableVersion ? handleOpenReleasePage() : handleCheckForUpdates()); }}
-                disabled={updateChecking}
-                style={{
-                  flexShrink: 0,
-                  minWidth: 88,
-                  opacity: updateChecking ? 0.7 : 1,
-                  cursor: updateChecking ? "wait" : "pointer",
-                }}
-              >
-                {updateChecking ? t("settings.checking") : latestAvailableVersion ? t("settings.goToDownload") : t("settings.checkUpdate")}
-              </button>
-            </div>
-            {latestAvailableVersion ? (
-              <div className="settings-column" style={{ marginTop: 8, gap: 0 }}>
-                <p className="settings-hint" style={{ marginLeft: 24 }}>
-                  {t("settings.updateSource")}
-                </p>
-              </div>
-            ) : null}
-          </section>
+          <SystemSettingsSections
+            lastExportPath={lastExportPath}
+            autostart={autostart}
+            autostartLoading={autostartLoading}
+            appVersion={appVersion}
+            updateStatusText={updateStatusText}
+            latestAvailableVersion={latestAvailableVersion}
+            updateChecking={updateChecking}
+            onExport={() => { void handleExportConfig(); }}
+            onCopyExportPath={() => { void handleCopyExportPath(); }}
+            onImport={handleImportConfig}
+            onTestPaste={() => { void handleTestPaste(); }}
+            onToggleAutostart={() => { void handleAutostartToggle(); }}
+            onUpdateAction={() => {
+              void (latestAvailableVersion ? handleOpenReleasePage() : handleCheckForUpdates());
+            }}
+          />
         </div>
       </div>
 
@@ -4316,10 +4025,18 @@ function CorrectionRulesModal({
         background: "rgba(0, 0, 0, 0.35)",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}
-      onClick={onClose}
     >
+      <button
+        type="button"
+        aria-label={t("common.close")}
+        onClick={onClose}
+        style={{ position: "absolute", inset: 0, border: 0, padding: 0, background: "transparent", cursor: "default" }}
+      />
       <div
         className="animate-fade-in"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="correction-rules-title"
         style={{
           background: "var(--color-bg-primary)",
           borderRadius: "var(--radius-lg)",
@@ -4329,8 +4046,8 @@ function CorrectionRulesModal({
           display: "flex", flexDirection: "column",
           overflow: "hidden",
           border: "1px solid var(--color-border-subtle)",
+          position: "relative",
         }}
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div style={{
@@ -4338,7 +4055,7 @@ function CorrectionRulesModal({
           padding: "14px 16px 12px",
           borderBottom: "1px solid var(--color-border-subtle)",
         }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text-primary)", flex: 1 }}>
+          <span id="correction-rules-title" style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text-primary)", flex: 1 }}>
             {t("settings.correctionRules")}
           </span>
           <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
@@ -4435,6 +4152,7 @@ function CorrectionRulesModal({
             </label>
             <button
               className="toggle-switch"
+              role="switch"
               aria-checked={validationEnabled}
               onClick={async () => {
                 const next = !validationEnabled;
@@ -4459,6 +4177,7 @@ function CorrectionRulesModal({
                 </label>
                 <button
                   className="toggle-switch"
+                  role="switch"
                   aria-checked={validationUseSeparateModel}
                   onClick={async () => {
                     const next = !validationUseSeparateModel;

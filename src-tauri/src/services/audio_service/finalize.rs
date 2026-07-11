@@ -1,5 +1,5 @@
 use std::sync::atomic::Ordering;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{Emitter, Manager};
@@ -18,6 +18,8 @@ use crate::state::{
     RecordingSession, RecordingSnapshot, RecordingTrigger,
 };
 use crate::utils::{paths, AppError};
+
+const ASSISTANT_PIPELINE_TIMEOUT_SECS: u64 = 180;
 
 // ---------- 最终转写 + 粘贴 ----------
 
@@ -232,9 +234,9 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         let selected_text = edit_context.unwrap_or_default();
         // 编辑模式：ASR 结果是语音指令，用它改写选中文本
         log::info!(
-            "编辑模式：指令=\"{}\"，选中文本长度={}",
-            text,
-            selected_text.len()
+            "编辑模式：指令{}字符，选中文本{}字符",
+            text.chars().count(),
+            selected_text.chars().count()
         );
         match ai_polish_service::edit_text(
             state.inner(),
@@ -282,31 +284,49 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             }
         }
     } else if mode == RecordingMode::Assistant {
-        // 助手的搜索判断、搜索关键词和最终生成都应基于校正后的语音请求。
-        // 显式关闭翻译覆盖，避免“翻译输出”设置改变用户实际发给助手的指令。
         let original_request = text;
-        let assistant_request = ai_polish_service::polish_text(
-            state.inner(),
-            &original_request,
-            &app_handle,
-            session_id,
-            Some(None),
-        )
-        .await
-        .unwrap_or_else(|err| {
-            log::warn!("助手请求预润色失败，使用原始转写: {}", err);
-            original_request.clone()
-        });
+        let (assistant_generation, cancel_rx) =
+            crate::commands::assistant::begin_assistant_chat_task(state.inner());
+        let assistant_pipeline = async {
+            // 搜索判断、搜索关键词和最终生成都基于校正后的语音请求。
+            // 显式关闭翻译覆盖，避免“翻译输出”设置改变用户实际发给助手的指令。
+            let assistant_request = ai_polish_service::polish_text(
+                state.inner(),
+                &original_request,
+                &app_handle,
+                session_id,
+                Some(None),
+            )
+            .await
+            .unwrap_or_else(|err| {
+                log::warn!("助手请求预润色失败，使用原始转写: {}", err);
+                original_request.clone()
+            });
 
-        match assistant_service::generate_content(
-            state.inner(),
-            &assistant_request,
-            edit_context.as_deref(),
-            &app_handle,
-            session_id,
+            assistant_service::generate_content(
+                state.inner(),
+                &assistant_request,
+                edit_context.as_deref(),
+                &app_handle,
+                session_id,
+            )
+            .await
+        };
+        let timeout_message = format!(
+            "助手请求超时（{}秒），请重试",
+            ASSISTANT_PIPELINE_TIMEOUT_SECS
+        );
+        let assistant_result = crate::commands::assistant::run_cancellable_assistant_task(
+            assistant_pipeline,
+            cancel_rx,
+            Duration::from_secs(ASSISTANT_PIPELINE_TIMEOUT_SECS),
+            &timeout_message,
+            "助手请求已取消",
         )
-        .await
-        {
+        .await;
+        crate::commands::assistant::clear_assistant_chat_task(state.inner(), assistant_generation);
+
+        match assistant_result {
             Ok(result) => {
                 emit_done(
                     &app_handle,

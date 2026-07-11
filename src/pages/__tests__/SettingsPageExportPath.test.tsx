@@ -132,6 +132,7 @@ const labels: Record<string, string> = {
   "settings.exportConfig": "Export Config",
   "settings.exportPath": "Export path",
   "settings.importConfig": "Import Config",
+  "settings.autostart": "Launch at Login",
 };
 
 vi.mock("@/i18n", () => ({
@@ -287,6 +288,189 @@ describe("SettingsPage config export path", () => {
 
     await waitFor(() => {
       expect(tauriMock.copyToClipboard).toHaveBeenCalledWith(exportPath);
+    });
+  });
+});
+
+describe("SettingsPage autostart", () => {
+  it("confirms the persisted plugin state and renders the enabled switch", async () => {
+    tauriMock.isAutostartEnabled
+      .mockReset()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    tauriMock.enableAutostart.mockResolvedValue(undefined);
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const toggle = await screen.findByRole("switch", { name: "Launch at Login" });
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(toggle).not.toBeDisabled();
+    });
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(tauriMock.enableAutostart).toHaveBeenCalledTimes(1);
+      expect(tauriMock.isAutostartEnabled).toHaveBeenCalledTimes(2);
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      expect(toggle).not.toBeDisabled();
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "toast.autostartEnabled",
+        { duration: 1100 },
+      );
+    });
+  });
+
+  it("reverts to off and reports an error when enable rejects", async () => {
+    tauriMock.isAutostartEnabled.mockReset().mockResolvedValue(false);
+    tauriMock.enableAutostart.mockRejectedValueOnce(new Error("enable failed"));
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const toggle = await screen.findByRole("switch", { name: "Launch at Login" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(toggle).not.toBeDisabled();
+      expect(toastMock.error).toHaveBeenCalledWith("toast.autostartFailed");
+    });
+    expect(tauriMock.isAutostartEnabled).toHaveBeenCalledTimes(1);
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  it("treats a persisted-state mismatch as failure without a success toast", async () => {
+    tauriMock.isAutostartEnabled
+      .mockReset()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false);
+    tauriMock.enableAutostart.mockResolvedValueOnce(undefined);
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const toggle = await screen.findByRole("switch", { name: "Launch at Login" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(toggle).not.toBeDisabled();
+      expect(toastMock.error).toHaveBeenCalledWith("toast.autostartFailed");
+    });
+    expect(tauriMock.enableAutostart).toHaveBeenCalledTimes(1);
+    expect(tauriMock.isAutostartEnabled).toHaveBeenCalledTimes(2);
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  it("reverts to off when persisted-state confirmation rejects", async () => {
+    tauriMock.isAutostartEnabled
+      .mockReset()
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error("confirmation unavailable"));
+    tauriMock.enableAutostart.mockResolvedValueOnce(undefined);
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const toggle = await screen.findByRole("switch", { name: "Launch at Login" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(toggle).not.toBeDisabled();
+      expect(toastMock.error).toHaveBeenCalledWith("toast.autostartFailed");
+    });
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  it("disables autostart and confirms the persisted off state", async () => {
+    tauriMock.isAutostartEnabled
+      .mockReset()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    tauriMock.disableAutostart.mockResolvedValueOnce(undefined);
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const toggle = await screen.findByRole("switch", { name: "Launch at Login" });
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      expect(toggle).not.toBeDisabled();
+    });
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(tauriMock.disableAutostart).toHaveBeenCalledTimes(1);
+      expect(tauriMock.isAutostartEnabled).toHaveBeenCalledTimes(2);
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(toggle).not.toBeDisabled();
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "toast.autostartDisabled",
+        { duration: 1100 },
+      );
+    });
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("reverts to on and reports an error when disable rejects", async () => {
+    tauriMock.isAutostartEnabled.mockReset().mockResolvedValue(true);
+    tauriMock.disableAutostart.mockRejectedValueOnce(new Error("disable failed"));
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const toggle = await screen.findByRole("switch", { name: "Launch at Login" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      expect(toggle).not.toBeDisabled();
+      expect(toastMock.error).toHaveBeenCalledWith("toast.autostartFailed");
+    });
+    expect(tauriMock.isAutostartEnabled).toHaveBeenCalledTimes(1);
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  it("disables the switch and ignores repeated clicks while a write is pending", async () => {
+    let resolveEnable!: () => void;
+    const enablePending = new Promise<void>((resolve) => {
+      resolveEnable = resolve;
+    });
+    tauriMock.isAutostartEnabled
+      .mockReset()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    tauriMock.enableAutostart.mockReturnValueOnce(enablePending);
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const toggle = await screen.findByRole("switch", { name: "Launch at Login" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).toBeDisabled();
+      expect(toggle).toHaveAttribute("aria-busy", "true");
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+    });
+    fireEvent.click(toggle);
+    expect(tauriMock.enableAutostart).toHaveBeenCalledTimes(1);
+    expect(tauriMock.disableAutostart).not.toHaveBeenCalled();
+
+    resolveEnable();
+    await waitFor(() => {
+      expect(toggle).not.toBeDisabled();
+      expect(toggle).toHaveAttribute("aria-busy", "false");
+      expect(toggle).toHaveAttribute("aria-checked", "true");
     });
   });
 });

@@ -610,10 +610,10 @@ pub async fn polish_text(
     let request_elapsed_ms = request_start.elapsed().as_millis();
     let elapsed_ms = start.elapsed().as_millis();
     log::info!(
-        "AI 润色原始返回 (请求{}ms, 总{}ms): {}",
+        "AI 润色响应完成 (请求{}ms, 总{}ms, {}字符)",
         request_elapsed_ms,
         elapsed_ms,
-        &raw_content[..raw_content.len().min(500)]
+        raw_content.chars().count()
     );
 
     let (polished, corrections, key_terms) = match parse_structured_response(raw_content) {
@@ -636,8 +636,8 @@ pub async fn polish_text(
         }
         None => {
             log::warn!(
-                "AI 润色 JSON 解析失败，回退到字符 diff。原始内容: {}",
-                &raw_content[..raw_content.len().min(200)]
+                "AI 润色 JSON 解析失败，回退到字符 diff (响应{}字符)",
+                raw_content.chars().count()
             );
             (raw_content.to_string(), None, None)
         }
@@ -647,10 +647,10 @@ pub async fn polish_text(
 
     if changed {
         log::info!(
-            "AI 润色完成 ({}ms): \"{}\" -> \"{}\"",
+            "AI 润色完成 ({}ms, 原文{}字符, 结果{}字符, changed=true)",
             elapsed_ms,
-            text,
-            polished
+            text.chars().count(),
+            polished.chars().count()
         );
         emit_polish_status(app_handle, "applied", text, &polished, "", session_id);
     } else {
@@ -783,10 +783,10 @@ pub async fn edit_text(
     let result = extract_edit_result(raw_content).unwrap_or_else(|| raw_content.to_string());
 
     log::info!(
-        "编辑选中文本完成 ({}ms): 指令=\"{}\"，结果长度={}",
+        "编辑选中文本完成 ({}ms): 指令{}字符，结果{}字符",
         elapsed_ms,
-        instruction,
-        result.len()
+        instruction.chars().count(),
+        result.chars().count()
     );
     emit_polish_status(
         app_handle,
@@ -872,16 +872,10 @@ async fn build_polish_user_input(
             Ok(captured) => {
                 let capture_elapsed_ms = capture_start.elapsed().as_millis();
                 if !captured.is_empty() {
-                    let labels = captured
-                        .iter()
-                        .map(|image| image.label.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ");
                     log::info!(
-                        "AI 润色已附带屏幕截图上下文 ({}ms): {} 张 ({})",
+                        "AI 润色已附带屏幕截图上下文 ({}ms): {} 张",
                         capture_elapsed_ms,
-                        captured.len(),
-                        labels
+                        captured.len()
                     );
                 } else {
                     log::info!(

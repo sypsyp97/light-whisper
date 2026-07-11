@@ -336,6 +336,13 @@ export function cancelAssistantConversation(): Promise<boolean> {
   return invokeCommand<boolean>("cancel_assistant_conversation");
 }
 
+export function retryAssistantRequest(params: {
+  sessionId: number;
+  request: string;
+}): Promise<string> {
+  return invokeCommand<string>("retry_assistant_request", params);
+}
+
 export function openAssistantSource(url: string): Promise<string> {
   return invokeCommand<string>("open_assistant_source", { url });
 }

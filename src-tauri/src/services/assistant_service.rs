@@ -1,4 +1,5 @@
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use chrono::{DateTime, FixedOffset, Local, SecondsFormat};
 use serde::{Deserialize, Serialize};
@@ -663,6 +664,7 @@ async fn generate_content_inner(
     session_id: u64,
     stream_event: &'static str,
 ) -> Result<String, AppError> {
+    let request_started = Instant::now();
     let assistant_provider =
         state.with_profile(|profile| profile.llm_provider.resolve_assistant_provider());
     let assistant_manual_api_key = {
@@ -718,11 +720,14 @@ async fn generate_content_inner(
             "sessionId": session_id,
             "status": "started",
             "request": asr_text,
+            "searchProvider": effective_ws.provider,
+            "webSearchEnabled": effective_ws.enabled,
         }),
     );
 
     let system_prompt = state.with_profile(build_assistant_system_prompt);
     let mut external_search_context = None;
+    let mut search_elapsed_ms = None;
 
     // ── 联网搜索 ──
     // 先用本地意图判断避免无关搜索；实时/事实/显式查询再进入搜索路径。
@@ -752,17 +757,21 @@ async fn generate_content_inner(
                 "sessionId": session_id,
                 "status": "searching",
                 "query": search_query,
+                "searchProvider": effective_ws.provider,
             }),
         );
 
+        let search_started = Instant::now();
         match run_third_party_search(state, &effective_ws, &search_query).await {
             Ok(results) => {
+                let elapsed_ms = search_started.elapsed().as_millis() as u64;
+                search_elapsed_ms = Some(elapsed_ms);
                 let results = web_search_service::dedupe_search_results(results);
                 log::info!(
-                    "联网搜索({:?})返回 {} 条去重结果: query={}",
+                    "联网搜索({:?})返回 {} 条去重结果 (查询{}字符)",
                     effective_ws.provider,
                     results.len(),
-                    search_query
+                    search_query.chars().count()
                 );
                 let _ = app_handle.emit(
                     stream_event,
@@ -770,12 +779,16 @@ async fn generate_content_inner(
                         "sessionId": session_id,
                         "status": "search_complete",
                         "query": search_query,
+                        "searchProvider": effective_ws.provider,
+                        "elapsedMs": elapsed_ms,
                         "sources": search_source_payloads(&results),
                     }),
                 );
                 external_search_context = Some(web_search_service::render_search_context(&results));
             }
             Err(err) => {
+                let elapsed_ms = search_started.elapsed().as_millis() as u64;
+                search_elapsed_ms = Some(elapsed_ms);
                 log::warn!(
                     "联网搜索({:?})失败，继续无搜索上下文: {err}",
                     effective_ws.provider
@@ -786,6 +799,8 @@ async fn generate_content_inner(
                         "sessionId": session_id,
                         "status": "search_error",
                         "query": search_query,
+                        "searchProvider": effective_ws.provider,
+                        "elapsedMs": elapsed_ms,
                         "message": err,
                     }),
                 );
@@ -830,16 +845,7 @@ async fn generate_content_inner(
         match screen_capture_service::capture_full_screen_context_async().await {
             Ok(captured) => {
                 if !captured.is_empty() {
-                    let labels = captured
-                        .iter()
-                        .map(|image| image.label.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    log::info!(
-                        "助手模式已附带屏幕截图上下文: {} 张 ({})",
-                        captured.len(),
-                        labels
-                    );
+                    log::info!("助手模式已附带屏幕截图上下文: {} 张", captured.len());
                 }
                 captured
                     .into_iter()
@@ -993,6 +999,9 @@ async fn generate_content_inner(
         serde_json::json!({
             "sessionId": session_id,
             "status": "done",
+            "elapsedMs": request_started.elapsed().as_millis() as u64,
+            "searchElapsedMs": search_elapsed_ms,
+            "searchProvider": effective_ws.provider,
         }),
     );
 

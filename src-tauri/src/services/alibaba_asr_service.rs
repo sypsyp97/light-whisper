@@ -129,7 +129,10 @@ async fn transcribe_via_dashscope_asr(
         .unwrap_or_default();
 
     if text_out.is_empty() {
-        log::warn!("DashScope ASR 返回空文本，原始响应: {}", text);
+        log::warn!(
+            "DashScope ASR 返回空文本 (响应{}字符)",
+            text.chars().count()
+        );
     }
 
     Ok(TranscriptionResult {

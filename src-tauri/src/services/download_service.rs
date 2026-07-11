@@ -58,7 +58,11 @@ where
         }
     }
 
-    log::warn!("{}收到非JSON输出: {}", context, trimmed);
+    log::warn!(
+        "{}收到非 JSON 输出（{}字符）",
+        context,
+        trimmed.chars().count()
+    );
     None
 }
 
