@@ -22,7 +22,7 @@
  *   import constants from the component so the test acts as an external
  *   spec assertion rather than a tautology.
  */
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoisted: shared handler registry for the mocked `@tauri-apps/api/event`.
@@ -52,7 +52,10 @@ const tauriEvents = vi.hoisted(() => {
 });
 
 const tauriApiMocks = vi.hoisted(() => ({
+  cancelAssistantConversation: vi.fn(),
+  continueAssistantConversation: vi.fn(),
   getRecordingSnapshot: vi.fn(),
+  openAssistantSource: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -60,9 +63,12 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("@/api/tauri", () => ({
+  cancelAssistantConversation: tauriApiMocks.cancelAssistantConversation,
+  continueAssistantConversation: tauriApiMocks.continueAssistantConversation,
   copyToClipboard: vi.fn(async () => undefined),
   getRecordingSnapshot: tauriApiMocks.getRecordingSnapshot,
   hideSubtitleWindow: vi.fn(async () => undefined),
+  openAssistantSource: tauriApiMocks.openAssistantSource,
 }));
 
 vi.mock("react-i18next", () => {
@@ -98,6 +104,12 @@ beforeEach(() => {
   tauriEvents.reset();
   tauriApiMocks.getRecordingSnapshot.mockReset();
   tauriApiMocks.getRecordingSnapshot.mockResolvedValue(null);
+  tauriApiMocks.cancelAssistantConversation.mockReset();
+  tauriApiMocks.cancelAssistantConversation.mockResolvedValue(false);
+  tauriApiMocks.continueAssistantConversation.mockReset();
+  tauriApiMocks.continueAssistantConversation.mockResolvedValue("follow-up response");
+  tauriApiMocks.openAssistantSource.mockReset();
+  tauriApiMocks.openAssistantSource.mockResolvedValue("opened");
   // jsdom does not provide window.matchMedia; SubtitleOverlay's theme effect
   // calls it on mount and registers a "change" listener.
   Object.defineProperty(window, "matchMedia", {
@@ -639,6 +651,7 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     const bars = Array.from(container.querySelectorAll<HTMLElement>(".subtitle-waveform-indicator-bar"));
     expect(bars).toHaveLength(9);
     expect(bars.every((bar) => bar.style.height === "2px")).toBe(true);
+    expect(container.querySelector(".subtitle-status-indicator > .subtitle-waveform-indicator")).not.toBeNull();
   });
 
   it("P. ignores a late same-session Starting snapshot after live Recording wins", async () => {
@@ -694,6 +707,7 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     const startingBars = Array.from(container.querySelectorAll<HTMLElement>(".subtitle-waveform-indicator-bar"));
     expect(startingBars).toHaveLength(9);
     expect(startingBars.every((bar) => bar.style.height === "2px")).toBe(true);
+    expect(startingIndicator?.parentElement).toHaveClass("subtitle-status-indicator");
 
     await act(async () => {
       tauriEvents.emit("recording-state", {
@@ -1021,5 +1035,269 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     expect(readSubtitleText(container)).not.toContain("late content");
     expect(screen.queryByText("subtitle.aiGenerating")).not.toBeInTheDocument();
     expect(container.querySelector(".subtitle-capsule")?.classList.contains("subtitle-fade-out")).toBe(true);
+  });
+
+  it("AA. turns an assistant result into a contextual conversation", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 103,
+        revision: 1,
+        phase: "processing",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: true,
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 103,
+        status: "started",
+        request: "比较两个发布方案",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 103,
+        text: "方案一更快，方案二更稳。",
+        interim: false,
+        mode: "assistant",
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "subtitle.conversation.open" }));
+    const dialog = screen.getByRole("dialog", { name: "subtitle.conversation.title" });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText("方案一更快，方案二更稳。")).toBeInTheDocument();
+    expect(dialog.querySelector(".subtitle-conversation-assistant-mark")).not.toBeNull();
+    expect(screen.getByLabelText("subtitle.conversation.history")).toHaveAttribute("tabindex", "0");
+
+    const input = screen.getByLabelText("subtitle.conversation.placeholder") as HTMLTextAreaElement;
+    expect(input.rows).toBe(1);
+    fireEvent.change(input, { target: { value: "第二个方案有什么风险？" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+    await act(async () => {
+      for (let index = 0; index < 6; index += 1) await Promise.resolve();
+    });
+
+    expect(tauriApiMocks.continueAssistantConversation).toHaveBeenCalledWith({
+      sessionId: 103,
+      initialRequest: "比较两个发布方案",
+      initialResponse: "方案一更快，方案二更稳。",
+      history: [],
+      message: "第二个方案有什么风险？",
+    });
+    expect(screen.getByText("follow-up response")).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "怎么降低这些风险？" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+    await act(async () => {
+      for (let index = 0; index < 6; index += 1) await Promise.resolve();
+    });
+
+    expect(tauriApiMocks.continueAssistantConversation).toHaveBeenNthCalledWith(2, {
+      sessionId: 103,
+      initialRequest: "比较两个发布方案",
+      initialResponse: "方案一更快，方案二更稳。",
+      history: [
+        { role: "user", content: "第二个方案有什么风险？" },
+        { role: "assistant", content: "follow-up response" },
+      ],
+      message: "怎么降低这些风险？",
+    });
+  });
+
+  it("AB. renders search sources as clickable actions", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 104,
+        revision: 1,
+        phase: "processing",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: true,
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 104,
+        status: "started",
+        request: "查一下 OpenAI 文档",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 104,
+        status: "search_complete",
+        sources: [{ title: "OpenAI Docs", url: "https://developers.openai.com" }],
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 104,
+        text: "这是查到的结果。",
+        interim: false,
+        mode: "assistant",
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "OpenAI Docs" }));
+
+    expect(tauriApiMocks.openAssistantSource).toHaveBeenCalledWith(
+      "https://developers.openai.com",
+    );
+  });
+
+  it("AC. can close a busy conversation and ignores its late response", async () => {
+    let resolveRequest: ((value: string) => void) | undefined;
+    tauriApiMocks.continueAssistantConversation.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveRequest = resolve;
+      }),
+    );
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 105,
+        revision: 1,
+        phase: "processing",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: true,
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 105,
+        status: "started",
+        request: "比较两个方案",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 105,
+        text: "初始回答",
+        interim: false,
+        mode: "assistant",
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "subtitle.conversation.open" }));
+    const input = screen.getByLabelText("subtitle.conversation.placeholder");
+    fireEvent.change(input, { target: { value: "继续说明" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+    const cancellationsBeforeClose = tauriApiMocks.cancelAssistantConversation.mock.calls.length;
+
+    const closeButton = screen.getByRole("button", { name: "subtitle.conversation.close" });
+    expect(closeButton).not.toBeDisabled();
+    fireEvent.click(closeButton);
+
+    expect(tauriApiMocks.cancelAssistantConversation).toHaveBeenCalledTimes(
+      cancellationsBeforeClose + 1,
+    );
+    expect(screen.queryByRole("dialog", { name: "subtitle.conversation.title" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveRequest?.("stale response");
+      for (let index = 0; index < 4; index += 1) await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "subtitle.conversation.open" }));
+
+    expect(screen.queryByText("stale response")).not.toBeInTheDocument();
+  });
+
+  it("AD. preserves the reader's scroll position while follow-up text streams", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 106,
+        revision: 1,
+        phase: "processing",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: true,
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 106,
+        status: "started",
+        request: "解释这个方案",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 106,
+        text: "初始回答",
+        interim: false,
+        mode: "assistant",
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "subtitle.conversation.open" }));
+    const history = screen.getByLabelText("subtitle.conversation.history");
+    Object.defineProperty(history, "scrollHeight", { configurable: true, value: 500 });
+    Object.defineProperty(history, "clientHeight", { configurable: true, value: 100 });
+    history.scrollTop = 100;
+    fireEvent.scroll(history);
+
+    await act(async () => {
+      tauriEvents.emit("assistant-chat-stream", {
+        sessionId: 106,
+        chunk: "流式补充",
+      });
+      await Promise.resolve();
+    });
+
+    expect(history.scrollTop).toBe(100);
+  });
+
+  it("AE. renders the polish indicator inside a fixed alignment slot", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 107,
+        revision: 1,
+        phase: "processing",
+        isStarting: false,
+        isRecording: false,
+        isProcessing: true,
+        mode: "dictation",
+      });
+      tauriEvents.emit("ai-polish-status", {
+        sessionId: 107,
+        status: "polishing",
+      });
+    });
+
+    expect(container.querySelector(".subtitle-status-indicator > .subtitle-dot-polishing")).not.toBeNull();
+    expect(screen.getByText("subtitle.polishing")).toBeInTheDocument();
+  });
+
+  it("AF. reuses one alignment slot from waveform to polishing", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 108,
+        revision: 1,
+        isStarting: false,
+        isRecording: true,
+        isProcessing: false,
+        mode: "dictation",
+      });
+    });
+    const waveformSlot = container.querySelector(".subtitle-status-indicator");
+    expect(waveformSlot?.querySelector(".subtitle-waveform-indicator")).not.toBeNull();
+
+    await act(async () => {
+      tauriEvents.emit("ai-polish-status", {
+        sessionId: 108,
+        status: "polishing",
+      });
+    });
+
+    const polishingSlot = container.querySelector(".subtitle-status-indicator");
+    expect(polishingSlot).toBe(waveformSlot);
+    expect(polishingSlot?.querySelector(".subtitle-dot-polishing")).not.toBeNull();
   });
 });

@@ -282,9 +282,25 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             }
         }
     } else if mode == RecordingMode::Assistant {
+        // 助手的搜索判断、搜索关键词和最终生成都应基于校正后的语音请求。
+        // 显式关闭翻译覆盖，避免“翻译输出”设置改变用户实际发给助手的指令。
+        let original_request = text;
+        let assistant_request = ai_polish_service::polish_text(
+            state.inner(),
+            &original_request,
+            &app_handle,
+            session_id,
+            Some(None),
+        )
+        .await
+        .unwrap_or_else(|err| {
+            log::warn!("助手请求预润色失败，使用原始转写: {}", err);
+            original_request.clone()
+        });
+
         match assistant_service::generate_content(
             state.inner(),
-            &text,
+            &assistant_request,
             edit_context.as_deref(),
             &app_handle,
             session_id,
@@ -298,7 +314,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     subtitle_show_gen,
                     mode,
                     &result,
-                    &text,
+                    &original_request,
                     duration_sec,
                     false,
                     lang_ref,

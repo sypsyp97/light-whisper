@@ -206,6 +206,11 @@ export function listAiModels(
   });
 }
 
+export interface AssistantConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
 // Profile commands
 export const getUserProfile = createNoArgCommand<UserProfile>("get_user_profile");
 
@@ -315,6 +320,24 @@ export function setAssistantSystemPrompt(prompt: string | null): Promise<void> {
 
 export function setAssistantScreenContextEnabled(enabled: boolean): Promise<void> {
   return invokeCommand<void>("set_assistant_screen_context_enabled", { enabled });
+}
+
+export function continueAssistantConversation(params: {
+  sessionId: number;
+  initialRequest: string;
+  initialResponse: string;
+  history: AssistantConversationTurn[];
+  message: string;
+}): Promise<string> {
+  return invokeCommand<string>("continue_assistant_conversation", params);
+}
+
+export function cancelAssistantConversation(): Promise<boolean> {
+  return invokeCommand<boolean>("cancel_assistant_conversation");
+}
+
+export function openAssistantSource(url: string): Promise<string> {
+  return invokeCommand<string>("open_assistant_source", { url });
 }
 
 export function setWebSearchConfig(

@@ -370,6 +370,13 @@ pub struct UiState {
     pub input_method: Arc<parking_lot::Mutex<String>>,
     pub sound_enabled: Arc<AtomicBool>,
     pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
+    pub assistant_chat_generation: AtomicU64,
+    pub assistant_chat_cancel: Arc<parking_lot::Mutex<Option<AssistantChatTask>>>,
+}
+
+pub struct AssistantChatTask {
+    pub generation: u64,
+    pub cancel: oneshot::Sender<()>,
 }
 
 impl Default for UiState {
@@ -378,6 +385,8 @@ impl Default for UiState {
             input_method: Arc::new(parking_lot::Mutex::new("sendInput".into())),
             sound_enabled: Arc::new(AtomicBool::new(true)),
             hotkey_diagnostic: Default::default(),
+            assistant_chat_generation: AtomicU64::new(0),
+            assistant_chat_cancel: Default::default(),
         }
     }
 }

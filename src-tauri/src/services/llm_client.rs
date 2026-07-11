@@ -470,6 +470,68 @@ fn emit_stream_error_event(
     }
 }
 
+fn url_citation_payload(value: &Value) -> Option<Value> {
+    if value["type"].as_str() != Some("url_citation") {
+        return None;
+    }
+    let url = value["url"].as_str()?.trim();
+    if url.is_empty() {
+        return None;
+    }
+    let title = value["title"].as_str().unwrap_or(url).trim();
+    Some(serde_json::json!({
+        "title": if title.is_empty() { url } else { title },
+        "url": url,
+    }))
+}
+
+fn collect_url_citation_payloads(value: &Value, citations: &mut Vec<Value>) {
+    if let Some(citation) = url_citation_payload(value) {
+        if !citations
+            .iter()
+            .any(|existing| existing["url"] == citation["url"])
+        {
+            citations.push(citation);
+        }
+    }
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_url_citation_payloads(item, citations);
+            }
+        }
+        Value::Object(map) => {
+            for item in map.values() {
+                collect_url_citation_payloads(item, citations);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn emit_stream_citations(
+    app_handle: Option<&tauri::AppHandle>,
+    event_name: Option<&str>,
+    session_id: Option<u64>,
+    value: &Value,
+) {
+    let (Some(app_handle), Some(event_name)) = (app_handle, event_name) else {
+        return;
+    };
+    let mut citations = Vec::new();
+    collect_url_citation_payloads(value, &mut citations);
+    for source in citations {
+        let mut payload = serde_json::json!({
+            "status": "citation",
+            "source": source,
+        });
+        if let Some(session_id) = session_id {
+            payload["sessionId"] = serde_json::json!(session_id);
+        }
+        let _ = app_handle.emit(event_name, payload);
+    }
+}
+
 fn stream_read_budget_at(
     now: tokio::time::Instant,
     started_at: tokio::time::Instant,
@@ -604,6 +666,7 @@ pub async fn read_sse_stream(
                     );
                 }
                 if let Ok(json) = serde_json::from_str::<Value>(data) {
+                    emit_stream_citations(app_handle, event_name, session_id, &json);
                     if let Some(message) = json["error"]["message"].as_str() {
                         let message = format!("OpenAI 流式错误: {}", message);
                         emit_stream_error_event(app_handle, event_name, session_id, &message);
@@ -700,6 +763,8 @@ pub async fn read_openai_responses_sse_stream(
                 let Ok(json) = serde_json::from_str::<Value>(data) else {
                     continue;
                 };
+
+                emit_stream_citations(app_handle, event_name, session_id, &json);
 
                 if fallback_content.is_none() {
                     fallback_content = extract_content(endpoint, &json)
@@ -1505,11 +1570,12 @@ pub async fn send_llm_request(
 mod tests {
     use super::{
         adapt_body_for_backend, apply_responses_done_text, build_llm_body,
-        build_stream_event_payload, dynamic_timeout, ensure_non_empty_llm_content,
-        extract_api_error_message, extract_content, extract_openai_compat_error_message,
-        finalize_responses_sse_accumulated, is_retryable_overload_error,
-        looks_like_output_token_limit_unsupported_error, stream_read_budget_at, LlmRequestOptions,
-        LlmUserInput, OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
+        build_stream_event_payload, collect_url_citation_payloads, dynamic_timeout,
+        ensure_non_empty_llm_content, extract_api_error_message, extract_content,
+        extract_openai_compat_error_message, finalize_responses_sse_accumulated,
+        is_retryable_overload_error, looks_like_output_token_limit_unsupported_error,
+        stream_read_budget_at, LlmRequestOptions, LlmUserInput,
+        OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
     };
     use crate::services::codex_oauth_service;
     use crate::services::llm_provider::LlmEndpoint;
@@ -1708,6 +1774,33 @@ mod tests {
         assert_eq!(payload["tokens"], serde_json::json!(3));
         assert_eq!(payload["sessionId"], serde_json::json!(7));
         assert!(payload.get("partialText").is_none());
+    }
+
+    #[test]
+    fn responses_citation_parser_collects_unique_sources() {
+        let response = serde_json::json!({
+            "output": [{
+                "type": "message",
+                "content": [{
+                    "type": "output_text",
+                    "annotations": [
+                        {"type": "url_citation", "title": "OpenAI", "url": "https://openai.com"},
+                        {"type": "url_citation", "title": "Duplicate", "url": "https://openai.com"},
+                        {"type": "url_citation", "title": "Docs", "url": "https://developers.openai.com"}
+                    ]
+                }]
+            }]
+        });
+        let mut citations = Vec::new();
+
+        collect_url_citation_payloads(&response, &mut citations);
+
+        assert_eq!(citations.len(), 2);
+        assert_eq!(citations[0]["title"], serde_json::json!("OpenAI"));
+        assert_eq!(
+            citations[1]["url"],
+            serde_json::json!("https://developers.openai.com")
+        );
     }
 
     #[test]

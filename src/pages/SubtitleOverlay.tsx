@@ -1,10 +1,24 @@
-import { useState, useEffect, useRef, useCallback, type UIEvent, type MouseEvent } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type UIEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
+import { Copy, ExternalLink, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import {
+  cancelAssistantConversation,
+  continueAssistantConversation,
   copyToClipboard,
   getRecordingSnapshot,
   hideSubtitleWindow,
+  openAssistantSource,
+  type AssistantConversationTurn,
   type RecordingOutcomeKind,
   type RecordingSnapshot,
 } from "@/api/tauri";
@@ -53,6 +67,27 @@ interface RecordingOutcome {
   detail?: string;
 }
 
+interface AssistantSource {
+  title: string;
+  url: string;
+  publishedDate?: string | null;
+}
+
+interface AssistantStreamEvent {
+  sessionId?: number;
+  chunk?: string;
+  status?: string;
+  request?: string;
+  message?: string;
+  source?: AssistantSource;
+  sources?: AssistantSource[];
+}
+
+interface ConversationMessage extends AssistantConversationTurn {
+  id: number;
+  sources?: AssistantSource[];
+}
+
 type Phase = "idle" | "starting" | "recording" | "processing" | "searching" | "polishing" | "result" | "outcome";
 const RESULT_FADE_DELAY_MS = 2000;
 // Fade animation is ~300ms; add ~100ms buffer. Total ~2400ms — fires before the
@@ -88,6 +123,20 @@ function normalizeWaveformBars(bars: number[]): number[] {
   });
 }
 
+function mergeAssistantSources(
+  current: AssistantSource[],
+  incoming: AssistantSource[],
+): AssistantSource[] {
+  const merged = [...current];
+  const seen = new Set(current.map((source) => source.url));
+  for (const source of incoming) {
+    if (!source?.url || seen.has(source.url)) continue;
+    seen.add(source.url);
+    merged.push(source);
+  }
+  return merged.slice(0, 10);
+}
+
 export default function SubtitleOverlay() {
   // 初始 "idle"：窗口预创建后隐藏，等待录音事件时切换状态
   const [phase, setPhase] = useState<Phase>("idle");
@@ -101,6 +150,15 @@ export default function SubtitleOverlay() {
   const [waveformBars, setWaveformBars] = useState<number[]>(EMPTY_WAVEFORM_BARS);
   const [mode, setMode] = useState<"dictation" | "assistant">("dictation");
   const [assistantCopied, setAssistantCopied] = useState(false);
+  const [assistantRequest, setAssistantRequest] = useState("");
+  const [assistantSources, setAssistantSources] = useState<AssistantSource[]>([]);
+  const [assistantSearchError, setAssistantSearchError] = useState(false);
+  const [conversationOpen, setConversationOpen] = useState(false);
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
+  const [conversationInput, setConversationInput] = useState("");
+  const [conversationBusy, setConversationBusy] = useState(false);
+  const [conversationDraft, setConversationDraft] = useState("");
+  const [conversationError, setConversationError] = useState<string | null>(null);
   // Smoothly drain the streaming source so chunks never snap in.
   // Works for both assistant streaming (polishing phase) and interim dictation.
   const smoothText = useSmoothText(text);
@@ -112,6 +170,15 @@ export default function SubtitleOverlay() {
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const assistantTextRef = useRef<HTMLDivElement | null>(null);
+  const conversationListRef = useRef<HTMLDivElement | null>(null);
+  const conversationInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const conversationInitialResponseRef = useRef("");
+  const conversationDraftRef = useRef("");
+  const conversationTurnSourcesRef = useRef<AssistantSource[]>([]);
+  const conversationMessageIdRef = useRef(0);
+  const conversationOpenRef = useRef(false);
+  const conversationRequestGenerationRef = useRef(0);
+  const conversationShouldAutoScrollRef = useRef(true);
   const shouldAutoScrollRef = useRef(true);
   const assistantPanelActive = mode === "assistant" && (
     phase === "searching"
@@ -120,11 +187,31 @@ export default function SubtitleOverlay() {
     || (phase === "outcome" && text.trim().length > 0)
   );
   const interactiveAssistantResult = mode === "assistant" && phase === "result" && text.trim().length > 0;
+  const assistantInteractive = interactiveAssistantResult || conversationOpen;
   const { t, i18n } = useTranslation();
 
   const updatePhase = useCallback((nextPhase: Phase) => {
     phaseRef.current = nextPhase;
     setPhase(nextPhase);
+  }, []);
+
+  const resetConversationState = useCallback(() => {
+    conversationOpenRef.current = false;
+    conversationRequestGenerationRef.current += 1;
+    conversationShouldAutoScrollRef.current = true;
+    void cancelAssistantConversation().catch(() => undefined);
+    setAssistantRequest("");
+    setAssistantSources([]);
+    setAssistantSearchError(false);
+    setConversationOpen(false);
+    setConversationMessages([]);
+    setConversationInput("");
+    setConversationBusy(false);
+    setConversationDraft("");
+    setConversationError(null);
+    conversationInitialResponseRef.current = "";
+    conversationDraftRef.current = "";
+    conversationTurnSourcesRef.current = [];
   }, []);
 
   const prepareLiveEvent = useCallback((
@@ -142,6 +229,7 @@ export default function SubtitleOverlay() {
       latestRevisionRef.current = -1;
       pairedOutcomeRevisionRef.current = null;
       terminalSessionIdRef.current = 0;
+      resetConversationState();
     }
     // Revision-less payloads exist only in legacy frontend tests. Once a real
     // revision fence exists for a session, an unversioned event cannot cross it.
@@ -152,7 +240,7 @@ export default function SubtitleOverlay() {
     }
 
     return { sessionId, revision: isValidRevision(revision) ? revision : null, isNewSession };
-  }, []);
+  }, [resetConversationState]);
 
   const clearFadeTimer = useCallback(() => {
     if (fadeTimerRef.current) {
@@ -478,8 +566,8 @@ export default function SubtitleOverlay() {
 
     void (async () => {
       try {
-        unlisten = await listen<{ sessionId?: number; chunk?: string; status?: string }>("assistant-stream", (event) => {
-          const { sessionId, chunk, status } = event.payload;
+        unlisten = await listen<AssistantStreamEvent>("assistant-stream", (event) => {
+          const { sessionId, chunk, status, request, source, sources } = event.payload;
           if (sessionId === terminalSessionIdRef.current) return;
           if (typeof sessionId === "number") {
             if (sessionId < latestSessionIdRef.current) return;
@@ -496,6 +584,7 @@ export default function SubtitleOverlay() {
             setResultStage(null);
             setOutcome(null);
             setAssistantCopied(false);
+            if (request?.trim()) setAssistantRequest(request.trim());
             shouldAutoScrollRef.current = true;
             updatePhase("polishing");
             return;
@@ -505,6 +594,22 @@ export default function SubtitleOverlay() {
             clearFadeTimer();
             setFadingOut(false);
             updatePhase("searching");
+            return;
+          }
+
+          if (status === "search_complete" && Array.isArray(sources)) {
+            setAssistantSources((current) => mergeAssistantSources(current, sources));
+            setAssistantSearchError(false);
+            return;
+          }
+
+          if (status === "citation" && source) {
+            setAssistantSources((current) => mergeAssistantSources(current, [source]));
+            return;
+          }
+
+          if (status === "search_error") {
+            setAssistantSearchError(true);
             return;
           }
 
@@ -530,6 +635,76 @@ export default function SubtitleOverlay() {
       unlisten?.();
     };
   }, [clearFadeTimer, updatePhase]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        unlisten = await listen<AssistantStreamEvent>("assistant-chat-stream", (event) => {
+          const { sessionId, chunk, status, source, sources, message } = event.payload;
+          if (sessionId !== latestSessionIdRef.current || !conversationOpenRef.current) return;
+
+          if (status === "started") {
+            conversationDraftRef.current = "";
+            conversationTurnSourcesRef.current = [];
+            setConversationDraft("");
+            setConversationError(null);
+            return;
+          }
+
+          if (status === "searching") {
+            setConversationError(null);
+            return;
+          }
+
+          if (status === "search_complete" && Array.isArray(sources)) {
+            conversationTurnSourcesRef.current = mergeAssistantSources(
+              conversationTurnSourcesRef.current,
+              sources,
+            );
+            return;
+          }
+
+          if (status === "citation" && source) {
+            conversationTurnSourcesRef.current = mergeAssistantSources(
+              conversationTurnSourcesRef.current,
+              [source],
+            );
+            return;
+          }
+
+          if (status === "search_error") {
+            setConversationError(t("subtitle.conversation.searchFailed"));
+            return;
+          }
+
+          if (status === "error") {
+            setConversationError(message || t("subtitle.conversation.sendFailed"));
+            return;
+          }
+
+          if (chunk) {
+            conversationDraftRef.current += chunk;
+            setConversationDraft(conversationDraftRef.current);
+          }
+        });
+
+        if (disposed && unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      } catch {
+        setConversationError(t("subtitle.conversation.sendFailed"));
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [t]);
 
   // 监听录音波形数据
   useEffect(() => {
@@ -569,6 +744,30 @@ export default function SubtitleOverlay() {
     if (!node || !shouldAutoScrollRef.current) return;
     node.scrollTop = node.scrollHeight;
   }, [assistantPanelActive, smoothText]);
+
+  useEffect(() => {
+    if (!conversationOpen) return;
+    const frame = window.requestAnimationFrame(() => conversationInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [conversationOpen]);
+
+  useEffect(() => {
+    if (!conversationOpen) return;
+    const node = conversationListRef.current;
+    if (node && conversationShouldAutoScrollRef.current) {
+      node.scrollTop = node.scrollHeight;
+    }
+  }, [conversationDraft, conversationMessages, conversationOpen]);
+
+  useEffect(() => {
+    if (!conversationOpen) return;
+    const node = conversationInputRef.current;
+    if (!node) return;
+    node.style.height = "auto";
+    const nextHeight = Math.min(96, Math.max(32, node.scrollHeight));
+    node.style.height = `${nextHeight}px`;
+    node.style.overflowY = node.scrollHeight > 96 ? "auto" : "hidden";
+  }, [conversationInput, conversationOpen]);
 
   // 监听转写结果（中间结果 interim=true，最终结果 interim=false）
   useEffect(() => {
@@ -615,6 +814,9 @@ export default function SubtitleOverlay() {
           updatePhase("result");
           setFadingOut(false);
           setPolishFlash(!!event.payload.polished);
+          if (event.payload.mode === "assistant") {
+            conversationInitialResponseRef.current = finalText;
+          }
           if (event.payload.resultStage === "raw") {
             return;
           }
@@ -697,9 +899,10 @@ export default function SubtitleOverlay() {
     setOutcome(null);
     setWaveformBars(EMPTY_WAVEFORM_BARS);
     setAssistantCopied(false);
+    resetConversationState();
     updatePhase("idle");
     void hideSubtitleWindow().catch(() => undefined);
-  }, [clearFadeTimer, updatePhase]);
+  }, [clearFadeTimer, resetConversationState, updatePhase]);
 
   const handleAssistantCopy = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -715,71 +918,352 @@ export default function SubtitleOverlay() {
     shouldAutoScrollRef.current = distanceToBottom <= 24;
   }, []);
 
+  const handleConversationScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    const distanceToBottom = node.scrollHeight - node.clientHeight - node.scrollTop;
+    conversationShouldAutoScrollRef.current = distanceToBottom <= 24;
+  }, []);
+
+  const handleOpenSource = useCallback((
+    event: MouseEvent<HTMLButtonElement>,
+    source: AssistantSource,
+  ) => {
+    event.stopPropagation();
+    void openAssistantSource(source.url).catch(() => undefined);
+  }, []);
+
+  const handleOpenConversation = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const initialResponse = conversationInitialResponseRef.current || text.trim();
+    if (!assistantRequest.trim() || !initialResponse) {
+      setConversationError(t("subtitle.conversation.requestMissing"));
+      conversationOpenRef.current = true;
+      setConversationOpen(true);
+      return;
+    }
+    clearFadeTimer();
+    conversationShouldAutoScrollRef.current = true;
+    conversationInitialResponseRef.current = initialResponse;
+    if (conversationMessages.length === 0) {
+      conversationMessageIdRef.current += 1;
+      setConversationMessages([{
+        id: conversationMessageIdRef.current,
+        role: "assistant",
+        content: initialResponse,
+        sources: assistantSources,
+      }]);
+    }
+    setConversationError(assistantSearchError ? t("subtitle.conversation.searchFailed") : null);
+    conversationOpenRef.current = true;
+    setConversationOpen(true);
+  }, [
+    assistantRequest,
+    assistantSearchError,
+    assistantSources,
+    clearFadeTimer,
+    conversationMessages.length,
+    t,
+    text,
+  ]);
+
+  const handleCloseConversation = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    conversationOpenRef.current = false;
+    conversationRequestGenerationRef.current += 1;
+    void cancelAssistantConversation().catch(() => undefined);
+    setConversationOpen(false);
+    setConversationInput("");
+    setConversationDraft("");
+    setConversationBusy(false);
+    conversationDraftRef.current = "";
+  }, []);
+
+  const submitConversationMessage = useCallback(async () => {
+    const message = conversationInput.trim();
+    const initialResponse = conversationInitialResponseRef.current;
+    if (!message || conversationBusy) return;
+    if (!assistantRequest.trim() || !initialResponse) {
+      setConversationError(t("subtitle.conversation.requestMissing"));
+      return;
+    }
+
+    const priorHistory: AssistantConversationTurn[] = conversationMessages
+      .slice(1)
+      .slice(-12)
+      .map(({ role, content }) => ({ role, content }));
+    const requestSessionId = latestSessionIdRef.current;
+    const requestGeneration = conversationRequestGenerationRef.current + 1;
+    conversationRequestGenerationRef.current = requestGeneration;
+    conversationMessageIdRef.current += 1;
+    const userMessage: ConversationMessage = {
+      id: conversationMessageIdRef.current,
+      role: "user",
+      content: message,
+    };
+
+    setConversationMessages((current) => [...current, userMessage]);
+    conversationShouldAutoScrollRef.current = true;
+    setConversationInput("");
+    setConversationBusy(true);
+    setConversationError(null);
+    setConversationDraft("");
+    conversationDraftRef.current = "";
+    conversationTurnSourcesRef.current = [];
+
+    try {
+      const response = await continueAssistantConversation({
+        sessionId: requestSessionId,
+        initialRequest: assistantRequest,
+        initialResponse,
+        history: priorHistory,
+        message,
+      });
+      if (
+        requestGeneration !== conversationRequestGenerationRef.current
+        || requestSessionId !== latestSessionIdRef.current
+        || !conversationOpenRef.current
+      ) return;
+      conversationMessageIdRef.current += 1;
+      const assistantMessage: ConversationMessage = {
+        id: conversationMessageIdRef.current,
+        role: "assistant",
+        content: response.trim(),
+        sources: conversationTurnSourcesRef.current,
+      };
+      setConversationMessages((current) => [...current, assistantMessage]);
+      setConversationDraft("");
+      conversationDraftRef.current = "";
+    } catch (error) {
+      if (
+        requestGeneration !== conversationRequestGenerationRef.current
+        || requestSessionId !== latestSessionIdRef.current
+        || !conversationOpenRef.current
+      ) return;
+      setConversationError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : t("subtitle.conversation.sendFailed"),
+      );
+    } finally {
+      if (requestGeneration === conversationRequestGenerationRef.current) {
+        setConversationBusy(false);
+      }
+    }
+  }, [assistantRequest, conversationBusy, conversationInput, conversationMessages, t]);
+
+  const handleConversationSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void submitConversationMessage();
+  }, [submitConversationMessage]);
+
+  const handleConversationKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void submitConversationMessage();
+    }
+  }, [submitConversationMessage]);
+
+  const assistantOverlayDismissible = assistantInteractive;
+
+  const renderSources = (sources: AssistantSource[] | undefined) => {
+    if (!sources?.length) return null;
+    return (
+      <div className="subtitle-source-list" aria-label={t("subtitle.conversation.sources")}>
+        {sources.map((source, index) => (
+          <button
+            key={`${source.url}-${index}`}
+            type="button"
+            className="subtitle-source-link"
+            title={source.url}
+            onClick={(event) => handleOpenSource(event, source)}
+          >
+            <span>{source.title || source.url}</span>
+            <ExternalLink size={11} aria-hidden="true" />
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div
-      className={`subtitle-root${interactiveAssistantResult ? " subtitle-root-interactive" : ""}`}
-      onClick={interactiveAssistantResult ? closeAssistantOverlay : undefined}
+      className={`subtitle-root${assistantInteractive ? " subtitle-root-interactive" : ""}`}
+      onClick={assistantOverlayDismissible ? closeAssistantOverlay : undefined}
     >
       <div
         className={
-          `subtitle-capsule${fadingOut ? " subtitle-fade-out" : ""}${assistantPanelActive ? " subtitle-capsule-assistant" : ""}${interactiveAssistantResult ? " subtitle-capsule-interactive" : ""}`
+          `subtitle-capsule${fadingOut ? " subtitle-fade-out" : ""}${assistantPanelActive ? " subtitle-capsule-assistant" : ""}${assistantInteractive ? " subtitle-capsule-interactive" : ""}${conversationOpen ? " subtitle-capsule-conversation" : ""}`
         }
-        onClick={interactiveAssistantResult ? (event) => event.stopPropagation() : undefined}
+        onClick={assistantInteractive ? (event) => event.stopPropagation() : undefined}
       >
-        {assistantPanelActive && phase !== "outcome" && (
-          <div className="subtitle-assistant-actions">
-            <span className={`subtitle-copy-status${assistantCopied ? " is-visible" : ""}`}>
-              {t("common.copied")}
-            </span>
-            <button
-              type="button"
-              className={`subtitle-copy-button${interactiveAssistantResult ? " is-ready" : ""}`}
-              onClick={handleAssistantCopy}
-              tabIndex={interactiveAssistantResult ? 0 : -1}
-            >
-              {t("common.copy")}
-            </button>
-          </div>
-        )}
-        {(phase === "starting" || phase === "recording") ? (
-          <div className={`subtitle-waveform-indicator${mode === "assistant" ? " is-assistant" : ""}`}>
-            {waveformBars.map((h, i) => (
-              <div
-                key={i}
-                className="subtitle-waveform-indicator-bar"
-                style={{ height: `${Math.max(2, h * 16)}px` }}
-              />
-            ))}
-          </div>
-        ) : indicatorClass ? (
-          <div className={indicatorClass} />
-        ) : null}
-        {hasText && (
-          <div
-            ref={assistantTextRef}
-            className={`subtitle-text${polishFlash ? " subtitle-polish-flash" : ""}${isStreaming ? " subtitle-text-streaming" : ""}`}
-            role="status"
-            aria-live="polite"
-            onScroll={assistantPanelActive ? handleAssistantScroll : undefined}
-            onAnimationEnd={(e) => {
-              // Only react to the div's own polish-flash animation, not to
-              // animationend events bubbling up from per-char .stream-char spans.
-              if (e.target === e.currentTarget) setPolishFlash(false);
-            }}
+        {conversationOpen ? (
+          <section
+            className="subtitle-conversation"
+            role="dialog"
+            aria-label={t("subtitle.conversation.title")}
           >
-            {segmentGraphemes(smoothText).map((g, i) => (
-              <span key={i} className="stream-char">{g}</span>
-            ))}
-          </div>
+            <header className="subtitle-conversation-header">
+              <div className="subtitle-conversation-title">
+                <Sparkles size={15} aria-hidden="true" />
+                <span>{t("subtitle.conversation.title")}</span>
+              </div>
+              <button
+                type="button"
+                className="subtitle-conversation-close"
+                onClick={handleCloseConversation}
+                aria-label={t("subtitle.conversation.close")}
+                title={t("subtitle.conversation.close")}
+              >
+                <X size={15} aria-hidden="true" />
+              </button>
+            </header>
+
+            <div
+              ref={conversationListRef}
+              className="subtitle-conversation-messages"
+              aria-label={t("subtitle.conversation.history")}
+              aria-live="polite"
+              aria-busy={conversationBusy}
+              tabIndex={0}
+              onScroll={handleConversationScroll}
+            >
+              {conversationMessages.map((message) => (
+                <article
+                  key={message.id}
+                  className={`subtitle-conversation-message is-${message.role}`}
+                >
+                  <div className="subtitle-conversation-row">
+                    {message.role === "assistant" && (
+                      <span className="subtitle-conversation-assistant-mark" aria-hidden="true">
+                        <Sparkles size={12} />
+                      </span>
+                    )}
+                    <div className="subtitle-conversation-bubble">{message.content}</div>
+                  </div>
+                  {message.role === "assistant" && renderSources(message.sources)}
+                </article>
+              ))}
+              {conversationBusy && (
+                <article className="subtitle-conversation-message is-assistant is-streaming">
+                  <div className="subtitle-conversation-row">
+                    <span className="subtitle-conversation-assistant-mark" aria-hidden="true">
+                      <Sparkles size={12} />
+                    </span>
+                    <div className="subtitle-conversation-bubble">
+                      {conversationDraft || t("subtitle.conversation.thinking")}
+                    </div>
+                  </div>
+                </article>
+              )}
+            </div>
+
+            {conversationError && (
+              <div className="subtitle-conversation-error" role="status">{conversationError}</div>
+            )}
+
+            <form className="subtitle-conversation-composer" onSubmit={handleConversationSubmit}>
+              <textarea
+                ref={conversationInputRef}
+                value={conversationInput}
+                onChange={(event) => setConversationInput(event.target.value)}
+                onKeyDown={handleConversationKeyDown}
+                placeholder={t("subtitle.conversation.placeholder")}
+                aria-label={t("subtitle.conversation.placeholder")}
+                rows={1}
+                maxLength={6000}
+                disabled={conversationBusy || !assistantRequest.trim()}
+              />
+              <button
+                type="submit"
+                className="subtitle-conversation-send"
+                disabled={conversationBusy || !assistantRequest.trim() || !conversationInput.trim()}
+                aria-label={t("subtitle.conversation.send")}
+                title={t("subtitle.conversation.send")}
+              >
+                <Send size={15} aria-hidden="true" />
+              </button>
+            </form>
+          </section>
+        ) : (
+          <>
+            {assistantPanelActive && phase !== "outcome" && (
+              <div className="subtitle-assistant-actions">
+                <span className={`subtitle-copy-status${assistantCopied ? " is-visible" : ""}`}>
+                  {t("common.copied")}
+                </span>
+                <button
+                  type="button"
+                  className={`subtitle-action-button${interactiveAssistantResult ? " is-ready" : ""}`}
+                  onClick={handleAssistantCopy}
+                  tabIndex={interactiveAssistantResult ? 0 : -1}
+                  aria-label={t("common.copy")}
+                  title={t("common.copy")}
+                >
+                  <Copy size={13} aria-hidden="true" />
+                  <span>{t("common.copy")}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`subtitle-action-button is-conversation${interactiveAssistantResult ? " is-ready" : ""}`}
+                  onClick={handleOpenConversation}
+                  tabIndex={interactiveAssistantResult ? 0 : -1}
+                  aria-label={t("subtitle.conversation.open")}
+                  title={t("subtitle.conversation.open")}
+                >
+                  <MessageCircle size={13} aria-hidden="true" />
+                  <span>{t("subtitle.conversation.open")}</span>
+                </button>
+              </div>
+            )}
+            {(phase === "starting" || phase === "recording" || indicatorClass) && (
+              <span className="subtitle-status-indicator" aria-hidden="true">
+                {(phase === "starting" || phase === "recording") ? (
+                  <span className={`subtitle-waveform-indicator${mode === "assistant" ? " is-assistant" : ""}`}>
+                    {waveformBars.map((h, i) => (
+                      <span
+                        key={i}
+                        className="subtitle-waveform-indicator-bar"
+                        style={{ height: `${Math.max(2, h * 16)}px` }}
+                      />
+                    ))}
+                  </span>
+                ) : indicatorClass ? (
+                  <span className={indicatorClass} />
+                ) : null}
+              </span>
+            )}
+            {hasText && (
+              <div
+                ref={assistantTextRef}
+                className={`subtitle-text${polishFlash ? " subtitle-polish-flash" : ""}${isStreaming ? " subtitle-text-streaming" : ""}`}
+                role="status"
+                aria-live="polite"
+                onScroll={assistantPanelActive ? handleAssistantScroll : undefined}
+                onAnimationEnd={(e) => {
+                  if (e.target === e.currentTarget) setPolishFlash(false);
+                }}
+              >
+                {segmentGraphemes(smoothText).map((g, i) => (
+                  <span key={i} className="stream-char">{g}</span>
+                ))}
+              </div>
+            )}
+            {isAssistant && phase === "result" && renderSources(assistantSources)}
+            {assistantSearchError && isAssistant && phase === "result" && (
+              <div className="subtitle-search-warning" role="status">
+                {t("subtitle.conversation.searchFailed")}
+              </div>
+            )}
+            {hasText && phase === "polishing" && streamTokens > 0 && (
+              <span className="subtitle-stream-badge">{streamTokens}</span>
+            )}
+            {hasText && rawFirstLabelKey && !isAssistant && (
+              <span className="subtitle-raw-first-badge">{t(`subtitle.rawFirst.${rawFirstLabelKey}`)}</span>
+            )}
+            {outcomeText && <span key={outcome} className="subtitle-hint" role="status">{outcomeText}</span>}
+            {!hasText && !outcomeText && hintText && <span key={phase} className="subtitle-hint">{hintText}</span>}
+          </>
         )}
-        {hasText && phase === "polishing" && streamTokens > 0 && (
-          <span className="subtitle-stream-badge">{streamTokens}</span>
-        )}
-        {hasText && rawFirstLabelKey && !isAssistant && (
-          <span className="subtitle-raw-first-badge">{t(`subtitle.rawFirst.${rawFirstLabelKey}`)}</span>
-        )}
-        {outcomeText && <span key={outcome} className="subtitle-hint" role="status">{outcomeText}</span>}
-        {!hasText && !outcomeText && hintText && <span key={phase} className="subtitle-hint">{hintText}</span>}
       </div>
     </div>
   );
