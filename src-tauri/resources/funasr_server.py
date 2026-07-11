@@ -46,6 +46,15 @@ def _disable_funasr_auto_requirement_install() -> None:
 
 _disable_funasr_auto_requirement_install()
 
+# FunASR 通过导入副作用注册模型、前端和 tokenizer。发行版只打包当前产品
+# 使用的 SenseVoiceSmall + FSMN-VAD 路径，因此在这里显式完成这些注册。
+import funasr.frontends.wav_frontend  # noqa: F401, E402
+import funasr.models.fsmn_vad_streaming.encoder  # noqa: F401, E402
+import funasr.models.fsmn_vad_streaming.model  # noqa: F401, E402
+import funasr.models.sense_voice.model  # noqa: F401, E402
+import funasr.models.specaug.specaug  # noqa: F401, E402
+import funasr.tokenizer.sentencepiece_tokenizer  # noqa: F401, E402
+
 from hf_cache_utils import MODEL_REPOS
 
 VAD_MAX_SEGMENT_MS = 30000
