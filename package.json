@@ -1,7 +1,7 @@
 {
   "name": "light-whisper",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.4.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,7 @@
     "perf:fluidity": "vitest run src/perf/appFluidity.perf.test.tsx --reporter=verbose",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest run",
+    "test": "vitest run --exclude src/perf/** && pnpm perf:fluidity",
     "test:watch": "vitest"
   },
   "dependencies": {

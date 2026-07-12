@@ -547,7 +547,7 @@ wheels = [
 
 [[package]]
 name = "light-whisper"
-version = "1.4.0"
+version = "1.4.1"
 source = { virtual = "." }
 dependencies = [
     { name = "faster-whisper" },
