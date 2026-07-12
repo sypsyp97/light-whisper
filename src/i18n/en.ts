@@ -131,6 +131,8 @@ const en: TranslationSchema = {
     aiPolishFailed: "AI polish failed: {{error}}",
     switchedToEngine: "Switched to {{label}} engine",
     switchEngineFailed: "Failed to switch engine",
+    onlineAsrKeySaveFailed: "Failed to save online ASR API key",
+    onlineAsrRegionSwitchFailed: "Failed to switch online ASR region",
     hotkeySet: "{{label}} set to {{display}}",
     hotkeySetFailed: "Failed to set {{label}}",
     hotkeyReset: "Reset to default hotkey F2",

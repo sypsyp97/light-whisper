@@ -1,4 +1,3 @@
-use std::sync::atomic::Ordering;
 use tauri::Emitter;
 
 use crate::services::funasr_service;
@@ -75,14 +74,16 @@ pub async fn download_models(
 
 #[tauri::command]
 pub async fn cancel_model_download(state: tauri::State<'_, AppState>) -> Result<String, AppError> {
-    let task = {
+    let cancellation = {
         let mut guard = state.engine.download_task.lock().await;
-        guard.take()
+        guard.as_mut().and_then(|task| task.cancel.take())
     };
 
-    if let Some(task) = task {
-        let _ = task.cancel.send(());
+    if let Some(cancel) = cancellation {
+        let _ = cancel.send(());
         Ok("已取消模型下载".to_string())
+    } else if state.engine.download_task.lock().await.is_some() {
+        Ok("模型下载正在取消".to_string())
     } else {
         Ok("当前没有下载任务".to_string())
     }
@@ -93,6 +94,7 @@ pub async fn restart_funasr(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, AppError> {
+    let lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
     let engine = paths::read_engine_config();
     if paths::is_online_engine(&engine) {
         // 在线引擎无需重启 Python，仅刷新就绪状态
@@ -102,13 +104,14 @@ pub async fn restart_funasr(
     }
 
     // 首次启动可能仍在解压 engine.zip 或加载模型，自动重启不应打断这一过程。
-    if state.engine.funasr_starting.load(Ordering::SeqCst) {
+    if state.engine.is_funasr_starting() {
         log::info!("FunASR 正在启动中，跳过本次重启请求");
         return Ok("FunASR 正在启动中，跳过重启".to_string());
     }
 
     log::info!("正在重启 FunASR 服务器...");
     funasr_service::stop_server(state.inner()).await?;
+    drop(lifecycle_guard);
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     funasr_service::start_server(&app_handle, state.inner()).await?;
     Ok("FunASR 服务器已重启".to_string())
@@ -192,23 +195,32 @@ pub async fn set_engine(
         )));
     }
 
+    let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+    if state.engine.download_task.lock().await.is_some() {
+        return Err(AppError::Other(
+            "模型正在下载，请等待完成或取消下载后再切换引擎".to_string(),
+        ));
+    }
+    // 配置文件使用原子替换；只有提交成功后才停止旧服务。这样磁盘/权限错误
+    // 不会把仍然有效的旧引擎留在“配置未变但进程已停”的状态。
     paths::write_engine_config(&engine)
         .map_err(|e| AppError::Other(format!("写入引擎配置失败: {}", e)))?;
-    funasr_service::stop_server(state.inner()).await?;
+    state.engine.block_funasr_starting();
+    let switch_result: Result<(), AppError> = async {
+        funasr_service::stop_server(state.inner()).await?;
 
-    // 强制重置启动标志，确保新引擎可以立即启动。
-    state
-        .engine
-        .funasr_starting
-        .store(false, std::sync::atomic::Ordering::SeqCst);
-
-    // 在线引擎：切换后从密钥环重新加载对应的 API Key，然后刷新就绪状态。
-    if paths::is_online_engine(&engine) {
-        reload_online_asr_key(&app_handle, state.inner());
-        let has_key = !state.read_online_asr_api_key().is_empty();
-        state.set_funasr_ready(has_key);
-        let _ = app_handle.emit("funasr-status", online_status_payload(&engine, has_key));
+        // 在线引擎：切换后从密钥环重新加载对应的 API Key，然后刷新就绪状态。
+        if paths::is_online_engine(&engine) {
+            reload_online_asr_key(&app_handle, state.inner());
+            let has_key = !state.read_online_asr_api_key().is_empty();
+            state.set_funasr_ready(has_key);
+            let _ = app_handle.emit("funasr-status", online_status_payload(&engine, has_key));
+        }
+        Ok(())
     }
+    .await;
+    state.engine.unblock_funasr_starting();
+    switch_result?;
 
     log::info!("引擎已切换为: {}", engine);
     Ok(engine)
@@ -233,9 +245,15 @@ pub async fn set_online_asr_api_key(
 
     llm_provider::save_or_delete_api_key(&app_handle, target_user, &api_key);
 
+    // keyring IO 不占生命周期锁；保存完成后再用生命周期锁把“活跃槽重读→
+    // runtime cache/ready/event 更新”组成原子提交，避免引擎或区域切换后旧 key
+    // 覆盖新 provider 的运行时凭据。
+    let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+    let current_active_user = active_online_keyring_user();
+
     // 只有当目标槽和当前活跃槽一致时，才更新运行时缓存与就绪状态，
     // 否则会把一个不相关的 key 写进 state 造成状态与 UI 不一致。
-    if target_user == active_user {
+    if target_user == current_active_user {
         state.set_online_asr_api_key(&api_key);
         let engine = paths::read_engine_config();
         if paths::is_online_engine(&engine) {
@@ -273,6 +291,7 @@ pub async fn set_online_asr_endpoint(
             region
         )));
     }
+    let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
     paths::write_online_asr_endpoint(&region)
         .map_err(|e| AppError::Other(format!("写入端点配置失败: {}", e)))?;
 
@@ -432,6 +451,27 @@ pub async fn get_models_dir() -> Result<serde_json::Value, AppError> {
     }))
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelsDirUpdateResult {
+    message: String,
+    runtime_warning: Option<String>,
+}
+
+fn models_dir_update_result(
+    restore_default: bool,
+    runtime_warning: Option<String>,
+) -> ModelsDirUpdateResult {
+    ModelsDirUpdateResult {
+        message: if restore_default {
+            "已恢复默认模型目录".to_string()
+        } else {
+            "模型目录已更新".to_string()
+        },
+        runtime_warning,
+    }
+}
+
 #[tauri::command]
 pub async fn pick_folder() -> Result<Option<String>, AppError> {
     let result = tokio::task::spawn_blocking(|| rfd::FileDialog::new().pick_folder())
@@ -446,16 +486,18 @@ pub async fn set_models_dir(
     state: tauri::State<'_, AppState>,
     path: Option<String>,
     migrate: bool,
-) -> Result<String, AppError> {
+) -> Result<ModelsDirUpdateResult, AppError> {
+    let lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+    if state.engine.download_task.lock().await.is_some() {
+        return Err(AppError::Other(
+            "模型正在下载，请等待完成或取消下载后再切换目录".to_string(),
+        ));
+    }
     let old_dir = paths::get_effective_models_dir();
+    let restore_default = path.as_deref().is_none_or(|value| value.trim().is_empty());
     let new_dir = match &path {
         Some(p) if !p.trim().is_empty() => std::path::PathBuf::from(p.trim()),
-        _ => {
-            // 恢复默认
-            paths::write_models_dir(None)
-                .map_err(|e| AppError::Other(format!("写入配置失败: {}", e)))?;
-            return Ok("已恢复默认模型目录".to_string());
-        }
+        _ => paths::get_default_models_dir(),
     };
 
     // canonicalize 后比较，避免 Windows 大小写/尾部斜杠差异
@@ -463,7 +505,15 @@ pub async fn set_models_dir(
     // 目标目录可能还不存在，canonicalize 会失败，回退到原始路径比较
     let canon_new = std::fs::canonicalize(&new_dir).unwrap_or_else(|_| new_dir.clone());
     if canon_old == canon_new {
-        return Ok("路径未变化".to_string());
+        if restore_default {
+            paths::write_models_dir(None)
+                .map_err(|e| AppError::Other(format!("写入配置失败: {}", e)))?;
+            return Ok(models_dir_update_result(true, None));
+        }
+        return Ok(ModelsDirUpdateResult {
+            message: "路径未变化".to_string(),
+            runtime_warning: None,
+        });
     }
 
     // 确保目标目录存在（放 spawn_blocking 避免网络驱动器阻塞 async 线程）
@@ -473,64 +523,128 @@ pub async fn set_models_dir(
         .map_err(|e| AppError::Other(format!("创建目录失败: {}", e)))?
         .map_err(|e| AppError::Other(format!("创建目录失败: {}", e)))?;
 
-    if migrate && old_dir.is_dir() {
-        // 设置 starting 标志，阻止前端轮询触发的自动重启
-        state
-            .engine
-            .funasr_starting
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+    let engine = paths::read_engine_config();
+    let local_engine = !paths::is_online_engine(&engine);
+    let prepared_sources = if migrate && old_dir.is_dir() {
+        let _ = app_handle.emit(
+            "models-migrate-status",
+            serde_json::json!({ "status": "migrating", "message": "正在复制模型文件..." }),
+        );
 
-        let migration_result: Result<(), AppError> = async {
-            funasr_service::stop_server(state.inner()).await?;
+        let old = old_dir.clone();
+        let dest = new_dir.clone();
+        let handle = app_handle.clone();
+        tokio::task::spawn_blocking(move || migrate_model_dirs(&old, &dest, Some(&handle)))
+            .await
+            .map_err(|e| AppError::Other(format!("迁移任务失败: {}", e)))?
+            .map_err(|e| AppError::Other(format!("迁移失败: {}", e)))?
+    } else {
+        Vec::new()
+    };
 
-            let _ = app_handle.emit(
-                "models-migrate-status",
-                serde_json::json!({ "status": "migrating", "message": "正在迁移模型文件..." }),
-            );
-
-            let old = old_dir.clone();
-            let dest = new_dir.clone();
-            let handle = app_handle.clone();
-            tokio::task::spawn_blocking(move || migrate_model_dirs(&old, &dest, &handle))
-                .await
-                .map_err(|e| AppError::Other(format!("迁移任务失败: {}", e)))?
-                .map_err(|e| AppError::Other(format!("迁移失败: {}", e)))?;
-
-            Ok(())
-        }
-        .await;
-
-        // 无论成功失败都解除阻止，让后续 retryModel 能正常启动
-        state
-            .engine
-            .funasr_starting
-            .store(false, std::sync::atomic::Ordering::SeqCst);
-
-        migration_result?;
-    }
-
-    // 写入配置
+    // prepare 失败只留下可安全覆盖的目标副本；源和旧运行时都保持不变。
+    // 配置原子提交成功之后才取消旧启动并停止旧服务。
     let dir_str = paths::strip_win_prefix(&new_dir);
-    paths::write_models_dir(Some(&dir_str))
+    paths::write_models_dir((!restore_default).then_some(dir_str.as_str()))
         .map_err(|e| AppError::Other(format!("写入配置失败: {}", e)))?;
 
+    state.engine.block_funasr_starting();
+    let update_result: Result<bool, AppError> = async {
+        if local_engine {
+            funasr_service::stop_server(state.inner()).await?;
+        }
+        let should_start = if local_engine {
+            let model_check = funasr_service::check_model_files().await?;
+            if !model_check.all_present {
+                state.set_funasr_ready(false);
+            }
+            model_check.all_present
+        } else {
+            false
+        };
+
+        Ok(should_start)
+    }
+    .await;
+    state.engine.unblock_funasr_starting();
+    let mut runtime_warning = None;
+    let should_start = match update_result {
+        Ok(should_start) => should_start,
+        Err(err) => {
+            state.set_funasr_ready(false);
+            runtime_warning = Some(format!("目录配置已保存，但运行时更新失败: {}", err));
+            false
+        }
+    };
+    drop(lifecycle_guard);
+
+    if should_start {
+        if let Err(err) = funasr_service::start_server(&app_handle, state.inner()).await {
+            state.set_funasr_ready(false);
+            runtime_warning = Some(format!("目录配置已保存，但服务启动失败: {}", err));
+        } else if !prepared_sources.is_empty() {
+            // start 完成到 cleanup 之间可能有另一次目录切换。重新进入 lifecycle
+            // 并确认当前配置仍指向本次目标，避免删除已经被切回使用的旧目录。
+            let _cleanup_guard = state.engine.funasr_lifecycle_op.lock().await;
+            let effective_dir = paths::get_effective_models_dir();
+            let canonical_effective =
+                std::fs::canonicalize(&effective_dir).unwrap_or(effective_dir.clone());
+            let canonical_target = std::fs::canonicalize(&new_dir).unwrap_or(new_dir.clone());
+            if canonical_effective == canonical_target {
+                match tokio::task::spawn_blocking(move || {
+                    cleanup_migrated_sources(&prepared_sources)
+                })
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => {
+                        runtime_warning =
+                            Some(format!("模型目录已切换，但部分旧目录未能清理: {}", err));
+                    }
+                    Err(err) => {
+                        runtime_warning =
+                            Some(format!("模型目录已切换，但旧目录清理任务异常: {}", err));
+                    }
+                }
+            } else {
+                log::info!(
+                    "模型目录已再次变更，跳过清理旧源: current={}, expected={}",
+                    canonical_effective.display(),
+                    canonical_target.display()
+                );
+            }
+        }
+    }
+
+    let result = models_dir_update_result(restore_default, runtime_warning);
     let _ = app_handle.emit(
         "models-migrate-status",
-        serde_json::json!({ "status": "completed", "message": "模型目录已更新" }),
+        serde_json::json!({
+            "status": "completed",
+            "message": result.runtime_warning.as_deref().unwrap_or(&result.message),
+        }),
     );
 
-    Ok("模型目录已更新".to_string())
+    Ok(result)
 }
 
 /// 迁移 models--* 目录从 src 到 dst
 ///
-/// 策略：先全量复制/rename，全部成功后再统一删除源目录。
-/// 任何一步失败则中止，已完成的复制保留在目标，源文件不删除，保证数据不丢失。
+/// 准备阶段只复制，不 rename/删除源目录。调用方必须先原子提交新配置，
+/// 并确认新运行时可用后，才能 best-effort 清理返回的源目录。
 fn migrate_model_dirs(
     src: &std::path::Path,
     dst: &std::path::Path,
-    handle: &tauri::AppHandle,
-) -> Result<(), String> {
+    handle: Option<&tauri::AppHandle>,
+) -> Result<Vec<std::path::PathBuf>, String> {
+    let canonical_src = std::fs::canonicalize(src)
+        .map_err(|e| format!("解析源模型目录失败 {}: {}", src.display(), e))?;
+    let canonical_dst = std::fs::canonicalize(dst)
+        .map_err(|e| format!("解析目标模型目录失败 {}: {}", dst.display(), e))?;
+    if canonical_dst.starts_with(&canonical_src) {
+        return Err("目标模型目录不能位于当前模型目录内部".to_string());
+    }
+
     let entries: Vec<_> = std::fs::read_dir(src)
         .map_err(|e| format!("读取源目录失败: {}", e))?
         .filter_map(Result::ok)
@@ -538,53 +652,55 @@ fn migrate_model_dirs(
         .collect();
 
     if entries.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let total = entries.len();
-    // 记录需要跨盘复制（而非 rename）的目录，稍后统一删除源
-    let mut copied_sources: Vec<std::path::PathBuf> = Vec::new();
+    let mut copied_sources = Vec::with_capacity(total);
 
-    // 第一阶段：全量迁移（rename 或 copy）
+    // prepare 阶段：即使目标已存在也递归补齐/覆盖源文件；源始终保留。
     for (i, entry) in entries.iter().enumerate() {
         let name = entry.file_name();
         let src_path = entry.path();
         let dst_path = dst.join(&name);
 
-        if dst_path.exists() {
-            log::info!("迁移跳过（已存在）: {}", name.to_string_lossy());
-        } else if std::fs::rename(&src_path, &dst_path).is_ok() {
-            log::info!("迁移（rename）: {}", name.to_string_lossy());
-        } else {
-            // 跨盘：先复制，不立即删源
-            copy_dir_recursive(&src_path, &dst_path)
-                .map_err(|e| format!("复制 {} 失败: {}", name.to_string_lossy(), e))?;
-            copied_sources.push(src_path);
-            log::info!("迁移（copy）: {}", name.to_string_lossy());
-        }
+        copy_dir_recursive(&src_path, &dst_path)
+            .map_err(|e| format!("复制 {} 失败: {}", name.to_string_lossy(), e))?;
+        copied_sources.push(src_path);
+        log::info!("迁移准备（copy，保留源）: {}", name.to_string_lossy());
 
-        let _ = handle.emit(
-            "models-migrate-status",
-            serde_json::json!({
-                "status": "migrating",
-                "message": format!("正在迁移 {}/{}...", i + 1, total),
-                "progress": ((i + 1) as f64 / total as f64 * 100.0).round(),
-            }),
-        );
+        if let Some(handle) = handle {
+            let _ = handle.emit(
+                "models-migrate-status",
+                serde_json::json!({
+                    "status": "migrating",
+                    "message": format!("正在迁移 {}/{}...", i + 1, total),
+                    "progress": ((i + 1) as f64 / total as f64 * 100.0).round(),
+                }),
+            );
+        }
     }
 
-    // 第二阶段：全部复制成功后，统一清理源目录
-    for source in &copied_sources {
+    Ok(copied_sources)
+}
+
+fn cleanup_migrated_sources(sources: &[std::path::PathBuf]) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for source in sources {
         if let Err(e) = std::fs::remove_dir_all(source) {
             log::warn!(
                 "清理源目录失败（不影响迁移结果）: {} — {}",
                 source.display(),
                 e
             );
+            failures.push(format!("{} — {}", source.display(), e));
         }
     }
-
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
@@ -600,4 +716,94 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod model_dir_migration_tests {
+    use super::{cleanup_migrated_sources, migrate_model_dirs, models_dir_update_result};
+
+    #[test]
+    fn model_dir_result_distinguishes_committed_config_from_runtime_warning() {
+        let result =
+            models_dir_update_result(false, Some("目录配置已保存，但服务启动失败".to_string()));
+        let value = serde_json::to_value(result).expect("serialize model directory result");
+
+        assert_eq!(value["message"], "模型目录已更新");
+        assert_eq!(value["runtimeWarning"], "目录配置已保存，但服务启动失败");
+    }
+
+    #[test]
+    fn cleanup_failure_is_reported_to_the_committed_result() {
+        let missing = std::env::temp_dir().join(format!(
+            "light-whisper-missing-cleanup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be after epoch")
+                .as_nanos()
+        ));
+
+        let error = cleanup_migrated_sources(std::slice::from_ref(&missing))
+            .expect_err("a cleanup failure must reach the structured result");
+
+        assert!(error.contains(&missing.display().to_string()));
+    }
+
+    #[test]
+    fn migration_prepare_keeps_source_until_config_commit() {
+        let unique = format!(
+            "light-whisper-model-migration-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be after epoch")
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        let source = root.join("source");
+        let target = root.join("target");
+        let model_source = source.join("models--org--model");
+        std::fs::create_dir_all(&model_source).expect("create source model directory");
+        std::fs::write(model_source.join("weights.bin"), b"weights").expect("write source model");
+        std::fs::create_dir_all(&target).expect("create target directory");
+
+        migrate_model_dirs(&source, &target, None).expect("prepare migration");
+
+        assert!(
+            model_source.join("weights.bin").is_file(),
+            "prepare must keep source data until the new config is committed"
+        );
+        assert_eq!(
+            std::fs::read(target.join("models--org--model").join("weights.bin"))
+                .expect("read copied model"),
+            b"weights"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migration_rejects_target_nested_inside_source() {
+        let root = std::env::temp_dir().join(format!(
+            "light-whisper-nested-migration-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be after epoch")
+                .as_nanos()
+        ));
+        let source = root.join("source");
+        let target = source.join("nested-target");
+        let model_source = source.join("models--org--model");
+        std::fs::create_dir_all(&model_source).expect("create source model directory");
+        std::fs::write(model_source.join("weights.bin"), b"weights").expect("write source model");
+        std::fs::create_dir_all(&target).expect("create nested target");
+
+        let error = migrate_model_dirs(&source, &target, None)
+            .expect_err("nested migration target must be rejected");
+
+        assert!(error.contains("不能位于"));
+        assert!(model_source.join("weights.bin").is_file());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

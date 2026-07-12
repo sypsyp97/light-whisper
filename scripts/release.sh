@@ -11,6 +11,7 @@ PKG_JSON="package.json"
 TAURI_CONF="src-tauri/tauri.conf.json"
 CARGO_TOML="src-tauri/Cargo.toml"
 PYPROJECT_TOML="pyproject.toml"
+UV_LOCK="uv.lock"
 INSTALLER="src-tauri/target/release/bundle/nsis/轻语 Whisper_${VERSION}_x64-setup.exe"
 
 echo "=== 发布 ${TAG} ==="
@@ -64,9 +65,11 @@ with open('$PYPROJECT_TOML', 'w', encoding='utf-8') as f:
     f.write(text)
 " "$VERSION"
 
+uv lock
+
 # 2. 构建 Python 引擎
 echo "[2/6] 构建 Python 引擎"
-uv run python scripts/build_engine.py
+uv run --locked python scripts/build_engine.py
 
 # 3. 构建 Tauri 安装包
 echo "[3/6] 构建 Tauri 安装包"
@@ -83,7 +86,7 @@ echo "安装包: ${SIZE}"
 
 # 5. 提交 + tag + push
 echo "[5/6] 提交 + 推送"
-git add "$PKG_JSON" "$TAURI_CONF" "$CARGO_TOML" "$PYPROJECT_TOML" src-tauri/Cargo.lock
+git add "$PKG_JSON" "$TAURI_CONF" "$CARGO_TOML" "$PYPROJECT_TOML" "$UV_LOCK" src-tauri/Cargo.lock
 git commit -m "chore: bump version to ${VERSION}"
 git tag "$TAG"
 git push && git push --tags

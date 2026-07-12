@@ -21,6 +21,17 @@ function readTomlString(relativePath: string, key: string): string {
   return match[1];
 }
 
+function readUvProjectVersion(): string {
+  const content = readRepoFile("uv.lock");
+  const match = content.match(
+    /\[\[package\]\]\r?\nname = "light-whisper"\r?\nversion = "([^"]+)"/,
+  );
+  if (!match) {
+    throw new Error("uv.lock is missing the light-whisper root package");
+  }
+  return match[1];
+}
+
 describe("release metadata", () => {
   it("keeps project versions aligned across release manifests", () => {
     const versions = {
@@ -28,6 +39,7 @@ describe("release metadata", () => {
       "src-tauri/Cargo.toml": readTomlString("src-tauri/Cargo.toml", "version"),
       "src-tauri/tauri.conf.json": readJsonVersion("src-tauri/tauri.conf.json"),
       "pyproject.toml": readTomlString("pyproject.toml", "version"),
+      "uv.lock": readUvProjectVersion(),
     };
 
     expect(new Set(Object.values(versions)).size, JSON.stringify(versions, null, 2)).toBe(1);

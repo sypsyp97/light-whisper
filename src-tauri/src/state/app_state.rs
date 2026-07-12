@@ -236,10 +236,20 @@ impl Default for HotkeyDiagnosticState {
 /// ASR 引擎生命周期 + 下载 + 传输能力探测
 pub struct EngineState {
     pub funasr_process: Arc<Mutex<Option<FunasrProcess>>>,
+    /// 已生成但尚未完成初始化的子进程。使用同步句柄以便取消/Drop 时立即 start_kill。
+    pub funasr_starting_process: Arc<parking_lot::Mutex<Option<StartingFunasrProcess>>>,
+    /// 串行化 restart / engine switch / model-dir migration 等生命周期操作。
+    pub funasr_lifecycle_op: Mutex<()>,
+    /// 引擎归档解压 singleflight，防止多个启动/下载任务并行替换引擎目录。
+    pub engine_install_op: Mutex<()>,
+    /// 将解压进度的代数检查与状态广播组成原子提交，避免旧 loading
+    /// 在 stop/switch 的最终状态之后才抵达前端。
+    pub funasr_status_commit: Arc<parking_lot::Mutex<()>>,
     pub funasr_ready: Arc<AtomicBool>,
-    pub funasr_starting: Arc<AtomicBool>,
+    /// 当前 FunASR 启动所有者。0=空闲，u64::MAX=迁移期间禁止启动。
+    funasr_starting_owner: AtomicU64,
     /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
-    pub funasr_generation: AtomicU64,
+    pub funasr_generation: Arc<AtomicU64>,
     pub download_task: Arc<Mutex<Option<DownloadTask>>>,
     /// 内存音频传输支持状态：0=未知, 1=支持, 2=不支持
     pub inline_audio_transport: AtomicU8,
@@ -249,9 +259,13 @@ impl Default for EngineState {
     fn default() -> Self {
         Self {
             funasr_process: Default::default(),
+            funasr_starting_process: Default::default(),
+            funasr_lifecycle_op: Default::default(),
+            engine_install_op: Default::default(),
+            funasr_status_commit: Default::default(),
             funasr_ready: Default::default(),
-            funasr_starting: Default::default(),
-            funasr_generation: AtomicU64::new(0),
+            funasr_starting_owner: AtomicU64::new(0),
+            funasr_generation: Arc::new(AtomicU64::new(0)),
             download_task: Default::default(),
             inline_audio_transport: AtomicU8::new(0),
         }
@@ -391,6 +405,45 @@ impl Default for UiState {
     }
 }
 
+impl EngineState {
+    pub fn is_funasr_starting(&self) -> bool {
+        self.funasr_starting_owner.load(Ordering::SeqCst) != 0
+    }
+
+    pub fn try_begin_funasr_start(&self, owner: u64) -> bool {
+        debug_assert!(owner != 0 && owner != u64::MAX);
+        self.funasr_starting_owner
+            .compare_exchange(0, owner, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    pub fn finish_funasr_start(&self, owner: u64) {
+        let _ = self.funasr_starting_owner.compare_exchange(
+            owner,
+            0,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
+    }
+
+    pub fn owns_funasr_start(&self, owner: u64) -> bool {
+        self.funasr_starting_owner.load(Ordering::SeqCst) == owner
+    }
+
+    pub fn block_funasr_starting(&self) {
+        self.funasr_starting_owner.store(u64::MAX, Ordering::SeqCst);
+    }
+
+    pub fn unblock_funasr_starting(&self) {
+        let _ = self.funasr_starting_owner.compare_exchange(
+            u64::MAX,
+            0,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
+    }
+}
+
 pub struct AppState {
     pub engine: EngineState,
     pub recording: RecordingState,
@@ -415,13 +468,20 @@ impl Default for AppState {
 }
 
 pub struct DownloadTask {
-    pub cancel: oneshot::Sender<()>,
+    pub id: u64,
+    pub cancel: Option<oneshot::Sender<()>>,
 }
 
 pub struct FunasrProcess {
     pub child: Child,
     pub stdin: ChildStdin,
     pub stdout: BufReader<ChildStdout>,
+}
+
+pub struct StartingFunasrProcess {
+    pub owner: u64,
+    pub generation: u64,
+    pub child: Arc<parking_lot::Mutex<Option<Child>>>,
 }
 
 impl Drop for FunasrProcess {

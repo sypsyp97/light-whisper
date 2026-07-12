@@ -37,7 +37,7 @@ class WhisperServer(BaseASRServer):
         """Whisper-specific device detection: also checks CTranslate2 CUDA support."""
         try:
             import ctranslate2
-            if "cuda" in ctranslate2.get_supported_compute_types("cuda"):
+            if ctranslate2.get_supported_compute_types("cuda"):
                 try:
                     import torch
                     if torch.cuda.is_available():

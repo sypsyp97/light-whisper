@@ -416,6 +416,7 @@ export default function SettingsPage({
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
+  const [onlineAsrRegionLoading, setOnlineAsrRegionLoading] = useState(false);
   const [alibabaAsrModel, setAlibabaAsrModelState] = useState<string>("qwen3-asr-flash");
   const [alibabaAsrModels, setAlibabaAsrModelsState] = useState<readonly string[]>([]);
   const [alibabaAsrModelsSource, setAlibabaAsrModelsSource] = useState<"live" | "fallback">("fallback");
@@ -612,9 +613,18 @@ export default function SettingsPage({
     [],
   );
 
-  const onlineAsrKeySave = useDebouncedCallback((value: string, keyringUser: string) => {
-    setOnlineAsrApiKey(value, keyringUser).catch(() => {});
-  }, 600, { onUnmount: "flush" });
+  const onlineAsrKeySave = useDebouncedCallback(
+    async (value: string, keyringUser: string) => {
+      try {
+        await setOnlineAsrApiKey(value, keyringUser);
+      } catch (error) {
+        toast.error(t("toast.onlineAsrKeySaveFailed"));
+        throw error;
+      }
+    },
+    600,
+    { onUnmount: "flush" },
+  );
 
   const customPromptSave = useDebouncedCallback((value: string) => {
     setCustomPrompt(value.trim() || null).catch(() => {
@@ -850,11 +860,15 @@ export default function SettingsPage({
 
   const handleEngineSwitch = async (newEngine: string) => {
     if (engineLoading || newEngine === engine) return;
+    setEngineLoading(true);
     // 切换引擎之前先把 debounce 里还在等待的 key 落盘到原引擎槽，
     // 防止它变成 fire-and-forget 和 set_engine 抢 engine.json 的写入顺序。
-    onlineAsrKeySave.flush();
-    setEngineLoading(true);
     try {
+      try {
+        await onlineAsrKeySave.flush();
+      } catch {
+        return;
+      }
       await setEngine(newEngine);
       setEngineState(newEngine);
       const label = engineOptions.find((o) => o.key === newEngine)?.label ?? newEngine;
@@ -2307,12 +2321,19 @@ export default function SettingsPage({
                       <button
                         key={region}
                         type="button"
+                        disabled={onlineAsrRegionLoading}
                         className={`theme-btn${onlineAsrRegion === region ? " active" : ""}`}
                         onClick={async () => {
+                          if (onlineAsrRegionLoading || onlineAsrRegion === region) return;
+                          setOnlineAsrRegionLoading(true);
                           // 区域切换也会换 keyring 槽（Alibaba CN / Intl），
                           // 先把还在 debounce 里的 key 落盘到旧区域槽。
-                          onlineAsrKeySave.flush();
                           try {
+                            try {
+                              await onlineAsrKeySave.flush();
+                            } catch {
+                              return;
+                            }
                             const ep = await setOnlineAsrEndpoint(region);
                             setOnlineAsrRegion(ep.region);
                             setOnlineAsrUrl(ep.url);
@@ -2326,7 +2347,9 @@ export default function SettingsPage({
                               }
                             }
                           } catch {
-                            // Keep the current endpoint selection when the backend rejects the change.
+                            toast.error(t("toast.onlineAsrRegionSwitchFailed"));
+                          } finally {
+                            setOnlineAsrRegionLoading(false);
                           }
                         }}
                         style={{ flex: 1 }}
@@ -2441,13 +2464,30 @@ export default function SettingsPage({
                       onClick={async () => {
                         try {
                           setModelsDirMigrating(true);
-                          await setModelsDir(null, false);
-                          const info = await getModelsDir();
-                          setModelsDirState(info.path);
-                          setModelsDirCustom(info.is_custom);
-                          toast.success(t("toast.modelsDirResetDefault"));
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : t("toast.modelsDirResetFailed"));
+                          const result = await setModelsDir(null, false);
+                          try {
+                            const info = await getModelsDir();
+                            setModelsDirState(info.path);
+                            setModelsDirCustom(info.is_custom);
+                          } catch (refreshError) {
+                            console.error("Failed to refresh model directory after successful reset:", refreshError);
+                          }
+                           if (result.runtimeWarning) {
+                             toast.info(result.runtimeWarning);
+                           } else {
+                             toast.success(t("toast.modelsDirResetDefault"));
+                           }
+                           retryModel();
+                         } catch (e) {
+                           try {
+                             const info = await getModelsDir();
+                             setModelsDirState(info.path);
+                             setModelsDirCustom(info.is_custom);
+                           } catch (refreshError) {
+                             console.error("Failed to refresh model directory after reset error:", refreshError);
+                           }
+                           retryModel();
+                           toast.error(e instanceof Error ? e.message : t("toast.modelsDirResetFailed"));
                         } finally {
                           setModelsDirMigrating(false);
                         }
@@ -2465,16 +2505,31 @@ export default function SettingsPage({
                         const folder = await pickFolder();
                         if (!folder) return;
                         setModelsDirMigrating(true);
-                        await setModelsDir(folder, true);
-                        const info = await getModelsDir();
-                        setModelsDirState(info.path);
-                        setModelsDirCustom(info.is_custom);
-                        toast.success(t("toast.modelsDirUpdated"));
-                        retryModel();
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : t("toast.modelsDirChangeFailed"));
-                        retryModel();
-                      } finally {
+                        const result = await setModelsDir(folder, true);
+                        try {
+                          const info = await getModelsDir();
+                          setModelsDirState(info.path);
+                          setModelsDirCustom(info.is_custom);
+                        } catch (refreshError) {
+                          console.error("Failed to refresh model directory after successful migration:", refreshError);
+                        }
+                         if (result.runtimeWarning) {
+                           toast.info(result.runtimeWarning);
+                         } else {
+                           toast.success(t("toast.modelsDirUpdated"));
+                         }
+                         retryModel();
+                       } catch (e) {
+                         try {
+                           const info = await getModelsDir();
+                           setModelsDirState(info.path);
+                           setModelsDirCustom(info.is_custom);
+                         } catch (refreshError) {
+                           console.error("Failed to refresh model directory after migration error:", refreshError);
+                          }
+                          retryModel();
+                          toast.error(e instanceof Error ? e.message : t("toast.modelsDirChangeFailed"));
+                       } finally {
                         setModelsDirMigrating(false);
                         setModelsMigrateMsg("");
                       }

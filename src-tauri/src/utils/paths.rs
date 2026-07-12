@@ -419,7 +419,7 @@ pub fn write_models_dir(dir: Option<&str>) -> Result<(), std::io::Error> {
 }
 
 /// 默认 HF 缓存根目录（不考虑自定义配置）
-fn default_hf_cache_root() -> PathBuf {
+pub fn get_default_models_dir() -> PathBuf {
     if let Ok(hf_home) = std::env::var("HF_HOME") {
         return PathBuf::from(hf_home).join("hub");
     }
@@ -434,7 +434,7 @@ pub fn get_effective_models_dir() -> PathBuf {
     if let Some(custom) = read_models_dir() {
         return PathBuf::from(custom);
     }
-    default_hf_cache_root()
+    get_default_models_dir()
 }
 
 #[cfg(test)]

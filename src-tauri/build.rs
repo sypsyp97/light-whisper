@@ -1,6 +1,7 @@
+use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
 const ENGINE_ARCHIVE_CANDIDATES: &[&str] = &["resources/engine.tar.xz", "resources/engine.zip"];
 
@@ -34,15 +35,21 @@ fn emit_rerun_hints() {
 }
 
 fn compute_file_fingerprint(path: &Path) -> String {
-    let metadata = fs::metadata(path)
+    let file = fs::File::open(path)
         .unwrap_or_else(|err| panic!("无法读取引擎归档 {}: {}", path.display(), err));
-    let modified = metadata
-        .modified()
-        .ok()
-        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_secs())
-        .unwrap_or_default();
-    format!("{:016x}-{:016x}", metadata.len(), modified)
+    let mut reader = BufReader::with_capacity(8 * 1024 * 1024, file);
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 8 * 1024 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .unwrap_or_else(|err| panic!("无法计算引擎归档摘要 {}: {}", path.display(), err));
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 fn main() {

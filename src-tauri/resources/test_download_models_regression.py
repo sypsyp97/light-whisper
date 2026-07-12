@@ -56,6 +56,26 @@ class FakeRangeNotSatisfiableResponse:
     def iter_content(self, chunk_size):
         return iter(())
 
+    def close(self):
+        return None
+
+
+class FakeBodyResponse:
+    def __init__(self, status_code, body, headers=None):
+        self.status_code = status_code
+        self.body = body
+        self.headers = headers or {}
+        self.closed = False
+
+    def raise_for_status(self):
+        return None
+
+    def iter_content(self, chunk_size):
+        yield self.body
+
+    def close(self):
+        self.closed = True
+
 
 class ModelDownloadAtomicityTests(unittest.TestCase):
     def test_get_repo_info_preserves_lfs_sha256_metadata(self):
@@ -278,7 +298,275 @@ class ModelDownloadAtomicityTests(unittest.TestCase):
             with open(dest_path, "rb") as f:
                 self.assertEqual(f.read(), b"xyz")
 
-    def test_cleanup_locks_removes_all_repo_incomplete_files(self):
+    def test_new_download_process_preserves_partial_file_and_resumes_with_range(self):
+        with tempfile.TemporaryDirectory() as cache_root:
+            repo_dir = os.path.join(cache_root, "models--org--model")
+            dest_path = os.path.join(repo_dir, "snapshots", "commit", "model.bin")
+            incomplete_path = dest_path + ".incomplete"
+            os.makedirs(os.path.dirname(incomplete_path), exist_ok=True)
+            with open(incomplete_path, "wb") as f:
+                f.write(b"abc")
+
+            observed_headers = []
+
+            def fake_get(_url, *, headers, **_kwargs):
+                observed_headers.append(dict(headers))
+                if headers.get("Range") == "bytes=3-":
+                    response = FakeCompleteResponse()
+                    response.status_code = 206
+                    response.headers = {
+                        "Content-Length": "3",
+                        "Content-Range": "bytes 3-5/6",
+                    }
+                    return response
+
+                response = FakeCompleteResponse()
+                response.headers = {"Content-Length": "6"}
+                response.iter_content = lambda chunk_size: iter((b"abcxyz",))
+                return response
+
+            with (
+                mock.patch.object(hf_cache_utils, "get_hf_cache_root", return_value=cache_root),
+                mock.patch.object(download_models, "get_hf_cache_root", return_value=cache_root),
+                mock.patch.object(download_models.requests, "get", side_effect=fake_get),
+            ):
+                download_models._cleanup_locks("org/model")
+                partial_survived_cleanup = os.path.exists(incomplete_path)
+                download_models._download_file(
+                    "org/model",
+                    "model.bin",
+                    dest_path,
+                    "asr",
+                    1,
+                    1,
+                    "https://hf.example",
+                    expected_size=6,
+                    revision="commit",
+                )
+
+            self.assertEqual(
+                (partial_survived_cleanup, observed_headers[0].get("Range")),
+                (True, "bytes=3-"),
+                "a new download process must preserve a valid partial file and resume it with an HTTP Range request",
+            )
+
+    def test_mismatched_content_range_discards_partial_and_retries_full_download(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_path = os.path.join(tmp, "snapshot", "model.bin")
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            with open(dest_path + ".incomplete", "wb") as f:
+                f.write(b"abc")
+
+            bad_range = FakeBodyResponse(
+                206,
+                b"XYZ",
+                {"Content-Length": "3", "Content-Range": "bytes 0-2/6"},
+            )
+            full_response = FakeBodyResponse(200, b"abcxyz", {"Content-Length": "6"})
+            observed_headers = []
+
+            def fake_get(_url, *, headers, **_kwargs):
+                observed_headers.append(dict(headers))
+                return bad_range if len(observed_headers) == 1 else full_response
+
+            with mock.patch.object(download_models.requests, "get", side_effect=fake_get):
+                download_models._download_file(
+                    "org/model",
+                    "model.bin",
+                    dest_path,
+                    "asr",
+                    1,
+                    1,
+                    "https://hf.example",
+                    expected_size=6,
+                    revision="commit",
+                )
+
+            self.assertEqual(observed_headers[0].get("Range"), "bytes=3-")
+            self.assertNotIn("Range", observed_headers[1])
+            self.assertTrue(bad_range.closed)
+            with open(dest_path, "rb") as f:
+                self.assertEqual(f.read(), b"abcxyz")
+
+    def test_missing_content_range_does_not_append_206_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_path = os.path.join(tmp, "snapshot", "model.bin")
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            with open(dest_path + ".incomplete", "wb") as f:
+                f.write(b"abc")
+
+            missing_range = FakeBodyResponse(206, b"XYZ", {"Content-Length": "3"})
+            full_response = FakeBodyResponse(200, b"abcxyz", {"Content-Length": "6"})
+
+            with mock.patch.object(
+                download_models.requests,
+                "get",
+                side_effect=[missing_range, full_response],
+            ):
+                download_models._download_file(
+                    "org/model",
+                    "model.bin",
+                    dest_path,
+                    "asr",
+                    1,
+                    1,
+                    "https://hf.example",
+                    expected_size=6,
+                    revision="commit",
+                )
+
+            self.assertTrue(missing_range.closed)
+            with open(dest_path, "rb") as f:
+                self.assertEqual(f.read(), b"abcxyz")
+
+    def test_content_range_body_length_mismatch_discards_untrusted_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_path = os.path.join(tmp, "snapshot", "model.bin")
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            with open(dest_path + ".incomplete", "wb") as f:
+                f.write(b"abc")
+
+            bad_response = FakeBodyResponse(
+                206,
+                b"XYZ",
+                {"Content-Length": "3", "Content-Range": "bytes 3-4/6"},
+            )
+            full_response = FakeBodyResponse(200, b"abcxyz", {"Content-Length": "6"})
+            with mock.patch.object(
+                download_models.requests,
+                "get",
+                side_effect=[bad_response, full_response],
+            ) as mock_get:
+                download_models._download_file(
+                    "org/model",
+                    "model.bin",
+                    dest_path,
+                    "asr",
+                    1,
+                    1,
+                    "https://hf.example",
+                    expected_size=6,
+                    revision="commit",
+                )
+
+            self.assertEqual(mock_get.call_count, 2)
+            self.assertTrue(bad_response.closed)
+            with open(dest_path, "rb") as f:
+                self.assertEqual(f.read(), b"abcxyz")
+            self.assertFalse(os.path.exists(dest_path + ".incomplete"))
+
+    def test_416_conflicting_remote_total_retries_full_download(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_path = os.path.join(tmp, "snapshot", "model.bin")
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            with open(dest_path + ".incomplete", "wb") as f:
+                f.write(b"ABCDEF")
+
+            conflict = FakeRangeNotSatisfiableResponse()
+            conflict.headers = {"Content-Range": "bytes */7"}
+            full_response = FakeBodyResponse(200, b"abcxyz", {"Content-Length": "6"})
+            with mock.patch.object(
+                download_models.requests,
+                "get",
+                side_effect=[conflict, full_response],
+            ) as mock_get:
+                download_models._download_file(
+                    "org/model",
+                    "model.bin",
+                    dest_path,
+                    "asr",
+                    1,
+                    1,
+                    "https://hf.example",
+                    expected_size=6,
+                    revision="commit",
+                )
+
+            self.assertEqual(mock_get.call_count, 2)
+            with open(dest_path, "rb") as f:
+                self.assertEqual(f.read(), b"abcxyz")
+
+    def test_http_error_closes_streaming_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_path = os.path.join(tmp, "snapshot", "model.bin")
+            response = FakeBodyResponse(404, b"")
+            response.raise_for_status = mock.Mock(side_effect=RuntimeError("http error"))
+
+            with (
+                mock.patch.object(download_models.requests, "get", return_value=response),
+                self.assertRaisesRegex(RuntimeError, "http error"),
+            ):
+                download_models._download_file(
+                    "org/model",
+                    "model.bin",
+                    dest_path,
+                    "asr",
+                    1,
+                    1,
+                    "https://hf.example",
+                    expected_size=6,
+                    revision="commit",
+                )
+
+            self.assertTrue(response.closed)
+
+    def test_invalid_content_length_is_ignored_and_response_is_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_path = os.path.join(tmp, "snapshot", "model.bin")
+            response = FakeBodyResponse(200, b"abc", {"Content-Length": "invalid"})
+
+            with (
+                mock.patch.object(download_models, "_remote_file_size", return_value=None),
+                mock.patch.object(download_models.requests, "get", return_value=response),
+            ):
+                download_models._download_file(
+                    "org/model",
+                    "model.bin",
+                    dest_path,
+                    "asr",
+                    1,
+                    1,
+                    "https://hf.example",
+                    expected_size=None,
+                    revision="commit",
+                )
+
+            self.assertTrue(response.closed)
+            with open(dest_path, "rb") as f:
+                self.assertEqual(f.read(), b"abc")
+
+    def test_unknown_size_uses_content_range_total(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_path = os.path.join(tmp, "snapshot", "model.bin")
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            with open(dest_path + ".incomplete", "wb") as f:
+                f.write(b"abc")
+
+            response = FakeBodyResponse(
+                206,
+                b"xyz",
+                {"Content-Length": "3", "Content-Range": "bytes 3-5/6"},
+            )
+            with (
+                mock.patch.object(download_models, "_remote_file_size", return_value=None),
+                mock.patch.object(download_models.requests, "get", return_value=response),
+            ):
+                download_models._download_file(
+                    "org/model",
+                    "model.bin",
+                    dest_path,
+                    "asr",
+                    1,
+                    1,
+                    "https://hf.example",
+                    expected_size=None,
+                    revision="commit",
+                )
+
+            with open(dest_path, "rb") as f:
+                self.assertEqual(f.read(), b"abcxyz")
+
+    def test_cleanup_locks_removes_legacy_blob_partial_but_preserves_resumable_snapshot(self):
         with tempfile.TemporaryDirectory() as cache_root:
             repo_dir = os.path.join(cache_root, "models--org--model")
             blob_incomplete = os.path.join(repo_dir, "blobs", "abc.incomplete")
@@ -303,7 +591,7 @@ class ModelDownloadAtomicityTests(unittest.TestCase):
                 download_models._cleanup_locks("org/model")
 
             self.assertFalse(os.path.exists(blob_incomplete))
-            self.assertFalse(os.path.exists(snapshot_incomplete))
+            self.assertTrue(os.path.exists(snapshot_incomplete))
             self.assertTrue(os.path.exists(complete_file))
 
 

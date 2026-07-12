@@ -9,6 +9,7 @@ import sys
 import json
 import os
 import hashlib
+import re
 import requests
 
 from hf_cache_utils import (
@@ -30,6 +31,9 @@ COMPLETE_MANIFEST_NAME = ".light_whisper_complete.json"
 _progress = {}
 _completed_count = 0
 _total_count = 0
+
+_CONTENT_RANGE_RE = re.compile(r"^bytes (\d+)-(\d+)/(\d+|\*)$")
+_UNSATISFIED_RANGE_RE = re.compile(r"^bytes \*/(\d+)$")
 
 
 def _emit(model_type, stage, percent, error=None, message=None):
@@ -106,6 +110,30 @@ def _resolve_download_url(endpoint, repo_id, filename, revision):
     return f"{endpoint}/{repo_id}/resolve/{revision}/{filename}"
 
 
+def _parse_content_range(value):
+    if not value:
+        return None
+    match = _CONTENT_RANGE_RE.fullmatch(value.strip())
+    if not match:
+        return None
+    start, end, total = match.groups()
+    return int(start), int(end), None if total == "*" else int(total)
+
+
+def _parse_unsatisfied_range_total(value):
+    if not value:
+        return None
+    match = _UNSATISFIED_RANGE_RE.fullmatch(value.strip())
+    return int(match.group(1)) if match else None
+
+
+def _remove_if_exists(path):
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
 def _download_file(
     repo_id,
     filename,
@@ -150,61 +178,121 @@ def _download_file(
             os.remove(tmp_path)
             downloaded = 0
 
-    headers = {}
-    if downloaded > 0:
-        headers["Range"] = f"bytes={downloaded}-"
+    for attempt in range(2):
+        headers = {"Accept-Encoding": "identity"}
+        if downloaded > 0:
+            headers["Range"] = f"bytes={downloaded}-"
 
-    resp = requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True)
-
-    if resp.status_code == 416:
-        if expected_size is not None and downloaded == expected_size:
-            os.replace(tmp_path, dest_path)
-            return
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-        downloaded = 0
-        headers = {}
         resp = requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True)
 
-    resp.raise_for_status()
-
-    if downloaded > 0 and resp.status_code == 200:
-        # 服务器没有接受 Range，从头开始写临时文件。
-        downloaded = 0
-
-    total_size = expected_size or 0
-    content_length = resp.headers.get("Content-Length")
-    if total_size == 0 and content_length:
-        body_size = int(content_length)
-        total_size = downloaded + body_size if resp.status_code == 206 else body_size
-
-    mode = "ab" if downloaded > 0 and resp.status_code == 206 else "wb"
-    current = downloaded
-    last_pct = -1
-
-    with open(tmp_path, mode) as f:
-        for chunk in resp.iter_content(chunk_size=1024 * 1024):
-            if not chunk:
+        if resp.status_code == 416:
+            remote_total = _parse_unsatisfied_range_total(resp.headers.get("Content-Range"))
+            complete = (
+                expected_size is not None
+                and downloaded == expected_size
+                and (remote_total is None or remote_total == expected_size)
+            ) or (
+                expected_size is None
+                and remote_total is not None
+                and downloaded == remote_total
+            )
+            getattr(resp, "close", lambda: None)()
+            if complete and downloaded > 0:
+                os.replace(tmp_path, dest_path)
+                return
+            _remove_if_exists(tmp_path)
+            downloaded = 0
+            if attempt == 0:
                 continue
-            f.write(chunk)
-            current += len(chunk)
-            if total_size > 0:
-                pct = int(current * 100 / total_size)
-                if pct != last_pct:
-                    last_pct = pct
-                    _emit(model_type, "downloading", pct,
-                          message=f"[{file_idx}/{file_total}] {filename} {pct}%")
-        f.flush()
-        os.fsync(f.fileno())
+            raise RuntimeError(f"{filename} 服务器拒绝完整下载请求")
 
-    if expected_size is not None and current != expected_size:
-        raise RuntimeError(f"{filename} 下载不完整: got={current}, expected={expected_size}")
-    if total_size > 0 and current != total_size:
-        raise RuntimeError(f"{filename} 下载不完整: got={current}, expected={total_size}")
+        try:
+            resp.raise_for_status()
+        except Exception:
+            getattr(resp, "close", lambda: None)()
+            raise
+        total_size = expected_size or 0
+        expected_range_end = None
 
-    os.replace(tmp_path, dest_path)
+        if resp.status_code == 206:
+            parsed_range = _parse_content_range(resp.headers.get("Content-Range"))
+            valid_range = parsed_range is not None
+            if parsed_range is not None:
+                range_start, range_end, range_total = parsed_range
+                valid_range = range_start == downloaded and range_end >= range_start
+                expected_range_end = range_end
+                if expected_size is not None and range_total is not None:
+                    valid_range = valid_range and range_total == expected_size
+                if range_total is not None:
+                    valid_range = valid_range and range_end < range_total
+                if expected_size is None:
+                    valid_range = valid_range and range_total is not None
+                    if range_total is not None:
+                        total_size = range_total
+
+            if not valid_range:
+                getattr(resp, "close", lambda: None)()
+                _remove_if_exists(tmp_path)
+                downloaded = 0
+                if attempt == 0:
+                    continue
+                raise RuntimeError(f"{filename} 服务器返回了无效的 Content-Range")
+            mode = "ab" if downloaded > 0 else "wb"
+        elif resp.status_code == 200:
+            # 服务器忽略 Range 时从零覆盖，不能把完整响应追加到 partial。
+            downloaded = 0
+            mode = "wb"
+            content_length = resp.headers.get("Content-Length")
+            if total_size == 0 and content_length:
+                try:
+                    parsed_content_length = int(content_length)
+                except (TypeError, ValueError):
+                    parsed_content_length = 0
+                if parsed_content_length > 0:
+                    total_size = parsed_content_length
+        else:
+            getattr(resp, "close", lambda: None)()
+            raise RuntimeError(f"{filename} 下载返回异常状态码: {resp.status_code}")
+
+        current = downloaded
+        last_pct = -1
+        try:
+            with open(tmp_path, mode) as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    current += len(chunk)
+                    if total_size > 0:
+                        pct = int(current * 100 / total_size)
+                        if pct != last_pct:
+                            last_pct = pct
+                            _emit(model_type, "downloading", pct,
+                                  message=f"[{file_idx}/{file_total}] {filename} {pct}%")
+                f.flush()
+                os.fsync(f.fileno())
+        finally:
+            getattr(resp, "close", lambda: None)()
+
+        if expected_range_end is not None and current - 1 != expected_range_end:
+            # 响应体与服务端声明的区间不一致，现有 partial 的字节边界不可信。
+            _remove_if_exists(tmp_path)
+            downloaded = 0
+            if attempt == 0:
+                continue
+            raise RuntimeError(
+                f"{filename} Content-Range 与响应长度不一致: "
+                f"end={expected_range_end}, received_end={current - 1}"
+            )
+        if expected_size is not None and current != expected_size:
+            raise RuntimeError(f"{filename} 下载不完整: got={current}, expected={expected_size}")
+        if total_size > 0 and current != total_size:
+            raise RuntimeError(f"{filename} 下载不完整: got={current}, expected={total_size}")
+
+        os.replace(tmp_path, dest_path)
+        return
+
+    raise RuntimeError(f"{filename} 下载失败")
 
 
 def _sha256_file(path):

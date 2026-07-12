@@ -482,8 +482,13 @@ export function pickFolder(): Promise<string | null> {
   return invokeCommand<string | null>("pick_folder");
 }
 
-export function setModelsDir(path: string | null, migrate: boolean): Promise<string> {
-  return invokeCommand<string>("set_models_dir", { path, migrate });
+export interface ModelsDirUpdateResult {
+  message: string;
+  runtimeWarning: string | null;
+}
+
+export function setModelsDir(path: string | null, migrate: boolean): Promise<ModelsDirUpdateResult> {
+  return invokeCommand<ModelsDirUpdateResult>("set_models_dir", { path, migrate });
 }
 
 export { enableAutostart, disableAutostart, isAutostartEnabled };

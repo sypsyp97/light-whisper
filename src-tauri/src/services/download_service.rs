@@ -7,6 +7,7 @@ use crate::state::AppState;
 use crate::utils::{paths, AppError};
 use serde::de::DeserializeOwned;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -22,6 +23,12 @@ struct DownloadLine {
     overall_progress: Option<f64>,
     message: Option<String>,
     error: Option<String>,
+}
+
+static NEXT_DOWNLOAD_TASK_ID: AtomicU64 = AtomicU64::new(1);
+
+fn download_completed_successfully(protocol_success: Option<bool>, process_success: bool) -> bool {
+    process_success && protocol_success.unwrap_or(true)
 }
 
 fn parse_json_line_with_recovery<T>(raw: &[u8], context: &str) -> Option<T>
@@ -66,9 +73,11 @@ where
     None
 }
 
-async fn clear_download_task(state: &AppState) {
+async fn clear_download_task(state: &AppState, task_id: u64) {
     let mut guard = state.engine.download_task.lock().await;
-    guard.take();
+    if guard.as_ref().is_some_and(|task| task.id == task_id) {
+        guard.take();
+    }
 }
 
 fn emit_download_status(app_handle: &tauri::AppHandle, payload: serde_json::Value) {
@@ -83,35 +92,49 @@ pub async fn run_download(
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<String, AppError> {
-    // 查找引擎运行时
-    let runtime = funasr_service::find_engine(app_handle).await?;
-
     // 获取下载脚本路径，清理 Windows \\?\ 前缀
     let download_script = paths::get_download_script_path(app_handle);
     let download_script_str = paths::strip_win_prefix(&download_script);
 
-    // 仅开发模式需要检查脚本是否存在
-    if matches!(runtime, funasr_service::EngineRuntime::Development { .. })
-        && !download_script.exists()
-    {
-        return Err(AppError::Download(format!(
-            "模型下载脚本不存在: {}",
-            download_script_str
-        )));
-    }
-
     let data_dir = paths::strip_win_prefix(paths::get_data_dir());
 
     let (cancel_tx, mut cancel_rx) = oneshot::channel();
+    let task_id = NEXT_DOWNLOAD_TASK_ID.fetch_add(1, Ordering::Relaxed);
     {
-        // 防止重复下载
+        // 与模型目录切换串行登记。登记完成后 set_models_dir 会看到 active slot
+        // 并拒绝迁移，直到下载子进程真正退出并清理自己的 task ID。
+        let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
         let mut guard = state.engine.download_task.lock().await;
         if guard.is_some() {
             return Err(AppError::Download(
                 "已有下载任务正在进行，请先取消或等待完成".to_string(),
             ));
         }
-        *guard = Some(crate::state::DownloadTask { cancel: cancel_tx });
+        *guard = Some(crate::state::DownloadTask {
+            id: task_id,
+            cancel: Some(cancel_tx),
+        });
+    }
+
+    // 查找引擎运行时；失败时也必须释放刚登记的下载槽。
+    let generation = state.engine.funasr_generation.load(Ordering::SeqCst);
+    let runtime = match funasr_service::find_engine(app_handle, state, generation).await {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            clear_download_task(state, task_id).await;
+            return Err(err);
+        }
+    };
+
+    // 仅开发模式需要检查脚本是否存在；此时 task 已登记，错误路径必须按 ID 清理。
+    if matches!(runtime, funasr_service::EngineRuntime::Development { .. })
+        && !download_script.exists()
+    {
+        clear_download_task(state, task_id).await;
+        return Err(AppError::Download(format!(
+            "模型下载脚本不存在: {}",
+            download_script_str
+        )));
     }
 
     // 通知前端开始下载
@@ -174,7 +197,7 @@ pub async fn run_download(
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
-            clear_download_task(state).await;
+            clear_download_task(state, task_id).await;
             return Err(AppError::Download(format!("启动模型下载脚本失败: {}", e)));
         }
     };
@@ -182,7 +205,7 @@ pub async fn run_download(
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => {
-            clear_download_task(state).await;
+            clear_download_task(state, task_id).await;
             return Err(AppError::Download("无法读取模型下载脚本输出".to_string()));
         }
     };
@@ -251,18 +274,18 @@ pub async fn run_download(
     let status = match child.wait().await {
         Ok(status) => status,
         Err(e) => {
-            clear_download_task(state).await;
+            clear_download_task(state, task_id).await;
             return Err(AppError::Download(format!("模型下载进程异常退出: {}", e)));
         }
     };
 
-    let final_success = final_result
-        .as_ref()
-        .and_then(|r| r.success)
-        .unwrap_or(status.success());
+    let final_success = download_completed_successfully(
+        final_result.as_ref().and_then(|r| r.success),
+        status.success(),
+    );
 
     // 清理下载任务
-    clear_download_task(state).await;
+    clear_download_task(state, task_id).await;
 
     if cancelled {
         return Ok("模型下载已取消".to_string());
@@ -297,7 +320,57 @@ pub async fn run_download(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_json_line_with_recovery, DownloadLine};
+    use super::{
+        clear_download_task, download_completed_successfully, parse_json_line_with_recovery,
+        DownloadLine,
+    };
+    use crate::state::{AppState, DownloadTask};
+
+    #[tokio::test]
+    async fn old_download_cleanup_must_not_clear_replacement_task() {
+        let state = AppState::new();
+        let (old_cancel, _old_cancel_rx) = tokio::sync::oneshot::channel();
+        *state.engine.download_task.lock().await = Some(DownloadTask {
+            id: 1,
+            cancel: Some(old_cancel),
+        });
+
+        let old_task = state
+            .engine
+            .download_task
+            .lock()
+            .await
+            .take()
+            .expect("old download task should be active before cancellation");
+        let _ = old_task
+            .cancel
+            .expect("old task must be cancellable")
+            .send(());
+
+        let (replacement_cancel, _replacement_cancel_rx) = tokio::sync::oneshot::channel();
+        *state.engine.download_task.lock().await = Some(DownloadTask {
+            id: 2,
+            cancel: Some(replacement_cancel),
+        });
+
+        clear_download_task(&state, 1).await;
+
+        assert!(
+            state.engine.download_task.lock().await.is_some(),
+            "cleanup from the cancelled download must not clear its replacement"
+        );
+    }
+
+    #[test]
+    fn final_success_requires_protocol_and_process_success() {
+        assert!(download_completed_successfully(Some(true), true));
+        assert!(!download_completed_successfully(Some(false), true));
+        assert!(download_completed_successfully(None, true));
+        assert!(
+            !download_completed_successfully(Some(true), false),
+            "a JSON success response must not override a failing process exit status"
+        );
+    }
 
     #[test]
     fn parse_download_line_accepts_valid_json() {

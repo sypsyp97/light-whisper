@@ -357,8 +357,6 @@ def main():
     if DIST_DIR.exists():
         print(f"清理旧构建: {DIST_DIR}")
         remove_tree(DIST_DIR, warn_only=False)
-    if OUTPUT_ARCHIVE.exists():
-        OUTPUT_ARCHIVE.unlink()
 
     work_dir = PROJECT_ROOT / "build" / "pyinstaller"
     spec_dir = PROJECT_ROOT / "build"
@@ -436,7 +434,16 @@ def main():
     print("步骤 3/3: 压缩为 engine.tar.xz")
     print("=" * 60)
 
-    archive_size = create_tar_xz(engine_dir, OUTPUT_ARCHIVE)
+    staging_archive = OUTPUT_ARCHIVE.with_name(
+        f".{OUTPUT_ARCHIVE.name}.{os.getpid()}.{time.time_ns()}.tmp"
+    )
+    try:
+        archive_size = create_tar_xz(engine_dir, staging_archive)
+        if not staging_archive.is_file() or staging_archive.stat().st_size == 0:
+            raise RuntimeError("引擎归档构建结果为空")
+        os.replace(staging_archive, OUTPUT_ARCHIVE)
+    finally:
+        staging_archive.unlink(missing_ok=True)
 
     # 清理未压缩目录
     remove_tree(DIST_DIR, warn_only=True)

@@ -61,15 +61,16 @@ def is_hf_repo_ready(repo_id):
 
 
 def cleanup_incomplete_files(repo_id):
-    """删除某个 repo 缓存目录下残留的 .incomplete 文件，返回删除数量。"""
+    """删除旧 huggingface_hub blob 临时文件，保留 snapshots 下可续传的 partial。"""
     cache_root = get_hf_cache_root()
     dir_name = "models--" + repo_id.replace("/", "--")
     repo_dir = os.path.join(cache_root, dir_name)
-    if not os.path.isdir(repo_dir):
+    blobs_dir = os.path.join(repo_dir, "blobs")
+    if not os.path.isdir(blobs_dir):
         return 0
 
     removed = 0
-    for root, _dirs, files in os.walk(repo_dir):
+    for root, _dirs, files in os.walk(blobs_dir):
         for filename in files:
             if not filename.endswith(".incomplete"):
                 continue

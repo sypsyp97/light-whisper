@@ -12,6 +12,7 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
   const callbackRef = useRef(callback);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingArgsRef = useRef<TArgs | null>(null);
+  const tailRef = useRef<Promise<void> | null>(null);
 
   callbackRef.current = callback;
 
@@ -23,16 +24,42 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
     pendingArgsRef.current = null;
   }, []);
 
-  const flush = useCallback(() => {
+  const invoke = useCallback((args: TArgs): Promise<void> => {
+    const currentCallback = callbackRef.current;
+    const run = (): Promise<void> => {
+      try {
+        return Promise.resolve(currentCallback(...args));
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    };
+    const previous = tailRef.current;
+    const running = previous === null
+      ? run()
+      : previous.then(run, run);
+    tailRef.current = running;
+    void running.then(
+      () => {
+        if (tailRef.current === running) tailRef.current = null;
+      },
+      () => {
+        if (tailRef.current === running) tailRef.current = null;
+      },
+    );
+    return running;
+  }, []);
+
+  const flush = useCallback(async (): Promise<void> => {
     if (timerRef.current === null || pendingArgsRef.current === null) {
+      await tailRef.current;
       return;
     }
     const args = pendingArgsRef.current;
     clearTimeout(timerRef.current);
     timerRef.current = null;
     pendingArgsRef.current = null;
-    void callbackRef.current(...args);
-  }, []);
+    await invoke(args);
+  }, [invoke]);
 
   const schedule = useCallback((...args: TArgs) => {
     cancel();
@@ -42,15 +69,15 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
       timerRef.current = null;
       pendingArgsRef.current = null;
       if (pendingArgs !== null) {
-        void callbackRef.current(...pendingArgs);
+        void invoke(pendingArgs).catch(() => undefined);
       }
     }, delayMs);
-  }, [cancel, delayMs]);
+  }, [cancel, delayMs, invoke]);
 
   useEffect(() => {
     return () => {
       if (options?.onUnmount === "flush") {
-        flush();
+        void flush().catch(() => undefined);
       } else {
         cancel();
       }

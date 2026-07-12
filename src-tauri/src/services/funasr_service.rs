@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
-use crate::state::{AppState, FunasrProcess};
+use crate::state::{AppState, EngineState, FunasrProcess, StartingFunasrProcess};
 use crate::utils::paths;
 use crate::utils::AppError;
 
@@ -206,12 +206,66 @@ impl ServerResponse {
     }
 }
 
-/// 启动标志守卫，确保异常退出时重置 funasr_starting
-struct StartingFlagGuard(Arc<std::sync::atomic::AtomicBool>);
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StartTicket {
+    owner: u64,
+    generation: u64,
+    engine: String,
+}
 
-impl Drop for StartingFlagGuard {
+#[derive(Clone)]
+struct EngineProgressGate {
+    generation: Arc<AtomicU64>,
+    status_commit: Arc<parking_lot::Mutex<()>>,
+    expected_generation: u64,
+}
+
+impl EngineProgressGate {
+    fn is_current(&self) -> bool {
+        self.generation.load(Ordering::SeqCst) == self.expected_generation
+    }
+
+    fn commit_if_current(&self, commit: impl FnOnce()) {
+        let _status_guard = self.status_commit.lock();
+        if self.is_current() {
+            commit();
+        }
+    }
+}
+
+/// 启动守卫：异常返回或 future 被取消时同步杀掉尚未 promote 的子进程，
+/// 清理 matching starting slot，并且只释放自己的 owner。
+struct StartingFlagGuard<'a> {
+    engine: &'a EngineState,
+    owner: u64,
+    child: Option<Arc<parking_lot::Mutex<Option<tokio::process::Child>>>>,
+}
+
+impl StartingFlagGuard<'_> {
+    fn register_child(&mut self, child: Arc<parking_lot::Mutex<Option<tokio::process::Child>>>) {
+        self.child = Some(child);
+    }
+
+    fn release_child(&mut self) {
+        self.child = None;
+    }
+}
+
+impl Drop for StartingFlagGuard<'_> {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::SeqCst);
+        if let Some(child) = self.child.take() {
+            if let Some(mut child) = child.lock().take() {
+                let _ = child.start_kill();
+            }
+        }
+        let mut starting = self.engine.funasr_starting_process.lock();
+        if starting
+            .as_ref()
+            .is_some_and(|entry| entry.owner == self.owner)
+        {
+            starting.take();
+        }
+        self.engine.finish_funasr_start(self.owner);
     }
 }
 
@@ -223,6 +277,40 @@ const INLINE_AUDIO_FORMAT_PCM_S16LE: &str = "pcm_s16le";
 const TARGET_SAMPLE_RATE_FOR_INLINE_AUDIO: u32 = 16_000;
 const ENGINE_ARCHIVE_FINGERPRINT: &str = env!("LIGHT_WHISPER_ENGINE_ARCHIVE_FINGERPRINT");
 static NEXT_SERVER_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_SERVER_START_OWNER: AtomicU64 = AtomicU64::new(1);
+
+fn next_server_start_owner() -> u64 {
+    loop {
+        let owner = NEXT_SERVER_START_OWNER.fetch_add(1, Ordering::Relaxed);
+        if owner != 0 && owner != u64::MAX {
+            return owner;
+        }
+    }
+}
+
+fn start_ticket_is_current(state: &AppState, ticket: &StartTicket) -> bool {
+    state.engine.owns_funasr_start(ticket.owner)
+        && state.engine.funasr_generation.load(Ordering::SeqCst) == ticket.generation
+        && paths::read_engine_config() == ticket.engine
+}
+
+fn take_starting_child(
+    state: &AppState,
+    ticket: &StartTicket,
+    expected_handle: &Arc<parking_lot::Mutex<Option<tokio::process::Child>>>,
+) -> Option<tokio::process::Child> {
+    let entry = {
+        let mut slot = state.engine.funasr_starting_process.lock();
+        let matches = slot.as_ref().is_some_and(|entry| {
+            entry.owner == ticket.owner
+                && entry.generation == ticket.generation
+                && Arc::ptr_eq(&entry.child, expected_handle)
+        });
+        matches.then(|| slot.take()).flatten()
+    }?;
+    let child = entry.child.lock().take();
+    child
+}
 
 fn now_unix_ms() -> u128 {
     std::time::SystemTime::now()
@@ -258,14 +346,19 @@ fn status_with_defaults(
 
 fn expected_engine_install_fingerprint(app_handle: &tauri::AppHandle) -> String {
     if paths::get_engine_archive_path(app_handle).is_some() {
-        format!(
-            "{}+{}",
-            env!("CARGO_PKG_VERSION"),
-            ENGINE_ARCHIVE_FINGERPRINT
-        )
+        ENGINE_ARCHIVE_FINGERPRINT.to_string()
     } else {
         env!("CARGO_PKG_VERSION").to_string()
     }
+}
+
+fn engine_install_fingerprint_matches(installed: &str, expected: &str) -> bool {
+    let installed = installed.trim();
+    installed == expected
+        || (expected == ENGINE_ARCHIVE_FINGERPRINT
+            && installed
+                .rsplit_once('+')
+                .is_some_and(|(_, archive_fingerprint)| archive_fingerprint == expected))
 }
 
 fn report_model_repo_state(
@@ -390,7 +483,20 @@ where
 /// 2. 未解压的引擎归档（engine.tar.xz / 兼容 engine.zip）→ 解压后使用
 /// 3. 资源目录中的 engine.exe（开发时直接放置 python-dist）
 /// 4. 系统 Python（开发模式）
-pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime, AppError> {
+pub async fn find_engine(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    expected_generation: u64,
+) -> Result<EngineRuntime, AppError> {
+    let progress_gate = EngineProgressGate {
+        generation: state.engine.funasr_generation.clone(),
+        status_commit: state.engine.funasr_status_commit.clone(),
+        expected_generation,
+    };
+    let _install_guard = state.engine.engine_install_op.lock().await;
+    if !progress_gate.is_current() {
+        return Err(AppError::Asr("引擎查找已被取消".to_string()));
+    }
     let expected_fingerprint = expected_engine_install_fingerprint(app_handle);
 
     // 策略1：已解压的 engine.exe（版本匹配时使用）
@@ -398,7 +504,7 @@ pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime,
         let version_file = paths::get_engine_dir().join(".version");
         let installed_version = std::fs::read_to_string(&version_file).unwrap_or_default();
 
-        if installed_version.trim() == expected_fingerprint {
+        if engine_install_fingerprint_matches(&installed_version, &expected_fingerprint) {
             let path_str = paths::strip_win_prefix(&engine_path);
             log::info!("找到引擎: {} ({})", path_str, expected_fingerprint);
             return Ok(EngineRuntime::Bundled { exe_path: path_str });
@@ -414,7 +520,7 @@ pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime,
     // 策略2：存在引擎归档，需要解压（首次启动或版本升级）
     if let Some(archive_path) = paths::get_engine_archive_path(app_handle) {
         log::info!("找到引擎压缩包，准备解压: {}", archive_path.display());
-        let engine_exe = extract_engine_archive(&archive_path, app_handle).await?;
+        let engine_exe = extract_engine_archive(&archive_path, app_handle, &progress_gate).await?;
         let path_str = paths::strip_win_prefix(&engine_exe);
         log::info!("引擎解压完成: {}", path_str);
         return Ok(EngineRuntime::Bundled { exe_path: path_str });
@@ -436,18 +542,22 @@ pub async fn find_engine(app_handle: &tauri::AppHandle) -> Result<EngineRuntime,
 async fn extract_engine_archive(
     archive_path: &std::path::Path,
     app_handle: &tauri::AppHandle,
+    progress_gate: &EngineProgressGate,
 ) -> Result<std::path::PathBuf, AppError> {
-    let _ = app_handle.emit(
-        "funasr-status",
-        serde_json::json!({
-            "status": "loading",
-            "message": "首次启动，正在解压引擎文件..."
-        }),
-    );
+    progress_gate.commit_if_current(|| {
+        let _ = app_handle.emit(
+            "funasr-status",
+            serde_json::json!({
+                "status": "loading",
+                "message": "首次启动，正在解压引擎文件..."
+            }),
+        );
+    });
 
     let engine_dir = paths::get_engine_dir();
     let archive = archive_path.to_path_buf();
     let handle = app_handle.clone();
+    let progress_gate = progress_gate.clone();
 
     // 解压是 CPU 密集型 + IO 密集型，放到阻塞线程
     tokio::task::spawn_blocking(move || {
@@ -475,9 +585,9 @@ async fn extract_engine_archive(
                 .to_ascii_lowercase();
 
             let total = if archive_name.ends_with(".tar.xz") {
-                extract_tar_xz_archive(&archive, &staging_dir, &handle)?
+                extract_tar_xz_archive(&archive, &staging_dir, &handle, &progress_gate)?
             } else {
-                extract_zip_archive(&archive, &staging_dir, &handle)?
+                extract_zip_archive(&archive, &staging_dir, &handle, &progress_gate)?
             };
 
             if total == 0 {
@@ -536,7 +646,14 @@ fn replace_engine_dir(
         Ok(()) => Ok(()),
         Err(err) => {
             if had_previous {
-                let _ = std::fs::rename(backup_dir, engine_dir);
+                if let Err(restore_err) = std::fs::rename(backup_dir, engine_dir) {
+                    return Err(AppError::Asr(format!(
+                        "替换引擎目录失败: {}; 恢复旧引擎也失败: {}（备份保留在 {}）",
+                        err,
+                        restore_err,
+                        backup_dir.display()
+                    )));
+                }
             }
             Err(AppError::Asr(format!("替换引擎目录失败: {}", err)))
         }
@@ -547,6 +664,7 @@ fn extract_zip_archive(
     archive: &std::path::Path,
     engine_dir: &std::path::Path,
     handle: &tauri::AppHandle,
+    progress_gate: &EngineProgressGate,
 ) -> Result<usize, AppError> {
     let file = std::fs::File::open(archive)
         .map_err(|e| AppError::Asr(format!("打开引擎压缩包失败: {}", e)))?;
@@ -581,7 +699,7 @@ fn extract_zip_archive(
                 .map_err(|e| AppError::Asr(format!("写入文件失败: {}", e)))?;
         }
 
-        report_extract_progress(handle, i + 1, Some(total), false);
+        report_extract_progress(handle, progress_gate, i + 1, Some(total), false);
     }
 
     Ok(total)
@@ -591,6 +709,7 @@ fn extract_tar_xz_archive(
     archive: &std::path::Path,
     engine_dir: &std::path::Path,
     handle: &tauri::AppHandle,
+    progress_gate: &EngineProgressGate,
 ) -> Result<usize, AppError> {
     log::info!("开始解压 TAR.XZ 引擎归档");
 
@@ -611,11 +730,11 @@ fn extract_tar_xz_archive(
             .map_err(|e| AppError::Asr(format!("写入文件失败: {}", e)))?;
         extracted += 1;
 
-        report_extract_progress(handle, extracted, None, false);
+        report_extract_progress(handle, progress_gate, extracted, None, false);
     }
 
     if extracted > 0 && !extracted.is_multiple_of(200) {
-        report_extract_progress(handle, extracted, None, true);
+        report_extract_progress(handle, progress_gate, extracted, None, true);
     }
 
     Ok(extracted)
@@ -623,6 +742,7 @@ fn extract_tar_xz_archive(
 
 fn report_extract_progress(
     handle: &tauri::AppHandle,
+    progress_gate: &EngineProgressGate,
     current: usize,
     total: Option<usize>,
     force: bool,
@@ -632,27 +752,29 @@ fn report_extract_progress(
     if !should_emit {
         return;
     }
-    if let Some(total) = total {
-        if total == 0 {
-            return;
+    progress_gate.commit_if_current(|| {
+        if let Some(total) = total {
+            if total == 0 {
+                return;
+            }
+            let pct = current * 100 / total;
+            let _ = handle.emit(
+                "funasr-status",
+                serde_json::json!({
+                    "status": "loading",
+                    "message": format!("正在解压引擎文件... {}%", pct)
+                }),
+            );
+        } else {
+            let _ = handle.emit(
+                "funasr-status",
+                serde_json::json!({
+                    "status": "loading",
+                    "message": format!("正在解压引擎文件... 已处理 {} 项", current)
+                }),
+            );
         }
-        let pct = current * 100 / total;
-        let _ = handle.emit(
-            "funasr-status",
-            serde_json::json!({
-                "status": "loading",
-                "message": format!("正在解压引擎文件... {}%", pct)
-            }),
-        );
-    } else {
-        let _ = handle.emit(
-            "funasr-status",
-            serde_json::json!({
-                "status": "loading",
-                "message": format!("正在解压引擎文件... 已处理 {} 项", current)
-            }),
-        );
-    }
+    });
 }
 
 /// 查找可用的 Python 解释器（开发模式回退）
@@ -723,54 +845,67 @@ async fn find_python() -> Result<String, AppError> {
 
 /// 启动 FunASR Python 服务器
 pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Result<(), AppError> {
-    // 在线引擎不需要 Python 子进程
-    if paths::is_online_engine(&paths::read_engine_config()) {
-        return Ok(());
-    }
+    let (ticket, mut starting_guard) = {
+        // 启动预检与 lifecycle 配置变更串行：engine snapshot、owner、generation
+        // 以及首个 loading 状态必须作为一个不可分割的提交。
+        let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+        let engine = paths::read_engine_config();
+        if paths::is_online_engine(&engine) {
+            return Ok(());
+        }
 
-    // 先检查是否已经有运行中的服务器或正在启动中
-    {
         let process_guard = state.engine.funasr_process.lock().await;
         if process_guard.is_some() {
             log::warn!("FunASR 服务器已在运行中");
             return Ok(());
         }
-    }
+        drop(process_guard);
+        if state.engine.funasr_starting_process.lock().is_some() {
+            log::info!("FunASR 子进程正在初始化中，跳过重复启动");
+            return Ok(());
+        }
 
-    // 原子标志防止并发启动（模型加载可能 25+ 秒，比 Mutex 更高效）
-    if state
-        .engine
-        .funasr_starting
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        log::info!("FunASR 服务器正在启动中，跳过重复启动");
-        return Ok(());
-    }
+        let start_owner = next_server_start_owner();
+        if !state.engine.try_begin_funasr_start(start_owner) {
+            log::info!("FunASR 服务器正在启动中，跳过重复启动");
+            return Ok(());
+        }
 
-    // 记录启动时的代数，后续写入 state 前比对，防止被 stop_server 取消后仍写回旧进程
-    let gen_at_start = state.engine.funasr_generation.load(Ordering::SeqCst);
+        let ticket = StartTicket {
+            owner: start_owner,
+            generation: state.engine.funasr_generation.load(Ordering::SeqCst),
+            engine,
+        };
+        let starting_guard = StartingFlagGuard {
+            engine: &state.engine,
+            owner: start_owner,
+            child: None,
+        };
 
-    // 确保无论成功还是失败，都要重置 starting 标志
-    let _starting_guard = StartingFlagGuard(state.engine.funasr_starting.clone());
-    state.set_funasr_ready(false);
-    state.set_inline_audio_transport(None);
-
-    // 通知前端：正在查找引擎环境
-    let _ = app_handle.emit(
-        "funasr-status",
-        serde_json::json!({
-            "status": "loading",
-            "message": "正在查找引擎环境..."
-        }),
-    );
+        state.set_funasr_ready(false);
+        state.set_inline_audio_transport(None);
+        let _ = app_handle.emit(
+            "funasr-status",
+            serde_json::json!({
+                "status": "loading",
+                "message": "正在查找引擎环境..."
+            }),
+        );
+        (ticket, starting_guard)
+    };
 
     // 查找引擎运行时
-    let runtime = find_engine(app_handle).await?;
-    let engine = paths::read_engine_config();
+    let runtime_result = find_engine(app_handle, state, ticket.generation).await;
+    {
+        let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+        if !start_ticket_is_current(state, &ticket) {
+            log::warn!("引擎运行时已就绪但启动票据已失效，取消本次启动");
+            return Err(AppError::Asr("启动已被取消".to_string()));
+        }
+    }
+    let runtime = runtime_result?;
 
-    // 解压或查找运行时期间可能被 stop_server 取消（例如用户切换引擎）。
-    if state.engine.funasr_generation.load(Ordering::SeqCst) != gen_at_start {
+    if !start_ticket_is_current(state, &ticket) {
         log::warn!("引擎运行时已就绪但代数已变更，取消本次启动");
         return Err(AppError::Asr("启动已被取消".to_string()));
     }
@@ -779,14 +914,14 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     let data_dir = paths::strip_win_prefix(paths::get_data_dir());
     let mut cmd = match &runtime {
         EngineRuntime::Bundled { exe_path } => {
-            log::info!("使用打包引擎: {} (engine={})", exe_path, engine);
+            log::info!("使用打包引擎: {} (engine={})", exe_path, ticket.engine);
             let mut c = Command::new(exe_path);
-            c.arg("serve").arg("--engine").arg(&engine);
+            c.arg("serve").arg("--engine").arg(&ticket.engine);
             c
         }
         EngineRuntime::Development { python_path } => {
             log::info!("使用开发模式 Python: {}", python_path);
-            let server_script = if engine == "whisper" {
+            let server_script = if ticket.engine == "whisper" {
                 paths::get_whisper_server_path(app_handle)
             } else {
                 paths::get_funasr_server_path(app_handle)
@@ -794,7 +929,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
             let server_script_str = paths::strip_win_prefix(&server_script);
             log::info!(
                 "语音识别脚本路径 (engine={}): {}",
-                engine,
+                ticket.engine,
                 server_script_str
             );
 
@@ -839,35 +974,42 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| AppError::Asr(format!("启动 FunASR 进程失败: {}", e)))?;
-
-    log::info!("FunASR 子进程已启动，等待初始化...");
-
-    // 通知前端：正在加载语音识别模型
-    let _ = app_handle.emit(
-        "funasr-status",
-        serde_json::json!({
-            "status": "loading",
-            "message": "正在加载语音识别模型..."
-        }),
-    );
-
-    // 取出 stdin/stdout 句柄（后续由 FunasrProcess 持有）
-    let stdin = match child.stdin.take() {
-        Some(stdin) => stdin,
-        None => {
-            let _ = child.kill().await;
-            return Err(AppError::Asr("无法获取 FunASR 进程的标准输入".to_string()));
+    let (stdin, stdout, child_handle) = {
+        // spawn 与 starting slot 登记在同一 lifecycle 临界区，stop 不会漏掉
+        // “已生成但尚未写入正式 process slot”的子进程。
+        let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+        if !start_ticket_is_current(state, &ticket) {
+            return Err(AppError::Asr("启动已被取消".to_string()));
         }
-    };
-    let stdout = match child.stdout.take() {
-        Some(stdout) => stdout,
-        None => {
-            let _ = child.kill().await;
-            return Err(AppError::Asr("无法获取 FunASR 进程的标准输出".to_string()));
-        }
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| AppError::Asr(format!("启动 FunASR 进程失败: {}", e)))?;
+        let stdin = child.stdin.take().ok_or_else(|| {
+            let _ = child.start_kill();
+            AppError::Asr("无法获取 FunASR 进程的标准输入".to_string())
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            let _ = child.start_kill();
+            AppError::Asr("无法获取 FunASR 进程的标准输出".to_string())
+        })?;
+        let child_handle = Arc::new(parking_lot::Mutex::new(Some(child)));
+        *state.engine.funasr_starting_process.lock() = Some(StartingFunasrProcess {
+            owner: ticket.owner,
+            generation: ticket.generation,
+            child: child_handle.clone(),
+        });
+        starting_guard.register_child(child_handle.clone());
+
+        log::info!("FunASR 子进程已启动，等待初始化...");
+        let _ = app_handle.emit(
+            "funasr-status",
+            serde_json::json!({
+                "status": "loading",
+                "message": "正在加载语音识别模型..."
+            }),
+        );
+        (stdin, stdout, child_handle)
     };
 
     // 读取子进程初始化输出，跳过非 JSON 行，直到拿到有效响应
@@ -881,8 +1023,11 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     {
         Ok(response) => response,
         Err(err) => {
-            let _ = child.kill().await;
-            return Err(err);
+            return if start_ticket_is_current(state, &ticket) {
+                Err(err)
+            } else {
+                Err(AppError::Asr("启动已被取消".to_string()))
+            };
         }
     };
 
@@ -899,52 +1044,58 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         .unwrap_or_else(|| "FunASR 初始化失败".to_string());
 
     if initialized {
-        // 检查启动期间是否被 stop_server 取消（引擎切换 / 重启）
-        if state.engine.funasr_generation.load(Ordering::SeqCst) != gen_at_start {
-            log::warn!("FunASR 初始化完成但代数已变更，丢弃旧进程");
-            let _ = child.kill().await;
+        let ready_status = serde_json::json!({
+            "status": "ready",
+            "message": "FunASR 服务器已就绪",
+            "device": response.device,
+            "gpu_name": response.gpu_name,
+            "models_present": true,
+            "missing_models": [],
+        });
+        let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+        if !start_ticket_is_current(state, &ticket) {
+            log::warn!("FunASR 初始化完成但启动票据已失效，丢弃旧进程");
             return Err(AppError::Asr("启动已被取消".to_string()));
         }
 
+        let Some(mut child) = take_starting_child(state, &ticket, &child_handle) else {
+            return Err(AppError::Asr("启动已被取消".to_string()));
+        };
+        let mut process_guard = state.engine.funasr_process.lock().await;
+        if process_guard.is_some() {
+            let _ = child.start_kill();
+            return Err(AppError::Asr("FunASR 服务器已由其他任务启动".to_string()));
+        }
+        *process_guard = Some(FunasrProcess {
+            child,
+            stdin,
+            stdout: stdout_reader,
+        });
+        starting_guard.release_child();
         log::info!("FunASR 服务器初始化成功！");
         state.set_funasr_ready(true);
-
-        // 只有初始化成功才把子进程存入 state
-        {
-            let mut process_guard = state.engine.funasr_process.lock().await;
-            *process_guard = Some(FunasrProcess {
-                child,
-                stdin,
-                stdout: stdout_reader,
-            });
-        }
+        let _ = app_handle.emit("funasr-status", ready_status);
     } else {
         log::error!("FunASR 初始化失败: {}", error_message);
+        let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+        if !start_ticket_is_current(state, &ticket) {
+            log::warn!("FunASR 初始化失败结果已过期，忽略旧错误状态");
+            return Err(AppError::Asr("启动已被取消".to_string()));
+        }
+        let Some(mut child) = take_starting_child(state, &ticket, &child_handle) else {
+            return Err(AppError::Asr("启动已被取消".to_string()));
+        };
+        let _ = child.start_kill();
+        starting_guard.release_child();
         state.set_funasr_ready(false);
-        // 初始化失败，杀掉子进程，不存入 state，允许后续重试
-        let _ = child.kill().await;
-    }
-
-    // 通过 Tauri 事件系统通知前端
-    // `emit` 会向所有窗口广播事件
-    let _ = app_handle.emit(
-        "funasr-status",
-        if initialized {
-            serde_json::json!({
-                "status": "ready",
-                "message": "FunASR 服务器已就绪",
-                "device": response.device,
-                "gpu_name": response.gpu_name,
-                "models_present": true,
-                "missing_models": [],
-            })
-        } else {
+        let _ = app_handle.emit(
+            "funasr-status",
             serde_json::json!({
                 "status": "error",
                 "message": &error_message
-            })
-        },
-    );
+            }),
+        );
+    }
 
     if initialized {
         Ok(())
@@ -1326,8 +1477,7 @@ pub async fn check_status(
             });
         }
 
-        use std::sync::atomic::Ordering;
-        if state.engine.funasr_starting.load(Ordering::SeqCst) {
+        if state.engine.is_funasr_starting() {
             // 正在启动中（模型加载中），告诉前端"正在运行但还没准备好"
             return Ok(status_with_defaults(
                 true,
@@ -1402,10 +1552,21 @@ pub async fn check_status(
 ///
 pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
     // 递增代数，使正在进行的 start_server 感知到取消
-    state
-        .engine
-        .funasr_generation
-        .fetch_add(1, Ordering::SeqCst);
+    {
+        let _status_guard = state.engine.funasr_status_commit.lock();
+        state
+            .engine
+            .funasr_generation
+            .fetch_add(1, Ordering::SeqCst);
+    }
+
+    // spawn 后、初始化完成前的子进程也必须立即可取消；否则 set_engine
+    // 已返回时旧模型进程仍可能在后台加载并继续发送状态。
+    if let Some(starting) = state.engine.funasr_starting_process.lock().take() {
+        if let Some(mut child) = starting.child.lock().take() {
+            let _ = child.start_kill();
+        }
+    }
 
     // 先取出子进程句柄，避免关闭流程被常规请求超时拖住
     let mut process = {
@@ -1669,7 +1830,12 @@ use tauri::Emitter;
 
 #[cfg(test)]
 mod tests {
-    use super::{read_json_response, read_json_response_matching, ServerResponse};
+    use super::{
+        engine_install_fingerprint_matches, read_json_response, read_json_response_matching,
+        EngineProgressGate, ServerResponse, StartingFlagGuard, ENGINE_ARCHIVE_FINGERPRINT,
+    };
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::io::{AsyncWriteExt, BufReader};
 
@@ -1684,6 +1850,69 @@ mod tests {
         read_json_response(&mut reader, Duration::from_secs(1), "test")
             .await
             .unwrap()
+    }
+
+    #[test]
+    fn engine_install_fingerprint_reuses_legacy_versioned_archive_marker() {
+        let legacy = format!("1.3.13+{}", ENGINE_ARCHIVE_FINGERPRINT);
+
+        assert!(engine_install_fingerprint_matches(
+            &legacy,
+            ENGINE_ARCHIVE_FINGERPRINT
+        ));
+        assert!(engine_install_fingerprint_matches(
+            ENGINE_ARCHIVE_FINGERPRINT,
+            ENGINE_ARCHIVE_FINGERPRINT
+        ));
+    }
+
+    #[test]
+    fn engine_install_fingerprint_rejects_a_different_archive() {
+        assert!(!engine_install_fingerprint_matches(
+            "1.3.13+0000000000000001-0000000000000002",
+            ENGINE_ARCHIVE_FINGERPRINT
+        ));
+    }
+
+    #[test]
+    fn stale_starting_guard_does_not_clear_a_new_start_owner() {
+        let engine = crate::state::EngineState::default();
+        assert!(engine.try_begin_funasr_start(1));
+        let stale_guard = StartingFlagGuard {
+            engine: &engine,
+            owner: 1,
+            child: None,
+        };
+
+        // set_engine/迁移会取消旧启动并释放标志，随后新启动获得所有权。
+        engine.block_funasr_starting();
+        engine.unblock_funasr_starting();
+        assert!(engine.try_begin_funasr_start(2));
+
+        drop(stale_guard);
+
+        assert!(
+            engine.is_funasr_starting(),
+            "旧启动 guard 不得清除新启动持有的标志"
+        );
+    }
+
+    #[test]
+    fn stale_engine_extraction_progress_is_suppressed_after_stop() {
+        let generation = Arc::new(AtomicU64::new(4));
+        let gate = EngineProgressGate {
+            generation: generation.clone(),
+            status_commit: Arc::new(parking_lot::Mutex::new(())),
+            expected_generation: 4,
+        };
+        assert!(gate.is_current());
+
+        generation.fetch_add(1, Ordering::SeqCst);
+
+        assert!(
+            !gate.is_current(),
+            "old extraction progress must not emit after an engine switch changes generation"
+        );
     }
 
     #[tokio::test]
