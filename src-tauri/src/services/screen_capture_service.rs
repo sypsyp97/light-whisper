@@ -47,7 +47,29 @@ pub fn capture_full_screen_context() -> Result<Vec<CapturedScreen>, String> {
 }
 
 #[cfg(target_os = "windows")]
+pub fn capture_screen_context_at_point(x: i32, y: i32) -> Result<Vec<CapturedScreen>, String> {
+    let monitor = xcap::Monitor::from_point(x, y)
+        .map_err(|error| format!("读取划词所在屏幕失败: {error}"))?;
+    capture_monitors_with_options(
+        vec![monitor],
+        ScreenCaptureOptions {
+            max_images: 1,
+            ..ScreenCaptureOptions::default()
+        },
+    )
+}
+
+#[cfg(target_os = "windows")]
 fn capture_full_screen_context_with_options(
+    options: ScreenCaptureOptions,
+) -> Result<Vec<CapturedScreen>, String> {
+    let monitors = xcap::Monitor::all().map_err(|e| format!("读取屏幕列表失败: {e}"))?;
+    capture_monitors_with_options(monitors, options)
+}
+
+#[cfg(target_os = "windows")]
+fn capture_monitors_with_options(
+    monitors: Vec<xcap::Monitor>,
     options: ScreenCaptureOptions,
 ) -> Result<Vec<CapturedScreen>, String> {
     use std::io::Cursor;
@@ -56,9 +78,6 @@ fn capture_full_screen_context_with_options(
     use image::codecs::jpeg::JpegEncoder;
     use image::imageops::FilterType;
     use image::DynamicImage;
-    use xcap::Monitor;
-
-    let monitors = Monitor::all().map_err(|e| format!("读取屏幕列表失败: {e}"))?;
     if monitors.is_empty() {
         return Ok(Vec::new());
     }
@@ -112,6 +131,11 @@ fn capture_full_screen_context_with_options(
 
 #[cfg(not(target_os = "windows"))]
 pub fn capture_full_screen_context() -> Result<Vec<CapturedScreen>, String> {
+    Ok(Vec::new())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn capture_screen_context_at_point(_x: i32, _y: i32) -> Result<Vec<CapturedScreen>, String> {
     Ok(Vec::new())
 }
 

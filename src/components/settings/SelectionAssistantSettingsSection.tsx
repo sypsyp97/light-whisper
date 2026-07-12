@@ -37,6 +37,7 @@ export default function SelectionAssistantSettingsSection({
   const initialized = useRef(false);
   const picker = useExclusivePicker<"selectionProvider" | "selectionModel" | "selectionReasoning">();
   const [enabled, setEnabled] = useState(false);
+  const [autoScreenshot, setAutoScreenshot] = useState(false);
   const [minChars, setMinChars] = useState(2);
   const [maxChars, setMaxChars] = useState(8000);
   const [translationTarget, setTranslationTarget] = useState("English");
@@ -94,6 +95,7 @@ export default function SelectionAssistantSettingsSection({
     if (!profile) return;
     const config = profile.selection_assistant ?? {
       enabled: false,
+      auto_screenshot: false,
       min_chars: 2,
       max_chars: 8000,
       translation_target: "English",
@@ -103,6 +105,7 @@ export default function SelectionAssistantSettingsSection({
     const nextProvider = resolved.provider;
     const preset = providers.find((item) => item.key === nextProvider);
     setEnabled(config.enabled);
+    setAutoScreenshot(Boolean(config.auto_screenshot));
     setMinChars(config.min_chars);
     setMaxChars(config.max_chars);
     setTranslationTarget(config.translation_target);
@@ -119,6 +122,7 @@ export default function SelectionAssistantSettingsSection({
     const timer = window.setTimeout(() => {
       void setSelectionAssistantConfig({
         enabled,
+        autoScreenshot,
         minChars,
         maxChars,
         translationTarget,
@@ -130,7 +134,7 @@ export default function SelectionAssistantSettingsSection({
       }).catch(() => toast.error(t("settings.selectionSaveFailed")));
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [enabled, excludedApps, maxChars, minChars, model, provider, reasoning, separate, t, translationTarget]);
+  }, [autoScreenshot, enabled, excludedApps, maxChars, minChars, model, provider, reasoning, separate, t, translationTarget]);
 
   useEffect(() => {
     if (!profile || !separate) {
@@ -208,6 +212,24 @@ export default function SelectionAssistantSettingsSection({
             style={{ background: enabled ? "var(--color-accent)" : "var(--color-bg-tertiary)", flexShrink: 0 }}
           >
             <div className="toggle-knob" style={{ transform: enabled ? "translateX(20px)" : "translateX(0)" }} />
+          </button>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-column" style={{ gap: 2 }}>
+            <span className="permission-label">{t("settings.selectionAutoScreenshot")}</span>
+            <span className="settings-hint" style={{ margin: 0 }}>{t("settings.selectionAutoScreenshotHint")}</span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoScreenshot}
+            aria-label={t("settings.selectionAutoScreenshot")}
+            className="toggle-switch"
+            onClick={() => setAutoScreenshot((value) => !value)}
+            style={{ background: autoScreenshot ? "var(--color-accent)" : "var(--color-bg-tertiary)", flexShrink: 0 }}
+          >
+            <div className="toggle-knob" style={{ transform: autoScreenshot ? "translateX(20px)" : "translateX(0)" }} />
           </button>
         </div>
 

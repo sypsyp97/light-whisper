@@ -230,6 +230,7 @@ export interface UserProfile {
 
 export interface SelectionAssistantConfig {
   enabled: boolean;
+  auto_screenshot?: boolean;
   min_chars: number;
   max_chars: number;
   translation_target: string;

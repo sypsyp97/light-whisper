@@ -21,7 +21,7 @@ import {
 import { SelectionResult } from "@/features/selection-assistant/SelectionResult";
 import "@/styles/selection.css";
 
-type AiAction = "translate" | "explain" | "optimize" | "screenshot";
+type AiAction = "translate" | "explain" | "optimize";
 
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
@@ -72,7 +72,7 @@ export default function SelectionOverlay() {
   }, []);
 
   const runAiAction = useCallback(async (action: AiAction) => {
-    if ((action !== "screenshot" && !selectedText.trim()) || loadingAction) return;
+    if (!selectedText.trim() || loadingAction) return;
     setLoadingAction(action);
     setError("");
     setResult("");
@@ -131,10 +131,6 @@ export default function SelectionOverlay() {
     }
   }, [handleCopy, handleSearch, runAiAction]);
 
-  const cancelScreenshot = useCallback(() => {
-    void cancelSelectionAction();
-  }, []);
-
   const startWindowDrag = useCallback(() => {
     void getCurrentWindow()
       .startDragging()
@@ -155,10 +151,7 @@ export default function SelectionOverlay() {
       <section className="selection-panel" onPointerDown={(event) => event.stopPropagation()}>
         <SelectionToolbar
           selectionText={selectedText}
-          screenshotStatus={loadingAction === "screenshot" ? "capturing" : "idle"}
           onAction={handleToolbarAction}
-          onScreenshot={() => void runAiAction("screenshot")}
-          onCancelScreenshot={cancelScreenshot}
           onStartDrag={startWindowDrag}
           onClose={() => { void close(); }}
           copied={sourceCopied}
@@ -173,8 +166,6 @@ export default function SelectionOverlay() {
             copy: t("selection.copy"),
             copied: t("selection.copied"),
             search: t("selection.search"),
-            screenshot: t("selection.screenshot"),
-            cancelScreenshot: t("common.cancel"),
             close: t("common.close"),
           }}
         />

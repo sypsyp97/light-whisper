@@ -35,4 +35,10 @@ describe("selection assistant independent model settings contract", () => {
     expect(selectionCommand).toContain("selection_endpoint_for_config");
     expect(selectionCommand).toContain("resolve_api_key_for_provider");
   });
+
+  it("configures automatic screenshots as a persistent setting instead of a toolbar action", () => {
+    expect(selectionSettings).toContain("autoScreenshot");
+    expect(selectionSettings).toContain("settings.selectionAutoScreenshot");
+    expect(selectionCommand).toContain("auto_screenshot");
+  });
 });

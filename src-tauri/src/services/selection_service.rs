@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::Manager;
 
+use crate::services::screen_capture_service::{self, CapturedScreen};
 use crate::state::AppState;
 
 const OVERLAY_LABEL: &str = "selection-toolbar";
@@ -16,6 +17,9 @@ const RESULT_HEIGHT: f64 = 356.0;
 const SELECTION_SETTLE_MS: u64 = 110;
 const MIN_DRAG_DISTANCE_PX: i32 = 4;
 const DUPLICATE_WINDOW_MS: u64 = 700;
+const CURSOR_GAP_LOGICAL: f64 = 12.0;
+const EDGE_MARGIN_LOGICAL: f64 = 8.0;
+const VERTICAL_DIRECTION_THRESHOLD_LOGICAL: f64 = 24.0;
 
 #[derive(Debug, Clone, Copy)]
 struct Anchor {
@@ -23,14 +27,38 @@ struct Anchor {
     y: i32,
 }
 
-static LAST_ANCHOR: OnceLock<parking_lot::Mutex<Option<Anchor>>> = OnceLock::new();
+#[derive(Debug, Clone, Copy)]
+struct SelectionGesture {
+    start: Anchor,
+    end: Anchor,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WorkArea {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlacementSide {
+    Above,
+    Below,
+}
+
+#[derive(Debug, Clone)]
+struct SelectionScreenshotContext {
+    version: u64,
+    images: Vec<CapturedScreen>,
+}
+
 static CURRENT_SELECTION: OnceLock<parking_lot::Mutex<Option<SelectionDetectedPayload>>> =
     OnceLock::new();
+static CURRENT_SELECTION_SCREENSHOTS: OnceLock<
+    parking_lot::Mutex<Option<SelectionScreenshotContext>>,
+> = OnceLock::new();
 static SELECTION_VERSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-fn last_anchor() -> &'static parking_lot::Mutex<Option<Anchor>> {
-    LAST_ANCHOR.get_or_init(|| parking_lot::Mutex::new(None))
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +73,37 @@ pub fn current_selection() -> Option<SelectionDetectedPayload> {
         .get_or_init(|| parking_lot::Mutex::new(None))
         .lock()
         .clone()
+}
+
+pub fn current_selection_screenshots(selected_text: &str) -> Vec<CapturedScreen> {
+    let Some(selection) = current_selection() else {
+        return Vec::new();
+    };
+    let screenshots = CURRENT_SELECTION_SCREENSHOTS
+        .get_or_init(|| parking_lot::Mutex::new(None))
+        .lock();
+    matching_selection_screenshots(&selection, screenshots.as_ref(), selected_text)
+}
+
+fn matching_selection_screenshots(
+    selection: &SelectionDetectedPayload,
+    context: Option<&SelectionScreenshotContext>,
+    selected_text: &str,
+) -> Vec<CapturedScreen> {
+    if selection.text.trim() != selected_text.trim() {
+        return Vec::new();
+    }
+    context
+        .filter(|context| context.version == selection.version)
+        .map(|context| context.images.clone())
+        .unwrap_or_default()
+}
+
+fn clear_selection_screenshots() {
+    CURRENT_SELECTION_SCREENSHOTS
+        .get_or_init(|| parking_lot::Mutex::new(None))
+        .lock()
+        .take();
 }
 
 fn tauri_error(action: &str, error: impl std::fmt::Display) -> String {
@@ -80,6 +139,7 @@ pub fn create_selection_window(app_handle: &tauri::AppHandle) -> Result<(), Stri
 }
 
 pub fn hide_selection_window(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    clear_selection_screenshots();
     let Some(window) = app_handle.get_webview_window(OVERLAY_LABEL) else {
         return Ok(());
     };
@@ -223,15 +283,15 @@ pub fn set_selection_window_expanded(
 
 fn show_selection(
     app_handle: &tauri::AppHandle,
-    anchor: Anchor,
+    gesture: SelectionGesture,
     text: String,
+    screenshots: Vec<CapturedScreen>,
 ) -> Result<(), String> {
     create_selection_window(app_handle)?;
     let window = app_handle
         .get_webview_window(OVERLAY_LABEL)
         .ok_or_else(|| "划词助手窗口创建后不存在".to_string())?;
-    *last_anchor().lock() = Some(anchor);
-    position_window(app_handle, &window, anchor, false)?;
+    position_window(app_handle, &window, gesture, false)?;
     let version = SELECTION_VERSION.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
     *CURRENT_SELECTION
         .get_or_init(|| parking_lot::Mutex::new(None))
@@ -240,6 +300,12 @@ fn show_selection(
         character_count: text.chars().count(),
         text,
     });
+    *CURRENT_SELECTION_SCREENSHOTS
+        .get_or_init(|| parking_lot::Mutex::new(None))
+        .lock() = (!screenshots.is_empty()).then_some(SelectionScreenshotContext {
+        version,
+        images: screenshots,
+    });
     show_without_activation(&window);
     Ok(())
 }
@@ -247,7 +313,7 @@ fn show_selection(
 fn position_window(
     app_handle: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
-    anchor: Anchor,
+    gesture: SelectionGesture,
     expanded: bool,
 ) -> Result<(), String> {
     let (logical_width, logical_height) = selection_window_size(expanded);
@@ -259,10 +325,10 @@ fn position_window(
         .find(|monitor| {
             let position = monitor.position();
             let size = monitor.size();
-            anchor.x >= position.x
-                && anchor.x < position.x + size.width as i32
-                && anchor.y >= position.y
-                && anchor.y < position.y + size.height as i32
+            gesture.end.x >= position.x
+                && gesture.end.x < position.x + size.width as i32
+                && gesture.end.y >= position.y
+                && gesture.end.y < position.y + size.height as i32
         })
         .or_else(|| monitors.first());
 
@@ -272,25 +338,20 @@ fn position_window(
         let scale = monitor.scale_factor();
         let width = (logical_width * scale).round() as i32;
         let height = (logical_height * scale).round() as i32;
-        let min_x = position.x;
-        let min_y = position.y;
-        let max_y = position.y + size.height as i32 - height;
-        let desired_x = anchor.x + (10.0 * scale).round() as i32;
-        let below_y = anchor.y + (14.0 * scale).round() as i32;
-        let above_y = anchor.y - height - (14.0 * scale).round() as i32;
-        let desired_y = if below_y <= max_y { below_y } else { above_y };
-        clamp_window_top_left(
-            desired_x,
-            desired_y,
-            min_x,
-            min_y,
-            size.width as i32,
-            size.height as i32,
-            width,
-            height,
-        )
+        let fallback_area = WorkArea {
+            x: position.x,
+            y: position.y,
+            width: size.width as i32,
+            height: size.height as i32,
+        };
+        let area = monitor_work_area(gesture.end).unwrap_or(fallback_area);
+        let (x, y, _) = compute_selection_window_position(gesture, area, width, height, scale);
+        (x, y)
     } else {
-        (anchor.x + 10, anchor.y + 14)
+        (
+            gesture.end.x - (logical_width / 2.0).round() as i32,
+            gesture.end.y + CURSOR_GAP_LOGICAL.round() as i32,
+        )
     };
 
     window
@@ -315,6 +376,103 @@ fn selection_window_size(expanded: bool) -> (f64, f64) {
     }
 }
 
+fn midpoint(first: i32, second: i32) -> i32 {
+    ((first as i64 + second as i64).div_euclid(2)) as i32
+}
+
+fn compute_selection_window_position(
+    gesture: SelectionGesture,
+    area: WorkArea,
+    window_width: i32,
+    window_height: i32,
+    scale: f64,
+) -> (i32, i32, PlacementSide) {
+    let gap = (CURSOR_GAP_LOGICAL * scale).round() as i32;
+    let edge_margin = (EDGE_MARGIN_LOGICAL * scale).round() as i32;
+    let direction_threshold = (VERTICAL_DIRECTION_THRESHOLD_LOGICAL * scale).round() as i32;
+
+    // Keep the popup close to the release cursor, but pull its center one step
+    // toward the selection midpoint so long drags do not leave it hanging off
+    // the far edge of the selected text.
+    let selection_mid_x = midpoint(gesture.start.x, gesture.end.x);
+    let focus_x = midpoint(selection_mid_x, gesture.end.x);
+    let desired_x = focus_x - window_width / 2;
+
+    let below_y = gesture.end.y + gap;
+    let above_y = gesture.end.y - window_height - gap;
+    let margin_x = edge_margin.min((area.width - window_width).max(0) / 2);
+    let margin_y = edge_margin.min((area.height - window_height).max(0) / 2);
+    let top_limit = area.y + margin_y;
+    let bottom_limit = area.y + area.height - margin_y;
+    let fits_above = above_y >= top_limit;
+    let fits_below = below_y + window_height <= bottom_limit;
+    let prefers_above = gesture.end.y < gesture.start.y - direction_threshold;
+
+    let side = if prefers_above {
+        if fits_above || !fits_below {
+            PlacementSide::Above
+        } else {
+            PlacementSide::Below
+        }
+    } else if fits_below || !fits_above {
+        PlacementSide::Below
+    } else {
+        PlacementSide::Above
+    };
+    let desired_y = match side {
+        PlacementSide::Above => above_y,
+        PlacementSide::Below => below_y,
+    };
+    let (x, y) = clamp_window_top_left(
+        desired_x,
+        desired_y,
+        area.x + margin_x,
+        area.y + margin_y,
+        area.width - margin_x * 2,
+        area.height - margin_y * 2,
+        window_width,
+        window_height,
+    );
+    (x, y, side)
+}
+
+#[cfg(target_os = "windows")]
+fn monitor_work_area(anchor: Anchor) -> Option<WorkArea> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+
+    unsafe {
+        let monitor = MonitorFromPoint(
+            POINT {
+                x: anchor.x,
+                y: anchor.y,
+            },
+            MONITOR_DEFAULTTONEAREST,
+        );
+        if monitor.is_null() {
+            return None;
+        }
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return None;
+        }
+        Some(WorkArea {
+            x: info.rcWork.left,
+            y: info.rcWork.top,
+            width: info.rcWork.right - info.rcWork.left,
+            height: info.rcWork.bottom - info.rcWork.top,
+        })
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn monitor_work_area(_anchor: Anchor) -> Option<WorkArea> {
+    None
+}
+
 #[allow(clippy::too_many_arguments)]
 fn clamp_window_top_left(
     desired_x: i32,
@@ -336,7 +494,139 @@ fn clamp_window_top_left(
 
 #[cfg(test)]
 mod window_position_tests {
-    use super::clamp_window_top_left;
+    use super::{
+        clamp_window_top_left, compute_selection_window_position, matching_selection_screenshots,
+        Anchor, PlacementSide, SelectionDetectedPayload, SelectionGesture,
+        SelectionScreenshotContext, WorkArea,
+    };
+    use crate::services::screen_capture_service::CapturedScreen;
+
+    const PRIMARY_WORK_AREA: WorkArea = WorkArea {
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1040,
+    };
+
+    #[test]
+    fn screenshot_context_is_scoped_to_the_exact_selection_version_and_text() {
+        let selection = SelectionDetectedPayload {
+            version: 7,
+            text: " selected text ".to_string(),
+            character_count: 13,
+        };
+        let context = SelectionScreenshotContext {
+            version: 7,
+            images: vec![CapturedScreen {
+                mime_type: "image/jpeg".to_string(),
+                data_base64: "encoded".to_string(),
+            }],
+        };
+
+        assert_eq!(
+            matching_selection_screenshots(&selection, Some(&context), "selected text").len(),
+            1
+        );
+        assert!(matching_selection_screenshots(&selection, Some(&context), "other").is_empty());
+        assert!(matching_selection_screenshots(
+            &selection,
+            Some(&SelectionScreenshotContext {
+                version: 6,
+                images: context.images,
+            }),
+            "selected text",
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn centers_near_the_release_cursor_but_nudges_toward_the_selection() {
+        let (x, y, side) = compute_selection_window_position(
+            SelectionGesture {
+                start: Anchor { x: 400, y: 280 },
+                end: Anchor { x: 700, y: 300 },
+            },
+            PRIMARY_WORK_AREA,
+            548,
+            106,
+            1.0,
+        );
+
+        assert_eq!((x, y, side), (351, 312, PlacementSide::Below));
+        assert_eq!(x + 548 / 2, 625);
+    }
+
+    #[test]
+    fn upward_multiline_selection_places_the_popup_above_the_release_cursor() {
+        assert_eq!(
+            compute_selection_window_position(
+                SelectionGesture {
+                    start: Anchor { x: 700, y: 500 },
+                    end: Anchor { x: 650, y: 250 },
+                },
+                PRIMARY_WORK_AREA,
+                548,
+                106,
+                1.0,
+            ),
+            (388, 132, PlacementSide::Above)
+        );
+    }
+
+    #[test]
+    fn slight_same_line_vertical_jitter_does_not_flip_the_popup() {
+        let (_, y, side) = compute_selection_window_position(
+            SelectionGesture {
+                start: Anchor { x: 400, y: 302 },
+                end: Anchor { x: 700, y: 300 },
+            },
+            PRIMARY_WORK_AREA,
+            548,
+            106,
+            1.0,
+        );
+
+        assert_eq!((y, side), (312, PlacementSide::Below));
+    }
+
+    #[test]
+    fn flips_above_and_keeps_an_edge_margin_near_the_taskbar() {
+        assert_eq!(
+            compute_selection_window_position(
+                SelectionGesture {
+                    start: Anchor { x: 1800, y: 1000 },
+                    end: Anchor { x: 1915, y: 1035 },
+                },
+                PRIMARY_WORK_AREA,
+                548,
+                106,
+                1.0,
+            ),
+            (1364, 917, PlacementSide::Above)
+        );
+    }
+
+    #[test]
+    fn supports_negative_coordinate_work_areas() {
+        assert_eq!(
+            compute_selection_window_position(
+                SelectionGesture {
+                    start: Anchor { x: -1240, y: 35 },
+                    end: Anchor { x: -1200, y: 40 },
+                },
+                WorkArea {
+                    x: -1280,
+                    y: 24,
+                    width: 1280,
+                    height: 984,
+                },
+                548,
+                106,
+                1.0,
+            ),
+            (-1272, 52, PlacementSide::Below)
+        );
+    }
 
     #[test]
     fn keeps_a_dragged_position_that_still_fits_after_resize() {
@@ -610,7 +900,6 @@ fn run_selection_worker(
                     continue;
                 }
 
-                std::thread::sleep(Duration::from_millis(SELECTION_SETTLE_MS));
                 let config = app_handle
                     .state::<AppState>()
                     .with_profile(|profile| profile.selection_assistant.clone());
@@ -620,6 +909,25 @@ fn run_selection_worker(
                 let Some(source_app) = foreground_app_source(&config.excluded_apps) else {
                     continue;
                 };
+                let screenshot_task = if config.auto_screenshot {
+                    match std::thread::Builder::new()
+                        .name("selection-screenshot".to_string())
+                        .spawn(move || {
+                            screen_capture_service::capture_screen_context_at_point(
+                                point.x, point.y,
+                            )
+                        }) {
+                        Ok(task) => Some(task),
+                        Err(error) => {
+                            log::warn!("启动划词自动截图失败，回退纯文本: {error}");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                std::thread::sleep(Duration::from_millis(SELECTION_SETTLE_MS));
                 let Some(text) = crate::commands::clipboard::grab_selected_text_robust(&app_handle)
                 else {
                     continue;
@@ -641,7 +949,26 @@ fn run_selection_worker(
                 }
                 last_value = dedupe_value;
                 last_seen = Instant::now();
-                if let Err(error) = show_selection(&app_handle, point, text) {
+                let screenshots = match screenshot_task {
+                    Some(task) => match task.join() {
+                        Ok(Ok(images)) => images,
+                        Ok(Err(error)) => {
+                            log::warn!("划词自动截图失败，回退纯文本: {error}");
+                            Vec::new()
+                        }
+                        Err(_) => {
+                            log::warn!("划词自动截图线程异常，回退纯文本");
+                            Vec::new()
+                        }
+                    },
+                    None => Vec::new(),
+                };
+                if let Err(error) = show_selection(
+                    &app_handle,
+                    SelectionGesture { start, end: point },
+                    text,
+                    screenshots,
+                ) {
                     log::warn!("显示划词助手失败: {error}");
                 }
             }

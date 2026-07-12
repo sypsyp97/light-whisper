@@ -2,8 +2,7 @@ use std::sync::atomic::Ordering;
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
 use crate::services::{
-    codex_oauth_service, llm_client, llm_provider, profile_service, screen_capture_service,
-    selection_service,
+    codex_oauth_service, llm_client, llm_provider, profile_service, selection_service,
 };
 use crate::state::user_profile::LlmReasoningMode;
 use crate::state::{AppState, SelectionTask};
@@ -25,6 +24,7 @@ pub async fn set_selection_assistant_config(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     enabled: bool,
+    auto_screenshot: bool,
     min_chars: usize,
     max_chars: usize,
     translation_target: String,
@@ -72,6 +72,7 @@ pub async fn set_selection_assistant_config(
 
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.selection_assistant.enabled = enabled;
+        profile.selection_assistant.auto_screenshot = auto_screenshot;
         profile.selection_assistant.min_chars = min_chars;
         profile.selection_assistant.max_chars = max_chars;
         profile.selection_assistant.translation_target = translation_target;
@@ -190,17 +191,12 @@ pub async fn run_selection_action(
         )
     });
     let count = text.chars().count();
-    if !enabled
-        || (action != "screenshot" && (count < min_chars || count > max_chars.max(min_chars)))
-    {
+    if !enabled || count < min_chars || count > max_chars.max(min_chars) {
         return Err(AppError::Other(
             "划词内容已失效或长度超出设置范围".to_string(),
         ));
     }
-    if !matches!(
-        action.as_str(),
-        "translate" | "explain" | "optimize" | "screenshot"
-    ) {
+    if !matches!(action.as_str(), "translate" | "explain" | "optimize") {
         return Err(AppError::Other("不支持的划词操作".to_string()));
     }
 
@@ -279,7 +275,6 @@ async fn run_llm_action(
     let instruction = match action {
         "translate" => format!("Translate the selected text into {target}. Output only the translation."),
         "optimize" => "Polish and improve the selected text while preserving its meaning, language, factual content, and intended tone. Output only the revised text.".to_string(),
-        "screenshot" => "Explain the selected text using the attached screen only when it adds relevant context. If the image is unavailable, explain from the text alone.".to_string(),
         _ => "Explain the selected text clearly and concisely in its original language.".to_string(),
     };
     let user_text = if selected_text.is_empty() {
@@ -292,27 +287,14 @@ async fn run_llm_action(
         )
     };
 
-    let images = if action == "screenshot" {
-        if let Err(error) = selection_service::hide_selection_window(app_handle) {
-            log::warn!("截图前隐藏划词助手失败，继续截图: {error}");
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(90)).await;
-        let captured = screen_capture_service::capture_full_screen_context_async().await;
-        // Re-show in the same clamped location whether capture succeeds or not.
-        let _ = selection_service::set_selection_window_expanded(app_handle, true);
-        match captured {
-            Ok(images) => images
-                .into_iter()
-                .map(|image| LlmImageInput {
-                    mime_type: image.mime_type,
-                    data_base64: image.data_base64,
-                })
-                .collect(),
-            Err(error) => {
-                log::warn!("划词截图失败，回退纯文本: {error}");
-                Vec::new()
-            }
-        }
+    let images = if state.with_profile(|profile| profile.selection_assistant.auto_screenshot) {
+        selection_service::current_selection_screenshots(selected_text)
+            .into_iter()
+            .map(|image| LlmImageInput {
+                mime_type: image.mime_type,
+                data_base64: image.data_base64,
+            })
+            .collect()
     } else {
         Vec::new()
     };

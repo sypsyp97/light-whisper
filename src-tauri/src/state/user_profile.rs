@@ -110,6 +110,8 @@ pub struct UserProfile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectionAssistantConfig {
     pub enabled: bool,
+    #[serde(default)]
+    pub auto_screenshot: bool,
     #[serde(default = "default_selection_min_chars")]
     pub min_chars: usize,
     #[serde(default = "default_selection_max_chars")]
@@ -148,6 +150,7 @@ impl Default for SelectionAssistantConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            auto_screenshot: false,
             min_chars: default_selection_min_chars(),
             max_chars: default_selection_max_chars(),
             translation_target: default_selection_translation_target(),
@@ -527,7 +530,9 @@ impl UserProfile {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApiFormat, CustomProvider, LlmProviderConfig, LlmReasoningMode};
+    use super::{
+        ApiFormat, CustomProvider, LlmProviderConfig, LlmReasoningMode, SelectionAssistantConfig,
+    };
 
     fn custom_provider(id: &str) -> CustomProvider {
         CustomProvider {
@@ -640,6 +645,15 @@ mod tests {
         assert_eq!(config.resolve_selection_provider(), "vision");
         assert_eq!(config.selection_model(), Some("vision-v2"));
         assert_eq!(config.selection_reasoning_mode(), LlmReasoningMode::Off);
+    }
+
+    #[test]
+    fn automatic_selection_screenshots_are_opt_in() {
+        assert!(!SelectionAssistantConfig::default().auto_screenshot);
+
+        let legacy: SelectionAssistantConfig =
+            serde_json::from_value(serde_json::json!({ "enabled": true })).unwrap();
+        assert!(!legacy.auto_screenshot);
     }
 
     /// TDD red-state: the new `openai_fast_mode` field must default to `false`

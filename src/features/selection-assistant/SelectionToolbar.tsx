@@ -1,11 +1,9 @@
 import { useRef } from "react";
-import { Camera, Check, Copy, GripVertical, Languages, Search, Sparkles, WandSparkles, X } from "lucide-react";
+import { Check, Copy, GripVertical, Languages, Search, Sparkles, WandSparkles, X } from "lucide-react";
 
 import { normalizeSelectionText } from "./selectionPolicy";
 
 export type SelectionToolbarAction = "translate" | "explain" | "optimize" | "copy" | "search";
-export type ScreenshotStatus = "idle" | "capturing" | "processing" | "ready";
-
 interface ToolbarLabels {
   toolbar: string;
   translate: string;
@@ -14,8 +12,6 @@ interface ToolbarLabels {
   copy: string;
   copied: string;
   search: string;
-  screenshot: string;
-  cancelScreenshot: string;
   close: string;
   selected: string;
   drag: string;
@@ -29,8 +25,6 @@ const DEFAULT_LABELS: ToolbarLabels = {
   copy: "复制",
   copied: "已复制",
   search: "搜索",
-  screenshot: "截图辅助",
-  cancelScreenshot: "取消截图",
   close: "关闭",
   selected: "已选择",
   drag: "拖动窗口",
@@ -38,10 +32,7 @@ const DEFAULT_LABELS: ToolbarLabels = {
 
 interface SelectionToolbarProps {
   selectionText: string;
-  screenshotStatus: ScreenshotStatus;
   onAction(action: SelectionToolbarAction): void;
-  onScreenshot(): void;
-  onCancelScreenshot(): void;
   onStartDrag(): void;
   onClose?: () => void;
   copied?: boolean;
@@ -51,10 +42,7 @@ interface SelectionToolbarProps {
 
 export function SelectionToolbar({
   selectionText,
-  screenshotStatus,
   onAction,
-  onScreenshot,
-  onCancelScreenshot,
   onStartDrag,
   onClose,
   copied = false,
@@ -64,7 +52,6 @@ export function SelectionToolbar({
   const closeHandledByPointer = useRef(false);
   const labels = { ...DEFAULT_LABELS, ...labelOverrides };
   const hasSelection = Boolean(normalizeSelectionText(selectionText));
-  const screenshotRunning = screenshotStatus === "capturing" || screenshotStatus === "processing";
   const actionButton = (
     action: SelectionToolbarAction,
     label: string,
@@ -139,19 +126,6 @@ export function SelectionToolbar({
         {actionButton("optimize", labels.optimize, <WandSparkles size={15} />)}
         {actionButton("copy", labels.copy, copied ? <Check size={15} /> : <Copy size={15} />)}
         {actionButton("search", labels.search, <Search size={15} />)}
-        <button
-          type="button"
-          tabIndex={-1}
-          className="selection-screenshot-action"
-          disabled={busy && !screenshotRunning}
-          aria-label={screenshotRunning ? labels.cancelScreenshot : labels.screenshot}
-          title={screenshotRunning ? labels.cancelScreenshot : labels.screenshot}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={screenshotRunning ? onCancelScreenshot : onScreenshot}
-        >
-          {screenshotRunning ? <X size={15} /> : <Camera size={15} />}
-          <span>{screenshotRunning ? labels.cancelScreenshot : labels.screenshot}</span>
-        </button>
       </div>
     </div>
   );

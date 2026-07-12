@@ -9,15 +9,10 @@ import {
 
 function renderToolbar(overrides: Partial<Parameters<typeof SelectionToolbar>[0]> = {}) {
   const onAction = vi.fn<(action: SelectionToolbarAction) => void>();
-  const onScreenshot = vi.fn();
-  const onCancelScreenshot = vi.fn();
   const onStartDrag = vi.fn();
   const props = {
     selectionText: "selected text",
-    screenshotStatus: "idle" as const,
     onAction,
-    onScreenshot,
-    onCancelScreenshot,
     onStartDrag,
     ...overrides,
   };
@@ -32,7 +27,7 @@ describe("SelectionToolbar", () => {
     expect(screen.getByRole("toolbar", { name: "划词助手" })).toBeInTheDocument();
   });
 
-  it.each(["翻译", "解释", "优化", "复制", "搜索", "截图辅助"])(
+  it.each(["翻译", "解释", "优化", "复制", "搜索"])(
     "renders a visible %s action label",
     (name) => {
       renderToolbar();
@@ -80,10 +75,7 @@ describe("SelectionToolbar", () => {
       <div onPointerDown={outsidePointerDown}>
         <SelectionToolbar
           selectionText="selected text"
-          screenshotStatus="idle"
           onAction={vi.fn()}
-          onScreenshot={vi.fn()}
-          onCancelScreenshot={vi.fn()}
           onStartDrag={vi.fn()}
         />
       </div>,
@@ -95,25 +87,17 @@ describe("SelectionToolbar", () => {
     expect(outsidePointerDown).not.toHaveBeenCalled();
   });
 
-  it("switches screenshot assistance to an explicit cancel action while capture is active", async () => {
-    const user = userEvent.setup();
-    const { onCancelScreenshot, onScreenshot } = renderToolbar({
-      screenshotStatus: "capturing",
-    });
-
-    expect(screen.queryByRole("button", { name: "截图辅助" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "取消截图" }));
-
-    expect(onCancelScreenshot).toHaveBeenCalledTimes(1);
-    expect(onScreenshot).not.toHaveBeenCalled();
-  });
-
-  it("disables model actions for a normalized empty selection but keeps screenshot available", () => {
+  it("disables every toolbar action for a normalized empty selection", () => {
     renderToolbar({ selectionText: "  \r\n " });
 
-    for (const name of ["翻译", "解释", "复制", "搜索"]) {
+    for (const name of ["翻译", "解释", "优化", "复制", "搜索"]) {
       expect(screen.getByRole("button", { name })).toBeDisabled();
     }
-    expect(screen.getByRole("button", { name: "截图辅助" })).toBeEnabled();
+  });
+
+  it("keeps screenshot capture out of the action toolbar", () => {
+    renderToolbar();
+
+    expect(screen.queryByRole("button", { name: "截图辅助" })).not.toBeInTheDocument();
   });
 });

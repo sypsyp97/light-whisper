@@ -324,6 +324,7 @@ export function setAssistantScreenContextEnabled(enabled: boolean): Promise<void
 
 export function setSelectionAssistantConfig(params: {
   enabled: boolean;
+  autoScreenshot: boolean;
   minChars: number;
   maxChars: number;
   translationTarget: string;
@@ -374,7 +375,7 @@ export function searchSelection(text: string): Promise<void> {
   return invokeCommand<void>("search_selection", { text });
 }
 
-export function runSelectionAction(action: "translate" | "explain" | "optimize" | "screenshot", text: string): Promise<string> {
+export function runSelectionAction(action: "translate" | "explain" | "optimize", text: string): Promise<string> {
   return invokeCommand<string>("run_selection_action", { action, text });
 }
 
