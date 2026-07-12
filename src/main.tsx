@@ -142,6 +142,18 @@ if (windowLabel === "subtitle") {
     .catch((error) => {
       console.error("Subtitle window load failed:", error);
     });
+} else if (windowLabel === "selection-toolbar") {
+  import("./pages/SelectionOverlay")
+    .then(({ default: SelectionOverlay }) => {
+      ReactDOM.createRoot(document.getElementById("root")!).render(
+        <React.StrictMode>
+          <SelectionOverlay />
+        </React.StrictMode>
+      );
+    })
+    .catch((error) => {
+      console.error("Selection window load failed:", error);
+    });
 } else {
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>

@@ -89,6 +89,9 @@ pub struct UserProfile {
     /// AI 润色是否附带当前屏幕截图作为上下文
     #[serde(default)]
     pub ai_polish_screen_context_enabled: bool,
+    /// 系统级划词助手配置
+    #[serde(default)]
+    pub selection_assistant: SelectionAssistantConfig,
     /// 用户手动删除后，不再自动学习回来的热词黑名单
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocked_hot_words: Vec<String>,
@@ -103,6 +106,56 @@ pub struct UserProfile {
     pub last_correction_validation: u64,
 }
 
+/// 系统级划词助手行为配置。默认关闭，避免升级后意外监听全局鼠标。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelectionAssistantConfig {
+    pub enabled: bool,
+    #[serde(default = "default_selection_min_chars")]
+    pub min_chars: usize,
+    #[serde(default = "default_selection_max_chars")]
+    pub max_chars: usize,
+    #[serde(default = "default_selection_translation_target")]
+    pub translation_target: String,
+    #[serde(default = "default_selection_excluded_apps")]
+    pub excluded_apps: Vec<String>,
+}
+
+fn default_selection_min_chars() -> usize {
+    2
+}
+
+fn default_selection_max_chars() -> usize {
+    8_000
+}
+
+fn default_selection_translation_target() -> String {
+    "English".to_string()
+}
+
+fn default_selection_excluded_apps() -> Vec<String> {
+    [
+        "light-whisper.exe",
+        "snipaste.exe",
+        "pixpin.exe",
+        "sharex.exe",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+impl Default for SelectionAssistantConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_chars: default_selection_min_chars(),
+            max_chars: default_selection_max_chars(),
+            translation_target: default_selection_translation_target(),
+            excluded_apps: default_selection_excluded_apps(),
+        }
+    }
+}
+
 /// 联网搜索方式
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -114,6 +167,8 @@ pub enum WebSearchProvider {
     Exa,
     /// Tavily Search API（需要 API Key）
     Tavily,
+    /// Gemini Grounding with Google Search（需要 Google AI API Key）
+    Google,
 }
 
 /// 联网搜索配置（仅在助手模式下生效）
@@ -216,6 +271,16 @@ pub struct LlmProviderConfig {
     /// AI 助手独立供应商；仅在 assistant_use_separate_model = true 时生效
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assistant_provider: Option<String>,
+    /// 划词助手思考模式；为空时回退到润色思考模式
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_reasoning_mode: Option<LlmReasoningMode>,
+    /// 划词助手是否使用不同于润色的独立模型
+    #[serde(default)]
+    pub selection_use_separate_model: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_provider: Option<String>,
     /// 用户自定义服务商列表
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_providers: Vec<CustomProvider>,
@@ -251,6 +316,10 @@ impl Default for LlmProviderConfig {
             assistant_use_separate_model: false,
             assistant_model: None,
             assistant_provider: None,
+            selection_reasoning_mode: None,
+            selection_use_separate_model: false,
+            selection_model: None,
+            selection_provider: None,
             custom_providers: Vec::new(),
             validation_use_separate_model: false,
             validation_provider: None,
@@ -327,6 +396,57 @@ impl LlmProviderConfig {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
+    }
+
+    pub fn selection_reasoning_mode(&self) -> LlmReasoningMode {
+        if self.has_valid_separate_selection_model() {
+            self.selection_reasoning_mode
+                .unwrap_or_else(|| self.polish_reasoning_mode())
+        } else {
+            self.polish_reasoning_mode()
+        }
+    }
+
+    pub fn selection_model(&self) -> Option<&str> {
+        if !self.has_valid_separate_selection_model() {
+            return None;
+        }
+        self.selection_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn resolve_selection_provider(&self) -> String {
+        if self.has_valid_separate_selection_model() {
+            return self
+                .selection_provider
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default()
+                .to_string();
+        }
+        self.resolve_active_provider()
+    }
+
+    fn has_valid_separate_selection_model(&self) -> bool {
+        if !self.selection_use_separate_model {
+            return false;
+        }
+        let provider = self
+            .selection_provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let model_is_set = self
+            .selection_model
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+        provider.is_some_and(|provider| {
+            Self::is_builtin_provider(provider)
+                || self.custom_providers.iter().any(|item| item.id == provider)
+        }) && model_is_set
     }
 
     pub fn validation_model(&self) -> Option<&str> {
@@ -470,6 +590,56 @@ mod tests {
 
         assert_eq!(config.polish_reasoning_mode(), LlmReasoningMode::Light);
         assert_eq!(config.assistant_reasoning_mode(), LlmReasoningMode::Light);
+    }
+
+    #[test]
+    fn selection_config_follows_polish_as_an_atomic_default() {
+        let config = LlmProviderConfig {
+            active: "deepseek".to_string(),
+            polish_reasoning_mode: Some(LlmReasoningMode::Light),
+            selection_reasoning_mode: Some(LlmReasoningMode::Deep),
+            selection_provider: Some("openai".to_string()),
+            selection_model: Some("gpt-5".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(config.resolve_selection_provider(), "deepseek");
+        assert_eq!(config.selection_model(), None);
+        assert_eq!(config.selection_reasoning_mode(), LlmReasoningMode::Light);
+    }
+
+    #[test]
+    fn selection_config_falls_back_atomically_when_provider_was_removed() {
+        let config = LlmProviderConfig {
+            active: "deepseek".to_string(),
+            polish_reasoning_mode: Some(LlmReasoningMode::Light),
+            selection_use_separate_model: true,
+            selection_provider: Some("removed-provider".to_string()),
+            selection_model: Some("stale-model".to_string()),
+            selection_reasoning_mode: Some(LlmReasoningMode::Deep),
+            ..Default::default()
+        };
+
+        assert_eq!(config.resolve_selection_provider(), "deepseek");
+        assert_eq!(config.selection_model(), None);
+        assert_eq!(config.selection_reasoning_mode(), LlmReasoningMode::Light);
+    }
+
+    #[test]
+    fn selection_config_uses_a_complete_custom_model_override() {
+        let config = LlmProviderConfig {
+            active: "deepseek".to_string(),
+            selection_use_separate_model: true,
+            selection_provider: Some("vision".to_string()),
+            selection_model: Some(" vision-v2 ".to_string()),
+            selection_reasoning_mode: Some(LlmReasoningMode::Off),
+            custom_providers: vec![custom_provider("vision")],
+            ..Default::default()
+        };
+
+        assert_eq!(config.resolve_selection_provider(), "vision");
+        assert_eq!(config.selection_model(), Some("vision-v2"));
+        assert_eq!(config.selection_reasoning_mode(), LlmReasoningMode::Off);
     }
 
     /// TDD red-state: the new `openai_fast_mode` field must default to `false`

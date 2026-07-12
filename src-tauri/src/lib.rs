@@ -123,21 +123,28 @@ pub fn run() {
                         commands::funasr::active_online_keyring_user()
                     );
                 }
-                // 加载联网搜索 API Key（Tavily）
-                if let Some(ws_key) = app_handle
-                    .keyring()
-                    .get_password(
-                        "light-whisper",
-                        commands::assistant::web_search_keyring_user(
-                            &crate::state::user_profile::WebSearchProvider::Tavily,
-                        ),
-                    )
-                    .ok()
-                    .flatten()
-                    .filter(|k| !k.is_empty())
-                {
-                    state.set_web_search_api_key(&ws_key);
-                    log::info!("已从密钥环加载联网搜索 API Key (Tavily)");
+                // 加载需要密钥的联网搜索提供商（密钥始终保存在系统密钥环）。
+                for search_provider in [
+                    crate::state::user_profile::WebSearchProvider::Tavily,
+                    crate::state::user_profile::WebSearchProvider::Google,
+                ] {
+                    let Some(keyring_user) =
+                        commands::assistant::web_search_keyring_user(&search_provider)
+                    else {
+                        continue;
+                    };
+                    if let Some(ws_key) = app_handle
+                        .keyring()
+                        .get_password("light-whisper", keyring_user)
+                        .ok()
+                        .flatten()
+                        .filter(|key| !key.is_empty())
+                    {
+                        let cache_key =
+                            commands::assistant::web_search_provider_cache_key(&search_provider);
+                        state.set_web_search_api_key(cache_key, ws_key);
+                        log::info!("已从密钥环加载联网搜索 API Key ({})", cache_key);
+                    }
                 }
 
                 if services::codex_oauth_service::sync_runtime_session(&app_handle, state.inner())
@@ -151,6 +158,19 @@ pub fn run() {
             spawn_funasr_startup(app_handle.clone());
             spawn_subtitle_prewarm(app_handle.clone());
             spawn_profile_maintenance(app_handle.clone());
+            if let Err(error) = services::selection_service::create_selection_window(&app_handle) {
+                log::warn!("划词助手窗口预创建失败，首次使用时会重试: {error}");
+            }
+            if app_handle
+                .state::<AppState>()
+                .with_profile(|profile| profile.selection_assistant.enabled)
+            {
+                if let Err(error) =
+                    services::selection_service::start_selection_listener(app_handle.clone())
+                {
+                    log::error!("启动划词助手监听失败: {error}");
+                }
+            }
             setup_system_tray(&app_handle)?;
 
             Ok(())
@@ -245,6 +265,17 @@ pub fn run() {
             commands::assistant::set_web_search_config,
             commands::assistant::set_web_search_api_key,
             commands::assistant::get_web_search_api_key,
+            commands::selection::set_selection_assistant_config,
+            commands::selection::set_selection_api_key,
+            commands::selection::get_selection_api_key,
+            commands::selection::resize_selection_window,
+            commands::selection::hide_selection_assistant,
+            commands::selection::start_selection_window_drag,
+            commands::selection::get_selection_overlay_state,
+            commands::selection::copy_selection,
+            commands::selection::search_selection,
+            commands::selection::run_selection_action,
+            commands::selection::cancel_selection_action,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");

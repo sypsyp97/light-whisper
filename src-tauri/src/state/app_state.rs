@@ -374,7 +374,7 @@ pub struct ProfileState {
     pub assistant_api_key: Arc<parking_lot::Mutex<String>>,
     pub openai_codex_oauth_session: Arc<parking_lot::Mutex<Option<OpenaiCodexOauthSession>>>,
     pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
-    pub web_search_api_key: Arc<parking_lot::Mutex<String>>,
+    pub web_search_api_keys: Arc<parking_lot::Mutex<HashMap<String, String>>>,
     pub assistant_image_support_cache: Arc<parking_lot::Mutex<HashMap<String, bool>>>,
     pub ai_polish_stream_started_sessions: Arc<parking_lot::Mutex<HashSet<u64>>>,
 }
@@ -386,9 +386,16 @@ pub struct UiState {
     pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
     pub assistant_chat_generation: AtomicU64,
     pub assistant_chat_cancel: Arc<parking_lot::Mutex<Option<AssistantChatTask>>>,
+    pub selection_generation: AtomicU64,
+    pub selection_cancel: Arc<parking_lot::Mutex<Option<SelectionTask>>>,
 }
 
 pub struct AssistantChatTask {
+    pub generation: u64,
+    pub cancel: oneshot::Sender<()>,
+}
+
+pub struct SelectionTask {
     pub generation: u64,
     pub cancel: oneshot::Sender<()>,
 }
@@ -401,6 +408,8 @@ impl Default for UiState {
             hotkey_diagnostic: Default::default(),
             assistant_chat_generation: AtomicU64::new(0),
             assistant_chat_cancel: Default::default(),
+            selection_generation: AtomicU64::new(0),
+            selection_cancel: Default::default(),
         }
     }
 }
@@ -564,12 +573,24 @@ impl AppState {
         *self.profile.online_asr_api_key.lock() = api_key.into();
     }
 
-    pub fn read_web_search_api_key(&self) -> String {
-        self.profile.web_search_api_key.lock().clone()
+    pub fn read_web_search_api_key(&self, provider: &str) -> String {
+        self.profile
+            .web_search_api_keys
+            .lock()
+            .get(provider)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    pub fn set_web_search_api_key(&self, api_key: impl Into<String>) {
-        *self.profile.web_search_api_key.lock() = api_key.into();
+    pub fn set_web_search_api_key(&self, provider: impl Into<String>, api_key: impl Into<String>) {
+        let provider = provider.into();
+        let api_key = api_key.into();
+        let mut keys = self.profile.web_search_api_keys.lock();
+        if api_key.is_empty() {
+            keys.remove(&provider);
+        } else {
+            keys.insert(provider, api_key);
+        }
     }
 
     pub fn inline_audio_transport(&self) -> Option<bool> {

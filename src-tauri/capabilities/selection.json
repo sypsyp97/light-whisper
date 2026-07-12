@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "selection",
+  "description": "划词工具条：只使用受校验的应用命令，不访问密钥或系统插件",
+  "windows": ["selection-toolbar"],
+  "permissions": [
+    "core:window:default",
+    "core:window:allow-hide",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging"
+  ]
+}

@@ -15,14 +15,18 @@ for (const file of jsFiles) {
   if (name.startsWith("index-")) metrics.main_gzip_bytes = gzipBytes;
   if (name.startsWith("SettingsPage-")) metrics.settings_gzip_bytes = gzipBytes;
   if (name.startsWith("SubtitleOverlay-")) metrics.subtitle_gzip_bytes = gzipBytes;
+  if (name.startsWith("SelectionOverlay-")) metrics.selection_gzip_bytes = gzipBytes;
 }
 metrics.total_js_gzip_bytes = totalGzipBytes;
+metrics.core_js_gzip_bytes = totalGzipBytes - (metrics.selection_gzip_bytes ?? 0);
 
 const budgets = {
   main_gzip_bytes: 130_000,
   settings_gzip_bytes: 30_000,
   subtitle_gzip_bytes: 10_000,
-  total_js_gzip_bytes: 175_000,
+  selection_gzip_bytes: 145_000,
+  core_js_gzip_bytes: 175_000,
+  total_js_gzip_bytes: 310_000,
 };
 
 console.log(`LIGHT_WHISPER_BUNDLE_METRICS ${JSON.stringify(metrics)}`);

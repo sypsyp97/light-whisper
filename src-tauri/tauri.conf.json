@@ -32,11 +32,27 @@
           ],
           "state": "active"
         }
+      },
+      {
+        "label": "selection-toolbar",
+        "title": "划词助手",
+        "width": 404,
+        "height": 54,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "focusable": false,
+        "shadow": false,
+        "visible": false,
+        "url": "/?window=selection"
       }
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:",
-      "capabilities": ["main", "subtitle"]
+      "capabilities": ["main", "subtitle", "selection"]
     }
   },
   "bundle": {

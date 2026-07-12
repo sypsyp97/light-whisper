@@ -78,6 +78,7 @@ import TitleBar from "@/components/TitleBar";
 import AppearanceSettingsSection from "@/components/settings/AppearanceSettingsSection";
 import TranslationSettingsSection from "@/components/settings/TranslationSettingsSection";
 import SystemSettingsSections from "@/components/settings/SystemSettingsSections";
+import SelectionAssistantSettingsSection from "@/components/settings/SelectionAssistantSettingsSection";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
 import { getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 import {
@@ -94,6 +95,15 @@ import {
   resolveAssistantLlmReasoningProbeTarget,
   resolveLlmReasoningProbeTarget,
 } from "@/lib/llmReasoningProbe";
+import {
+  findLlmPreset,
+  findReasoningModeOption,
+  isFixedPresetProvider,
+  llmProviderOptions,
+  reasoningModeOptions,
+  resolveLlmBaseUrl,
+  resolveLlmModel,
+} from "@/lib/llmModelOptions";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { useTranslation } from "react-i18next";
 
@@ -121,61 +131,7 @@ const inputOptions = [
   { key: "clipboard" as const, icon: ClipboardPaste, labelKey: "settings.clipboardPaste", descKey: "settings.clipboardPasteDesc" },
 ];
 
-const llmProviderOptions: ReadonlyArray<{
-  key: string;
-  label: string;
-  descKey: string;
-  baseUrl: string;
-  defaultModel: string;
-  models: readonly string[];
-}> = [
-  {
-    key: "openai",
-    label: "OpenAI",
-    descKey: "settings.openaiDesc",
-    baseUrl: "https://api.openai.com",
-    defaultModel: "gpt-4.1-mini",
-    models: ["gpt-5.5", "gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"],
-  },
-  {
-    key: "deepseek",
-    label: "DeepSeek",
-    descKey: "settings.deepseekDesc",
-    baseUrl: "https://api.deepseek.com",
-    defaultModel: "deepseek-v4-flash",
-    models: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
-  },
-  {
-    key: "cerebras",
-    label: "Cerebras",
-    descKey: "settings.cerebrasDesc",
-    baseUrl: "https://api.cerebras.ai",
-    defaultModel: "gpt-oss-120b",
-    models: ["gpt-oss-120b", "gpt-oss-20b"],
-  },
-  {
-    key: "siliconflow",
-    label: "SiliconFlow",
-    descKey: "settings.siliconflowDesc",
-    baseUrl: "https://api.siliconflow.cn",
-    defaultModel: "Qwen/Qwen3-32B",
-    models: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-7B-Instruct"],
-  },
-];
-
 const LLM_PROVIDER_DRAFTS_KEY = "light-whisper-llm-provider-drafts";
-
-const reasoningModeOptions: Array<{
-  key: LlmReasoningMode;
-  labelKey: string;
-  descKey: string;
-}> = [
-  { key: "provider_default", labelKey: "settings.reasoningDefault", descKey: "settings.reasoningDefaultDesc" },
-  { key: "off", labelKey: "settings.reasoningOff", descKey: "settings.reasoningOffDesc" },
-  { key: "light", labelKey: "settings.reasoningLight", descKey: "settings.reasoningLightDesc" },
-  { key: "balanced", labelKey: "settings.reasoningBalanced", descKey: "settings.reasoningBalancedDesc" },
-  { key: "deep", labelKey: "settings.reasoningDeep", descKey: "settings.reasoningDeepDesc" },
-];
 
 const recordingModeOptions: Array<{
   key: "hold" | "toggle";
@@ -194,7 +150,12 @@ const webSearchProviderOptions: Array<{
   { key: "model_native", labelKey: "settings.webSearchModelNative", descKey: "settings.webSearchModelNativeDesc" },
   { key: "exa", labelKey: "settings.webSearchExa", descKey: "settings.webSearchExaDesc" },
   { key: "tavily", labelKey: "settings.webSearchTavily", descKey: "settings.webSearchTavilyDesc" },
+  { key: "google", labelKey: "settings.webSearchGoogle", descKey: "settings.webSearchGoogleDesc" },
 ];
+
+function webSearchProviderNeedsKey(provider: WebSearchProvider): provider is "tavily" | "google" {
+  return provider === "tavily" || provider === "google";
+}
 
 const sourceLabels: Record<string, string> = {
   user: "settings.sourceManual",
@@ -218,14 +179,6 @@ interface LlmProviderDraft {
 
 type LlmProviderDraftMap = Record<string, LlmProviderDraft>;
 
-function findLlmPreset(key: string) {
-  return llmProviderOptions.find((option) => option.key === key) ?? llmProviderOptions[0];
-}
-
-function isFixedPresetProvider(key: string) {
-  return llmProviderOptions.some((option) => option.key === key);
-}
-
 function resolveEffectiveProvider(key: string, customProviders: CustomProvider[]): string {
   if (llmProviderOptions.some((option) => option.key === key)) {
     return key;
@@ -236,25 +189,6 @@ function resolveEffectiveProvider(key: string, customProviders: CustomProvider[]
   return customProviders.length > 0
     ? customProviders[customProviders.length - 1].id
     : "cerebras";
-}
-
-function resolveLlmBaseUrl(key: string, customBaseUrl?: string | null): string {
-  const preset = findLlmPreset(key);
-  if (isFixedPresetProvider(key)) {
-    return preset.baseUrl;
-  }
-  return customBaseUrl?.trim() || preset.baseUrl;
-}
-
-function resolveLlmModel(key: string, customModel?: string | null): string {
-  const preset = findLlmPreset(key);
-  const normalizedModel = customModel?.trim();
-  if (!normalizedModel) return preset.defaultModel;
-  return normalizedModel;
-}
-
-function findReasoningModeOption(mode: LlmReasoningMode) {
-  return reasoningModeOptions.find((option) => option.key === mode) ?? reasoningModeOptions[0];
 }
 
 function findRecordingModeOption(mode: "hold" | "toggle") {
@@ -299,6 +233,7 @@ export default function SettingsPage({
     { id: "input", labelKey: "settings.inputMethod" },
     { id: "ai-polish", labelKey: "settings.aiPolish" },
     { id: "assistant", labelKey: "settings.assistant" },
+    { id: "selection-assistant", labelKey: "settings.selectionAssistant" },
     { id: "translation", labelKey: "settings.translation" },
     { id: "vocabulary", labelKey: "settings.vocabulary" },
     { id: "misc", labelKey: "settings.startup" },
@@ -540,6 +475,7 @@ export default function SettingsPage({
   const [webSearchProvider, setWebSearchProviderState] = useState<WebSearchProvider>("model_native");
   const [webSearchMaxResults, setWebSearchMaxResultsState] = useState(5);
   const [webSearchApiKey, setWebSearchApiKeyState] = useState("");
+  const webSearchKeyRequestIdRef = useRef(0);
   const [appVersion, setAppVersion] = useState("");
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateStatusText, setUpdateStatusText] = useState("");
@@ -563,8 +499,8 @@ export default function SettingsPage({
     setAssistantApiKey(value).catch(() => {});
   }, 600, { onUnmount: "flush" });
 
-  const webSearchKeySave = useDebouncedCallback((value: string) => {
-    setWebSearchApiKey(value).catch(() => {});
+  const webSearchKeySave = useDebouncedCallback((provider: WebSearchProvider, value: string) => {
+    setWebSearchApiKey(provider, value).catch(() => {});
   }, 600, { onUnmount: "flush" });
 
   const webSearchConfigSave = useDebouncedCallback((
@@ -693,6 +629,26 @@ export default function SettingsPage({
     }
   }, []);
 
+  const refreshWebSearchKey = useCallback(async (provider: WebSearchProvider) => {
+    const requestId = ++webSearchKeyRequestIdRef.current;
+    if (!webSearchProviderNeedsKey(provider)) {
+      setWebSearchApiKeyState("");
+      return "";
+    }
+    try {
+      const key = (await getWebSearchApiKey(provider)) || "";
+      if (requestId === webSearchKeyRequestIdRef.current) {
+        setWebSearchApiKeyState(key);
+      }
+      return key;
+    } catch {
+      if (requestId === webSearchKeyRequestIdRef.current) {
+        setWebSearchApiKeyState("");
+      }
+      return "";
+    }
+  }, []);
+
   const refreshOpenaiCodexOauthStatus = useCallback(async () => {
     try {
       const status = await getOpenaiCodexOauthStatus();
@@ -775,16 +731,17 @@ export default function SettingsPage({
       setValidationUseSeparateModel(Boolean(p.llm_provider.validation_use_separate_model));
       setValidationProvider(p.llm_provider.validation_provider ?? null);
       setValidationModel(p.llm_provider.validation_model ?? "");
+      return p;
     } catch { /* ignore */ }
   }, [updateProviderDraft]);
 
   useEffect(() => {
-    refreshProfile().then(() => {
-      refreshAssistantKey();
-      refreshOpenaiCodexOauthStatus();
-      getWebSearchApiKey().then(setWebSearchApiKeyState).catch(() => {});
+    refreshProfile().then((loadedProfile) => {
+      void refreshAssistantKey();
+      void refreshOpenaiCodexOauthStatus();
+      void refreshWebSearchKey(loadedProfile?.web_search?.provider ?? "model_native");
     });
-  }, [refreshProfile, refreshAssistantKey, refreshOpenaiCodexOauthStatus]);
+  }, [refreshProfile, refreshAssistantKey, refreshOpenaiCodexOauthStatus, refreshWebSearchKey]);
 
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
@@ -1475,8 +1432,12 @@ export default function SettingsPage({
     </div>
   ), [effectiveOpenaiAuthMode, handleOpenaiAuthModeChange, t]);
 
-  const renderOpenaiCodexOauthBlock = useCallback((scope: "polish" | "assistant") => {
-    const visible = scope === "polish" ? llmProvider === "openai" : effectiveAssistantProvider === "openai";
+  const renderOpenaiCodexOauthBlock = useCallback((
+    scope: "polish" | "assistant",
+    forceVisible = false,
+  ) => {
+    const visible = forceVisible
+      || (scope === "polish" ? llmProvider === "openai" : effectiveAssistantProvider === "openai");
     if (!visible) return null;
 
     const loggedIn = openaiCodexOauthStatus.loggedIn;
@@ -2108,9 +2069,11 @@ export default function SettingsPage({
 
   const handleWebSearchProviderChange = useCallback((provider: WebSearchProvider) => {
     setWebSearchProviderState(provider);
+    setWebSearchApiKeyState("");
+    void refreshWebSearchKey(provider);
     picker.close();
     webSearchConfigSave.schedule(webSearchEnabled, provider, webSearchMaxResults);
-  }, [webSearchEnabled, webSearchMaxResults, webSearchConfigSave, picker]);
+  }, [webSearchEnabled, webSearchMaxResults, webSearchConfigSave, picker, refreshWebSearchKey]);
 
   const handleWebSearchMaxResultsChange = useCallback((value: number) => {
     setWebSearchMaxResultsState(value);
@@ -3788,7 +3751,7 @@ export default function SettingsPage({
                     </div>
                   </div>
 
-                  {/* 搜索结果条数（Exa / Tavily） */}
+                  {/* 搜索结果条数（Exa / Tavily / Google） */}
                   {selectedWebSearchProviderOption.key !== "model_native" && (
                     <div className="settings-column" style={{ gap: 6 }}>
                       <div className="settings-row">
@@ -3807,18 +3770,26 @@ export default function SettingsPage({
                     </div>
                   )}
 
-                  {/* Tavily API Key */}
-                  {selectedWebSearchProviderOption.key === "tavily" && (
+                  {/* 第三方搜索 API Key */}
+                  {webSearchProviderNeedsKey(selectedWebSearchProviderOption.key) && (
                     <div className="settings-column" style={{ gap: 6 }}>
-                      <span className="settings-option-desc">{t("settings.webSearchTavilyApiKeyLabel")}</span>
+                      <span className="settings-option-desc">
+                        {t(selectedWebSearchProviderOption.key === "google"
+                          ? "settings.webSearchGoogleApiKeyLabel"
+                          : "settings.webSearchTavilyApiKeyLabel")}
+                      </span>
                       <SecretInput
                         value={webSearchApiKey}
                         onChange={(val) => {
                           setWebSearchApiKeyState(val);
-                          webSearchKeySave.schedule(val);
+                          webSearchKeySave.schedule(selectedWebSearchProviderOption.key, val);
                         }}
-                        placeholder={t("settings.webSearchTavilyKeyPlaceholder")}
-                        aria-label={t("settings.webSearchTavilyApiKeyLabel")}
+                        placeholder={t(selectedWebSearchProviderOption.key === "google"
+                          ? "settings.webSearchGoogleKeyPlaceholder"
+                          : "settings.webSearchTavilyKeyPlaceholder")}
+                        aria-label={t(selectedWebSearchProviderOption.key === "google"
+                          ? "settings.webSearchGoogleApiKeyLabel"
+                          : "settings.webSearchTavilyApiKeyLabel")}
                       />
                     </div>
                   )}
@@ -3826,6 +3797,18 @@ export default function SettingsPage({
               )}
             </div>
           </section>
+
+          <SelectionAssistantSettingsSection
+            profile={profile}
+            openaiAuthMode={effectiveOpenaiAuthMode}
+            openaiOauthLoggedIn={openaiCodexOauthStatus.loggedIn}
+            openaiControls={(
+              <>
+                {renderOpenaiAuthModeToggle()}
+                {renderOpenaiCodexOauthBlock("assistant", true)}
+              </>
+            )}
+          />
 
           <TranslationSettingsSection
             target={translationTarget}

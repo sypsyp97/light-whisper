@@ -202,6 +202,41 @@ describe("getRecordingSnapshot", () => {
   });
 });
 
+describe("web search provider IPC", () => {
+  it("keeps Google and Tavily API keys in provider-specific slots", async () => {
+    const { getWebSearchApiKey, setWebSearchApiKey } = await import("@/api/tauri");
+    invokeMock.invoke.mockResolvedValue(undefined);
+
+    await setWebSearchApiKey("google", "google-key");
+    await getWebSearchApiKey("google");
+
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(
+      1,
+      "set_web_search_api_key",
+      { provider: "google", apiKey: "google-key" },
+    );
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(
+      2,
+      "get_web_search_api_key",
+      { provider: "google" },
+    );
+  });
+});
+
+describe("selection window drag IPC", () => {
+  it("uses a dedicated backend command instead of dragging the non-focus window directly", async () => {
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    const { startSelectionWindowDrag } = await import("@/api/tauri");
+    await startSelectionWindowDrag();
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "start_selection_window_drag",
+      {},
+    );
+  });
+});
+
 describe("retryAssistantRequest payload", () => {
   it("invokes the retry command with the session and original request", async () => {
     invokeMock.invoke.mockResolvedValueOnce("fresh assistant response");

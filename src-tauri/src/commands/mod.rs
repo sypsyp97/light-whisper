@@ -6,5 +6,6 @@ pub mod codex_oauth;
 pub mod funasr;
 pub mod hotkey;
 pub mod profile;
+pub mod selection;
 pub mod updater;
 pub mod window;

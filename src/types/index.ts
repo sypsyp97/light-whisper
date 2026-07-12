@@ -147,7 +147,7 @@ export interface CorrectionPattern {
 }
 
 // 联网搜索方式
-export type WebSearchProvider = "model_native" | "exa" | "tavily";
+export type WebSearchProvider = "model_native" | "exa" | "tavily" | "google";
 
 // 联网搜索配置
 export interface WebSearchConfig {
@@ -194,6 +194,10 @@ export interface LlmProviderConfig {
   assistant_use_separate_model?: boolean;
   assistant_model?: string;
   assistant_provider?: string;
+  selection_reasoning_mode?: LlmReasoningMode;
+  selection_use_separate_model?: boolean;
+  selection_model?: string;
+  selection_provider?: string;
   custom_providers?: CustomProvider[];
   validation_use_separate_model?: boolean;
   validation_provider?: string | null;
@@ -217,9 +221,18 @@ export interface UserProfile {
   assistant_system_prompt?: string | null;
   assistant_screen_context_enabled?: boolean;
   ai_polish_screen_context_enabled?: boolean;
+  selection_assistant?: SelectionAssistantConfig;
   blocked_hot_words?: string[];
   web_search?: WebSearchConfig;
   correction_validation_enabled?: boolean;
   last_correction_validation?: number;
+}
+
+export interface SelectionAssistantConfig {
+  enabled: boolean;
+  min_chars: number;
+  max_chars: number;
+  translation_target: string;
+  excluded_apps: string[];
 }
 

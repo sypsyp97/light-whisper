@@ -45,9 +45,34 @@ describe("Tauri window capability boundaries", () => {
     );
   });
 
-  it("loads both capability files from the desktop configuration", () => {
+  it("keeps the selection toolbar isolated while allowing its explicit window-hide fallback", () => {
+    const selection = readJson<Capability>(
+      "src-tauri/capabilities/selection.json",
+    );
+
+    expect(selection.identifier).toBe("selection");
+    expect(selection.windows).toEqual(["selection-toolbar"]);
+    expect(selection.permissions).toEqual(
+      expect.arrayContaining([
+        "core:window:default",
+        "core:window:allow-hide",
+      ]),
+    );
+    expect(selection.permissions).not.toEqual(
+      expect.arrayContaining([
+        "clipboard-manager:default",
+        "keyring:default",
+      ]),
+    );
+  });
+
+  it("loads every window capability from the desktop configuration", () => {
     const config = readJson<TauriConfig>("src-tauri/tauri.conf.json");
 
-    expect(config.app.security.capabilities).toEqual(["main", "subtitle"]);
+    expect(config.app.security.capabilities).toEqual([
+      "main",
+      "subtitle",
+      "selection",
+    ]);
   });
 });

@@ -293,6 +293,14 @@ body,
   margin-top: 8px;
 }
 
+.subtitle-google-search-entry {
+  width: 100%;
+  min-height: 34px;
+  overflow: hidden;
+  border-radius: 8px;
+  color-scheme: light;
+}
+
 .subtitle-source-link {
   max-width: min(260px, 100%);
   border: 0;

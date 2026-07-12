@@ -567,23 +567,54 @@ fn contains_any(value: &str, patterns: &[&str]) -> bool {
     patterns.iter().any(|pattern| value.contains(pattern))
 }
 
-/// 执行第三方搜索（Exa / Tavily）
+/// 执行第三方搜索（Exa / Tavily / Google Search Grounding）
+struct ThirdPartySearchOutput {
+    results: Vec<web_search_service::SearchResult>,
+    google_search_entry_point: Option<String>,
+}
+
 async fn run_third_party_search(
     state: &AppState,
     ws: &WebSearchConfig,
     query: &str,
-) -> Result<Vec<web_search_service::SearchResult>, String> {
+) -> Result<ThirdPartySearchOutput, String> {
     let max = ws.max_results;
     match ws.provider {
         WebSearchProvider::Exa => {
-            web_search_service::exa_search(&state.http_client, query, max).await
+            let results = web_search_service::exa_search(&state.http_client, query, max).await?;
+            Ok(ThirdPartySearchOutput {
+                results,
+                google_search_entry_point: None,
+            })
         }
         WebSearchProvider::Tavily => {
-            let api_key = state.read_web_search_api_key();
+            let api_key = state.read_web_search_api_key("tavily");
             if api_key.trim().is_empty() {
                 return Err("Tavily 搜索需要配置 API Key".to_string());
             }
-            web_search_service::tavily_search(&state.http_client, &api_key, query, max).await
+            let results =
+                web_search_service::tavily_search(&state.http_client, &api_key, query, max).await?;
+            Ok(ThirdPartySearchOutput {
+                results,
+                google_search_entry_point: None,
+            })
+        }
+        WebSearchProvider::Google => {
+            let api_key = state.read_web_search_api_key("google");
+            if api_key.trim().is_empty() {
+                return Err("Google 搜索需要配置 Google AI API Key".to_string());
+            }
+            let grounded = web_search_service::google_grounded_search(
+                &state.http_client,
+                &api_key,
+                query,
+                max,
+            )
+            .await?;
+            Ok(ThirdPartySearchOutput {
+                results: grounded.results,
+                google_search_entry_point: Some(grounded.search_entry_point_html),
+            })
         }
         WebSearchProvider::ModelNative => unreachable!(),
     }
@@ -763,10 +794,10 @@ async fn generate_content_inner(
 
         let search_started = Instant::now();
         match run_third_party_search(state, &effective_ws, &search_query).await {
-            Ok(results) => {
+            Ok(search_output) => {
                 let elapsed_ms = search_started.elapsed().as_millis() as u64;
                 search_elapsed_ms = Some(elapsed_ms);
-                let results = web_search_service::dedupe_search_results(results);
+                let results = web_search_service::dedupe_search_results(search_output.results);
                 log::info!(
                     "联网搜索({:?})返回 {} 条去重结果 (查询{}字符)",
                     effective_ws.provider,
@@ -782,6 +813,7 @@ async fn generate_content_inner(
                         "searchProvider": effective_ws.provider,
                         "elapsedMs": elapsed_ms,
                         "sources": search_source_payloads(&results),
+                        "googleSearchEntryPoint": search_output.google_search_entry_point,
                     }),
                 );
                 external_search_context = Some(web_search_service::render_search_context(&results));

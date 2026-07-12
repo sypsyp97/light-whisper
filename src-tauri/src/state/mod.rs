@@ -4,5 +4,5 @@ pub use app_state::{
     AppState, DictationOutputMode, DownloadTask, EngineState, FunasrProcess, HotkeyDiagnosticState,
     InterimCache, MicrophoneLevelMonitor, PendingRecordingSession, RecordingMode,
     RecordingOutcomeKind, RecordingPhase, RecordingSession, RecordingSlot, RecordingSnapshot,
-    RecordingTrigger, StartingFunasrProcess,
+    RecordingTrigger, SelectionTask, StartingFunasrProcess,
 };

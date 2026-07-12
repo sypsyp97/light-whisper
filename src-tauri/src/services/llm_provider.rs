@@ -262,6 +262,39 @@ pub fn assistant_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint 
     endpoint_for_config(&resolved)
 }
 
+/// Resolve the selection assistant independently while retaining the polish
+/// endpoint as the exact fallback when its separate-config switch is off.
+pub fn selection_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
+    let provider = config.resolve_selection_provider();
+    let active_provider = config.resolve_active_provider();
+    let mut resolved = config.clone();
+
+    if provider != active_provider {
+        resolved.active = provider;
+        if is_preset(&resolved.active) {
+            resolved.custom_model = None;
+            resolved.custom_base_url = None;
+        }
+    }
+
+    if let Some(model) = config.selection_model() {
+        let target_provider = resolved.resolve_active_provider();
+        if is_preset(&target_provider) {
+            resolved.custom_model = Some(model.to_string());
+        } else if let Some(custom) = resolved
+            .custom_providers
+            .iter_mut()
+            .find(|item| item.id == target_provider)
+        {
+            custom.model = model.to_string();
+        } else {
+            resolved.custom_model = Some(model.to_string());
+        }
+    }
+
+    endpoint_for_config(&resolved)
+}
+
 pub fn validation_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     let validation_provider = config.resolve_validation_provider();
     let active_provider = config.resolve_active_provider();
@@ -455,6 +488,10 @@ pub fn endpoint_for_preview(
             assistant_use_separate_model: false,
             assistant_model: None,
             assistant_provider: None,
+            selection_reasoning_mode: None,
+            selection_use_separate_model: false,
+            selection_model: None,
+            selection_provider: None,
             custom_providers: Vec::new(),
             validation_use_separate_model: false,
             validation_provider: None,
@@ -473,6 +510,10 @@ pub fn endpoint_for_preview(
             assistant_use_separate_model: false,
             assistant_model: None,
             assistant_provider: None,
+            selection_reasoning_mode: None,
+            selection_use_separate_model: false,
+            selection_model: None,
+            selection_provider: None,
             custom_providers: vec![CustomProvider {
                 id: provider.to_string(),
                 name: provider.to_string(),
@@ -1366,6 +1407,10 @@ mod tests {
             assistant_use_separate_model: false,
             assistant_model: None,
             assistant_provider: None,
+            selection_reasoning_mode: None,
+            selection_use_separate_model: false,
+            selection_model: None,
+            selection_provider: None,
             custom_providers: Vec::new(),
             validation_use_separate_model: false,
             validation_provider: None,
@@ -1396,6 +1441,10 @@ mod tests {
             assistant_use_separate_model: false,
             assistant_model: None,
             assistant_provider: None,
+            selection_reasoning_mode: None,
+            selection_use_separate_model: false,
+            selection_model: None,
+            selection_provider: None,
             custom_providers: Vec::new(),
             validation_use_separate_model: false,
             validation_provider: None,
@@ -1422,6 +1471,10 @@ mod tests {
             assistant_use_separate_model: false,
             assistant_model: None,
             assistant_provider: None,
+            selection_reasoning_mode: None,
+            selection_use_separate_model: false,
+            selection_model: None,
+            selection_provider: None,
             custom_providers: Vec::new(),
             validation_use_separate_model: false,
             validation_provider: None,
@@ -1468,6 +1521,10 @@ mod tests {
             assistant_use_separate_model: false,
             assistant_model: None,
             assistant_provider: None,
+            selection_reasoning_mode: None,
+            selection_use_separate_model: false,
+            selection_model: None,
+            selection_provider: None,
             custom_providers: vec![
                 crate::state::user_profile::CustomProvider {
                     id: "custom_a".to_string(),
@@ -1513,6 +1570,10 @@ mod tests {
             assistant_use_separate_model: true,
             assistant_model: Some("gpt-oss-20b".to_string()),
             assistant_provider: None,
+            selection_reasoning_mode: None,
+            selection_use_separate_model: false,
+            selection_model: None,
+            selection_provider: None,
             custom_providers: Vec::new(),
             validation_use_separate_model: false,
             validation_provider: None,
@@ -1543,6 +1604,10 @@ mod tests {
             assistant_use_separate_model: true,
             assistant_model: Some("assistant-model".to_string()),
             assistant_provider: None,
+            selection_reasoning_mode: None,
+            selection_use_separate_model: false,
+            selection_model: None,
+            selection_provider: None,
             custom_providers: vec![crate::state::user_profile::CustomProvider {
                 id: "custom_a".to_string(),
                 name: "Custom A".to_string(),

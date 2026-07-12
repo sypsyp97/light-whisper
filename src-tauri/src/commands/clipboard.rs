@@ -94,6 +94,75 @@ pub fn grab_selected_text() -> Option<String> {
     }
 }
 
+/// Read a selection without disturbing focus. UI Automation is preferred; a
+/// conservative Ctrl+C fallback is used only when UIA exposes no TextPattern.
+/// The fallback snapshots the complete clipboard and restores it unless another
+/// application/user changed the copied text in the meantime.
+pub fn grab_selected_text_robust(app_handle: &tauri::AppHandle) -> Option<String> {
+    if let Some(text) = grab_selected_text() {
+        return Some(text);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use tauri_plugin_clipboard_manager::ClipboardExt;
+        use uiautomation::clipboards::Clipboard;
+
+        let snapshot = Clipboard::open().ok()?.snapshot(true).ok()?;
+        let marker = format!("__light_whisper_selection_{:016x}__", rand::random::<u64>());
+        if app_handle.clipboard().write_text(&marker).is_err() {
+            if let Ok(clipboard) = Clipboard::open() {
+                let _ = clipboard.restore(snapshot);
+            }
+            return None;
+        }
+
+        const VK_CONTROL: u16 = 0x11;
+        const VK_C: u16 = 0x43;
+        let inputs = [
+            make_key_input(VK_CONTROL, 0, 0),
+            make_key_input(VK_C, 0, 0),
+            make_key_input(VK_C, 0, KEYEVENTF_KEYUP),
+            make_key_input(VK_CONTROL, 0, KEYEVENTF_KEYUP),
+        ];
+        let copy_result = release_stuck_modifiers().and_then(|_| send_inputs(&inputs));
+        if copy_result.is_ok() {
+            std::thread::sleep(std::time::Duration::from_millis(70));
+        }
+
+        let copied = app_handle.clipboard().read_text().ok();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let current = app_handle.clipboard().read_text().ok();
+        let should_restore = current.as_deref() == Some(marker.as_str())
+            || copied
+                .as_deref()
+                .is_some_and(|temporary| current.as_deref() == Some(temporary));
+        if should_restore {
+            if let Ok(clipboard) = Clipboard::open() {
+                if let Err(error) = clipboard.restore(snapshot) {
+                    log::warn!("恢复划词读取前的剪贴板失败: {error}");
+                }
+            }
+        } else {
+            log::debug!("划词读取期间剪贴板已变化，保留新的剪贴板内容");
+        }
+
+        if copy_result.is_err() {
+            return None;
+        }
+        copied
+            .filter(|value| value != &marker)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app_handle;
+        None
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn grab_selected_text_uia() -> Option<String> {
     use uiautomation::UIAutomation;

@@ -322,6 +322,66 @@ export function setAssistantScreenContextEnabled(enabled: boolean): Promise<void
   return invokeCommand<void>("set_assistant_screen_context_enabled", { enabled });
 }
 
+export function setSelectionAssistantConfig(params: {
+  enabled: boolean;
+  minChars: number;
+  maxChars: number;
+  translationTarget: string;
+  excludedApps: string[];
+  useSeparateModel: boolean;
+  provider?: string | null;
+  model?: string | null;
+  reasoningMode: LlmReasoningMode;
+}): Promise<void> {
+  return invokeCommand<void>("set_selection_assistant_config", params);
+}
+
+export function setSelectionApiKey(provider: string, apiKey: string): Promise<void> {
+  return invokeCommand<void>("set_selection_api_key", { provider, apiKey });
+}
+
+export function getSelectionApiKey(provider: string): Promise<string> {
+  return invokeCommand<string>("get_selection_api_key", { provider });
+}
+
+export function resizeSelectionWindow(expanded: boolean): Promise<void> {
+  return invokeCommand<void>("resize_selection_window", { expanded });
+}
+
+export function hideSelectionAssistant(): Promise<void> {
+  return invokeCommand<void>("hide_selection_assistant", {});
+}
+
+export function startSelectionWindowDrag(): Promise<void> {
+  return invokeCommand<void>("start_selection_window_drag", {});
+}
+
+export interface SelectionOverlayState {
+  version: number;
+  text: string;
+  characterCount: number;
+}
+
+export function getSelectionOverlayState(): Promise<SelectionOverlayState | null> {
+  return invokeCommand<SelectionOverlayState | null>("get_selection_overlay_state", {});
+}
+
+export function copySelection(text: string): Promise<void> {
+  return invokeCommand<void>("copy_selection", { text });
+}
+
+export function searchSelection(text: string): Promise<void> {
+  return invokeCommand<void>("search_selection", { text });
+}
+
+export function runSelectionAction(action: "translate" | "explain" | "optimize" | "screenshot", text: string): Promise<string> {
+  return invokeCommand<string>("run_selection_action", { action, text });
+}
+
+export function cancelSelectionAction(): Promise<boolean> {
+  return invokeCommand<boolean>("cancel_selection_action", {});
+}
+
 export function continueAssistantConversation(params: {
   sessionId: number;
   initialRequest: string;
@@ -359,12 +419,12 @@ export function setWebSearchConfig(
   });
 }
 
-export function setWebSearchApiKey(apiKey: string): Promise<void> {
-  return invokeCommand<void>("set_web_search_api_key", { apiKey });
+export function setWebSearchApiKey(provider: WebSearchProvider, apiKey: string): Promise<void> {
+  return invokeCommand<void>("set_web_search_api_key", { provider, apiKey });
 }
 
-export function getWebSearchApiKey(): Promise<string> {
-  return invokeCommand<string>("get_web_search_api_key");
+export function getWebSearchApiKey(provider: WebSearchProvider): Promise<string> {
+  return invokeCommand<string>("get_web_search_api_key", { provider });
 }
 
 export function addCustomProvider(

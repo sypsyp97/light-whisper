@@ -285,12 +285,22 @@ fn validate_assistant_source_url(value: &str) -> Result<reqwest::Url, AppError> 
 
 // ── 联网搜索 ────────────────────────────────────────────────────────
 
-/// keyring 用户名：只有 Tavily 需要存 API Key
-pub fn web_search_keyring_user(provider: &WebSearchProvider) -> &'static str {
+/// 需要独立凭据的搜索供应商在系统密钥环中的用户名。
+pub fn web_search_keyring_user(provider: &WebSearchProvider) -> Option<&'static str> {
     match provider {
-        WebSearchProvider::Tavily => "web-search-tavily-key",
-        // Exa MCP 免费无需 Key, ModelNative 用 LLM provider 自己的 Key
-        _ => "web-search-key",
+        WebSearchProvider::Tavily => Some("web-search-tavily-key"),
+        WebSearchProvider::Google => Some("web-search-google-key"),
+        // Exa MCP 免费无需 Key，ModelNative 使用 LLM provider 自己的 Key。
+        WebSearchProvider::Exa | WebSearchProvider::ModelNative => None,
+    }
+}
+
+pub fn web_search_provider_cache_key(provider: &WebSearchProvider) -> &'static str {
+    match provider {
+        WebSearchProvider::ModelNative => "model_native",
+        WebSearchProvider::Exa => "exa",
+        WebSearchProvider::Tavily => "tavily",
+        WebSearchProvider::Google => "google",
     }
 }
 
@@ -316,10 +326,12 @@ pub async fn set_web_search_config(
 pub async fn set_web_search_api_key(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    provider: WebSearchProvider,
     api_key: String,
 ) -> Result<(), String> {
-    state.set_web_search_api_key(api_key.clone());
-    let keyring_user = web_search_keyring_user(&WebSearchProvider::Tavily);
+    let keyring_user = web_search_keyring_user(&provider)
+        .ok_or_else(|| "当前搜索方式不使用独立 API Key".to_string())?;
+    state.set_web_search_api_key(web_search_provider_cache_key(&provider), api_key.clone());
     llm_provider::save_or_delete_api_key(&app_handle, keyring_user, &api_key);
     Ok(())
 }
@@ -328,12 +340,15 @@ pub async fn set_web_search_api_key(
 pub async fn get_web_search_api_key(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    provider: WebSearchProvider,
 ) -> Result<String, String> {
-    let cached = state.read_web_search_api_key();
+    let cache_key = web_search_provider_cache_key(&provider);
+    let keyring_user = web_search_keyring_user(&provider)
+        .ok_or_else(|| "当前搜索方式不使用独立 API Key".to_string())?;
+    let cached = state.read_web_search_api_key(cache_key);
     if !cached.is_empty() {
         return Ok(cached);
     }
-    let keyring_user = web_search_keyring_user(&WebSearchProvider::Tavily);
     let key = app_handle
         .keyring()
         .get_password(llm_provider::KEYRING_SERVICE, keyring_user)
@@ -341,7 +356,7 @@ pub async fn get_web_search_api_key(
         .flatten()
         .unwrap_or_default();
     if !key.is_empty() {
-        state.set_web_search_api_key(key.clone());
+        state.set_web_search_api_key(cache_key, key.clone());
     }
     Ok(key)
 }
@@ -351,9 +366,10 @@ mod tests {
     use super::{
         begin_assistant_chat_task, cancel_assistant_chat_task, clear_assistant_chat_task,
         run_cancellable_assistant_task, validate_assistant_source_url, validate_chat_history,
-        validate_chat_text,
+        validate_chat_text, web_search_keyring_user, web_search_provider_cache_key,
     };
     use crate::services::assistant_service::AssistantConversationTurn;
+    use crate::state::user_profile::WebSearchProvider;
     use crate::state::AppState;
     use crate::utils::AppError;
     use std::time::Duration;
@@ -367,6 +383,27 @@ mod tests {
         assert!(validate_assistant_source_url("https://127.0.0.1/private").is_err());
         assert!(validate_assistant_source_url("https://[fc00::1]/private").is_err());
         assert!(validate_assistant_source_url("https://[fe80::1]/private").is_err());
+    }
+
+    #[test]
+    fn keyed_web_search_providers_use_isolated_keyring_slots() {
+        assert_eq!(
+            web_search_keyring_user(&WebSearchProvider::Tavily),
+            Some("web-search-tavily-key")
+        );
+        assert_eq!(
+            web_search_keyring_user(&WebSearchProvider::Google),
+            Some("web-search-google-key")
+        );
+        assert_eq!(web_search_keyring_user(&WebSearchProvider::Exa), None);
+        assert_eq!(
+            web_search_keyring_user(&WebSearchProvider::ModelNative),
+            None
+        );
+        assert_eq!(
+            web_search_provider_cache_key(&WebSearchProvider::Google),
+            "google"
+        );
     }
 
     #[test]

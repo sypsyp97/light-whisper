@@ -10,6 +10,7 @@ pub mod llm_client;
 pub mod llm_provider;
 pub mod profile_service;
 pub mod screen_capture_service;
+pub mod selection_service;
 pub mod web_search_service;
 
 #[cfg(test)]
