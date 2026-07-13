@@ -54,6 +54,7 @@ const tauriMock = vi.hoisted(() => ({
   setOnlineAsrEndpoint: vi.fn(),
   setOpenaiFastMode: vi.fn(),
   setRecordingMode: vi.fn(),
+  setSelectionAssistantConfig: vi.fn(),
   setSoundEnabled: vi.fn(),
   setTranslationHotkey: vi.fn(),
   setTranslationTarget: vi.fn(),
@@ -131,6 +132,7 @@ const labels: Record<string, string> = {
   "settings.copyExportPath": "Copy export path",
   "settings.exportConfig": "Export Config",
   "settings.exportPath": "Export path",
+  "settings.historySettings": "History settings",
   "settings.importConfig": "Import Config",
   "settings.autostart": "Launch at Login",
 };
@@ -270,6 +272,36 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+describe("SettingsPage navigation", () => {
+  it("scrolls only the settings content container when a navigation tab is clicked", async () => {
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    const rendered = render(<SettingsPage active onNavigate={vi.fn()} />);
+    const content = rendered.container.querySelector<HTMLElement>(".settings-content");
+    const target = rendered.container.querySelector<HTMLElement>(
+      '[data-nav-id="history-settings"]',
+    );
+    expect(content).not.toBeNull();
+    expect(target).not.toBeNull();
+
+    const contentScrollTo = vi.fn();
+    const targetScrollIntoView = vi.fn();
+    Object.defineProperty(content!, "scrollTop", { configurable: true, value: 200 });
+    Object.defineProperty(content!, "scrollTo", { configurable: true, value: contentScrollTo });
+    Object.defineProperty(target!, "scrollIntoView", {
+      configurable: true,
+      value: targetScrollIntoView,
+    });
+    target!.style.scrollMarginTop = "4px";
+    vi.spyOn(content!, "getBoundingClientRect").mockReturnValue({ top: 100 } as DOMRect);
+    vi.spyOn(target!, "getBoundingClientRect").mockReturnValue({ top: 650 } as DOMRect);
+
+    fireEvent.click(await screen.findByRole("button", { name: "History settings" }));
+
+    expect(contentScrollTo).toHaveBeenCalledWith({ top: 746, behavior: "smooth" });
+    expect(targetScrollIntoView).not.toHaveBeenCalled();
+  });
 });
 
 describe("SettingsPage config export path", () => {

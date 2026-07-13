@@ -273,6 +273,25 @@ describe("selection window drag IPC", () => {
   });
 });
 
+describe("selection replacement IPC", () => {
+  it("forwards the generated text with its exact source selection context", async () => {
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    const { replaceSelection } = await import("@/api/tauri");
+    await replaceSelection({
+      replacementText: "Improved result",
+      sourceText: "Original selection",
+      version: 17,
+    });
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("replace_selection", {
+      replacementText: "Improved result",
+      sourceText: "Original selection",
+      version: 17,
+    });
+  });
+});
+
 describe("retryAssistantRequest payload", () => {
   it("invokes the retry command with the session and original request", async () => {
     invokeMock.invoke.mockResolvedValueOnce("fresh assistant response");

@@ -413,6 +413,14 @@ export function copySelection(text: string): Promise<void> {
   return invokeCommand<void>("copy_selection", { text });
 }
 
+export function replaceSelection(params: {
+  replacementText: string;
+  sourceText: string;
+  version: number;
+}): Promise<void> {
+  return invokeCommand<void>("replace_selection", params);
+}
+
 export function searchSelection(text: string): Promise<void> {
   return invokeCommand<void>("search_selection", { text });
 }

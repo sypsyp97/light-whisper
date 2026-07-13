@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   copySelection: vi.fn(),
   getSelectionOverlayState: vi.fn(),
   hideSelectionAssistant: vi.fn(),
+  replaceSelection: vi.fn(),
   resizeSelectionWindow: vi.fn(),
   runSelectionAction: vi.fn(),
   searchSelection: vi.fn(),
@@ -37,6 +38,8 @@ vi.mock("react-i18next", () => ({
       "selection.result": "划词助手结果",
       "selection.copyResult": "复制结果",
       "selection.copied": "已复制",
+      "selection.replaceResult": "一键替换",
+      "selection.replaceWorking": "正在替换",
       "selection.workingHint": "处理中",
       "selection.translateWorking": "翻译中",
       "selection.explainWorking": "解释中",
@@ -67,6 +70,7 @@ beforeEach(() => {
   api.copySelection.mockReset().mockResolvedValue(undefined);
   api.getSelectionOverlayState.mockReset();
   api.hideSelectionAssistant.mockReset().mockResolvedValue(undefined);
+  api.replaceSelection.mockReset().mockResolvedValue(undefined);
   api.resizeSelectionWindow.mockReset().mockResolvedValue(undefined);
   api.runSelectionAction.mockReset();
   api.searchSelection.mockReset().mockResolvedValue(undefined);
@@ -239,6 +243,87 @@ describe("SelectionOverlay content and result actions", () => {
     await user.click(screen.getByRole("button", { name: "复制结果" }));
 
     expect(api.copySelection).toHaveBeenCalledWith(result);
+  });
+
+  it("replaces the exact source selection with an optimized result", async () => {
+    const user = userEvent.setup();
+    api.runSelectionAction.mockResolvedValue("Optimized result");
+    await renderReadyOverlay("Original selection");
+
+    await user.click(screen.getByRole("button", { name: "优化" }));
+    await screen.findByText("Optimized result");
+    const copyButton = screen.getByRole("button", { name: "复制结果" });
+    const replaceButton = screen.getByRole("button", { name: "一键替换" });
+    expect(
+      Array.from(copyButton.parentElement!.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["复制结果", "一键替换"]);
+
+    await user.click(replaceButton);
+
+    expect(api.replaceSelection).toHaveBeenCalledWith({
+      replacementText: "Optimized result",
+      sourceText: "Original selection",
+      version: 1,
+    });
+    expect(api.hideSelectionAssistant).toHaveBeenCalledTimes(1);
+    expect(currentWindow.hide).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["翻译", "解释"])(
+    "does not offer source replacement for a %s result",
+    async (actionLabel) => {
+      const user = userEvent.setup();
+      api.runSelectionAction.mockResolvedValue("Read-only result");
+      await renderReadyOverlay();
+
+      await user.click(screen.getByRole("button", { name: actionLabel }));
+      await screen.findByText("Read-only result");
+
+      expect(screen.queryByRole("button", { name: "一键替换" })).toBeNull();
+    },
+  );
+
+  it("disables replacement while the paste transaction is in flight", async () => {
+    const user = userEvent.setup();
+    let finishReplacement: (() => void) | undefined;
+    api.runSelectionAction.mockResolvedValue("Optimized result");
+    api.replaceSelection.mockImplementation(
+      () => new Promise<void>((resolve) => { finishReplacement = resolve; }),
+    );
+    await renderReadyOverlay("Original selection");
+
+    await user.click(screen.getByRole("button", { name: "优化" }));
+    await user.click(await screen.findByRole("button", { name: "一键替换" }));
+
+    const pendingButton = screen.getByRole("button", { name: "正在替换" });
+    expect(pendingButton).toBeDisabled();
+    fireEvent.click(pendingButton);
+    expect(api.replaceSelection).toHaveBeenCalledTimes(1);
+
+    finishReplacement?.();
+    await waitFor(() => {
+      expect(api.hideSelectionAssistant).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("keeps the optimized result open when guarded replacement fails", async () => {
+    const user = userEvent.setup();
+    api.runSelectionAction.mockResolvedValue("Optimized result");
+    api.replaceSelection.mockRejectedValue(
+      new Error("原选区或目标窗口已变化，请重新划词后再试"),
+    );
+    await renderReadyOverlay("Original selection");
+
+    await user.click(screen.getByRole("button", { name: "优化" }));
+    await user.click(await screen.findByRole("button", { name: "一键替换" }));
+
+    expect(
+      await screen.findByText("原选区或目标窗口已变化，请重新划词后再试"),
+    ).toBeVisible();
+    expect(api.hideSelectionAssistant).not.toHaveBeenCalled();
+    expect(currentWindow.hide).not.toHaveBeenCalled();
   });
 
   it("does not treat clicks inside the result card as outside dismissals", async () => {

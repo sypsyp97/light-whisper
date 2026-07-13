@@ -66,6 +66,8 @@ pub struct SelectionDetectedPayload {
     pub version: u64,
     pub text: String,
     pub character_count: usize,
+    #[serde(skip)]
+    source_window: Option<isize>,
 }
 
 pub fn current_selection() -> Option<SelectionDetectedPayload> {
@@ -73,6 +75,39 @@ pub fn current_selection() -> Option<SelectionDetectedPayload> {
         .get_or_init(|| parking_lot::Mutex::new(None))
         .lock()
         .clone()
+}
+
+pub fn current_selection_matches(version: u64, selected_text: &str) -> bool {
+    let selection = CURRENT_SELECTION
+        .get_or_init(|| parking_lot::Mutex::new(None))
+        .lock();
+    selection.as_ref().is_some_and(|selection| {
+        selection_context_matches(selection, version, selected_text, foreground_window_id())
+    })
+}
+
+fn selection_context_matches(
+    selection: &SelectionDetectedPayload,
+    version: u64,
+    selected_text: &str,
+    foreground_window: Option<isize>,
+) -> bool {
+    selection.version == version
+        && selection.text == selected_text
+        && selection.source_window == foreground_window
+}
+
+#[cfg(target_os = "windows")]
+fn foreground_window_id() -> Option<isize> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+    let window = unsafe { GetForegroundWindow() };
+    (!window.is_null()).then_some(window as isize)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn foreground_window_id() -> Option<isize> {
+    None
 }
 
 pub fn current_selection_screenshots(selected_text: &str) -> Vec<CapturedScreen> {
@@ -287,6 +322,7 @@ fn show_selection(
     text: String,
     screenshots: Vec<CapturedScreen>,
 ) -> Result<(), String> {
+    let source_window = foreground_window_id();
     create_selection_window(app_handle)?;
     let window = app_handle
         .get_webview_window(OVERLAY_LABEL)
@@ -299,6 +335,7 @@ fn show_selection(
         version,
         character_count: text.chars().count(),
         text,
+        source_window,
     });
     *CURRENT_SELECTION_SCREENSHOTS
         .get_or_init(|| parking_lot::Mutex::new(None))
@@ -496,8 +533,8 @@ fn clamp_window_top_left(
 mod window_position_tests {
     use super::{
         clamp_window_top_left, compute_selection_window_position, matching_selection_screenshots,
-        Anchor, PlacementSide, SelectionDetectedPayload, SelectionGesture,
-        SelectionScreenshotContext, WorkArea,
+        selection_context_matches, Anchor, PlacementSide, SelectionDetectedPayload,
+        SelectionGesture, SelectionScreenshotContext, WorkArea,
     };
     use crate::services::screen_capture_service::CapturedScreen;
 
@@ -514,6 +551,7 @@ mod window_position_tests {
             version: 7,
             text: " selected text ".to_string(),
             character_count: 13,
+            source_window: Some(42),
         };
         let context = SelectionScreenshotContext {
             version: 7,
@@ -537,6 +575,41 @@ mod window_position_tests {
             "selected text",
         )
         .is_empty());
+    }
+
+    #[test]
+    fn replacement_context_requires_the_exact_version_text_and_source_window() {
+        let selection = SelectionDetectedPayload {
+            version: 7,
+            text: "selected text".to_string(),
+            character_count: 13,
+            source_window: Some(42),
+        };
+
+        assert!(selection_context_matches(
+            &selection,
+            7,
+            "selected text",
+            Some(42)
+        ));
+        assert!(!selection_context_matches(
+            &selection,
+            8,
+            "selected text",
+            Some(42)
+        ));
+        assert!(!selection_context_matches(
+            &selection,
+            7,
+            "other text",
+            Some(42)
+        ));
+        assert!(!selection_context_matches(
+            &selection,
+            7,
+            "selected text",
+            Some(99)
+        ));
     }
 
     #[test]

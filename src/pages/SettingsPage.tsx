@@ -284,7 +284,16 @@ export default function SettingsPage({
     if (!target) return;
     setActiveNavSection(id);
     isNavClickScrolling.current = true;
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const scrollMarginTop = Number.parseFloat(
+      window.getComputedStyle(target).scrollMarginTop,
+    ) || 0;
+    const top = Math.max(
+      0,
+      container.scrollTop + targetRect.top - containerRect.top - scrollMarginTop,
+    );
+    container.scrollTo({ top, behavior: "smooth" });
     // Re-enable observer after scroll settles
     setTimeout(() => { isNavClickScrolling.current = false; }, 600);
   }, []);

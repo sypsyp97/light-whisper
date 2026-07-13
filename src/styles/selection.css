@@ -193,11 +193,23 @@ body,
 
 .selection-result-header:active { cursor: grabbing; }
 
+.selection-result-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
 .selection-result-action {
   height: 30px;
-  margin-left: auto;
   padding: 0 9px;
   cursor: pointer;
+}
+
+.selection-result-action:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  transform: none;
 }
 
 .selection-copy-result {
@@ -208,6 +220,24 @@ body,
 .selection-copy-result:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-tertiary);
+}
+
+.selection-replace-result {
+  color: var(--color-accent);
+  background: var(--color-accent-muted);
+}
+
+.selection-replace-result:hover {
+  color: var(--color-accent-hover);
+  background: var(--color-accent-subtle);
+}
+
+.selection-replace-result svg {
+  flex: 0 0 auto;
+}
+
+.selection-replace-result:disabled svg {
+  animation: spin 0.85s linear infinite;
 }
 
 .selection-result-content,

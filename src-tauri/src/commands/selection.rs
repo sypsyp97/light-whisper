@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
 use crate::services::{
@@ -17,6 +17,23 @@ meaning, language, facts, and tone while improving clarity and fluency. Do not
 add meta commentary. Format equations as LaTeX with $...$ for inline math and
 $$...$$ for display math; never emit bare LaTeX commands outside delimiters.
 "#;
+
+static SELECTION_REPLACEMENT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+struct SelectionReplacementGuard;
+
+impl Drop for SelectionReplacementGuard {
+    fn drop(&mut self) {
+        SELECTION_REPLACEMENT_IN_PROGRESS.store(false, Ordering::Release);
+    }
+}
+
+fn begin_selection_replacement() -> Result<SelectionReplacementGuard, AppError> {
+    SELECTION_REPLACEMENT_IN_PROGRESS
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map(|_| SelectionReplacementGuard)
+        .map_err(|_| AppError::Other("选区替换正在进行，请稍候".to_string()))
+}
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -160,6 +177,43 @@ pub fn get_selection_overlay_state() -> Option<selection_service::SelectionDetec
 #[tauri::command]
 pub async fn copy_selection(app_handle: tauri::AppHandle, text: String) -> Result<(), AppError> {
     crate::commands::clipboard::write_text_to_clipboard(&app_handle, &text)
+}
+
+#[tauri::command]
+pub async fn replace_selection(
+    app_handle: tauri::AppHandle,
+    replacement_text: String,
+    source_text: String,
+    version: u64,
+) -> Result<(), AppError> {
+    let replacement_count = replacement_text.chars().count();
+    if replacement_text.trim().is_empty() || replacement_count > 50_000 {
+        return Err(AppError::Other("替换文字为空或过长".to_string()));
+    }
+    let _replacement_guard = begin_selection_replacement()?;
+    if !selection_service::current_selection_matches(version, &source_text) {
+        return Err(AppError::Other(
+            "原选区或目标窗口已变化，请重新划词后再试".to_string(),
+        ));
+    }
+
+    let app_for_selection_check = app_handle.clone();
+    let active_text = tokio::task::spawn_blocking(move || {
+        crate::commands::clipboard::grab_selected_text_robust(&app_for_selection_check)
+    })
+    .await
+    .map_err(|error| AppError::Other(format!("检查当前选区失败: {error}")))?;
+    if active_text.as_deref() != Some(source_text.as_str())
+        || !selection_service::current_selection_matches(version, &source_text)
+    {
+        return Err(AppError::Other(
+            "原选区或目标窗口已变化，请重新划词后再试".to_string(),
+        ));
+    }
+
+    crate::commands::clipboard::paste_text_impl(&app_handle, &replacement_text, "clipboard")
+        .await?;
+    Ok(())
 }
 
 #[tauri::command]

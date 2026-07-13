@@ -30,7 +30,7 @@
 - **Raw-first AI polish**: show ASR output quickly, then replace or preview the polished result when the LLM returns. Result cards show ASR, AI, and total latency.
 - **Subtitle overlay**: a floating transparent window shows listening, recognition, polishing, web search, and assistant states.
 - **Voice assistant**: ask from a separate hotkey, with optional selected text, foreground app, and full-screen screenshot context.
-- **Edit and translate selected text**: rewrite selected text in place or translate to a preset/custom target language.
+- **Selection and voice editing**: select text with the mouse to translate, explain, improve, copy, or search it; improved text can replace the original selection with one click. Translation supports preset or custom target languages, and voice commands can rewrite selected text in place.
 - **Provider flexibility**: built-in OpenAI, DeepSeek, Cerebras, and SiliconFlow presets; custom OpenAI-compatible or Anthropic endpoints; model-native / Exa / Tavily web search for assistant tasks.
 - **Personal vocabulary**: hot words, correction learning, and a blacklist for terms you delete manually.
 

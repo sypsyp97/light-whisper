@@ -41,6 +41,8 @@ const zh = {
     error: "操作失败",
     copied: "已复制",
     copyResult: "复制结果",
+    replaceResult: "一键替换",
+    replaceWorking: "正在替换",
   },
   main: {
     quickStart: "快速开始",

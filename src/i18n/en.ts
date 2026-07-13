@@ -43,6 +43,8 @@ const en: TranslationSchema = {
     error: "Action failed",
     copied: "Copied",
     copyResult: "Copy result",
+    replaceResult: "Replace selection",
+    replaceWorking: "Replacing",
   },
   main: {
     quickStart: "Quick Start",

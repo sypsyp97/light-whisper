@@ -291,6 +291,7 @@ pub fn run() {
             commands::selection::start_selection_window_drag,
             commands::selection::get_selection_overlay_state,
             commands::selection::copy_selection,
+            commands::selection::replace_selection,
             commands::selection::search_selection,
             commands::selection::run_selection_action,
             commands::selection::cancel_selection_action,

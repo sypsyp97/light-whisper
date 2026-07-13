@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, LoaderCircle, MoveDiagonal2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Copy, LoaderCircle, MoveDiagonal2, Replace } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +8,7 @@ import {
   copySelection,
   getSelectionOverlayState,
   hideSelectionAssistant,
+  replaceSelection,
   resizeSelectionWindow,
   runSelectionAction,
   searchSelection,
@@ -23,6 +24,12 @@ import "@/styles/selection.css";
 
 type AiAction = "translate" | "explain" | "optimize";
 
+interface ResultContext {
+  action: AiAction;
+  sourceText: string;
+  version: number;
+}
+
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
   if (error instanceof Error) return error.message;
@@ -33,11 +40,15 @@ export default function SelectionOverlay() {
   const { t } = useTranslation();
   useTheme();
   const [selectedText, setSelectedText] = useState("");
+  const [selectionVersion, setSelectionVersion] = useState(0);
   const [result, setResult] = useState("");
+  const [resultContext, setResultContext] = useState<ResultContext | null>(null);
   const [error, setError] = useState("");
   const [loadingAction, setLoadingAction] = useState<AiAction | null>(null);
+  const [replacing, setReplacing] = useState(false);
   const [sourceCopied, setSourceCopied] = useState(false);
   const [resultCopied, setResultCopied] = useState(false);
+  const requestGenerationRef = useRef(0);
   const expanded = Boolean(loadingAction || result || error);
 
   useEffect(() => {
@@ -47,9 +58,13 @@ export default function SelectionOverlay() {
       const payload = await getSelectionOverlayState().catch(() => null);
       if (disposed || !payload || payload.version === lastVersion) return;
       lastVersion = payload.version;
+      requestGenerationRef.current += 1;
       setSelectedText(payload.text);
+      setSelectionVersion(payload.version);
       setResult("");
+      setResultContext(null);
       setError("");
+      setReplacing(false);
       setSourceCopied(false);
       setResultCopied(false);
       setLoadingAction(null);
@@ -73,19 +88,29 @@ export default function SelectionOverlay() {
 
   const runAiAction = useCallback(async (action: AiAction) => {
     if (!selectedText.trim() || loadingAction) return;
+    const requestGeneration = requestGenerationRef.current + 1;
+    requestGenerationRef.current = requestGeneration;
+    const sourceText = selectedText;
+    const version = selectionVersion;
     setLoadingAction(action);
     setError("");
     setResult("");
+    setResultContext(null);
     try {
       if (!expanded) await resizeSelectionWindow(true);
-      const content = await runSelectionAction(action, selectedText);
-      setResult(content.trim());
+      const content = (await runSelectionAction(action, sourceText)).trim();
+      if (requestGeneration !== requestGenerationRef.current) return;
+      setResult(content);
+      setResultContext(content ? { action, sourceText, version } : null);
     } catch (requestError) {
+      if (requestGeneration !== requestGenerationRef.current) return;
       setError(errorMessage(requestError));
     } finally {
-      setLoadingAction(null);
+      if (requestGeneration === requestGenerationRef.current) {
+        setLoadingAction(null);
+      }
     }
-  }, [expanded, loadingAction, selectedText]);
+  }, [expanded, loadingAction, selectedText, selectionVersion]);
 
   const handleCopy = useCallback(async () => {
     if (!selectedText) return;
@@ -120,6 +145,24 @@ export default function SelectionOverlay() {
       setError(errorMessage(copyError));
     }
   }, [result]);
+
+  const replaceResult = useCallback(async () => {
+    if (!result || resultContext?.action !== "optimize" || replacing) return;
+    setReplacing(true);
+    setError("");
+    try {
+      await replaceSelection({
+        replacementText: result,
+        sourceText: resultContext.sourceText,
+        version: resultContext.version,
+      });
+      await close();
+    } catch (replaceError) {
+      setError(errorMessage(replaceError));
+    } finally {
+      setReplacing(false);
+    }
+  }, [close, replacing, result, resultContext]);
 
   const handleToolbarAction = useCallback((action: SelectionToolbarAction) => {
     if (action === "translate" || action === "explain" || action === "optimize") {
@@ -184,10 +227,18 @@ export default function SelectionOverlay() {
             {loadingAction ? (
               <button type="button" className="selection-result-action" onPointerDown={(event) => event.stopPropagation()} onClick={() => void cancelSelectionAction()}>{t("common.cancel")}</button>
             ) : result ? (
-              <button type="button" className="selection-result-action selection-copy-result" onPointerDown={(event) => event.stopPropagation()} onClick={() => void copyResult()}>
-                {resultCopied ? <Check size={14} /> : <Copy size={14} />}
-                {resultCopied ? t("selection.copied") : t("selection.copyResult")}
-              </button>
+              <div className="selection-result-actions">
+                <button type="button" disabled={replacing} className="selection-result-action selection-copy-result" onPointerDown={(event) => event.stopPropagation()} onClick={() => void copyResult()}>
+                  {resultCopied ? <Check size={14} /> : <Copy size={14} />}
+                  {resultCopied ? t("selection.copied") : t("selection.copyResult")}
+                </button>
+                {resultContext?.action === "optimize" && (
+                  <button type="button" disabled={replacing} className="selection-result-action selection-replace-result" onPointerDown={(event) => event.stopPropagation()} onClick={() => void replaceResult()}>
+                    {replacing ? <LoaderCircle size={14} /> : <Replace size={14} />}
+                    {replacing ? t("selection.replaceWorking") : t("selection.replaceResult")}
+                  </button>
+                )}
+              </div>
             ) : null}
           </div>
           {loadingAction ? (
