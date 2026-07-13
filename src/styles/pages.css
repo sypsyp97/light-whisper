@@ -1026,10 +1026,11 @@
   font-size: 12px;
 }
 
-.settings-language-popover {
+.settings-language-picker .settings-language-popover {
   min-width: 120px;
   left: auto;
   right: 0;
+  transform-origin: top right;
 }
 
 .settings-language-option {
