@@ -3101,7 +3101,7 @@ dependencies = [
 
 [[package]]
 name = "light-whisper"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
