@@ -139,6 +139,9 @@ pub struct RecordingSession {
     pub audio_thread: Option<JoinHandle<()>>,
     pub interim_task: Option<tokio::task::JoinHandle<()>>,
     pub interim_cache: Arc<parking_lot::Mutex<Option<InterimCache>>>,
+    /// 录音热键触发时的前台应用快照。规则、历史元数据和截图授权都必须基于
+    /// 同一个边界，避免收尾阶段切换窗口后套用错误的隐私策略。
+    pub foreground_app: Option<crate::utils::foreground::ForegroundApp>,
     /// 热键按下时并行抓取的选中文本任务。与会话同生同死，避免全局共享导致的
     /// 跨会话污染（finalize_N 读到 hotkey_{N+1} 的 grab）。
     pub edit_grab: Option<tokio::task::JoinHandle<Option<String>>>,
@@ -692,6 +695,7 @@ mod recording_snapshot_tests {
             audio_thread: None,
             interim_task: None,
             interim_cache: Arc::new(parking_lot::Mutex::new(None)),
+            foreground_app: None,
             edit_grab: None,
         })
     }

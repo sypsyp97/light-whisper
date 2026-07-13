@@ -80,6 +80,22 @@ pub fn run() {
                 log::info!("已加载用户画像");
             }
 
+            {
+                let app_handle = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = services::history_service::initialize().await {
+                        log::warn!("初始化本地转写历史失败: {error}");
+                        return;
+                    }
+                    let retention_days = app_handle
+                        .state::<AppState>()
+                        .with_profile(|profile| profile.history_settings.retention_days);
+                    if let Err(error) = services::history_service::cleanup(retention_days).await {
+                        log::warn!("清理过期转写历史失败: {error}");
+                    }
+                });
+            }
+
             // 注册翻译/助手热键
             {
                 type HotkeyRegisterFn =
@@ -236,6 +252,8 @@ pub fn run() {
             commands::ai_polish::set_assistant_api_key,
             commands::ai_polish::get_assistant_api_key,
             commands::profile::get_user_profile,
+            commands::profile::set_history_settings,
+            commands::profile::set_app_profile_rules,
             commands::profile::add_hot_word,
             commands::profile::remove_hot_word,
             commands::profile::set_llm_provider_config,
@@ -276,6 +294,11 @@ pub fn run() {
             commands::selection::search_selection,
             commands::selection::run_selection_action,
             commands::selection::cancel_selection_action,
+            commands::history::list_transcription_history,
+            commands::history::get_transcription_history_stats,
+            commands::history::delete_transcription_history,
+            commands::history::export_transcription_history,
+            commands::history::reprocess_transcription_history,
         ])
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");

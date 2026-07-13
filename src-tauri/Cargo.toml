@@ -66,6 +66,9 @@ arc-swap = "1.7"
 # WAV 编解码
 hound = "3.5"
 
+# 本地转写历史（使用 bundled SQLite，避免依赖系统 SQLite）
+rusqlite = { version = "0.32", features = ["bundled"] }
+
 # 引擎归档解压（首次启动解压 engine.tar.xz，兼容旧 engine.zip）
 tar = "0.4"
 xz2 = "0.1"

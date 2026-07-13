@@ -226,6 +226,94 @@ export interface UserProfile {
   web_search?: WebSearchConfig;
   correction_validation_enabled?: boolean;
   last_correction_validation?: number;
+  history_settings?: HistorySettings;
+  app_profile_rules?: AppProfileRule[];
+}
+
+export interface HistorySettings {
+  enabled: boolean;
+  save_audio: boolean;
+  retention_days: number;
+}
+
+export type AppRuleOverride = "inherit" | "enabled" | "disabled";
+export type AppTranslationOverride = "inherit" | "disabled" | "target";
+
+export interface AppProfileRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  process_name: string;
+  window_title_contains?: string | null;
+  ai_polish: AppRuleOverride;
+  translation: AppTranslationOverride;
+  translation_target?: string | null;
+  screen_context: AppRuleOverride;
+  history: AppRuleOverride;
+  custom_prompt?: string | null;
+}
+
+export type PersistentHistoryStatus =
+  | "success"
+  | "asr_error"
+  | "processing_error"
+  | "no_speech";
+
+export interface PersistentHistoryRecord {
+  id: number;
+  sessionId: number;
+  createdAt: number;
+  updatedAt: number;
+  mode: RecordingMode;
+  workflow: "dictation" | "assistant" | "edit";
+  status: PersistentHistoryStatus;
+  text: string;
+  originalText: string;
+  sourceText?: string | null;
+  durationSec?: number | null;
+  language?: string | null;
+  engine: string;
+  provider?: string | null;
+  model?: string | null;
+  appProcess?: string | null;
+  appWindowTitle?: string | null;
+  appRuleName?: string | null;
+  audioAvailable: boolean;
+  asrMs?: number | null;
+  polishMs?: number | null;
+  totalMs?: number | null;
+  rawFirstStatus?: string | null;
+  error?: string | null;
+  reprocessedFromId?: number | null;
+}
+
+export interface PersistentHistoryFilter {
+  query?: string;
+  mode?: "" | RecordingMode;
+  status?: "" | "success" | "failed";
+  limit?: number;
+  offset?: number;
+}
+
+export interface PersistentHistoryPage {
+  items: PersistentHistoryRecord[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface LatencyStats {
+  p50Ms?: number | null;
+  p95Ms?: number | null;
+}
+
+export interface PersistentHistoryStats {
+  total: number;
+  success: number;
+  failed: number;
+  totalCharacters: number;
+  asr: LatencyStats;
+  polish: LatencyStats;
+  totalLatency: LatencyStats;
 }
 
 export interface SelectionAssistantConfig {

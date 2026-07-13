@@ -13,6 +13,7 @@ const MAX_HOT_WORDS: usize = 300;
 const MAX_SEGMENT_CHARS: usize = 12;
 const MAX_HOT_WORD_CHARS: usize = 24;
 const MAX_USER_HOT_WORD_CHARS: usize = 80;
+pub const MAX_APP_PROFILE_RULES: usize = 100;
 const PROFILE_SAVE_DEBOUNCE_MS: u64 = 350;
 
 // ============================================================
@@ -193,6 +194,8 @@ pub struct ProfileCleanupStats {
 }
 
 pub fn cleanup_profile(profile: &mut UserProfile) -> ProfileCleanupStats {
+    sanitize_history_settings(profile);
+    sanitize_app_profile_rules(profile);
     sanitize_blocked_hot_words(profile);
     let removed_hot_words = sanitize_hot_words(profile);
     let removed_corrections = sanitize_corrections(profile) + limit_correction_patterns(profile);
@@ -203,6 +206,58 @@ pub fn cleanup_profile(profile: &mut UserProfile) -> ProfileCleanupStats {
         removed_hot_words,
         removed_corrections,
     }
+}
+
+fn trimmed_option(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn sanitize_history_settings(profile: &mut UserProfile) {
+    if profile.history_settings.retention_days > 3650 {
+        profile.history_settings.retention_days = 3650;
+    }
+}
+
+pub fn sanitize_app_profile_rules(profile: &mut UserProfile) {
+    let mut seen_ids = HashSet::new();
+    let seed = now_secs();
+    let mut normalized =
+        Vec::with_capacity(profile.app_profile_rules.len().min(MAX_APP_PROFILE_RULES));
+
+    for (index, mut rule) in std::mem::take(&mut profile.app_profile_rules)
+        .into_iter()
+        .enumerate()
+    {
+        rule.process_name = rule.process_name.trim().to_string();
+        if rule.process_name.is_empty() {
+            continue;
+        }
+        rule.name = rule.name.trim().to_string();
+        if rule.name.is_empty() {
+            rule.name = rule.process_name.clone();
+        }
+        rule.window_title_contains = trimmed_option(rule.window_title_contains);
+        rule.translation_target = trimmed_option(rule.translation_target);
+        rule.custom_prompt = trimmed_option(rule.custom_prompt);
+        if rule.translation == AppTranslationOverride::Target && rule.translation_target.is_none() {
+            rule.translation = AppTranslationOverride::Inherit;
+        }
+
+        let mut id = rule.id.trim().to_string();
+        if id.is_empty() || seen_ids.contains(&id) {
+            id = format!("app-rule-{seed}-{index}");
+        }
+        seen_ids.insert(id.clone());
+        rule.id = id;
+        normalized.push(rule);
+        if normalized.len() >= MAX_APP_PROFILE_RULES {
+            break;
+        }
+    }
+
+    profile.app_profile_rules = normalized;
 }
 
 fn sanitize_corrections(profile: &mut UserProfile) -> usize {

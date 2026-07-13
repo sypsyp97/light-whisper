@@ -12,11 +12,14 @@ use super::{
 };
 use crate::services::{
     ai_polish_service, alibaba_asr_service, assistant_service, funasr_service, glm_asr_service,
+    history_service,
 };
+use crate::state::user_profile::{ResolvedAppProfile, UserProfile};
 use crate::state::{
     AppState, DictationOutputMode, RecordingMode, RecordingOutcomeKind, RecordingPhase,
     RecordingSession, RecordingSnapshot, RecordingTrigger,
 };
+use crate::utils::foreground::ForegroundApp;
 use crate::utils::{paths, AppError};
 
 const ASSISTANT_PIPELINE_TIMEOUT_SECS: u64 = 180;
@@ -72,8 +75,136 @@ enum RawFirstStatus {
     Unchanged,
 }
 
+impl RawFirstStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::PreviewOnly => "preview_only",
+            Self::Pasted => "pasted",
+            Self::Replaced => "replaced",
+            Self::KeptRaw => "kept_raw",
+            Self::FinalFallback => "final_fallback",
+            Self::Unchanged => "unchanged",
+        }
+    }
+}
+
+#[derive(Clone)]
+struct HistorySessionContext {
+    enabled: bool,
+    retention_days: u32,
+    session_id: u64,
+    mode: RecordingMode,
+    workflow: String,
+    duration_sec: f64,
+    engine: String,
+    app_process: Option<String>,
+    app_window_title: Option<String>,
+    app_rule_name: Option<String>,
+    audio_file: Option<String>,
+}
+
+impl HistorySessionContext {
+    #[allow(clippy::too_many_arguments)]
+    async fn persist(
+        &self,
+        app_handle: &tauri::AppHandle,
+        status: &str,
+        text: &str,
+        original_text: &str,
+        source_text: Option<&str>,
+        language: Option<&str>,
+        provider: Option<&str>,
+        model: Option<&str>,
+        timing: Option<TranscriptionTiming>,
+        error: Option<&str>,
+    ) {
+        if !self.enabled {
+            return;
+        }
+        if let Err(error) = crate::commands::history::persist_history_insert(
+            app_handle,
+            history_service::HistoryDraft {
+                session_id: self.session_id,
+                mode: self.mode.as_str().to_string(),
+                workflow: self.workflow.clone(),
+                status: status.to_string(),
+                text: text.to_string(),
+                original_text: original_text.to_string(),
+                source_text: source_text.map(str::to_string),
+                duration_sec: Some(self.duration_sec),
+                language: language.map(str::to_string),
+                engine: self.engine.clone(),
+                provider: provider.map(str::to_string),
+                model: model.map(str::to_string),
+                app_process: self.app_process.clone(),
+                app_window_title: self.app_window_title.clone(),
+                app_rule_name: self.app_rule_name.clone(),
+                audio_file: self.audio_file.clone(),
+                asr_ms: timing.and_then(|value| value.asr_ms),
+                polish_ms: timing.and_then(|value| value.polish_ms),
+                total_ms: timing.and_then(|value| value.total_ms),
+                raw_first_status: timing
+                    .and_then(|value| value.raw_first)
+                    .map(|value| value.status.as_str().to_string()),
+                error: error.map(str::to_string),
+                reprocessed_from_id: None,
+            },
+            self.retention_days,
+        )
+        .await
+        {
+            log::warn!("保存转写历史失败: {error}");
+        }
+    }
+}
+
+async fn resolve_history_audio(
+    task: Option<tokio::task::JoinHandle<Result<String, String>>>,
+) -> Option<String> {
+    match task {
+        Some(task) => match task.await {
+            Ok(Ok(file_name)) => Some(file_name),
+            Ok(Err(error)) => {
+                log::warn!("保存历史音频失败，继续仅保存文本: {error}");
+                None
+            }
+            Err(error) => {
+                log::warn!("保存历史音频任务异常，继续仅保存文本: {error}");
+                None
+            }
+        },
+        None => None,
+    }
+}
+
 fn elapsed_ms(start: Instant) -> u64 {
     start.elapsed().as_millis().min(u64::MAX as u128) as u64
+}
+
+fn screen_context_allowed(
+    requested: bool,
+    captured: Option<&ForegroundApp>,
+    current: Option<&ForegroundApp>,
+) -> bool {
+    requested && captured.is_some() && captured == current
+}
+
+fn resolve_recording_app_profile(
+    profile: &UserProfile,
+    foreground_app: Option<&ForegroundApp>,
+) -> ResolvedAppProfile {
+    match foreground_app {
+        Some(app) if !app.process_name.trim().is_empty() => {
+            profile.resolve_app_profile(&app.process_name, &app.window_title)
+        }
+        // 无法确认进程身份时，不能确定用户是否为该应用配置了隐私规则。
+        // 仅关闭会捕获或持久化内容的功能；听写和显式助手请求仍可继续。
+        _ => ResolvedAppProfile {
+            screen_context_enabled: Some(false),
+            history_enabled: Some(false),
+            ..Default::default()
+        },
+    }
 }
 
 pub async fn finalize_recording(app_handle: tauri::AppHandle, session: RecordingSession) {
@@ -86,6 +217,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         interim_task,
         samples,
         interim_cache,
+        foreground_app,
         edit_grab,
         ..
     } = session;
@@ -145,6 +277,22 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     };
 
     let state = app_handle.state::<AppState>();
+    let app_profile = state
+        .with_profile(|profile| resolve_recording_app_profile(profile, foreground_app.as_ref()));
+    if foreground_app
+        .as_ref()
+        .is_none_or(|app| app.process_name.trim().is_empty())
+    {
+        log::warn!("无法确认录音目标进程，已禁用本次屏幕上下文和历史保存");
+    }
+    let history_settings = state.with_profile(|profile| profile.history_settings.clone());
+    let history_enabled = app_profile
+        .history_enabled
+        .unwrap_or(history_settings.enabled);
+    let app_context = foreground_app.as_ref().and_then(|app| {
+        crate::utils::foreground::prompt_context_from_parts(&app.process_name, &app.window_title)
+    });
+    let history_engine = paths::read_engine_config();
 
     let final_count = samples.lock().len();
     let cached = interim_cache.lock().clone();
@@ -164,6 +312,39 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         flush_pending_paste(&app_handle);
         return;
     }
+
+    let history_audio_task = if history_enabled && history_settings.save_audio {
+        match encode_wav(&samples.lock(), sample_rate) {
+            Ok(wav) => Some(tokio::spawn(history_service::save_audio(session_id, wav))),
+            Err(error) => {
+                log::warn!("编码历史音频失败，继续仅保存文本: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let history_workflow = if mode == RecordingMode::Assistant {
+        "assistant"
+    } else if edit_context.is_some() {
+        "edit"
+    } else {
+        "dictation"
+    };
+    let build_history_context = |audio_file: Option<String>| HistorySessionContext {
+        enabled: history_enabled,
+        retention_days: history_settings.retention_days,
+        session_id,
+        mode,
+        workflow: history_workflow.to_string(),
+        duration_sec,
+        engine: history_engine.clone(),
+        app_process: foreground_app.as_ref().map(|app| app.process_name.clone()),
+        app_window_title: foreground_app.as_ref().map(|app| app.window_title.clone()),
+        app_rule_name: app_profile.rule_name.clone(),
+        audio_file,
+    };
 
     // 优先复用 interim 缓存，否则重新 ASR。
     //
@@ -198,9 +379,30 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         },
     };
 
+    let asr_elapsed_ms = elapsed_ms(asr_start);
     let text = match asr_text {
         Ok(t) => t.trim().to_string(),
         Err(e) => {
+            let history = build_history_context(resolve_history_audio(history_audio_task).await);
+            history
+                .persist(
+                    &app_handle,
+                    "asr_error",
+                    "",
+                    "",
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(TranscriptionTiming {
+                        asr_ms: Some(asr_elapsed_ms),
+                        polish_ms: None,
+                        total_ms: Some(elapsed_ms(finalize_start)),
+                        raw_first: None,
+                    }),
+                    Some(&e),
+                )
+                .await;
             emit_error(
                 &app_handle,
                 session_id,
@@ -213,11 +415,30 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             return;
         }
     };
-    let asr_elapsed_ms = elapsed_ms(asr_start);
 
     let lang_ref = detected_lang.as_deref();
 
     if text.is_empty() {
+        let history = build_history_context(resolve_history_audio(history_audio_task).await);
+        history
+            .persist(
+                &app_handle,
+                "no_speech",
+                "",
+                "",
+                None,
+                lang_ref,
+                None,
+                None,
+                Some(TranscriptionTiming {
+                    asr_ms: Some(asr_elapsed_ms),
+                    polish_ms: None,
+                    total_ms: Some(elapsed_ms(finalize_start)),
+                    raw_first: None,
+                }),
+                Some("未检测到语音"),
+            )
+            .await;
         emit_terminal_outcome(
             &app_handle,
             session_id,
@@ -230,8 +451,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         return;
     }
 
+    let history = build_history_context(resolve_history_audio(history_audio_task).await);
+
     if mode == RecordingMode::Dictation && edit_context.is_some() {
         let selected_text = edit_context.unwrap_or_default();
+        let edit_started = Instant::now();
         // 编辑模式：ASR 结果是语音指令，用它改写选中文本
         log::info!(
             "编辑模式：指令{}字符，选中文本{}字符",
@@ -247,7 +471,28 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         )
         .await
         {
-            Ok(result) => {
+            Ok(outcome) => {
+                let result = outcome.text;
+                let timing = TranscriptionTiming {
+                    asr_ms: Some(asr_elapsed_ms),
+                    polish_ms: Some(elapsed_ms(edit_started)),
+                    total_ms: Some(elapsed_ms(finalize_start)),
+                    raw_first: None,
+                };
+                history
+                    .persist(
+                        &app_handle,
+                        "success",
+                        &result,
+                        &text,
+                        Some(&selected_text),
+                        lang_ref,
+                        Some(&outcome.provider),
+                        Some(&outcome.model),
+                        Some(timing),
+                        None,
+                    )
+                    .await;
                 emit_done(
                     &app_handle,
                     session_id,
@@ -272,6 +517,25 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             }
             Err(e) => {
                 log::warn!("编辑选中文本失败，不替换原文: {}", e);
+                history
+                    .persist(
+                        &app_handle,
+                        "processing_error",
+                        "",
+                        &text,
+                        Some(&selected_text),
+                        lang_ref,
+                        None,
+                        None,
+                        Some(TranscriptionTiming {
+                            asr_ms: Some(asr_elapsed_ms),
+                            polish_ms: Some(elapsed_ms(edit_started)),
+                            total_ms: Some(elapsed_ms(finalize_start)),
+                            raw_first: None,
+                        }),
+                        Some(&e),
+                    )
+                    .await;
                 emit_error(
                     &app_handle,
                     session_id,
@@ -285,17 +549,38 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         }
     } else if mode == RecordingMode::Assistant {
         let original_request = text;
+        let assistant_started = Instant::now();
+        let requested_polish_screen_context =
+            app_profile.screen_context_enabled.unwrap_or_else(|| {
+                state.with_profile(|profile| profile.ai_polish_screen_context_enabled)
+            });
+        let assistant_screen_context = app_profile.screen_context_enabled.unwrap_or_else(|| {
+            state.with_profile(|profile| profile.assistant_screen_context_enabled)
+        });
+        let assistant_request_context = assistant_service::AssistantRequestContext::for_recording(
+            assistant_screen_context,
+            foreground_app.clone(),
+            app_context.clone(),
+        );
         let (assistant_generation, cancel_rx) =
             crate::commands::assistant::begin_assistant_chat_task(state.inner());
         let assistant_pipeline = async {
             // 搜索判断、搜索关键词和最终生成都基于校正后的语音请求。
             // 显式关闭翻译覆盖，避免“翻译输出”设置改变用户实际发给助手的指令。
-            let assistant_request = ai_polish_service::polish_text(
+            let assistant_request = ai_polish_service::polish_text_with_overrides(
                 state.inner(),
                 &original_request,
                 &app_handle,
                 session_id,
-                Some(None),
+                ai_polish_service::PolishOverrides {
+                    ai_polish_enabled: app_profile.ai_polish_enabled,
+                    translation_target: Some(None),
+                    custom_prompt: app_profile.custom_prompt.clone(),
+                    screen_context_enabled: Some(requested_polish_screen_context),
+                    screen_context_foreground: foreground_app.clone(),
+                    app_context: app_context.clone(),
+                    ..Default::default()
+                },
             )
             .await
             .unwrap_or_else(|err| {
@@ -303,12 +588,13 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 original_request.clone()
             });
 
-            assistant_service::generate_content(
+            assistant_service::generate_content_with_context(
                 state.inner(),
                 &assistant_request,
                 edit_context.as_deref(),
                 &app_handle,
                 session_id,
+                assistant_request_context,
             )
             .await
         };
@@ -327,7 +613,27 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         crate::commands::assistant::clear_assistant_chat_task(state.inner(), assistant_generation);
 
         match assistant_result {
-            Ok(result) => {
+            Ok(outcome) => {
+                let result = outcome.text;
+                history
+                    .persist(
+                        &app_handle,
+                        "success",
+                        &result,
+                        &original_request,
+                        None,
+                        lang_ref,
+                        Some(&outcome.provider),
+                        Some(&outcome.model),
+                        Some(TranscriptionTiming {
+                            asr_ms: Some(asr_elapsed_ms),
+                            polish_ms: Some(elapsed_ms(assistant_started)),
+                            total_ms: Some(elapsed_ms(finalize_start)),
+                            raw_first: None,
+                        }),
+                        None,
+                    )
+                    .await;
                 emit_done(
                     &app_handle,
                     session_id,
@@ -356,6 +662,25 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 }
             }
             Err(err) => {
+                history
+                    .persist(
+                        &app_handle,
+                        "processing_error",
+                        "",
+                        &original_request,
+                        None,
+                        lang_ref,
+                        None,
+                        None,
+                        Some(TranscriptionTiming {
+                            asr_ms: Some(asr_elapsed_ms),
+                            polish_ms: Some(elapsed_ms(assistant_started)),
+                            total_ms: Some(elapsed_ms(finalize_start)),
+                            raw_first: None,
+                        }),
+                        Some(&err.to_string()),
+                    )
+                    .await;
                 emit_error(
                     &app_handle,
                     session_id,
@@ -370,7 +695,9 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     } else {
         // 普通听写模式
         let original = text.clone();
-        let ai_polish_enabled = state.profile.ai_polish_enabled.load(Ordering::Acquire);
+        let ai_polish_enabled = app_profile
+            .ai_polish_enabled
+            .unwrap_or_else(|| state.profile.ai_polish_enabled.load(Ordering::Acquire));
         let raw_preview_stage = dictation_raw_preview_stage(trigger, ai_polish_enabled);
         let raw_paste_replacement = if should_raw_first_paste(trigger, ai_polish_enabled, true) {
             crate::commands::clipboard::capture_raw_paste_replacement_target(&original)
@@ -415,24 +742,58 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 Some(timing),
             );
         }
-        let translation_override = match trigger.dictation_output() {
-            DictationOutputMode::Original => Some(None),
-            DictationOutputMode::Translated => None,
-        };
+        let translation_override = app_profile
+            .translation_target
+            .clone()
+            .or_else(|| match trigger.dictation_output() {
+                DictationOutputMode::Original => Some(None),
+                DictationOutputMode::Translated => None,
+            });
+        let requested_screen_context = app_profile.screen_context_enabled.unwrap_or_else(|| {
+            state.with_profile(|profile| profile.ai_polish_screen_context_enabled)
+        });
+        let current_foreground = requested_screen_context
+            .then(crate::utils::foreground::get_foreground_app)
+            .flatten();
+        let allow_screen_context = screen_context_allowed(
+            requested_screen_context,
+            foreground_app.as_ref(),
+            current_foreground.as_ref(),
+        );
+        if requested_screen_context && !allow_screen_context {
+            log::warn!(
+                "AI 润色截图已跳过：前台窗口已离开录音开始时的目标应用 (session {})",
+                session_id
+            );
+        }
         let polish_start = Instant::now();
-        let text = ai_polish_service::polish_text(
+        let polish_result = ai_polish_service::polish_text_with_overrides_detailed(
             state.inner(),
             &text,
             &app_handle,
             session_id,
-            translation_override,
+            ai_polish_service::PolishOverrides {
+                ai_polish_enabled: Some(ai_polish_enabled),
+                translation_target: translation_override,
+                custom_prompt: app_profile.custom_prompt.clone(),
+                screen_context_enabled: Some(allow_screen_context),
+                screen_context_foreground: foreground_app.clone(),
+                app_context: app_context.clone(),
+                ..Default::default()
+            },
         )
-        .await
-        .unwrap_or_else(|e| {
-            log::warn!("AI 润色失败，使用原文: {}", e);
-            text
-        });
-        let polish_elapsed_ms = elapsed_ms(polish_start);
+        .await;
+        let elapsed_polish_ms = elapsed_ms(polish_start);
+        let (text, history_provider, history_model, polish_elapsed_ms) = match polish_result {
+            Ok(outcome) => {
+                let timing = outcome.executed.then_some(elapsed_polish_ms);
+                (outcome.text, outcome.provider, outcome.model, timing)
+            }
+            Err(error) => {
+                log::warn!("AI 润色失败，使用原文: {}", error);
+                (original.clone(), None, None, None)
+            }
+        };
         let polished = text != original;
         let result_stage = dictation_final_result_stage(raw_preview_stage, polished);
         let mut should_paste_final = false;
@@ -475,10 +836,24 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         };
         let timing = TranscriptionTiming {
             asr_ms: Some(asr_elapsed_ms),
-            polish_ms: Some(polish_elapsed_ms),
+            polish_ms: polish_elapsed_ms,
             total_ms: Some(elapsed_ms(finalize_start)),
             raw_first: raw_first_final_status.map(|status| RawFirstTiming { status }),
         };
+        history
+            .persist(
+                &app_handle,
+                "success",
+                &text,
+                &original,
+                None,
+                lang_ref,
+                history_provider.as_deref(),
+                history_model.as_deref(),
+                Some(timing),
+                None,
+            )
+            .await;
         emit_done_with_stage(
             &app_handle,
             session_id,
@@ -884,6 +1259,44 @@ async fn do_paste_result(app: &tauri::AppHandle, text: &str) -> Result<(), AppEr
 mod tests {
     use super::*;
     use crate::state::RecordingTrigger;
+
+    fn foreground(process_name: &str, window_title: &str) -> ForegroundApp {
+        ForegroundApp {
+            process_name: process_name.into(),
+            window_title: window_title.into(),
+        }
+    }
+
+    #[test]
+    fn screen_context_requires_the_original_foreground_window() {
+        let captured = foreground("Code.exe", "README - Code");
+        let same = captured.clone();
+        let switched = foreground("chrome.exe", "Inbox");
+
+        assert!(screen_context_allowed(true, Some(&captured), Some(&same)));
+        assert!(!screen_context_allowed(
+            true,
+            Some(&captured),
+            Some(&switched)
+        ));
+        assert!(!screen_context_allowed(true, None, Some(&same)));
+        assert!(!screen_context_allowed(false, Some(&captured), Some(&same)));
+    }
+
+    #[test]
+    fn unidentified_foreground_disables_capture_and_history() {
+        let profile = UserProfile::default();
+        let missing_process = foreground("", "Protected document");
+
+        for resolved in [
+            resolve_recording_app_profile(&profile, None),
+            resolve_recording_app_profile(&profile, Some(&missing_process)),
+        ] {
+            assert_eq!(resolved.screen_context_enabled, Some(false));
+            assert_eq!(resolved.history_enabled, Some(false));
+            assert_eq!(resolved.ai_polish_enabled, None);
+        }
+    }
 
     #[test]
     fn raw_preview_stage_is_enabled_for_original_dictation_with_ai_polish() {

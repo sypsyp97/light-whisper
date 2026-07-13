@@ -79,6 +79,8 @@ import AppearanceSettingsSection from "@/components/settings/AppearanceSettingsS
 import TranslationSettingsSection from "@/components/settings/TranslationSettingsSection";
 import SystemSettingsSections from "@/components/settings/SystemSettingsSections";
 import SelectionAssistantSettingsSection from "@/components/settings/SelectionAssistantSettingsSection";
+import AppProfileRulesSettingsSection from "@/components/settings/AppProfileRulesSettingsSection";
+import HistorySettingsSection from "@/components/settings/HistorySettingsSection";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
 import { getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 import {
@@ -215,7 +217,7 @@ export default function SettingsPage({
   active,
   animClass = "",
 }: {
-  onNavigate: (v: "main" | "settings") => void;
+  onNavigate: (v: "main" | "settings" | "history") => void;
   active: boolean;
   animClass?: string;
 }) {
@@ -235,6 +237,8 @@ export default function SettingsPage({
     { id: "assistant", labelKey: "settings.assistant" },
     { id: "selection-assistant", labelKey: "settings.selectionAssistant" },
     { id: "translation", labelKey: "settings.translation" },
+    { id: "app-profiles", labelKey: "settings.appProfiles" },
+    { id: "history-settings", labelKey: "settings.historySettings" },
     { id: "vocabulary", labelKey: "settings.vocabulary" },
     { id: "misc", labelKey: "settings.startup" },
   ] as const, []);
@@ -3821,6 +3825,16 @@ export default function SettingsPage({
               translationHotkeyCapture.cancelCapture,
             )}
             onSelectTarget={handleTranslationSelect}
+          />
+
+          <AppProfileRulesSettingsSection
+            profile={profile}
+            onSaved={() => { void refreshProfile(); }}
+          />
+
+          <HistorySettingsSection
+            profile={profile}
+            onSaved={() => { void refreshProfile(); }}
           />
 
           {/* Smart Vocabulary */}

@@ -87,6 +87,10 @@ pub(crate) async fn start_recording_inner(
         return Err(AppError::Audio(RECORDING_NOT_READY_ERROR.into()));
     }
 
+    // 在任何字幕窗口/异步任务启动前抓取目标应用。后续收尾可能延迟数秒，
+    // 不能再读取届时的前台窗口来决定历史或截图策略。
+    let foreground_app = crate::utils::foreground::get_foreground_app();
+
     audio_service::stop_microphone_level_monitor(state);
 
     let (session_id, show_gen, stop_flag, stop_notify, starting_snapshot) = {
@@ -185,6 +189,7 @@ pub(crate) async fn start_recording_inner(
                 audio_thread: Some(audio_thread),
                 interim_task: None,
                 interim_cache,
+                foreground_app: foreground_app.clone(),
                 edit_grab: edit_grab.take(),
             })
             .await;
@@ -278,6 +283,7 @@ pub(crate) async fn start_recording_inner(
         audio_thread: Some(audio_thread),
         interim_task: Some(interim_task),
         interim_cache,
+        foreground_app,
         edit_grab: edit_grab.take(),
     });
 

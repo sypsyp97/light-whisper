@@ -11,6 +11,13 @@ pub fn prompt_context_block() -> Option<String> {
     get_foreground_app().and_then(|app| format_prompt_context(&app))
 }
 
+pub fn prompt_context_from_parts(process_name: &str, window_title: &str) -> Option<String> {
+    format_prompt_context(&ForegroundApp {
+        process_name: process_name.to_string(),
+        window_title: window_title.to_string(),
+    })
+}
+
 fn escape_cdata_text(value: &str) -> String {
     value.replace("]]>", "]]]]><![CDATA[>")
 }

@@ -104,6 +104,177 @@ pub struct UserProfile {
     /// 上次 LLM 审核时间戳（Unix 秒）
     #[serde(default)]
     pub last_correction_validation: u64,
+    /// 本地转写历史的保留策略
+    #[serde(default)]
+    pub history_settings: HistorySettings,
+    /// 按前台应用匹配的听写覆盖规则；顺序即优先级，首个匹配项生效
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub app_profile_rules: Vec<AppProfileRule>,
+}
+
+fn default_history_enabled() -> bool {
+    false
+}
+
+fn default_history_retention_days() -> u32 {
+    90
+}
+
+/// 本地历史默认仅保存文本；音频需要用户主动开启。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistorySettings {
+    #[serde(default = "default_history_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub save_audio: bool,
+    /// 0 表示永久保留，否则按天清理文本和音频。
+    #[serde(default = "default_history_retention_days")]
+    pub retention_days: u32,
+}
+
+impl Default for HistorySettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            save_audio: false,
+            retention_days: default_history_retention_days(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AppRuleOverride {
+    #[default]
+    Inherit,
+    Enabled,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AppTranslationOverride {
+    #[default]
+    Inherit,
+    Disabled,
+    Target,
+}
+
+fn default_app_rule_enabled() -> bool {
+    true
+}
+
+/// 针对一个 Windows 进程（并可进一步限定窗口标题）的听写覆盖规则。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppProfileRule {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "default_app_rule_enabled")]
+    pub enabled: bool,
+    pub process_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_title_contains: Option<String>,
+    #[serde(default)]
+    pub ai_polish: AppRuleOverride,
+    #[serde(default)]
+    pub translation: AppTranslationOverride,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation_target: Option<String>,
+    #[serde(default)]
+    pub screen_context: AppRuleOverride,
+    #[serde(default)]
+    pub history: AppRuleOverride,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_prompt: Option<String>,
+}
+
+impl Default for AppProfileRule {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            enabled: true,
+            process_name: String::new(),
+            window_title_contains: None,
+            ai_polish: AppRuleOverride::Inherit,
+            translation: AppTranslationOverride::Inherit,
+            translation_target: None,
+            screen_context: AppRuleOverride::Inherit,
+            history: AppRuleOverride::Inherit,
+            custom_prompt: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResolvedAppProfile {
+    pub rule_id: Option<String>,
+    pub rule_name: Option<String>,
+    pub ai_polish_enabled: Option<bool>,
+    pub translation_target: Option<Option<String>>,
+    pub screen_context_enabled: Option<bool>,
+    pub history_enabled: Option<bool>,
+    pub custom_prompt: Option<String>,
+}
+
+fn normalized_process_name(value: &str) -> String {
+    let normalized = value.trim().to_lowercase();
+    normalized
+        .strip_suffix(".exe")
+        .unwrap_or(&normalized)
+        .to_string()
+}
+
+impl AppProfileRule {
+    pub fn matches(&self, process_name: &str, window_title: &str) -> bool {
+        if !self.enabled || self.process_name.trim().is_empty() {
+            return false;
+        }
+        if normalized_process_name(&self.process_name) != normalized_process_name(process_name) {
+            return false;
+        }
+        match self
+            .window_title_contains
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(needle) => window_title.to_lowercase().contains(&needle.to_lowercase()),
+            None => true,
+        }
+    }
+
+    fn resolve(&self) -> ResolvedAppProfile {
+        let bool_override = |value: AppRuleOverride| match value {
+            AppRuleOverride::Inherit => None,
+            AppRuleOverride::Enabled => Some(true),
+            AppRuleOverride::Disabled => Some(false),
+        };
+        let translation_target = match self.translation {
+            AppTranslationOverride::Inherit => None,
+            AppTranslationOverride::Disabled => Some(None),
+            AppTranslationOverride::Target => self
+                .translation_target
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| Some(value.to_string())),
+        };
+        ResolvedAppProfile {
+            rule_id: Some(self.id.clone()),
+            rule_name: Some(self.name.clone()),
+            ai_polish_enabled: bool_override(self.ai_polish),
+            translation_target,
+            screen_context_enabled: bool_override(self.screen_context),
+            history_enabled: bool_override(self.history),
+            custom_prompt: self
+                .custom_prompt
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+        }
+    }
 }
 
 /// 系统级划词助手行为配置。默认关闭，避免升级后意外监听全局鼠标。
@@ -491,6 +662,18 @@ impl LlmProviderConfig {
 }
 
 impl UserProfile {
+    pub fn resolve_app_profile(
+        &self,
+        process_name: &str,
+        window_title: &str,
+    ) -> ResolvedAppProfile {
+        self.app_profile_rules
+            .iter()
+            .find(|rule| rule.matches(process_name, window_title))
+            .map(AppProfileRule::resolve)
+            .unwrap_or_default()
+    }
+
     /// 获取按权重排序的热词文本列表（用于 ASR 注入）
     pub fn get_hot_word_texts(&self, limit: usize) -> Vec<String> {
         let mut words: Vec<&HotWord> = self.hot_words.iter().collect();
@@ -531,7 +714,9 @@ impl UserProfile {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApiFormat, CustomProvider, LlmProviderConfig, LlmReasoningMode, SelectionAssistantConfig,
+        ApiFormat, AppProfileRule, AppRuleOverride, AppTranslationOverride, CustomProvider,
+        HistorySettings, LlmProviderConfig, LlmReasoningMode, SelectionAssistantConfig,
+        UserProfile,
     };
 
     fn custom_provider(id: &str) -> CustomProvider {
@@ -668,5 +853,73 @@ mod tests {
             !config.openai_fast_mode,
             "openai_fast_mode must default to false so existing users do not silently start consuming fast-mode credits"
         );
+    }
+
+    #[test]
+    fn history_is_opt_in_and_defaults_to_no_audio() {
+        let settings = HistorySettings::default();
+        assert!(!settings.enabled);
+        assert!(!settings.save_audio);
+        assert_eq!(settings.retention_days, 90);
+    }
+
+    #[test]
+    fn first_matching_app_rule_resolves_case_insensitively() {
+        let profile = UserProfile {
+            app_profile_rules: vec![
+                AppProfileRule {
+                    id: "specific".into(),
+                    name: "VS Code Markdown".into(),
+                    process_name: "Code.exe".into(),
+                    window_title_contains: Some("README".into()),
+                    ai_polish: AppRuleOverride::Enabled,
+                    translation: AppTranslationOverride::Target,
+                    translation_target: Some("English".into()),
+                    history: AppRuleOverride::Disabled,
+                    ..Default::default()
+                },
+                AppProfileRule {
+                    id: "fallback".into(),
+                    name: "VS Code".into(),
+                    process_name: "code".into(),
+                    ai_polish: AppRuleOverride::Disabled,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let resolved = profile.resolve_app_profile("CODE.EXE", "README.md - light-whisper");
+        assert_eq!(resolved.rule_id.as_deref(), Some("specific"));
+        assert_eq!(resolved.ai_polish_enabled, Some(true));
+        assert_eq!(resolved.translation_target, Some(Some("English".into())));
+        assert_eq!(resolved.history_enabled, Some(false));
+    }
+
+    #[test]
+    fn app_rule_with_nonmatching_title_falls_through() {
+        let profile = UserProfile {
+            app_profile_rules: vec![
+                AppProfileRule {
+                    id: "specific".into(),
+                    name: "Only README".into(),
+                    process_name: "Code.exe".into(),
+                    window_title_contains: Some("README".into()),
+                    ..Default::default()
+                },
+                AppProfileRule {
+                    id: "fallback".into(),
+                    name: "All VS Code".into(),
+                    process_name: "Code.exe".into(),
+                    screen_context: AppRuleOverride::Disabled,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let resolved = profile.resolve_app_profile("Code.exe", "main.rs - light-whisper");
+        assert_eq!(resolved.rule_id.as_deref(), Some("fallback"));
+        assert_eq!(resolved.screen_context_enabled, Some(false));
     }
 }

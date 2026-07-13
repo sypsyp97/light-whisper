@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use crate::services::llm_client::{LlmRequestOptions, LlmUserInput};
-use crate::services::{codex_oauth_service, llm_client, llm_provider, profile_service};
+use crate::services::{
+    codex_oauth_service, history_service, llm_client, llm_provider, profile_service,
+};
 use crate::state::user_profile::*;
 use crate::state::AppState;
 use crate::utils::paths;
@@ -200,6 +202,50 @@ fn parse_correction_pairs(raw: &str) -> Vec<(String, String)> {
 #[tauri::command]
 pub async fn get_user_profile(state: tauri::State<'_, AppState>) -> Result<UserProfile, String> {
     Ok(state.snapshot_profile())
+}
+
+#[tauri::command]
+pub async fn set_history_settings(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+    save_audio: bool,
+    retention_days: u32,
+) -> Result<(), String> {
+    if retention_days > 3650 {
+        return Err("历史保留天数不能超过 3650 天".into());
+    }
+    // 清理是可能失败的 I/O；先完成它再提交内存/profile 状态，避免命令报错但
+    // 设置实际上已经改变。
+    history_service::cleanup(retention_days).await?;
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile.history_settings = HistorySettings {
+            enabled,
+            save_audio: enabled && save_audio,
+            retention_days,
+        };
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_app_profile_rules(
+    state: tauri::State<'_, AppState>,
+    rules: Vec<AppProfileRule>,
+) -> Result<(), String> {
+    if rules.len() > profile_service::MAX_APP_PROFILE_RULES {
+        return Err(format!(
+            "按应用规则最多允许 {} 条",
+            profile_service::MAX_APP_PROFILE_RULES
+        ));
+    }
+    if rules.iter().any(|rule| rule.process_name.trim().is_empty()) {
+        return Err("每条按应用规则都必须填写进程名".into());
+    }
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile.app_profile_rules = rules;
+        profile_service::sanitize_app_profile_rules(profile);
+    });
+    Ok(())
 }
 
 #[tauri::command]

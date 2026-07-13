@@ -4,6 +4,7 @@ pub mod audio;
 pub mod clipboard;
 pub mod codex_oauth;
 pub mod funasr;
+pub mod history;
 pub mod hotkey;
 pub mod profile;
 pub mod selection;

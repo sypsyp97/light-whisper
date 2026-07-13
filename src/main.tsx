@@ -10,9 +10,11 @@ import i18n from "./i18n";
 import "./styles/theme.css";
 import "./styles/pages.css";
 
-type View = "main" | "settings";
+type View = "main" | "settings" | "history";
 const loadSettingsPage = () => import("./pages/SettingsPage");
+const loadHistoryPage = () => import("./pages/HistoryPage");
 const SettingsPage = lazy(loadSettingsPage);
+const HistoryPage = lazy(loadHistoryPage);
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -59,6 +61,9 @@ export function App() {
       void loadSettingsPage().catch((error) => {
         console.error("Settings page preload failed:", error);
       });
+      void loadHistoryPage().catch((error) => {
+        console.error("History page preload failed:", error);
+      });
     }, 400);
 
     return () => window.clearTimeout(preloadTimer);
@@ -77,8 +82,9 @@ export function App() {
         return;
       }
 
-      const exitClass = target === "settings" ? "page-exit-left" : "page-exit-right";
-      const enterClass = target === "settings" ? "page-enter-right" : "page-enter-left";
+      const movingAwayFromMain = view === "main" && target !== "main";
+      const exitClass = movingAwayFromMain ? "page-exit-left" : "page-exit-right";
+      const enterClass = movingAwayFromMain ? "page-enter-right" : "page-enter-left";
 
       setAnimClass(exitClass);
       setTimeout(() => {
@@ -91,10 +97,11 @@ export function App() {
       }, 140);
     };
 
-    if (target === "settings") {
-      void loadSettingsPage().then(startTransition).catch((error) => {
+    if (target !== "main") {
+      const loadTarget = target === "settings" ? loadSettingsPage : loadHistoryPage;
+      void loadTarget().then(startTransition).catch((error) => {
         isTransitioning.current = false;
-        console.error("Settings page load failed:", error);
+        console.error(`${target} page load failed:`, error);
       });
       return;
     }
@@ -109,8 +116,10 @@ export function App() {
           <Suspense fallback={<div style={{ height: "100%", width: "100%" }} />}>
             {view === "main" ? (
               <MainPage onNavigate={navigateTo} animClass={animClass} />
-            ) : (
+            ) : view === "settings" ? (
               <SettingsPage onNavigate={navigateTo} active animClass={animClass} />
+            ) : (
+              <HistoryPage onNavigate={navigateTo} animClass={animClass} />
             )}
           </Suspense>
         </div>

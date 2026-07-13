@@ -202,6 +202,42 @@ describe("getRecordingSnapshot", () => {
   });
 });
 
+describe("history and per-app profile IPC", () => {
+  it("uses camel-case Tauri arguments for history settings", async () => {
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+    const { setHistorySettings } = await import("@/api/tauri");
+
+    await setHistorySettings(true, false, 90);
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("set_history_settings", {
+      enabled: true,
+      saveAudio: false,
+      retentionDays: 90,
+    });
+  });
+
+  it("forwards history filters and reprocessing kind", async () => {
+    invokeMock.invoke.mockResolvedValue(undefined);
+    const { listTranscriptionHistory, reprocessTranscriptionHistory } = await import("@/api/tauri");
+    const filter = {
+      query: "Code",
+      mode: "dictation" as const,
+      status: "success" as const,
+      limit: 50,
+      offset: 0,
+    };
+
+    await listTranscriptionHistory(filter);
+    await reprocessTranscriptionHistory(17, "asr");
+
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(1, "list_transcription_history", { filter });
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(2, "reprocess_transcription_history", {
+      id: 17,
+      kind: "asr",
+    });
+  });
+});
+
 describe("web search provider IPC", () => {
   it("keeps Google and Tavily API keys in provider-specific slots", async () => {
     const { getWebSearchApiKey, setWebSearchApiKey } = await import("@/api/tauri");

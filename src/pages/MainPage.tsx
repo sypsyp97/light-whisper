@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Settings, Minus, X } from "lucide-react";
+import { History as HistoryIcon, Settings, Minus, X } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecordingContext } from "@/contexts/RecordingContext";
@@ -15,7 +15,7 @@ import { PADDING, ONBOARDING_DISMISSED_KEY, RECORDING_MODE_KEY } from "@/lib/con
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 
 export default function MainPage({ onNavigate, animClass = "" }: {
-  onNavigate: (v: "main" | "settings") => void;
+  onNavigate: (v: "main" | "settings" | "history") => void;
   animClass?: string;
 }) {
   const { t } = useTranslation();
@@ -91,7 +91,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
     setEditBaselineText,
   ]);
 
-  const flushPendingEditAndNavigate = useCallback((target: "main" | "settings") => {
+  const flushPendingEditAndNavigate = useCallback((target: "main" | "settings" | "history") => {
     const active = document.activeElement;
     if (active instanceof HTMLElement && (active.isContentEditable || active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement)) {
       active.blur();
@@ -114,9 +114,14 @@ export default function MainPage({ onNavigate, animClass = "" }: {
       <TitleBar
         title={t("app.title")}
         leftAction={
-          <button aria-label={t("common.settings")} className="icon-btn plain icon-btn-gear" onClick={() => flushPendingEditAndNavigate("settings")}>
-            <Settings size={13} strokeWidth={1.5} />
-          </button>
+          <div className="title-bar-cluster">
+            <button aria-label={t("historyPage.open")} className="icon-btn plain" onClick={() => flushPendingEditAndNavigate("history")}>
+              <HistoryIcon size={13} strokeWidth={1.5} />
+            </button>
+            <button aria-label={t("common.settings")} className="icon-btn plain icon-btn-gear" onClick={() => flushPendingEditAndNavigate("settings")}>
+              <Settings size={13} strokeWidth={1.5} />
+            </button>
+          </div>
         }
         rightActions={
           <>

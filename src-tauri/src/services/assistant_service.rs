@@ -11,6 +11,7 @@ use crate::services::{
 };
 use crate::state::user_profile::{UserProfile, WebSearchConfig, WebSearchProvider};
 use crate::state::AppState;
+use crate::utils::foreground::ForegroundApp;
 use crate::utils::AppError;
 
 const ASSISTANT_SIMPLE_STREAM_TOTAL_TIMEOUT_SECS: u64 = 240;
@@ -24,6 +25,46 @@ const MAX_CONVERSATION_TURNS: usize = 12;
 pub struct AssistantConversationTurn {
     pub role: String,
     pub content: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AssistantRequestContext {
+    screen_context_enabled: Option<bool>,
+    recording_foreground: Option<ForegroundApp>,
+    app_context: Option<String>,
+    bound_to_recording: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssistantOutcome {
+    pub text: String,
+    pub provider: String,
+    pub model: String,
+}
+
+impl AssistantRequestContext {
+    pub fn for_recording(
+        screen_context_enabled: bool,
+        recording_foreground: Option<ForegroundApp>,
+        app_context: Option<String>,
+    ) -> Self {
+        Self {
+            screen_context_enabled: Some(screen_context_enabled),
+            recording_foreground,
+            app_context,
+            bound_to_recording: true,
+        }
+    }
+
+    fn foreground_matches(&self, current: Option<&ForegroundApp>) -> bool {
+        if !self.bound_to_recording {
+            return true;
+        }
+        matches!(
+            (self.recording_foreground.as_ref(), current),
+            (Some(expected), Some(actual)) if expected == actual
+        )
+    }
 }
 
 const ASSISTANT_SYSTEM_PROMPT: &str = r#"
@@ -641,6 +682,26 @@ pub async fn generate_content(
     app_handle: &tauri::AppHandle,
     session_id: u64,
 ) -> Result<String, AppError> {
+    generate_content_with_context(
+        state,
+        asr_text,
+        selected_text,
+        app_handle,
+        session_id,
+        AssistantRequestContext::default(),
+    )
+    .await
+    .map(|outcome| outcome.text)
+}
+
+pub async fn generate_content_with_context(
+    state: &AppState,
+    asr_text: &str,
+    selected_text: Option<&str>,
+    app_handle: &tauri::AppHandle,
+    session_id: u64,
+    request_context: AssistantRequestContext,
+) -> Result<AssistantOutcome, AppError> {
     generate_content_inner(
         state,
         asr_text,
@@ -649,6 +710,7 @@ pub async fn generate_content(
         app_handle,
         session_id,
         ASSISTANT_STREAM_EVENT,
+        request_context,
     )
     .await
 }
@@ -675,8 +737,10 @@ pub async fn continue_conversation(
         app_handle,
         session_id,
         ASSISTANT_CHAT_STREAM_EVENT,
+        AssistantRequestContext::default(),
     )
     .await
+    .map(|outcome| outcome.text)
 }
 
 #[derive(Clone, Copy)]
@@ -686,6 +750,7 @@ struct ConversationContext<'a> {
     history: &'a [AssistantConversationTurn],
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn generate_content_inner(
     state: &AppState,
     asr_text: &str,
@@ -694,7 +759,8 @@ async fn generate_content_inner(
     app_handle: &tauri::AppHandle,
     session_id: u64,
     stream_event: &'static str,
-) -> Result<String, AppError> {
+    request_context: AssistantRequestContext,
+) -> Result<AssistantOutcome, AppError> {
     let request_started = Instant::now();
     let assistant_provider =
         state.with_profile(|profile| profile.llm_provider.resolve_assistant_provider());
@@ -847,8 +913,9 @@ async fn generate_content_inner(
         );
     }
 
-    let screen_context_enabled =
-        state.with_profile(|profile| profile.assistant_screen_context_enabled);
+    let screen_context_enabled = request_context
+        .screen_context_enabled
+        .unwrap_or_else(|| state.with_profile(|profile| profile.assistant_screen_context_enabled));
     let image_support_cache_key = llm_provider::image_support_cache_key(&endpoint);
     let cached_image_support = state.assistant_image_support(&image_support_cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
@@ -873,9 +940,16 @@ async fn generate_content_inner(
     };
     let effective_image_support = cached_image_support.or(probed_image_support);
 
-    let images = if screen_context_enabled && effective_image_support != Some(false) {
+    let foreground_still_matches = || {
+        let current = crate::utils::foreground::get_foreground_app();
+        request_context.foreground_matches(current.as_ref())
+    };
+    let images = if screen_context_enabled
+        && effective_image_support != Some(false)
+        && foreground_still_matches()
+    {
         match screen_capture_service::capture_full_screen_context_async().await {
-            Ok(captured) => {
+            Ok(captured) if foreground_still_matches() => {
                 if !captured.is_empty() {
                     log::info!("助手模式已附带屏幕截图上下文: {} 张", captured.len());
                 }
@@ -886,6 +960,10 @@ async fn generate_content_inner(
                         data_base64: image.data_base64,
                     })
                     .collect::<Vec<_>>()
+            }
+            Ok(_) => {
+                log::warn!("助手截图后前台窗口已变化，丢弃截图并继续纯文本请求");
+                Vec::new()
             }
             Err(err) => {
                 log::warn!("截取屏幕上下文失败，继续纯文本助手请求: {}", err);
@@ -899,6 +977,8 @@ async fn generate_content_inner(
                 endpoint.provider,
                 endpoint.model
             );
+        } else if screen_context_enabled && !foreground_still_matches() {
+            log::warn!("助手截图已跳过：前台窗口已离开录音开始时的目标应用");
         }
         Vec::new()
     };
@@ -909,6 +989,13 @@ async fn generate_content_inner(
             conversation.initial_response,
             conversation.history,
             asr_text,
+            !images.is_empty(),
+        )
+    } else if request_context.bound_to_recording {
+        render_assistant_user_content(
+            request_context.app_context.as_deref(),
+            asr_text,
+            selected_text,
             !images.is_empty(),
         )
     } else {
@@ -1045,7 +1132,11 @@ async fn generate_content_inner(
         );
     }
 
-    Ok(trimmed)
+    Ok(AssistantOutcome {
+        text: trimmed,
+        provider: endpoint.provider,
+        model: endpoint.model,
+    })
 }
 
 #[cfg(test)]
@@ -1053,11 +1144,31 @@ mod tests {
     use super::{
         build_assistant_request_options, build_conversation_user_content, contextual_search_query,
         decide_assistant_web_search, normalized_search_query, render_assistant_system_prompt_at,
-        render_assistant_user_content, AssistantConversationTurn, ConversationContext,
-        ASSISTANT_CHAT_STREAM_EVENT, ASSISTANT_STREAM_EVENT,
+        render_assistant_user_content, AssistantConversationTurn, AssistantRequestContext,
+        ConversationContext, ASSISTANT_CHAT_STREAM_EVENT, ASSISTANT_STREAM_EVENT,
     };
     use crate::state::user_profile::LlmReasoningMode;
     use crate::state::user_profile::UserProfile;
+    use crate::utils::foreground::ForegroundApp;
+
+    #[test]
+    fn recording_screen_context_requires_the_recording_foreground() {
+        let recorded = ForegroundApp {
+            process_name: "Code.exe".into(),
+            window_title: "README - Code".into(),
+        };
+        let switched = ForegroundApp {
+            process_name: "chrome.exe".into(),
+            window_title: "Inbox".into(),
+        };
+        let context = AssistantRequestContext::for_recording(true, Some(recorded.clone()), None);
+
+        assert!(context.foreground_matches(Some(&recorded)));
+        assert!(!context.foreground_matches(Some(&switched)));
+        assert!(!context.foreground_matches(None));
+        assert!(!AssistantRequestContext::for_recording(true, None, None).foreground_matches(None));
+        assert!(AssistantRequestContext::default().foreground_matches(Some(&switched)));
+    }
 
     #[test]
     fn assistant_system_prompt_includes_current_runtime_time_context() {

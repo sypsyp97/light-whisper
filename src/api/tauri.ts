@@ -7,6 +7,7 @@ import {
 } from "@tauri-apps/plugin-autostart";
 import type {
   ApiFormat,
+  AppProfileRule,
   AppUpdateInfo,
   AiModelListPayload,
   FunASRStatus,
@@ -18,6 +19,10 @@ import type {
   OpenaiAuthMode,
   OpenaiCodexOauthDeviceCodeChallenge,
   OpenaiCodexOauthStatus,
+  PersistentHistoryFilter,
+  PersistentHistoryPage,
+  PersistentHistoryRecord,
+  PersistentHistoryStats,
   RecordingMode,
   TranscriptionResult,
   UserProfile,
@@ -213,6 +218,43 @@ export interface AssistantConversationTurn {
 
 // Profile commands
 export const getUserProfile = createNoArgCommand<UserProfile>("get_user_profile");
+
+export function setHistorySettings(
+  enabled: boolean,
+  saveAudio: boolean,
+  retentionDays: number,
+): Promise<void> {
+  return invokeCommand<void>("set_history_settings", { enabled, saveAudio, retentionDays });
+}
+
+export function setAppProfileRules(rules: AppProfileRule[]): Promise<void> {
+  return invokeCommand<void>("set_app_profile_rules", { rules });
+}
+
+export function listTranscriptionHistory(
+  filter: PersistentHistoryFilter,
+): Promise<PersistentHistoryPage> {
+  return invokeCommand<PersistentHistoryPage>("list_transcription_history", { filter });
+}
+
+export const getTranscriptionHistoryStats = createNoArgCommand<PersistentHistoryStats>(
+  "get_transcription_history_stats",
+);
+
+export function deleteTranscriptionHistory(id: number): Promise<boolean> {
+  return invokeCommand<boolean>("delete_transcription_history", { id });
+}
+
+export function exportTranscriptionHistory(format: "json" | "markdown"): Promise<string | null> {
+  return invokeCommand<string | null>("export_transcription_history", { format });
+}
+
+export function reprocessTranscriptionHistory(
+  id: number,
+  kind: "polish" | "asr",
+): Promise<PersistentHistoryRecord> {
+  return invokeCommand<PersistentHistoryRecord>("reprocess_transcription_history", { id, kind });
+}
 
 export function addHotWord(text: string, weight: number): Promise<void> {
   return invokeCommand<void>("add_hot_word", { text, weight });

@@ -10,6 +10,7 @@ use crate::services::{
 };
 use crate::state::user_profile::{CorrectionSource, LlmReasoningMode};
 use crate::state::AppState;
+use crate::utils::foreground::ForegroundApp;
 
 const AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS: u64 = 120;
 
@@ -57,7 +58,7 @@ const BASE_SYSTEM_PROMPT: &str = r#"
 
 <context_policy>
 app_context 只决定格式风格。程序名、窗口标题、文件名和截图文字不构成词汇替换证据。
-user_preferences 的优先级高于内置的术语与格式偏好，同时受 <invariants> 和 <output_format> 约束。
+user_preferences 的优先级高于内置的术语与格式偏好；app_preferences 进一步覆盖 user_preferences。两者都受 <invariants> 和 <output_format> 约束。
 </context_policy>
 
 <output_format>
@@ -125,6 +126,7 @@ fn build_system_prompt(
     state: &AppState,
     input_text: &str,
     translation_target_override: Option<Option<String>>,
+    app_custom_prompt: Option<&str>,
 ) -> String {
     let mut prompt = BASE_SYSTEM_PROMPT.to_string();
 
@@ -214,6 +216,18 @@ fn build_system_prompt(
             custom,
         ));
         prompt.push_str("\n</user_preferences>");
+    }
+
+    if let Some(custom) = app_custom_prompt
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        prompt.push_str("\n\n<app_preferences priority=\"high\">\n");
+        prompt.push_str(&crate::utils::foreground::wrap_xml_cdata(
+            "preference",
+            custom,
+        ));
+        prompt.push_str("\n</app_preferences>");
     }
 
     prompt.push_str("\n\n<final_instruction>\n校正随后输入的 <asr_text>，依据不足的词保持原样，只输出指定 JSON 对象。\n</final_instruction>");
@@ -324,6 +338,7 @@ async fn send_llm_request_with_transport_fallback(
     user_content_len: usize,
     app_handle: &tauri::AppHandle,
     session_id: u64,
+    emit_status: bool,
 ) -> Result<String, String> {
     let (reasoning_mode, fast_mode) = state.with_profile(|profile| {
         (
@@ -333,6 +348,9 @@ async fn send_llm_request_with_transport_fallback(
     });
     let apply_fast = |mut stage: LlmRequestOptions<'static>| -> LlmRequestOptions<'static> {
         stage.openai_fast_mode = fast_mode;
+        if !emit_status {
+            stage.stream_event = None;
+        }
         stage
     };
     let _ = state.take_ai_polish_stream_started(session_id);
@@ -345,7 +363,7 @@ async fn send_llm_request_with_transport_fallback(
         system_prompt,
         user_input,
         user_content_len,
-        Some(app_handle),
+        emit_status.then_some(app_handle),
         stage1,
     )
     .await
@@ -372,7 +390,9 @@ async fn send_llm_request_with_transport_fallback(
                 ai_polish_transport_label(&stage1),
                 err
             );
-            emit_polish_status(app_handle, "fallback", "", "", &err, session_id);
+            if emit_status {
+                emit_polish_status(app_handle, "fallback", "", "", &err, session_id);
+            }
         }
     }
 
@@ -393,7 +413,11 @@ async fn send_llm_request_with_transport_fallback(
             system_prompt,
             user_input,
             user_content_len,
-            if stage.stream { Some(app_handle) } else { None },
+            if stage.stream && emit_status {
+                Some(app_handle)
+            } else {
+                None
+            },
             stage,
         )
         .await
@@ -418,14 +442,16 @@ async fn send_llm_request_with_transport_fallback(
                 }
 
                 log::warn!("AI 润色确认 JSON 格式不被支持，降级到 prompt 约束: {}", err);
-                emit_polish_status(
-                    app_handle,
-                    "fallback",
-                    "",
-                    "",
-                    "当前模型不支持 response_format，已自动降级重试",
-                    session_id,
-                );
+                if emit_status {
+                    emit_polish_status(
+                        app_handle,
+                        "fallback",
+                        "",
+                        "",
+                        "当前模型不支持 response_format，已自动降级重试",
+                        session_id,
+                    );
+                }
                 if is_last_stage {
                     let _ = state.take_ai_polish_stream_started(session_id);
                     return Err(format!("所有传输策略均失败: {}", err));
@@ -438,7 +464,9 @@ async fn send_llm_request_with_transport_fallback(
                 }
 
                 log::warn!("AI 润色 {} 失败，继续回退: {}", stage_label, err);
-                emit_polish_status(app_handle, "fallback", "", "", &err, session_id);
+                if emit_status {
+                    emit_polish_status(app_handle, "fallback", "", "", &err, session_id);
+                }
             }
         }
     }
@@ -456,6 +484,7 @@ async fn send_llm_request_with_fallback(
     user_content_len: usize,
     app_handle: &tauri::AppHandle,
     session_id: u64,
+    emit_status: bool,
 ) -> Result<String, String> {
     let cache_key = llm_provider::image_support_cache_key(endpoint);
     match send_llm_request_with_transport_fallback(
@@ -467,6 +496,7 @@ async fn send_llm_request_with_fallback(
         user_content_len,
         app_handle,
         session_id,
+        emit_status,
     )
     .await
     {
@@ -487,14 +517,16 @@ async fn send_llm_request_with_fallback(
                 err
             );
             state.set_assistant_image_support(cache_key, false);
-            emit_polish_status(
-                app_handle,
-                "fallback",
-                "",
-                "",
-                "当前模型不支持图片输入，已自动降级为纯文本重试",
-                session_id,
-            );
+            if emit_status {
+                emit_polish_status(
+                    app_handle,
+                    "fallback",
+                    "",
+                    "",
+                    "当前模型不支持图片输入，已自动降级为纯文本重试",
+                    session_id,
+                );
+            }
 
             let fallback_input = llm_client::LlmUserInput {
                 text: user_input.text.clone(),
@@ -509,6 +541,7 @@ async fn send_llm_request_with_fallback(
                 user_content_len,
                 app_handle,
                 session_id,
+                emit_status,
             )
             .await
         }
@@ -516,19 +549,115 @@ async fn send_llm_request_with_fallback(
     }
 }
 
-pub async fn polish_text(
+#[derive(Debug, Clone)]
+pub struct PolishOverrides {
+    pub ai_polish_enabled: Option<bool>,
+    /// None = 使用全局设置；Some(None) = 禁用翻译；Some(Some(...)) = 指定目标语言。
+    pub translation_target: Option<Option<String>>,
+    pub custom_prompt: Option<String>,
+    pub screen_context_enabled: Option<bool>,
+    /// 录音开始时的目标窗口。设置后，真正截图前后都必须仍是同一窗口，
+    /// 否则丢弃截图，避免异步等待期间切换到其他应用造成隐私泄露。
+    pub screen_context_foreground: Option<ForegroundApp>,
+    /// 用于历史重新处理等非前台场景；为空时读取当前前台应用。
+    pub app_context: Option<String>,
+    pub emit_status: bool,
+    pub learn_from_result: bool,
+    /// 显式重新润色时必须实际调用模型；缺少鉴权不能伪装成成功的原样返回。
+    pub require_execution: bool,
+}
+
+impl Default for PolishOverrides {
+    fn default() -> Self {
+        Self {
+            ai_polish_enabled: None,
+            translation_target: None,
+            custom_prompt: None,
+            screen_context_enabled: None,
+            screen_context_foreground: None,
+            app_context: None,
+            emit_status: true,
+            learn_from_result: true,
+            require_execution: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PolishOutcome {
+    pub text: String,
+    /// 只有真正向模型发送请求并获得有效响应时才为 true。
+    pub executed: bool,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EditOutcome {
+    pub text: String,
+    pub provider: String,
+    pub model: String,
+}
+
+impl PolishOutcome {
+    fn passthrough(text: String) -> Self {
+        Self {
+            text,
+            executed: false,
+            provider: None,
+            model: None,
+        }
+    }
+}
+
+fn passthrough_unless_required(
+    text: &str,
+    require_execution: bool,
+    required_error: &str,
+) -> Result<String, String> {
+    if require_execution {
+        Err(required_error.to_string())
+    } else {
+        Ok(text.to_string())
+    }
+}
+
+pub async fn polish_text_with_overrides(
     state: &AppState,
     text: &str,
     app_handle: &tauri::AppHandle,
     session_id: u64,
-    translation_target_override: Option<Option<String>>,
+    overrides: PolishOverrides,
 ) -> Result<String, String> {
-    if !state.profile.ai_polish_enabled.load(Ordering::Acquire) {
-        return Ok(text.to_string());
+    polish_text_with_overrides_detailed(state, text, app_handle, session_id, overrides)
+        .await
+        .map(|outcome| outcome.text)
+}
+
+pub async fn polish_text_with_overrides_detailed(
+    state: &AppState,
+    text: &str,
+    app_handle: &tauri::AppHandle,
+    session_id: u64,
+    overrides: PolishOverrides,
+) -> Result<PolishOutcome, String> {
+    let emit_status = overrides.emit_status;
+    let polish_enabled = overrides
+        .ai_polish_enabled
+        .unwrap_or_else(|| state.profile.ai_polish_enabled.load(Ordering::Acquire));
+    if !polish_enabled {
+        return passthrough_unless_required(
+            text,
+            overrides.require_execution,
+            "AI 润色当前已关闭，无法执行重新润色",
+        )
+        .map(PolishOutcome::passthrough);
     }
 
     let start = std::time::Instant::now();
-    emit_polish_status(app_handle, "auth", text, "", "", session_id);
+    if emit_status {
+        emit_polish_status(app_handle, "auth", text, "", "", session_id);
+    }
 
     let active_provider = state.active_llm_provider();
     let manual_api_key = state.read_ai_polish_api_key();
@@ -541,7 +670,9 @@ pub async fn polish_text(
     )
     .await
     .inspect_err(|e| {
-        emit_polish_status(app_handle, "error", text, text, e, session_id);
+        if emit_status {
+            emit_polish_status(app_handle, "error", text, text, e, session_id);
+        }
     })?;
     let auth_elapsed_ms = auth_start.elapsed().as_millis();
     log::info!(
@@ -556,20 +687,45 @@ pub async fn polish_text(
             "AI 润色已启用但未配置 API Key，也未完成 OpenAI Codex 登录，跳过润色 (auth{}ms)",
             auth_elapsed_ms
         );
-        return Ok(text.to_string());
+        return passthrough_unless_required(
+            text,
+            overrides.require_execution,
+            "未配置 AI 润色 API Key，且未完成 OpenAI Codex 登录",
+        )
+        .map(PolishOutcome::passthrough);
     }
 
-    emit_polish_status(app_handle, "polishing", text, "", "", session_id);
+    if emit_status {
+        emit_polish_status(app_handle, "polishing", text, "", "", session_id);
+    }
 
     let endpoint = llm_provider::endpoint_for_config(&state.llm_provider_config());
-    emit_polish_status(app_handle, "prompt", text, "", "", session_id);
+    if emit_status {
+        emit_polish_status(app_handle, "prompt", text, "", "", session_id);
+    }
     let prompt_start = std::time::Instant::now();
-    let system_prompt = build_system_prompt(state, text, translation_target_override);
+    let system_prompt = build_system_prompt(
+        state,
+        text,
+        overrides.translation_target.clone(),
+        overrides.custom_prompt.as_deref(),
+    );
     let prompt_elapsed_ms = prompt_start.elapsed().as_millis();
 
-    emit_polish_status(app_handle, "user_input", text, "", "", session_id);
+    if emit_status {
+        emit_polish_status(app_handle, "user_input", text, "", "", session_id);
+    }
     let user_input_start = std::time::Instant::now();
-    let user_input = build_polish_user_input(state, &endpoint, &api_key, text).await;
+    let user_input = build_polish_user_input(
+        state,
+        &endpoint,
+        &api_key,
+        text,
+        overrides.screen_context_enabled,
+        overrides.screen_context_foreground.as_ref(),
+        overrides.app_context.as_deref(),
+    )
+    .await;
     let user_content_len = user_input.text.len();
     let image_count = user_input.images.len();
     let user_input_elapsed_ms = user_input_start.elapsed().as_millis();
@@ -585,7 +741,9 @@ pub async fn polish_text(
         endpoint.api_format
     );
 
-    emit_polish_status(app_handle, "request", text, "", "", session_id);
+    if emit_status {
+        emit_polish_status(app_handle, "request", text, "", "", session_id);
+    }
     let request_start = std::time::Instant::now();
     let raw_content = send_llm_request_with_fallback(
         state,
@@ -596,10 +754,13 @@ pub async fn polish_text(
         user_content_len,
         app_handle,
         session_id,
+        emit_status,
     )
     .await
     .inspect_err(|e| {
-        emit_polish_status(app_handle, "error", text, text, e, session_id);
+        if emit_status {
+            emit_polish_status(app_handle, "error", text, text, e, session_id);
+        }
     })?;
 
     // `send_llm_request` 已经把"HTTP 成功但 trim 后为空"作为 Err 抛出，
@@ -652,17 +813,21 @@ pub async fn polish_text(
             text.chars().count(),
             polished.chars().count()
         );
-        emit_polish_status(app_handle, "applied", text, &polished, "", session_id);
+        if emit_status {
+            emit_polish_status(app_handle, "applied", text, &polished, "", session_id);
+        }
     } else {
         log::info!("AI 润色完成 ({}ms): 文本无变化", elapsed_ms);
-        emit_polish_status(app_handle, "unchanged", text, &polished, "", session_id);
+        if emit_status {
+            emit_polish_status(app_handle, "unchanged", text, &polished, "", session_id);
+        }
     }
 
     // AI 学习只依赖结构化纠错/术语，避免把整句改写误学成“热词”
     let has_learnable = corrections.as_ref().is_some_and(|c| !c.is_empty())
         || key_terms.as_ref().is_some_and(|t| !t.is_empty());
 
-    if has_learnable {
+    if overrides.learn_from_result && has_learnable {
         profile_service::update_profile_and_schedule(state, |profile| {
             if let Some(corrs) = corrections {
                 profile_service::learn_from_structured(
@@ -675,7 +840,12 @@ pub async fn polish_text(
         });
     }
 
-    Ok(polished)
+    Ok(PolishOutcome {
+        text: polished,
+        executed: true,
+        provider: Some(endpoint.provider),
+        model: Some(endpoint.model),
+    })
 }
 
 /// 编辑模式：根据语音指令改写选中文本
@@ -685,7 +855,7 @@ pub async fn edit_text(
     instruction: &str,
     app_handle: &tauri::AppHandle,
     session_id: u64,
-) -> Result<String, String> {
+) -> Result<EditOutcome, String> {
     let api_key = codex_oauth_service::resolve_api_key_for_provider(
         app_handle,
         state,
@@ -763,6 +933,7 @@ pub async fn edit_text(
         user_content.len(),
         app_handle,
         session_id,
+        true,
     )
     .await
     .inspect_err(|e| {
@@ -797,12 +968,24 @@ pub async fn edit_text(
         session_id,
     );
 
-    Ok(result)
+    Ok(EditOutcome {
+        text: result,
+        provider: endpoint.provider,
+        model: endpoint.model,
+    })
 }
 
-fn build_user_content(text: &str, has_screen_context: bool) -> String {
-    let app_context = crate::utils::foreground::prompt_context_block();
-    render_polish_user_content(app_context.as_deref(), text, has_screen_context)
+fn build_user_content(
+    text: &str,
+    has_screen_context: bool,
+    app_context_override: Option<&str>,
+) -> String {
+    let foreground_context = app_context_override
+        .is_none()
+        .then(crate::utils::foreground::prompt_context_block)
+        .flatten();
+    let app_context = app_context_override.or(foreground_context.as_deref());
+    render_polish_user_content(app_context, text, has_screen_context)
 }
 
 fn render_polish_user_content(
@@ -829,9 +1012,12 @@ async fn build_polish_user_input(
     endpoint: &llm_provider::LlmEndpoint,
     api_key: &str,
     text: &str,
+    screen_context_override: Option<bool>,
+    screen_context_foreground: Option<&ForegroundApp>,
+    app_context_override: Option<&str>,
 ) -> llm_client::LlmUserInput {
-    let screen_context_enabled =
-        state.with_profile(|profile| profile.ai_polish_screen_context_enabled);
+    let screen_context_enabled = screen_context_override
+        .unwrap_or_else(|| state.with_profile(|profile| profile.ai_polish_screen_context_enabled));
     let cache_key = llm_provider::image_support_cache_key(endpoint);
     let cached_image_support = state.assistant_image_support(&cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
@@ -866,10 +1052,17 @@ async fn build_polish_user_input(
     };
     let effective_image_support = cached_image_support.or(probed_image_support);
 
-    let images = if screen_context_enabled && effective_image_support != Some(false) {
+    let foreground_still_matches = || {
+        screen_context_foreground.is_none()
+            || crate::utils::foreground::get_foreground_app().as_ref() == screen_context_foreground
+    };
+    let images = if screen_context_enabled
+        && effective_image_support != Some(false)
+        && foreground_still_matches()
+    {
         let capture_start = std::time::Instant::now();
         match screen_capture_service::capture_full_screen_context_async().await {
-            Ok(captured) => {
+            Ok(captured) if foreground_still_matches() => {
                 let capture_elapsed_ms = capture_start.elapsed().as_millis();
                 if !captured.is_empty() {
                     log::info!(
@@ -891,12 +1084,22 @@ async fn build_polish_user_input(
                     })
                     .collect::<Vec<_>>()
             }
+            Ok(_) => {
+                log::warn!("AI 润色截图后前台窗口已变化，丢弃截图并继续纯文本请求");
+                Vec::new()
+            }
             Err(err) => {
                 log::warn!("截取 AI 润色屏幕上下文失败，继续纯文本请求: {}", err);
                 Vec::new()
             }
         }
     } else {
+        if screen_context_enabled
+            && effective_image_support != Some(false)
+            && !foreground_still_matches()
+        {
+            log::warn!("AI 润色截图前前台窗口已变化，跳过截图并继续纯文本请求");
+        }
         if screen_context_enabled && effective_image_support == Some(false) {
             log::info!(
                 "当前 AI 润色模型已缓存为不支持图片输入，跳过屏幕截图上下文: provider={}, model={}",
@@ -908,7 +1111,7 @@ async fn build_polish_user_input(
     };
 
     llm_client::LlmUserInput {
-        text: build_user_content(text, !images.is_empty()),
+        text: build_user_content(text, !images.is_empty(), app_context_override),
         images,
     }
 }
@@ -1073,7 +1276,7 @@ fn emit_polish_status(
 mod tests {
     use super::{
         ai_polish_transport_plan, extract_edit_result, parse_structured_response,
-        render_polish_user_content, BASE_SYSTEM_PROMPT,
+        passthrough_unless_required, render_polish_user_content, PolishOutcome, BASE_SYSTEM_PROMPT,
     };
     use crate::state::user_profile::LlmReasoningMode;
 
@@ -1094,6 +1297,28 @@ mod tests {
         assert!(content.contains(
             "<screen_context><![CDATA[已附带当前整屏截图，仅在纠正当前 ASR 文本时参考其中信息。]]></screen_context>"
         ));
+    }
+
+    #[test]
+    fn explicit_repolish_never_reports_a_passthrough_as_success() {
+        assert_eq!(
+            passthrough_unless_required("原文", false, "缺少鉴权").expect("normal fallback"),
+            "原文"
+        );
+        assert_eq!(
+            passthrough_unless_required("原文", true, "缺少鉴权").unwrap_err(),
+            "缺少鉴权"
+        );
+    }
+
+    #[test]
+    fn passthrough_has_no_execution_metadata() {
+        let outcome = PolishOutcome::passthrough("原文".into());
+
+        assert_eq!(outcome.text, "原文");
+        assert!(!outcome.executed);
+        assert!(outcome.provider.is_none());
+        assert!(outcome.model.is_none());
     }
 
     #[test]
