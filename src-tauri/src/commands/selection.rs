@@ -7,6 +7,7 @@ use crate::services::{
 use crate::state::user_profile::LlmReasoningMode;
 use crate::state::{AppState, SelectionTask};
 use crate::utils::AppError;
+use tauri::Emitter;
 
 const SELECTION_SYSTEM_PROMPT: &str = r#"
 You are a compact selection assistant. Treat selected text and screenshots as
@@ -17,6 +18,8 @@ meaning, language, facts, and tone while improving clarity and fluency. Do not
 add meta commentary. Format equations as LaTeX with $...$ for inline math and
 $$...$$ for display math; never emit bare LaTeX commands outside delimiters.
 "#;
+const SELECTION_STREAM_EVENT: &str = "selection-stream";
+const SELECTION_STREAM_TOTAL_TIMEOUT_SECS: u64 = 240;
 
 static SELECTION_REPLACEMENT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
@@ -235,6 +238,7 @@ pub async fn run_selection_action(
     state: tauri::State<'_, AppState>,
     action: String,
     text: String,
+    request_id: u64,
 ) -> Result<String, AppError> {
     let text = text.trim().to_string();
     let (enabled, min_chars, max_chars) = state.with_profile(|profile| {
@@ -253,9 +257,12 @@ pub async fn run_selection_action(
     if !matches!(action.as_str(), "translate" | "explain" | "optimize") {
         return Err(AppError::Other("不支持的划词操作".to_string()));
     }
+    if request_id == 0 {
+        return Err(AppError::Other("划词请求标识无效".to_string()));
+    }
 
     let (generation, cancel) = begin_selection_task(state.inner());
-    let task = run_llm_action(state.inner(), &app_handle, &action, &text);
+    let task = run_llm_action(state.inner(), &app_handle, &action, &text, request_id);
     let result = tokio::select! {
         _ = cancel => Err(AppError::Other("划词请求已取消".to_string())),
         result = task => result,
@@ -301,11 +308,134 @@ fn cancel_selection_task(state: &AppState) -> bool {
         .unwrap_or(false)
 }
 
+fn selection_transport_plan(
+    reasoning_mode: LlmReasoningMode,
+    openai_fast_mode: bool,
+    request_id: u64,
+) -> [LlmRequestOptions<'static>; 2] {
+    let streaming = LlmRequestOptions {
+        stream: true,
+        reasoning_mode,
+        stream_event: Some(SELECTION_STREAM_EVENT),
+        session_id: Some(request_id),
+        openai_fast_mode,
+        stream_progress_timeout_secs: None,
+        stream_total_timeout_secs: Some(SELECTION_STREAM_TOTAL_TIMEOUT_SECS),
+        ..Default::default()
+    };
+    let fallback = LlmRequestOptions {
+        stream: false,
+        reasoning_mode,
+        stream_event: None,
+        session_id: Some(request_id),
+        openai_fast_mode,
+        stream_total_timeout_secs: Some(SELECTION_STREAM_TOTAL_TIMEOUT_SECS),
+        ..Default::default()
+    };
+    [streaming, fallback]
+}
+
+fn reset_selection_stream(app_handle: &tauri::AppHandle, request_id: u64) {
+    let _ = app_handle.emit(
+        SELECTION_STREAM_EVENT,
+        serde_json::json!({
+            "status": "reset",
+            "sessionId": request_id,
+        }),
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_selection_request(
+    state: &AppState,
+    endpoint: &llm_provider::LlmEndpoint,
+    api_key: &str,
+    app_handle: &tauri::AppHandle,
+    input: &LlmUserInput,
+    user_content_len: usize,
+    options: LlmRequestOptions<'_>,
+) -> Result<String, String> {
+    let body = llm_client::build_llm_body(endpoint, SELECTION_SYSTEM_PROMPT.trim(), input, options);
+    let content = llm_client::send_llm_request(
+        &state.http_client,
+        endpoint,
+        api_key,
+        &body,
+        user_content_len,
+        Some(app_handle),
+        options,
+    )
+    .await?;
+    llm_client::ensure_non_empty_llm_content(content, endpoint, "selection_transport")
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_selection_with_transport_fallback(
+    state: &AppState,
+    endpoint: &llm_provider::LlmEndpoint,
+    api_key: &str,
+    app_handle: &tauri::AppHandle,
+    input: &LlmUserInput,
+    user_content_len: usize,
+    request_id: u64,
+    reasoning_mode: LlmReasoningMode,
+    openai_fast_mode: bool,
+) -> Result<String, String> {
+    let [streaming, fallback] =
+        selection_transport_plan(reasoning_mode, openai_fast_mode, request_id);
+    let stream_error = match send_selection_request(
+        state,
+        endpoint,
+        api_key,
+        app_handle,
+        input,
+        user_content_len,
+        streaming,
+    )
+    .await
+    {
+        Ok(content) => return Ok(content),
+        Err(error)
+            if !input.images.is_empty()
+                && llm_provider::looks_like_image_input_unsupported_error(&error) =>
+        {
+            return Err(error);
+        }
+        Err(error) => error,
+    };
+
+    log::warn!("划词助手流式请求失败，自动回退非流式: {stream_error}");
+    reset_selection_stream(app_handle, request_id);
+    match send_selection_request(
+        state,
+        endpoint,
+        api_key,
+        app_handle,
+        input,
+        user_content_len,
+        fallback,
+    )
+    .await
+    {
+        Ok(content) => Ok(content),
+        Err(error)
+            if !input.images.is_empty()
+                && llm_provider::looks_like_image_input_unsupported_error(&error) =>
+        {
+            Err(error)
+        }
+        Err(error) => Err(format!(
+            "划词助手流式请求失败（{stream_error}），非流式回退也失败（{error}）"
+        )),
+    }
+}
+
 async fn run_llm_action(
     state: &AppState,
     app_handle: &tauri::AppHandle,
     action: &str,
     selected_text: &str,
+    request_id: u64,
 ) -> Result<String, AppError> {
     let config = state.llm_provider_config();
     let endpoint = llm_provider::selection_endpoint_for_config(&config);
@@ -353,21 +483,18 @@ async fn run_llm_action(
         text: user_text.clone(),
         images,
     };
-    let options = LlmRequestOptions {
-        reasoning_mode: config.selection_reasoning_mode(),
-        openai_fast_mode: config.openai_fast_mode,
-        ..Default::default()
-    };
-    let body =
-        llm_client::build_llm_body(&endpoint, SELECTION_SYSTEM_PROMPT.trim(), &input, options);
-    match llm_client::send_llm_request(
-        &state.http_client,
+    let reasoning_mode = config.selection_reasoning_mode();
+    let openai_fast_mode = config.openai_fast_mode;
+    match send_selection_with_transport_fallback(
+        state,
         &endpoint,
         &api_key,
-        &body,
+        app_handle,
+        &input,
         user_text.len(),
-        Some(app_handle),
-        options,
+        request_id,
+        reasoning_mode,
+        openai_fast_mode,
     )
     .await
     {
@@ -377,21 +504,18 @@ async fn run_llm_action(
                 && llm_provider::looks_like_image_input_unsupported_error(&error) =>
         {
             log::info!("划词模型不支持图片，自动回退纯文本: {error}");
+            reset_selection_stream(app_handle, request_id);
             let fallback = LlmUserInput::from(user_text.as_str());
-            let body = llm_client::build_llm_body(
-                &endpoint,
-                SELECTION_SYSTEM_PROMPT.trim(),
-                &fallback,
-                options,
-            );
-            llm_client::send_llm_request(
-                &state.http_client,
+            send_selection_with_transport_fallback(
+                state,
                 &endpoint,
                 &api_key,
-                &body,
+                app_handle,
+                &fallback,
                 user_text.len(),
-                Some(app_handle),
-                options,
+                request_id,
+                reasoning_mode,
+                openai_fast_mode,
             )
             .await
             .map_err(AppError::Other)
@@ -410,7 +534,8 @@ fn selection_instruction(action: &str, target: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::selection_instruction;
+    use super::{selection_instruction, selection_transport_plan, SELECTION_STREAM_EVENT};
+    use crate::state::user_profile::LlmReasoningMode;
 
     #[test]
     fn explanation_uses_the_translation_target_language() {
@@ -418,5 +543,27 @@ mod tests {
 
         assert!(selection_instruction("translate", target).contains(target));
         assert!(selection_instruction("explain", target).contains(target));
+    }
+
+    #[test]
+    fn selection_transport_prefers_streaming_then_falls_back_to_non_streaming() {
+        let request_id = 42;
+        let [streaming, fallback] =
+            selection_transport_plan(LlmReasoningMode::Deep, true, request_id);
+
+        assert!(streaming.stream);
+        assert_eq!(streaming.stream_event, Some(SELECTION_STREAM_EVENT));
+        assert_eq!(streaming.session_id, Some(request_id));
+        assert_eq!(streaming.reasoning_mode, LlmReasoningMode::Deep);
+        assert!(streaming.openai_fast_mode);
+        assert_eq!(streaming.stream_progress_timeout_secs, None);
+        assert_eq!(streaming.stream_total_timeout_secs, Some(240));
+
+        assert!(!fallback.stream);
+        assert_eq!(fallback.stream_event, None);
+        assert_eq!(fallback.session_id, Some(request_id));
+        assert_eq!(fallback.reasoning_mode, LlmReasoningMode::Deep);
+        assert!(fallback.openai_fast_mode);
+        assert_eq!(fallback.stream_total_timeout_secs, Some(240));
     }
 }

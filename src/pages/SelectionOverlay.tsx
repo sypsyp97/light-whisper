@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, LoaderCircle, MoveDiagonal2, Replace } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 
@@ -30,6 +31,29 @@ interface ResultContext {
   version: number;
 }
 
+interface SelectionStreamEvent {
+  status?: string;
+  sessionId?: number;
+  chunk?: string;
+}
+
+const STREAM_LISTENER_READY_TIMEOUT_MS = 250;
+let lastSelectionRequestId = Date.now() * 1_000;
+
+function nextSelectionRequestId(): number {
+  lastSelectionRequestId = Math.max(lastSelectionRequestId + 1, Date.now() * 1_000);
+  return lastSelectionRequestId;
+}
+
+async function waitForStreamListener(ready: Promise<void>): Promise<void> {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timeoutId = window.setTimeout(resolve, STREAM_LISTENER_READY_TIMEOUT_MS);
+  });
+  await Promise.race([ready, timeout]);
+  if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+}
+
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
   if (error instanceof Error) return error.message;
@@ -49,16 +73,69 @@ export default function SelectionOverlay() {
   const [sourceCopied, setSourceCopied] = useState(false);
   const [resultCopied, setResultCopied] = useState(false);
   const requestGenerationRef = useRef(0);
+  const activeRequestIdRef = useRef<number | null>(null);
+  const streamListenerReadyRef = useRef<Promise<void>>(Promise.resolve());
+  const cancellationInFlightRef = useRef<Promise<void> | null>(null);
   const expanded = Boolean(loadingAction || result || error);
+
+  const requestSelectionCancellation = useCallback(() => {
+    if (cancellationInFlightRef.current) return cancellationInFlightRef.current;
+    const cancellation = cancelSelectionAction()
+      .catch(() => false)
+      .then(() => undefined);
+    cancellationInFlightRef.current = cancellation;
+    void cancellation.then(() => {
+      if (cancellationInFlightRef.current === cancellation) {
+        cancellationInFlightRef.current = null;
+      }
+    });
+    return cancellation;
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    const ready = listen<SelectionStreamEvent>("selection-stream", (event) => {
+      const { status, sessionId, chunk } = event.payload;
+      if (
+        typeof sessionId !== "number"
+        || !Number.isSafeInteger(sessionId)
+        || sessionId !== activeRequestIdRef.current
+      ) return;
+      if (status === "reset") {
+        setResult("");
+        return;
+      }
+      if (status !== "streaming" || typeof chunk !== "string" || !chunk) return;
+      setResult((current) => current + chunk);
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => undefined);
+    streamListenerReadyRef.current = ready;
+
+    return () => {
+      disposed = true;
+      activeRequestIdRef.current = null;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
     let lastVersion = 0;
     const poll = async () => {
       const payload = await getSelectionOverlayState().catch(() => null);
-      if (disposed || !payload || payload.version === lastVersion) return;
+      if (disposed || !payload || payload.version <= lastVersion) return;
       lastVersion = payload.version;
+      const hadActiveRequest = activeRequestIdRef.current !== null;
       requestGenerationRef.current += 1;
+      activeRequestIdRef.current = null;
+      if (hadActiveRequest) void requestSelectionCancellation();
+      await (cancellationInFlightRef.current ?? Promise.resolve());
+      if (disposed || payload.version !== lastVersion) return;
       setSelectedText(payload.text);
       setSelectionVersion(payload.version);
       setResult("");
@@ -76,41 +153,66 @@ export default function SelectionOverlay() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [requestSelectionCancellation]);
 
   const close = useCallback(async () => {
-    void cancelSelectionAction().catch(() => false);
+    requestGenerationRef.current += 1;
+    activeRequestIdRef.current = null;
+    void requestSelectionCancellation();
     await Promise.allSettled([
       hideSelectionAssistant(),
       getCurrentWindow().hide(),
     ]);
-  }, []);
+  }, [requestSelectionCancellation]);
 
   const runAiAction = useCallback(async (action: AiAction) => {
     if (!selectedText.trim() || loadingAction) return;
     const requestGeneration = requestGenerationRef.current + 1;
     requestGenerationRef.current = requestGeneration;
+    const requestId = nextSelectionRequestId();
+    activeRequestIdRef.current = requestId;
     const sourceText = selectedText;
     const version = selectionVersion;
     setLoadingAction(action);
     setError("");
     setResult("");
     setResultContext(null);
+    setResultCopied(false);
     try {
       if (!expanded) await resizeSelectionWindow(true);
-      const content = (await runSelectionAction(action, sourceText)).trim();
+      await (cancellationInFlightRef.current ?? Promise.resolve());
+      await waitForStreamListener(streamListenerReadyRef.current);
+      if (requestGeneration !== requestGenerationRef.current) return;
+      const content = (await runSelectionAction(action, sourceText, requestId)).trim();
       if (requestGeneration !== requestGenerationRef.current) return;
       setResult(content);
       setResultContext(content ? { action, sourceText, version } : null);
     } catch (requestError) {
       if (requestGeneration !== requestGenerationRef.current) return;
+      setResult("");
+      setResultContext(null);
       setError(errorMessage(requestError));
     } finally {
       if (requestGeneration === requestGenerationRef.current) {
+        activeRequestIdRef.current = null;
         setLoadingAction(null);
       }
     }
   }, [expanded, loadingAction, selectedText, selectionVersion]);
+
+  const cancelActiveRequest = useCallback(() => {
+    const cancellationGeneration = requestGenerationRef.current + 1;
+    requestGenerationRef.current = cancellationGeneration;
+    activeRequestIdRef.current = null;
+    setResult("");
+    setResultContext(null);
+    setError("");
+    void requestSelectionCancellation().then(() => {
+      if (requestGenerationRef.current !== cancellationGeneration) return;
+      setLoadingAction(null);
+      void resizeSelectionWindow(false).catch(() => undefined);
+    });
+  }, [requestSelectionCancellation]);
 
   const handleCopy = useCallback(async () => {
     if (!selectedText) return;
@@ -225,7 +327,7 @@ export default function SelectionOverlay() {
           >
             <span>{loadingAction ? t(`selection.${loadingAction}Working`) : error ? t("selection.error") : t("selection.result")}</span>
             {loadingAction ? (
-              <button type="button" className="selection-result-action" onPointerDown={(event) => event.stopPropagation()} onClick={() => void cancelSelectionAction()}>{t("common.cancel")}</button>
+              <button type="button" className="selection-result-action" onPointerDown={(event) => event.stopPropagation()} onClick={cancelActiveRequest}>{t("common.cancel")}</button>
             ) : result ? (
               <div className="selection-result-actions">
                 <button type="button" disabled={replacing} className="selection-result-action selection-copy-result" onPointerDown={(event) => event.stopPropagation()} onClick={() => void copyResult()}>
@@ -241,10 +343,12 @@ export default function SelectionOverlay() {
               </div>
             ) : null}
           </div>
-          {loadingAction ? (
+          {error ? (
+            <div className="selection-error">{error}</div>
+          ) : loadingAction && !result ? (
             <div className="selection-loading"><LoaderCircle size={18} />{t("selection.workingHint")}</div>
           ) : (
-            error ? <div className="selection-error">{error}</div> : <SelectionResult content={result} />
+            <SelectionResult content={result} />
           )}
           <button
             type="button"

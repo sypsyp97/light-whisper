@@ -54,6 +54,7 @@ describe("Tauri window capability boundaries", () => {
     expect(selection.windows).toEqual(["selection-toolbar"]);
     expect(selection.permissions).toEqual(
       expect.arrayContaining([
+        "core:event:default",
         "core:window:default",
         "core:window:allow-hide",
       ]),

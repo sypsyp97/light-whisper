@@ -425,8 +425,12 @@ export function searchSelection(text: string): Promise<void> {
   return invokeCommand<void>("search_selection", { text });
 }
 
-export function runSelectionAction(action: "translate" | "explain" | "optimize", text: string): Promise<string> {
-  return invokeCommand<string>("run_selection_action", { action, text });
+export function runSelectionAction(
+  action: "translate" | "explain" | "optimize",
+  text: string,
+  requestId: number,
+): Promise<string> {
+  return invokeCommand<string>("run_selection_action", { action, text, requestId });
 }
 
 export function cancelSelectionAction(): Promise<boolean> {

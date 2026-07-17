@@ -32,6 +32,41 @@ fn make_key_input(vk: u16, scan: u16, flags: u32) -> INPUT {
 #[cfg(target_os = "windows")]
 const CLIPBOARD_RESTORE_DELAY_MS: u64 = 200;
 
+#[cfg(any(target_os = "windows", test))]
+fn try_all_then_standard<T, E, F>(mut capture: F) -> Result<(T, Option<E>), (E, E)>
+where
+    F: FnMut(bool) -> Result<T, E>,
+{
+    match capture(true) {
+        Ok(snapshot) => Ok((snapshot, None)),
+        Err(all_formats_error) => match capture(false) {
+            Ok(snapshot) => Ok((snapshot, Some(all_formats_error))),
+            Err(standard_formats_error) => Err((all_formats_error, standard_formats_error)),
+        },
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn capture_clipboard_snapshot() -> Result<uiautomation::clipboards::Snapshot, AppError> {
+    use uiautomation::clipboards::Clipboard;
+
+    let clipboard = Clipboard::open()
+        .map_err(|error| AppError::Other(format!("打开剪贴板以创建快照失败: {error}")))?;
+
+    match try_all_then_standard(|try_all_formats| clipboard.snapshot(try_all_formats)) {
+        Ok((snapshot, None)) => Ok(snapshot),
+        Ok((snapshot, Some(all_formats_error))) => {
+            log::warn!(
+                "完整剪贴板快照失败，已回退到标准格式快照: {all_formats_error}"
+            );
+            Ok(snapshot)
+        }
+        Err((all_formats_error, standard_formats_error)) => Err(AppError::Other(format!(
+            "创建剪贴板快照失败（完整格式: {all_formats_error}; 标准格式: {standard_formats_error}）"
+        ))),
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn send_inputs(inputs: &[INPUT]) -> Result<(), AppError> {
     const SENDINPUT_CHUNK_SIZE: usize = 128;
@@ -96,8 +131,9 @@ pub fn grab_selected_text() -> Option<String> {
 
 /// Read a selection without disturbing focus. UI Automation is preferred; a
 /// conservative Ctrl+C fallback is used only when UIA exposes no TextPattern.
-/// The fallback snapshots the complete clipboard and restores it unless another
-/// application/user changed the copied text in the meantime.
+/// The fallback snapshots and restores the clipboard unless another
+/// application/user changed the copied text in the meantime. If a registered
+/// clipboard format cannot be read, standard text/image formats are preserved.
 pub fn grab_selected_text_robust(app_handle: &tauri::AppHandle) -> Option<String> {
     if let Some(text) = grab_selected_text() {
         return Some(text);
@@ -108,7 +144,13 @@ pub fn grab_selected_text_robust(app_handle: &tauri::AppHandle) -> Option<String
         use tauri_plugin_clipboard_manager::ClipboardExt;
         use uiautomation::clipboards::Clipboard;
 
-        let snapshot = Clipboard::open().ok()?.snapshot(true).ok()?;
+        let snapshot = match capture_clipboard_snapshot() {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                log::warn!("划词读取无法保存当前剪贴板，跳过 Ctrl+C 回退: {error}");
+                return None;
+            }
+        };
         let marker = format!("__light_whisper_selection_{:016x}__", rand::random::<u64>());
         if app_handle.clipboard().write_text(&marker).is_err() {
             if let Ok(clipboard) = Clipboard::open() {
@@ -423,14 +465,6 @@ pub async fn paste_text_impl(
             use tauri_plugin_clipboard_manager::ClipboardExt;
             use uiautomation::clipboards::{Clipboard, Snapshot};
 
-            fn capture_clipboard_snapshot() -> Result<Snapshot, AppError> {
-                let clipboard = Clipboard::open()
-                    .map_err(|e| AppError::Other(format!("打开剪贴板以创建快照失败: {}", e)))?;
-                clipboard
-                    .snapshot(true)
-                    .map_err(|e| AppError::Other(format!("创建剪贴板快照失败: {}", e)))
-            }
-
             fn restore_clipboard_snapshot(snapshot: Snapshot) -> Result<(), AppError> {
                 let clipboard = Clipboard::open()
                     .map_err(|e| AppError::Other(format!("打开剪贴板以恢复快照失败: {}", e)))?;
@@ -574,7 +608,65 @@ pub async fn paste_text_impl(
 
 #[cfg(test)]
 mod tests {
-    use super::{replacement_value_if_raw_suffix_unchanged, should_restore_clipboard_after_paste};
+    use super::{
+        replacement_value_if_raw_suffix_unchanged, should_restore_clipboard_after_paste,
+        try_all_then_standard,
+    };
+
+    #[test]
+    fn clipboard_snapshot_keeps_full_formats_when_they_are_readable() {
+        let mut attempts = Vec::new();
+
+        let result: Result<(&str, Option<&str>), (&str, &str)> =
+            try_all_then_standard(|try_all_formats| {
+                attempts.push(try_all_formats);
+                Ok("full snapshot")
+            });
+
+        assert_eq!(result, Ok(("full snapshot", None)));
+        assert_eq!(attempts, vec![true]);
+    }
+
+    #[test]
+    fn clipboard_snapshot_falls_back_when_a_registered_format_cannot_be_read() {
+        let mut attempts = Vec::new();
+
+        let result = try_all_then_standard(|try_all_formats| {
+            attempts.push(try_all_formats);
+            if try_all_formats {
+                Err("registered format unavailable")
+            } else {
+                Ok("standard snapshot")
+            }
+        });
+
+        assert_eq!(
+            result,
+            Ok(("standard snapshot", Some("registered format unavailable")))
+        );
+        assert_eq!(attempts, vec![true, false]);
+    }
+
+    #[test]
+    fn clipboard_snapshot_reports_both_capture_failures() {
+        let mut attempts = Vec::new();
+
+        let result: Result<(&str, Option<&str>), (&str, &str)> =
+            try_all_then_standard(|try_all_formats| {
+                attempts.push(try_all_formats);
+                if try_all_formats {
+                    Err("all formats failed")
+                } else {
+                    Err("standard formats failed")
+                }
+            });
+
+        assert_eq!(
+            result,
+            Err(("all formats failed", "standard formats failed"))
+        );
+        assert_eq!(attempts, vec![true, false]);
+    }
 
     #[test]
     fn sendinput_wrapper_treats_partial_sends_as_failure() {

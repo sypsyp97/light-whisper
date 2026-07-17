@@ -1,5 +1,5 @@
 #[cfg(target_os = "windows")]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -726,6 +726,442 @@ mod window_position_tests {
     }
 }
 
+#[cfg(all(test, target_os = "windows"))]
+mod selection_gesture_tests {
+    use super::{
+        capture_mouse_hook_event, Anchor, DoubleClickLimits, HookEvent, MouseSample,
+        SelectionGesture, SelectionGestureTracker, SelectionInputActivity,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
+        WM_RBUTTONDOWN, WM_XBUTTONDOWN,
+    };
+
+    const POINT: Anchor = Anchor { x: 640, y: 480 };
+    const SOURCE_WINDOW: isize = 42;
+    const OTHER_SOURCE_WINDOW: isize = 84;
+    const DOUBLE_CLICK_LIMITS: DoubleClickLimits = DoubleClickLimits {
+        max_delay_ms: 500,
+        rectangle_width: 4,
+        rectangle_height: 4,
+    };
+
+    fn sample(point: Anchor, scroll_generation: u64, time_ms: u32) -> MouseSample {
+        MouseSample {
+            point,
+            scroll_generation,
+            interruption_generation: 0,
+            time_ms,
+        }
+    }
+
+    fn click(
+        tracker: &mut SelectionGestureTracker,
+        point: Anchor,
+        scroll_generation: u64,
+        time_ms: u32,
+        source_window: Option<isize>,
+    ) -> Option<SelectionGesture> {
+        tracker.begin(sample(point, scroll_generation, time_ms));
+        tracker.finish(
+            sample(point, scroll_generation, time_ms.wrapping_add(10)),
+            source_window,
+            DOUBLE_CLICK_LIMITS,
+        )
+    }
+
+    #[test]
+    fn wheel_assisted_selection_is_eligible_even_when_release_position_is_unchanged() {
+        let mut tracker = SelectionGestureTracker::default();
+        tracker.begin(sample(POINT, 7, 100));
+
+        let gesture = tracker
+            .finish(
+                sample(POINT, 8, 150),
+                Some(SOURCE_WINDOW),
+                DOUBLE_CLICK_LIMITS,
+            )
+            .expect("wheel activity while the button is held indicates selection intent");
+        assert_eq!((gesture.start.x, gesture.start.y), (POINT.x, POINT.y));
+        assert_eq!((gesture.end.x, gesture.end.y), (POINT.x, POINT.y));
+    }
+
+    #[test]
+    fn movement_below_the_existing_threshold_without_scroll_remains_ineligible() {
+        let mut tracker = SelectionGestureTracker::default();
+        tracker.begin(sample(POINT, 7, 100));
+
+        assert!(tracker
+            .finish(
+                sample(
+                    Anchor {
+                        x: POINT.x + 3,
+                        y: POINT.y + 3,
+                    },
+                    7,
+                    150,
+                ),
+                Some(SOURCE_WINDOW),
+                DOUBLE_CLICK_LIMITS
+            )
+            .is_none());
+    }
+
+    #[test]
+    fn ordinary_drag_at_the_existing_threshold_remains_eligible() {
+        for end in [
+            Anchor {
+                x: POINT.x + 4,
+                y: POINT.y,
+            },
+            Anchor {
+                x: POINT.x,
+                y: POINT.y + 4,
+            },
+        ] {
+            let mut tracker = SelectionGestureTracker::default();
+            tracker.begin(sample(POINT, 7, 100));
+
+            assert!(tracker
+                .finish(
+                    sample(end, 7, 150),
+                    Some(SOURCE_WINDOW),
+                    DOUBLE_CLICK_LIMITS,
+                )
+                .is_some());
+        }
+    }
+
+    #[test]
+    fn one_plain_click_remains_ineligible() {
+        let mut tracker = SelectionGestureTracker::default();
+
+        assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+    }
+
+    #[test]
+    fn second_plain_click_in_the_same_window_emits_a_gesture() {
+        let mut tracker = SelectionGestureTracker::default();
+        assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+
+        let gesture = click(&mut tracker, POINT, 7, 350, Some(SOURCE_WINDOW))
+            .expect("the second click should make the native word selection eligible");
+        assert_eq!((gesture.start.x, gesture.start.y), (POINT.x, POINT.y));
+        assert_eq!((gesture.end.x, gesture.end.y), (POINT.x, POINT.y));
+    }
+
+    #[test]
+    fn third_plain_click_remains_eligible_for_native_triple_click_selection() {
+        let mut tracker = SelectionGestureTracker::default();
+        assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+        assert!(click(&mut tracker, POINT, 7, 200, Some(SOURCE_WINDOW)).is_some());
+        assert!(click(&mut tracker, POINT, 7, 300, Some(SOURCE_WINDOW)).is_some());
+    }
+
+    #[test]
+    fn double_click_delay_is_inclusive_and_a_late_click_becomes_the_next_candidate() {
+        let mut boundary_tracker = SelectionGestureTracker::default();
+        assert!(click(&mut boundary_tracker, POINT, 7, 100, Some(SOURCE_WINDOW),).is_none());
+        assert!(click(&mut boundary_tracker, POINT, 7, 600, Some(SOURCE_WINDOW),).is_some());
+
+        let mut late_tracker = SelectionGestureTracker::default();
+        assert!(click(&mut late_tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+        assert!(click(&mut late_tracker, POINT, 7, 601, Some(SOURCE_WINDOW)).is_none());
+        assert!(click(&mut late_tracker, POINT, 7, 800, Some(SOURCE_WINDOW)).is_some());
+    }
+
+    #[test]
+    fn double_click_rectangle_uses_its_full_width_and_height() {
+        for point in [
+            Anchor {
+                x: POINT.x - 2,
+                y: POINT.y - 2,
+            },
+            Anchor {
+                x: POINT.x + 1,
+                y: POINT.y + 1,
+            },
+        ] {
+            let mut tracker = SelectionGestureTracker::default();
+            assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+            assert!(click(&mut tracker, point, 7, 200, Some(SOURCE_WINDOW)).is_some());
+        }
+
+        for point in [
+            Anchor {
+                x: POINT.x - 3,
+                y: POINT.y,
+            },
+            Anchor {
+                x: POINT.x + 2,
+                y: POINT.y,
+            },
+            Anchor {
+                x: POINT.x,
+                y: POINT.y - 3,
+            },
+            Anchor {
+                x: POINT.x,
+                y: POINT.y + 2,
+            },
+        ] {
+            let mut tracker = SelectionGestureTracker::default();
+            assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+            assert!(click(&mut tracker, point, 7, 200, Some(SOURCE_WINDOW)).is_none());
+            assert!(click(&mut tracker, point, 7, 300, Some(SOURCE_WINDOW)).is_some());
+        }
+    }
+
+    #[test]
+    fn clicks_from_different_foreground_windows_do_not_pair() {
+        let mut tracker = SelectionGestureTracker::default();
+        assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+        assert!(click(&mut tracker, POINT, 7, 200, Some(OTHER_SOURCE_WINDOW),).is_none());
+        assert!(click(&mut tracker, POINT, 7, 300, Some(OTHER_SOURCE_WINDOW),).is_some());
+    }
+
+    #[test]
+    fn scroll_between_clicks_breaks_the_pair() {
+        let mut tracker = SelectionGestureTracker::default();
+        assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+        assert!(click(&mut tracker, POINT, 8, 200, Some(SOURCE_WINDOW)).is_none());
+        assert!(click(&mut tracker, POINT, 8, 300, Some(SOURCE_WINDOW)).is_some());
+    }
+
+    #[test]
+    fn drag_selection_clears_the_previous_click_candidate() {
+        let mut tracker = SelectionGestureTracker::default();
+        assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+
+        tracker.begin(sample(POINT, 7, 200));
+        assert!(tracker
+            .finish(
+                sample(
+                    Anchor {
+                        x: POINT.x + 4,
+                        y: POINT.y,
+                    },
+                    7,
+                    250,
+                ),
+                Some(SOURCE_WINDOW),
+                DOUBLE_CLICK_LIMITS,
+            )
+            .is_some());
+
+        assert!(click(&mut tracker, POINT, 7, 300, Some(SOURCE_WINDOW)).is_none());
+        assert!(click(&mut tracker, POINT, 7, 400, Some(SOURCE_WINDOW)).is_some());
+    }
+
+    #[test]
+    fn clear_removes_both_pending_and_previous_click_state() {
+        let mut tracker = SelectionGestureTracker::default();
+        assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+        tracker.clear();
+
+        assert!(click(&mut tracker, POINT, 7, 200, Some(SOURCE_WINDOW)).is_none());
+        assert!(click(&mut tracker, POINT, 7, 300, Some(SOURCE_WINDOW)).is_some());
+    }
+
+    #[test]
+    fn unmatched_button_up_clears_a_stale_click_candidate() {
+        let mut tracker = SelectionGestureTracker::default();
+        assert!(click(&mut tracker, POINT, 7, 100, Some(SOURCE_WINDOW)).is_none());
+        assert!(tracker
+            .finish(
+                sample(POINT, 7, 150),
+                Some(SOURCE_WINDOW),
+                DOUBLE_CLICK_LIMITS,
+            )
+            .is_none());
+
+        assert!(click(&mut tracker, POINT, 7, 200, Some(SOURCE_WINDOW)).is_none());
+    }
+
+    #[test]
+    fn double_click_time_handles_u32_wraparound() {
+        let mut tracker = SelectionGestureTracker::default();
+        assert!(click(&mut tracker, POINT, 7, u32::MAX - 100, Some(SOURCE_WINDOW),).is_none());
+        assert!(click(&mut tracker, POINT, 7, 50, Some(SOURCE_WINDOW)).is_some());
+    }
+
+    #[test]
+    fn scrolling_without_an_active_press_does_not_pollute_the_next_click() {
+        let input_activity = SelectionInputActivity::default();
+        assert!(
+            capture_mouse_hook_event(WM_MOUSEWHEEL, POINT, 50, None, &input_activity,).is_none()
+        );
+
+        let mut tracker = SelectionGestureTracker::default();
+        let Some(HookEvent::LeftDown(sample)) =
+            capture_mouse_hook_event(WM_LBUTTONDOWN, POINT, 100, None, &input_activity)
+        else {
+            panic!("left-button down must be forwarded");
+        };
+        tracker.begin(sample);
+
+        let Some(HookEvent::LeftUp(sample, source_window)) = capture_mouse_hook_event(
+            WM_LBUTTONUP,
+            POINT,
+            150,
+            Some(SOURCE_WINDOW),
+            &input_activity,
+        ) else {
+            panic!("left-button up must be forwarded");
+        };
+        assert!(tracker
+            .finish(sample, source_window, DOUBLE_CLICK_LIMITS)
+            .is_none());
+    }
+
+    #[test]
+    fn low_level_mouse_hook_records_vertical_and_horizontal_wheel_activity() {
+        for wheel_message in [WM_MOUSEWHEEL, WM_MOUSEHWHEEL] {
+            let input_activity = SelectionInputActivity::default();
+            let mut tracker = SelectionGestureTracker::default();
+
+            let Some(HookEvent::LeftDown(sample)) =
+                capture_mouse_hook_event(WM_LBUTTONDOWN, POINT, 100, None, &input_activity)
+            else {
+                panic!("left-button down must be forwarded");
+            };
+            tracker.begin(sample);
+
+            assert!(
+                capture_mouse_hook_event(wheel_message, POINT, 125, None, &input_activity,)
+                    .is_none()
+            );
+
+            let Some(HookEvent::LeftUp(sample, source_window)) = capture_mouse_hook_event(
+                WM_LBUTTONUP,
+                POINT,
+                150,
+                Some(SOURCE_WINDOW),
+                &input_activity,
+            ) else {
+                panic!("left-button up must be forwarded");
+            };
+            assert!(tracker
+                .finish(sample, source_window, DOUBLE_CLICK_LIMITS)
+                .is_some());
+        }
+    }
+
+    #[test]
+    fn other_mouse_buttons_interrupt_a_double_click_sequence() {
+        for interrupt_message in [WM_MBUTTONDOWN, WM_RBUTTONDOWN, WM_XBUTTONDOWN] {
+            let input_activity = SelectionInputActivity::default();
+            let mut tracker = SelectionGestureTracker::default();
+
+            let Some(HookEvent::LeftDown(first_down)) =
+                capture_mouse_hook_event(WM_LBUTTONDOWN, POINT, 100, None, &input_activity)
+            else {
+                panic!("left-button down must be forwarded");
+            };
+            tracker.begin(first_down);
+            let Some(HookEvent::LeftUp(first_up, first_window)) = capture_mouse_hook_event(
+                WM_LBUTTONUP,
+                POINT,
+                110,
+                Some(SOURCE_WINDOW),
+                &input_activity,
+            ) else {
+                panic!("left-button up must be forwarded");
+            };
+            assert!(tracker
+                .finish(first_up, first_window, DOUBLE_CLICK_LIMITS)
+                .is_none());
+
+            assert!(
+                capture_mouse_hook_event(interrupt_message, POINT, 150, None, &input_activity,)
+                    .is_none()
+            );
+
+            let Some(HookEvent::LeftDown(second_down)) =
+                capture_mouse_hook_event(WM_LBUTTONDOWN, POINT, 200, None, &input_activity)
+            else {
+                panic!("left-button down must be forwarded");
+            };
+            tracker.begin(second_down);
+            let Some(HookEvent::LeftUp(second_up, second_window)) = capture_mouse_hook_event(
+                WM_LBUTTONUP,
+                POINT,
+                210,
+                Some(SOURCE_WINDOW),
+                &input_activity,
+            ) else {
+                panic!("left-button up must be forwarded");
+            };
+            assert!(tracker
+                .finish(second_up, second_window, DOUBLE_CLICK_LIMITS)
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn other_mouse_button_during_a_left_press_is_not_treated_as_scroll_selection() {
+        let input_activity = SelectionInputActivity::default();
+        let mut tracker = SelectionGestureTracker::default();
+        let Some(HookEvent::LeftDown(sample)) =
+            capture_mouse_hook_event(WM_LBUTTONDOWN, POINT, 100, None, &input_activity)
+        else {
+            panic!("left-button down must be forwarded");
+        };
+        tracker.begin(sample);
+
+        assert!(
+            capture_mouse_hook_event(WM_RBUTTONDOWN, POINT, 125, None, &input_activity,).is_none()
+        );
+        let Some(HookEvent::LeftUp(sample, source_window)) = capture_mouse_hook_event(
+            WM_LBUTTONUP,
+            Anchor {
+                x: POINT.x + 4,
+                y: POINT.y,
+            },
+            150,
+            Some(SOURCE_WINDOW),
+            &input_activity,
+        ) else {
+            panic!("left-button up must be forwarded");
+        };
+        assert!(tracker
+            .finish(sample, source_window, DOUBLE_CLICK_LIMITS)
+            .is_none());
+    }
+
+    #[test]
+    fn low_level_mouse_hook_preserves_the_message_timestamp() {
+        let input_activity = SelectionInputActivity::default();
+        input_activity
+            .scroll_generation
+            .store(9, std::sync::atomic::Ordering::Relaxed);
+        let Some(HookEvent::LeftDown(sample)) =
+            capture_mouse_hook_event(WM_LBUTTONDOWN, POINT, 1_234, None, &input_activity)
+        else {
+            panic!("left-button down must be forwarded");
+        };
+
+        assert_eq!(sample.time_ms, 1_234);
+        assert_eq!(sample.scroll_generation, 9);
+    }
+
+    #[test]
+    fn low_level_mouse_hook_preserves_the_release_window_snapshot() {
+        let input_activity = SelectionInputActivity::default();
+        let Some(HookEvent::LeftUp(_, source_window)) = capture_mouse_hook_event(
+            WM_LBUTTONUP,
+            POINT,
+            1_234,
+            Some(SOURCE_WINDOW),
+            &input_activity,
+        ) else {
+            panic!("left-button up must be forwarded");
+        };
+
+        assert_eq!(source_window, Some(SOURCE_WINDOW));
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn apply_no_activate_style(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -777,13 +1213,184 @@ fn show_without_activation(window: &tauri::WebviewWindow) {
 #[cfg(target_os = "windows")]
 #[derive(Debug, Clone, Copy)]
 enum HookEvent {
-    LeftDown(Anchor),
-    LeftUp(Anchor),
+    LeftDown(MouseSample),
+    LeftUp(MouseSample, Option<isize>),
     Dismiss,
 }
 
 #[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+struct MouseSample {
+    point: Anchor,
+    scroll_generation: u64,
+    interruption_generation: u64,
+    time_ms: u32,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Default)]
+struct SelectionInputActivity {
+    scroll_generation: AtomicU64,
+    interruption_generation: AtomicU64,
+}
+
+#[cfg(target_os = "windows")]
+impl SelectionInputActivity {
+    fn record_scroll(&self) {
+        self.scroll_generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn interrupt_selection(&self) {
+        self.interruption_generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn sample(&self, point: Anchor, time_ms: u32) -> MouseSample {
+        MouseSample {
+            point,
+            scroll_generation: self.scroll_generation.load(Ordering::Relaxed),
+            interruption_generation: self.interruption_generation.load(Ordering::Relaxed),
+            time_ms,
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+struct DoubleClickLimits {
+    max_delay_ms: u32,
+    rectangle_width: i32,
+    rectangle_height: i32,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+struct ClickCandidate {
+    press: MouseSample,
+    source_window: isize,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Default)]
+struct SelectionGestureTracker {
+    pending: Option<MouseSample>,
+    previous_click: Option<ClickCandidate>,
+}
+
+#[cfg(target_os = "windows")]
+impl SelectionGestureTracker {
+    fn begin(&mut self, sample: MouseSample) {
+        if self.pending.replace(sample).is_some() {
+            self.previous_click = None;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.pending = None;
+        self.previous_click = None;
+    }
+
+    fn finish(
+        &mut self,
+        sample: MouseSample,
+        source_window: Option<isize>,
+        double_click_limits: DoubleClickLimits,
+    ) -> Option<SelectionGesture> {
+        let Some(start) = self.pending.take() else {
+            self.previous_click = None;
+            return None;
+        };
+        let moved = sample.point.x.abs_diff(start.point.x) >= MIN_DRAG_DISTANCE_PX as u32
+            || sample.point.y.abs_diff(start.point.y) >= MIN_DRAG_DISTANCE_PX as u32;
+        let scrolled = sample.scroll_generation != start.scroll_generation;
+        let interrupted = sample.interruption_generation != start.interruption_generation;
+        let gesture = SelectionGesture {
+            start: start.point,
+            end: sample.point,
+        };
+        if interrupted {
+            self.previous_click = None;
+            return None;
+        }
+        if moved || scrolled {
+            self.previous_click = None;
+            return Some(gesture);
+        }
+
+        let Some(source_window) = source_window else {
+            self.previous_click = None;
+            return None;
+        };
+        let current_click = ClickCandidate {
+            press: start,
+            source_window,
+        };
+        let is_double_click = self.previous_click.take().is_some_and(|previous_click| {
+            clicks_form_double_click(previous_click, current_click, double_click_limits)
+        });
+        if is_double_click {
+            self.previous_click = Some(current_click);
+            Some(gesture)
+        } else {
+            self.previous_click = Some(current_click);
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn clicks_form_double_click(
+    first: ClickCandidate,
+    second: ClickCandidate,
+    limits: DoubleClickLimits,
+) -> bool {
+    first.source_window == second.source_window
+        && first.press.scroll_generation == second.press.scroll_generation
+        && first.press.interruption_generation == second.press.interruption_generation
+        && second.press.time_ms.wrapping_sub(first.press.time_ms) <= limits.max_delay_ms
+        && point_inside_centered_rectangle(
+            first.press.point,
+            second.press.point,
+            limits.rectangle_width,
+            limits.rectangle_height,
+        )
+}
+
+#[cfg(target_os = "windows")]
+fn point_inside_centered_rectangle(center: Anchor, point: Anchor, width: i32, height: i32) -> bool {
+    fn coordinate_inside_span(center: i32, value: i32, size: i32) -> bool {
+        let size = i64::from(size.max(1));
+        let start = i64::from(center) - size / 2;
+        let value = i64::from(value);
+        value >= start && value < start + size
+    }
+
+    coordinate_inside_span(center.x, point.x, width)
+        && coordinate_inside_span(center.y, point.y, height)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_double_click_limits() -> DoubleClickLimits {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_CXDOUBLECLK, SM_CYDOUBLECLK,
+    };
+
+    unsafe {
+        DoubleClickLimits {
+            max_delay_ms: GetDoubleClickTime(),
+            rectangle_width: GetSystemMetrics(SM_CXDOUBLECLK).max(1),
+            rectangle_height: GetSystemMetrics(SM_CYDOUBLECLK).max(1),
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 static HOOK_ENABLED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "windows")]
+static INPUT_ACTIVITY: SelectionInputActivity = SelectionInputActivity {
+    scroll_generation: AtomicU64::new(0),
+    interruption_generation: AtomicU64::new(0),
+};
 #[cfg(target_os = "windows")]
 static HOOK_SENDER: OnceLock<parking_lot::Mutex<Option<std::sync::mpsc::SyncSender<HookEvent>>>> =
     OnceLock::new();
@@ -843,20 +1450,25 @@ unsafe extern "system" fn mouse_hook(
     wparam: windows_sys::Win32::Foundation::WPARAM,
     lparam: windows_sys::Win32::Foundation::LPARAM,
 ) -> windows_sys::Win32::Foundation::LRESULT {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, MSLLHOOKSTRUCT, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{CallNextHookEx, MSLLHOOKSTRUCT};
     if code >= 0 {
-        let point = (*(lparam as *const MSLLHOOKSTRUCT)).pt;
+        let hook_data = &*(lparam as *const MSLLHOOKSTRUCT);
+        let point = hook_data.pt;
         let anchor = Anchor {
             x: point.x,
             y: point.y,
         };
-        let event = match wparam as u32 {
-            WM_LBUTTONDOWN => Some(HookEvent::LeftDown(anchor)),
-            WM_LBUTTONUP => Some(HookEvent::LeftUp(anchor)),
-            _ => None,
-        };
+        let message = wparam as u32;
+        let source_window = (message == windows_sys::Win32::UI::WindowsAndMessaging::WM_LBUTTONUP)
+            .then(foreground_window_id)
+            .flatten();
+        let event = capture_mouse_hook_event(
+            message,
+            anchor,
+            hook_data.time,
+            source_window,
+            &INPUT_ACTIVITY,
+        );
         let sender = if HOOK_ENABLED.load(Ordering::Acquire) {
             hook_sender().lock().clone()
         } else {
@@ -867,6 +1479,49 @@ unsafe extern "system" fn mouse_hook(
         }
     }
     CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+}
+
+#[cfg(target_os = "windows")]
+fn is_mouse_wheel_message(message: u32) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_MOUSEHWHEEL, WM_MOUSEWHEEL};
+
+    matches!(message, WM_MOUSEWHEEL | WM_MOUSEHWHEEL)
+}
+
+#[cfg(target_os = "windows")]
+fn is_other_mouse_button_down(message: u32) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        WM_MBUTTONDOWN, WM_RBUTTONDOWN, WM_XBUTTONDOWN,
+    };
+
+    matches!(message, WM_MBUTTONDOWN | WM_RBUTTONDOWN | WM_XBUTTONDOWN)
+}
+
+#[cfg(target_os = "windows")]
+fn capture_mouse_hook_event(
+    message: u32,
+    point: Anchor,
+    time_ms: u32,
+    source_window: Option<isize>,
+    input_activity: &SelectionInputActivity,
+) -> Option<HookEvent> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_LBUTTONDOWN, WM_LBUTTONUP};
+
+    if is_mouse_wheel_message(message) {
+        input_activity.record_scroll();
+        return None;
+    }
+    if is_other_mouse_button_down(message) {
+        input_activity.interrupt_selection();
+        return None;
+    }
+
+    let sample = input_activity.sample(point, time_ms);
+    match message {
+        WM_LBUTTONDOWN => Some(HookEvent::LeftDown(sample)),
+        WM_LBUTTONUP => Some(HookEvent::LeftUp(sample, source_window)),
+        _ => None,
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -881,6 +1536,7 @@ unsafe extern "system" fn keyboard_hook(
     if code >= 0 && matches!(wparam as u32, WM_KEYDOWN | WM_SYSKEYDOWN) {
         let event = &*(lparam as *const KBDLLHOOKSTRUCT);
         if event.flags & LLKHF_INJECTED == 0 {
+            INPUT_ACTIVITY.interrupt_selection();
             let sender = if HOOK_ENABLED.load(Ordering::Acquire) {
                 hook_sender().lock().clone()
             } else {
@@ -936,42 +1592,43 @@ fn run_selection_worker(
     app_handle: tauri::AppHandle,
     receiver: std::sync::mpsc::Receiver<HookEvent>,
 ) {
-    let mut left_down = None;
+    let mut gesture_tracker = SelectionGestureTracker::default();
+    let double_click_limits = windows_double_click_limits();
     let mut last_value = String::new();
     let mut last_seen = Instant::now() - Duration::from_secs(2);
 
     while let Ok(event) = receiver.recv() {
         match event {
             HookEvent::Dismiss => {
+                gesture_tracker.clear();
                 if let Err(error) = hide_selection_window(&app_handle) {
                     log::warn!("外部键盘事件隐藏划词助手失败: {error}");
                 }
                 cancel_active_request(&app_handle);
             }
-            HookEvent::LeftDown(point) => {
+            HookEvent::LeftDown(sample) => {
+                let point = sample.point;
                 if point_inside_overlay(&app_handle, point) {
-                    left_down = None;
+                    gesture_tracker.clear();
                 } else {
                     if let Err(error) = hide_selection_window(&app_handle) {
                         log::warn!("外部鼠标事件隐藏划词助手失败: {error}");
                     }
                     cancel_active_request(&app_handle);
-                    left_down = Some(point);
+                    gesture_tracker.begin(sample);
                 }
             }
-            HookEvent::LeftUp(point) => {
+            HookEvent::LeftUp(sample, source_window) => {
+                let point = sample.point;
                 if point_inside_overlay(&app_handle, point) {
-                    left_down = None;
+                    gesture_tracker.clear();
                     continue;
                 }
-                let Some(start) = left_down.take() else {
+                let Some(gesture) =
+                    gesture_tracker.finish(sample, source_window, double_click_limits)
+                else {
                     continue;
                 };
-                if (point.x - start.x).abs() < MIN_DRAG_DISTANCE_PX
-                    && (point.y - start.y).abs() < MIN_DRAG_DISTANCE_PX
-                {
-                    continue;
-                }
 
                 let config = app_handle
                     .state::<AppState>()
@@ -1036,12 +1693,7 @@ fn run_selection_worker(
                     },
                     None => Vec::new(),
                 };
-                if let Err(error) = show_selection(
-                    &app_handle,
-                    SelectionGesture { start, end: point },
-                    text,
-                    screenshots,
-                ) {
+                if let Err(error) = show_selection(&app_handle, gesture, text, screenshots) {
                     log::warn!("显示划词助手失败: {error}");
                 }
             }
