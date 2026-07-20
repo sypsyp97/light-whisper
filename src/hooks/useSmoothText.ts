@@ -16,21 +16,37 @@ const DEFAULTS: Required<SmoothTextOptions> = {
   maxCatchup: 5,
 };
 
+interface GraphemeSegmenter {
+  segment(text: string): Iterable<{ segment: string }>;
+}
+
+let cachedGraphemeSegmenter: GraphemeSegmenter | null | undefined;
+
+function getGraphemeSegmenter(): GraphemeSegmenter | null {
+  if (cachedGraphemeSegmenter !== undefined) return cachedGraphemeSegmenter;
+
+  try {
+    const Segmenter = (Intl as typeof Intl & {
+      Segmenter?: new (
+        locales?: string,
+        options?: { granularity: "grapheme" },
+      ) => GraphemeSegmenter;
+    }).Segmenter;
+    cachedGraphemeSegmenter = Segmenter
+      ? new Segmenter(undefined, { granularity: "grapheme" })
+      : null;
+  } catch {
+    cachedGraphemeSegmenter = null;
+  }
+
+  return cachedGraphemeSegmenter;
+}
+
 /** Grapheme-aware split: keeps emoji + ZWJ sequences + CJK whole. */
 export function segmentGraphemes(text: string): string[] {
   if (!text) return [];
-  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
-    try {
-      const seg = new (Intl as typeof Intl & {
-        Segmenter: new (l?: string, o?: { granularity: "grapheme" }) => {
-          segment: (s: string) => Iterable<{ segment: string }>;
-        };
-      }).Segmenter(undefined, { granularity: "grapheme" });
-      return Array.from(seg.segment(text), (s) => s.segment);
-    } catch {
-      // fall through
-    }
-  }
+  const segmenter = getGraphemeSegmenter();
+  if (segmenter) return Array.from(segmenter.segment(text), ({ segment }) => segment);
   return Array.from(text); // handles BMP surrogate pairs but not ZWJ joiners
 }
 
