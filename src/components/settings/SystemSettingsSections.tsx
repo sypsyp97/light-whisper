@@ -38,7 +38,7 @@ export default function SystemSettingsSections({
 
   return (
     <>
-      <section className="settings-card" data-nav-id="misc">
+      <section className="settings-card">
         <div className="settings-section-header">
           <Download size={15} className="icon-accent" />
           <h2 className="settings-section-title">{t("settings.data")}</h2>
@@ -99,7 +99,7 @@ export default function SystemSettingsSections({
         </div>
       </section>
 
-      <section className="settings-card">
+      <section className="settings-card" data-nav-id="startup">
         <div className="settings-section-header">
           <Power size={15} className="icon-accent" />
           <h2 className="settings-section-title">{t("settings.startup")}</h2>

@@ -1949,6 +1949,59 @@
   transform: translateY(0) scale(0.97);
 }
 
+.hot-word-remove {
+  width: 24px;
+  height: 24px;
+  margin: -4px -5px -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.hot-word-remove:hover {
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.modal-dismiss {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.correction-modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.correction-dialog {
+  position: relative;
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-primary);
+  box-shadow: var(--shadow-xl);
+}
+
 /* Settings error text */
 .settings-error {
   font-size: 11px;

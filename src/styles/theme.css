@@ -4,6 +4,14 @@
    compact typography, and state-driven motion.
    ============================================================ */
 
+@font-face {
+  font-family: "Source Han Sans SC";
+  src: url("../assets/fonts/SourceHanSansSC-VF.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 250 900;
+  font-display: swap;
+}
+
 /* ---------- Light theme (default) ---------- */
 :root {
   /* Surfaces — neutral layers keep long settings sessions visually quiet */
@@ -97,10 +105,10 @@
   --transition-slow: var(--dur-5) var(--ease-out-quart);
   --transition-spring: 450ms var(--ease-spring);
 
-  /* Typography — one sans family keeps controls and status text coherent */
+  /* Typography — bundled full-coverage CJK keeps every window consistent offline */
   --font-serif: "Georgia", "Noto Serif SC",
     "Source Han Serif SC", "Songti SC", serif;
-  --font-sans: "PingFang SC", "Hiragino Sans GB",
+  --font-sans: "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
   --font-mono: "Cascadia Code", "Fira Code", ui-monospace,
     SFMono-Regular, Menlo, Consolas, monospace;
@@ -935,13 +943,28 @@ input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
+  min-height: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border-subtle);
-  outline: none;
-  cursor: pointer;
   transition: background var(--transition-fast);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-subtle);
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -953,6 +976,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--color-accent);
   border: none;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  margin-top: -6px;
   cursor: pointer;
   transition: transform 0.2s var(--ease-spring-soft),
               box-shadow 0.2s var(--ease-out-expo);

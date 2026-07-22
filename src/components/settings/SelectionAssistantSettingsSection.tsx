@@ -34,7 +34,6 @@ export default function SelectionAssistantSettingsSection({
   openaiControls,
 }: SelectionAssistantSettingsSectionProps) {
   const { t } = useTranslation();
-  const initialized = useRef(false);
   const picker = useExclusivePicker<"selectionProvider" | "selectionModel" | "selectionReasoning">();
   const [enabled, setEnabled] = useState(false);
   const [autoScreenshot, setAutoScreenshot] = useState(false);
@@ -53,11 +52,76 @@ export default function SelectionAssistantSettingsSection({
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState("");
   const [modelRefreshToken, setModelRefreshToken] = useState(0);
+  const selectionConfigDirty = useRef(false);
+  const selectionConfigRevision = useRef(0);
+  const lastHydratedSelectionConfig = useRef<string | null>(null);
+  const latestSelectionConfig = useRef<Parameters<typeof setSelectionAssistantConfig>[0] | null>(null);
+  latestSelectionConfig.current = {
+    enabled,
+    autoScreenshot,
+    minChars,
+    maxChars,
+    translationTarget,
+    excludedApps: excludedApps.split(/[,;\n]/).map((value) => value.trim()).filter(Boolean),
+    useSeparateModel: separate,
+    provider: separate ? provider : null,
+    model: separate ? model : null,
+    reasoningMode: reasoning,
+  };
   const selectionKeySave = useDebouncedCallback((keyProvider: string, value: string) => {
     setSelectionApiKey(keyProvider, value).catch(() => {
       toast.error(t("settings.selectionSaveFailed"));
     });
   }, 400, { onUnmount: "flush" });
+  const selectionConfigSave = useDebouncedCallback(() => {
+    const config = latestSelectionConfig.current;
+    if (config === null) return;
+    const revision = selectionConfigRevision.current;
+    return setSelectionAssistantConfig(config).then(() => {
+      if (selectionConfigRevision.current === revision) {
+        selectionConfigDirty.current = false;
+      }
+    }).catch(() => {
+      toast.error(t("settings.selectionSaveFailed"));
+    });
+  }, 350, { onUnmount: "flush" });
+  const scheduleSelectionConfigSave = () => {
+    selectionConfigDirty.current = true;
+    selectionConfigRevision.current += 1;
+    selectionConfigSave.schedule();
+  };
+
+  const profileSelectionConfig = useMemo(() => {
+    if (!profile) return null;
+    const config = profile.selection_assistant ?? {
+      enabled: false,
+      auto_screenshot: false,
+      min_chars: 2,
+      max_chars: 8000,
+      translation_target: "English",
+      excluded_apps: ["light-whisper.exe", "snipaste.exe", "pixpin.exe", "sharex.exe"],
+    };
+    const resolved = resolveSelectionModelConfig(profile.llm_provider);
+    const customProvider = profile.llm_provider.custom_providers
+      ?.find((item) => item.id === resolved.provider);
+    const defaultModel = customProvider?.model ?? findLlmPreset(resolved.provider).defaultModel;
+    const value: Parameters<typeof setSelectionAssistantConfig>[0] = {
+      enabled: config.enabled,
+      autoScreenshot: Boolean(config.auto_screenshot),
+      minChars: config.min_chars,
+      maxChars: config.max_chars,
+      translationTarget: config.translation_target,
+      excludedApps: config.excluded_apps,
+      useSeparateModel: !resolved.followsPolish,
+      provider: resolved.provider,
+      model: resolved.model || defaultModel || "",
+      reasoningMode: resolved.reasoningMode,
+    };
+    return {
+      signature: JSON.stringify(value),
+      value,
+    };
+  }, [profile]);
 
   const providers = useMemo(() => [
     ...llmProviderOptions.map((item) => ({
@@ -92,49 +156,24 @@ export default function SelectionAssistantSettingsSection({
     ?? reasoningModeOptions[0];
 
   useEffect(() => {
-    if (!profile) return;
-    const config = profile.selection_assistant ?? {
-      enabled: false,
-      auto_screenshot: false,
-      min_chars: 2,
-      max_chars: 8000,
-      translation_target: "English",
-      excluded_apps: ["light-whisper.exe", "snipaste.exe", "pixpin.exe", "sharex.exe"],
-    };
-    const resolved = resolveSelectionModelConfig(profile.llm_provider);
-    const nextProvider = resolved.provider;
-    const preset = providers.find((item) => item.key === nextProvider);
+    if (
+      profileSelectionConfig === null
+      || profileSelectionConfig.signature === lastHydratedSelectionConfig.current
+      || selectionConfigDirty.current
+    ) return;
+    const config = profileSelectionConfig.value;
     setEnabled(config.enabled);
-    setAutoScreenshot(Boolean(config.auto_screenshot));
-    setMinChars(config.min_chars);
-    setMaxChars(config.max_chars);
-    setTranslationTarget(config.translation_target);
-    setExcludedApps(config.excluded_apps.join("\n"));
-    setSeparate(!resolved.followsPolish);
-    setProvider(nextProvider);
-    setModel(resolved.model || preset?.defaultModel || "");
-    setReasoning(resolved.reasoningMode);
-    initialized.current = true;
-  }, [profile, providers]);
-
-  useEffect(() => {
-    if (!initialized.current) return;
-    const timer = window.setTimeout(() => {
-      void setSelectionAssistantConfig({
-        enabled,
-        autoScreenshot,
-        minChars,
-        maxChars,
-        translationTarget,
-        excludedApps: excludedApps.split(/[,;\n]/).map((value) => value.trim()).filter(Boolean),
-        useSeparateModel: separate,
-        provider: separate ? provider : null,
-        model: separate ? model : null,
-        reasoningMode: reasoning,
-      }).catch(() => toast.error(t("settings.selectionSaveFailed")));
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [autoScreenshot, enabled, excludedApps, maxChars, minChars, model, provider, reasoning, separate, t, translationTarget]);
+    setAutoScreenshot(config.autoScreenshot);
+    setMinChars(config.minChars);
+    setMaxChars(config.maxChars);
+    setTranslationTarget(config.translationTarget);
+    setExcludedApps(config.excludedApps.join("\n"));
+    setSeparate(config.useSeparateModel);
+    setProvider(config.provider ?? "openai");
+    setModel(config.model ?? "");
+    setReasoning(config.reasoningMode);
+    lastHydratedSelectionConfig.current = profileSelectionConfig.signature;
+  }, [profileSelectionConfig]);
 
   useEffect(() => {
     if (!profile || !separate) {
@@ -148,7 +187,7 @@ export default function SelectionAssistantSettingsSection({
       if (!disposed) setApiKey("");
     });
     return () => { disposed = true; };
-  }, [profile, provider, separate]);
+  }, [Boolean(profile), provider, separate]);
 
   useEffect(() => {
     if (!separate) {
@@ -208,7 +247,10 @@ export default function SelectionAssistantSettingsSection({
             aria-checked={enabled}
             aria-label={t("settings.selectionAssistantEnabled")}
             className="toggle-switch"
-            onClick={() => setEnabled((value) => !value)}
+            onClick={() => {
+              setEnabled((value) => !value);
+              scheduleSelectionConfigSave();
+            }}
             style={{ background: enabled ? "var(--color-accent)" : "var(--color-bg-tertiary)", flexShrink: 0 }}
           >
             <div className="toggle-knob" style={{ transform: enabled ? "translateX(20px)" : "translateX(0)" }} />
@@ -226,7 +268,10 @@ export default function SelectionAssistantSettingsSection({
             aria-checked={autoScreenshot}
             aria-label={t("settings.selectionAutoScreenshot")}
             className="toggle-switch"
-            onClick={() => setAutoScreenshot((value) => !value)}
+            onClick={() => {
+              setAutoScreenshot((value) => !value);
+              scheduleSelectionConfigSave();
+            }}
             style={{ background: autoScreenshot ? "var(--color-accent)" : "var(--color-bg-tertiary)", flexShrink: 0 }}
           >
             <div className="toggle-knob" style={{ transform: autoScreenshot ? "translateX(20px)" : "translateX(0)" }} />
@@ -244,7 +289,10 @@ export default function SelectionAssistantSettingsSection({
             aria-checked={separate}
             aria-label={t("settings.selectionSeparateConfig")}
             className="toggle-switch"
-            onClick={() => setSeparate((value) => !value)}
+            onClick={() => {
+              setSeparate((value) => !value);
+              scheduleSelectionConfigSave();
+            }}
             style={{ background: separate ? "var(--color-accent)" : "var(--color-bg-tertiary)", flexShrink: 0 }}
           >
             <div className="toggle-knob" style={{ transform: separate ? "translateX(20px)" : "translateX(0)" }} />
@@ -296,6 +344,7 @@ export default function SelectionAssistantSettingsSection({
                           setModelSearch("");
                           setModelRefreshToken(0);
                           picker.close();
+                          scheduleSelectionConfigSave();
                         }}
                       >
                         <span className="picker-option-copy">
@@ -337,7 +386,10 @@ export default function SelectionAssistantSettingsSection({
                   value={model}
                   placeholder={t("settings.assistantModelPlaceholder")}
                   aria-label={t("settings.assistantModelLabel")}
-                  onChange={(event) => setModel(event.target.value)}
+                  onChange={(event) => {
+                    setModel(event.target.value);
+                    scheduleSelectionConfigSave();
+                  }}
                 />
                 <button
                   type="button"
@@ -379,6 +431,7 @@ export default function SelectionAssistantSettingsSection({
                         setModel(modelSearch.trim());
                         setModelSearch("");
                         picker.close();
+                        scheduleSelectionConfigSave();
                       }}
                     >
                       <span className="picker-option-copy">
@@ -398,6 +451,7 @@ export default function SelectionAssistantSettingsSection({
                           setModel(item.id);
                           setModelSearch("");
                           picker.close();
+                          scheduleSelectionConfigSave();
                         }}
                       >
                         <span className="picker-option-copy">
@@ -443,6 +497,7 @@ export default function SelectionAssistantSettingsSection({
                         onClick={() => {
                           setReasoning(item.key);
                           picker.close();
+                          scheduleSelectionConfigSave();
                         }}
                       >
                         <span className="picker-option-copy">
@@ -460,7 +515,15 @@ export default function SelectionAssistantSettingsSection({
 
         <label className="settings-column" style={{ gap: 4 }}>
           <span className="settings-option-desc">{t("settings.selectionTranslationTarget")}</span>
-          <input className="settings-input" value={translationTarget} maxLength={80} onChange={(event) => setTranslationTarget(event.target.value)} />
+          <input
+            className="settings-input"
+            value={translationTarget}
+            maxLength={80}
+            onChange={(event) => {
+              setTranslationTarget(event.target.value);
+              scheduleSelectionConfigSave();
+            }}
+          />
         </label>
 
         <div className="settings-column" style={{ gap: 5 }}>
@@ -468,18 +531,46 @@ export default function SelectionAssistantSettingsSection({
           <div className="settings-row" style={{ gap: 8 }}>
             <label className="settings-column" style={{ gap: 3, flex: 1 }}>
               <span className="settings-hint">{t("settings.selectionMinChars")}</span>
-              <input className="settings-input" type="number" min={1} max={100} value={minChars} onChange={(event) => setMinChars(Number(event.target.value) || 1)} />
+              <input
+                className="settings-input"
+                type="number"
+                min={1}
+                max={100}
+                value={minChars}
+                onChange={(event) => {
+                  setMinChars(Number(event.target.value) || 1);
+                  scheduleSelectionConfigSave();
+                }}
+              />
             </label>
             <label className="settings-column" style={{ gap: 3, flex: 1 }}>
               <span className="settings-hint">{t("settings.selectionMaxChars")}</span>
-              <input className="settings-input" type="number" min={minChars} max={50000} value={maxChars} onChange={(event) => setMaxChars(Number(event.target.value) || minChars)} />
+              <input
+                className="settings-input"
+                type="number"
+                min={minChars}
+                max={50000}
+                value={maxChars}
+                onChange={(event) => {
+                  setMaxChars(Number(event.target.value) || minChars);
+                  scheduleSelectionConfigSave();
+                }}
+              />
             </label>
           </div>
         </div>
 
         <label className="settings-column" style={{ gap: 4 }}>
           <span className="settings-option-desc">{t("settings.selectionExcludedApps")}</span>
-          <textarea className="settings-input" rows={4} value={excludedApps} onChange={(event) => setExcludedApps(event.target.value)} />
+          <textarea
+            className="settings-input"
+            rows={4}
+            value={excludedApps}
+            onChange={(event) => {
+              setExcludedApps(event.target.value);
+              scheduleSelectionConfigSave();
+            }}
+          />
           <span className="settings-hint">{t("settings.selectionExcludedAppsHint")}</span>
         </label>
       </div>

@@ -471,16 +471,6 @@ fn hide_main_window(app: &tauri::AppHandle) {
     }
 }
 
-fn toggle_main_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
-            let _ = window.hide();
-        } else {
-            focus_main_window(app);
-        }
-    }
-}
-
 fn stop_funasr_on_exit(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     services::audio_service::stop_microphone_level_monitor(state.inner());
@@ -527,12 +517,11 @@ fn stop_funasr_on_exit(app: &tauri::AppHandle) {
 
 fn setup_system_tray(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
-    use tauri::tray::TrayIconBuilder;
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app_handle)?;
     let hide_item = MenuItemBuilder::with_id("hide", "隐藏主窗口").build(app_handle)?;
     let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app_handle)?;
-
     let menu = MenuBuilder::new(app_handle)
         .item(&show_item)
         .item(&hide_item)
@@ -548,6 +537,7 @@ fn setup_system_tray(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::e
         )
         .tooltip("轻语 Whisper - 语音转文字")
         .menu(&menu)
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => focus_main_window(app),
             "hide" => hide_main_window(app),
@@ -559,8 +549,13 @@ fn setup_system_tray(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::e
             _ => log::warn!("未知托盘菜单项: {:?}", event.id()),
         })
         .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
-                toggle_main_window(tray.app_handle());
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                focus_main_window(tray.app_handle());
             }
         })
         .build(app_handle)?;

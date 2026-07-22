@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UserProfile } from "@/types";
 
@@ -128,13 +129,21 @@ vi.mock("sonner", () => ({
 }));
 
 const labels: Record<string, string> = {
+  "common.close": "Close",
   "common.copy": "Copy",
+  "settings.addHotWordLabel": "Add hot word",
+  "settings.correctionManage": "Manage correction rules",
+  "settings.correctionRules": "Correction rules",
+  "settings.correctionSearchLabel": "Search correction rules",
+  "settings.correctionValidationToggle": "Audit correction rules",
   "settings.copyExportPath": "Copy export path",
   "settings.exportConfig": "Export Config",
   "settings.exportPath": "Export path",
   "settings.historySettings": "History settings",
   "settings.importConfig": "Import Config",
+  "settings.startup": "Startup",
   "settings.autostart": "Launch at Login",
+  "settings.webSearchMaxResults": "Search result count",
 };
 
 vi.mock("@/i18n", () => ({
@@ -301,6 +310,80 @@ describe("SettingsPage navigation", () => {
 
     expect(contentScrollTo).toHaveBeenCalledWith({ top: 746, behavior: "smooth" });
     expect(targetScrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("maps the startup navigation tab to the startup section", async () => {
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    const rendered = render(<SettingsPage active onNavigate={vi.fn()} />);
+    const content = rendered.container.querySelector<HTMLElement>(".settings-content");
+    const startupHeading = await screen.findByRole("heading", { name: "Startup" });
+    const startupSection = startupHeading.closest<HTMLElement>("section");
+
+    expect(content).not.toBeNull();
+    expect(startupSection).not.toBeNull();
+    expect(startupSection).toHaveAttribute("data-nav-id", "startup");
+    expect(screen.getByText("settings.data").closest("section"))
+      .not.toHaveAttribute("data-nav-id");
+
+    const contentScrollTo = vi.fn();
+    Object.defineProperty(content!, "scrollTop", { configurable: true, value: 100 });
+    Object.defineProperty(content!, "scrollTo", { configurable: true, value: contentScrollTo });
+    startupSection!.style.scrollMarginTop = "4px";
+    vi.spyOn(content!, "getBoundingClientRect").mockReturnValue({ top: 100 } as DOMRect);
+    vi.spyOn(startupSection!, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+
+    fireEvent.click(screen.getByRole("button", { name: "Startup" }));
+
+    expect(contentScrollTo).toHaveBeenCalledWith({ top: 496, behavior: "smooth" });
+  });
+});
+
+describe("SettingsPage correction rules dialog", () => {
+  it("traps keyboard focus, closes with Escape, and restores the trigger", async () => {
+    const user = userEvent.setup();
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const trigger = await screen.findByRole("button", { name: "Manage correction rules" });
+    await user.click(trigger);
+
+    const dialog = await screen.findByRole("dialog", { name: "Correction rules" });
+    const search = await screen.findByRole("textbox", { name: "Search correction rules" });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ));
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    last.focus();
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(first).toHaveFocus();
+
+    first.focus();
+    fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
+    expect(last).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Correction rules" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("closes only when the backdrop itself is clicked", async () => {
+    const user = userEvent.setup();
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    const rendered = render(<SettingsPage active onNavigate={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "Manage correction rules" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Correction rules" });
+    fireEvent.click(dialog);
+    expect(dialog).toBeInTheDocument();
+
+    const backdropDismiss = rendered.container.querySelector<HTMLElement>(".modal-dismiss");
+    expect(backdropDismiss).not.toBeNull();
+    fireEvent.click(backdropDismiss!);
+    expect(screen.queryByRole("dialog", { name: "Correction rules" })).not.toBeInTheDocument();
   });
 });
 
