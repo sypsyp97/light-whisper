@@ -30,11 +30,15 @@ struct WordSpan {
 }
 
 pub fn correct_qwen_profile_terms(text: &str, profile: &UserProfile) -> HotWordCorrection {
-    let aliases = correct_known_aliases(text, &profile.hot_words, &profile.correction_patterns);
-    let hot_words = correct_qwen_hot_words(&aliases.text, &profile.hot_words);
+    let hot_words = correct_qwen_hot_words(text, &profile.hot_words);
+    let aliases = correct_known_aliases(
+        &hot_words.text,
+        &profile.hot_words,
+        &profile.correction_patterns,
+    );
 
     HotWordCorrection {
-        text: hot_words.text,
+        text: aliases.text,
         replacements: aliases.replacements + hot_words.replacements,
     }
 }
