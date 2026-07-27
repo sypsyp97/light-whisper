@@ -176,6 +176,10 @@ fn collect_ascii_candidates<'a>(
     let min_words = hot_word_count.saturating_sub(1).max(1);
     let max_words = hot_word_count + 1;
     let is_manual = hot_word.source == HotWordSource::User && hot_word.weight >= 3;
+    let has_canonical_style = has_canonical_ascii_style(hot_text);
+    if !is_manual && !has_canonical_style {
+        return;
+    }
 
     for start_index in 0..words.len() {
         for word_count in min_words..=max_words {
@@ -199,9 +203,6 @@ fn collect_ascii_candidates<'a>(
 
             let distance = levenshtein(&candidate_normalized, &hot_normalized);
             if distance == 0 {
-                if !is_manual && !has_canonical_ascii_style(hot_text) {
-                    continue;
-                }
                 candidates.push(ReplacementCandidate {
                     start,
                     end,
