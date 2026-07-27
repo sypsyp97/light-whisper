@@ -369,6 +369,14 @@ mod tests {
         ]
     }
 
+    fn maximum_hotword_load() -> Vec<HotWord> {
+        let mut hot_words = representative_hot_words();
+        while hot_words.len() < MAX_ASR_HOT_WORDS {
+            hot_words.push(learned(&format!("backgroundterm{:03}", hot_words.len())));
+        }
+        hot_words
+    }
+
     #[test]
     fn corrects_representative_ascii_and_chinese_variants() {
         let hot_words = representative_hot_words();
@@ -421,7 +429,7 @@ mod tests {
 
     #[test]
     fn hotword_correction_p95_stays_below_one_millisecond() {
-        let hot_words = representative_hot_words();
+        let hot_words = maximum_hotword_load();
         let text = "请在 Cloud Code 和 get hub 中检查同机大学的项目，然后打开划词住手。";
         for _ in 0..100 {
             let _ = correct_qwen_hot_words(text, &hot_words);
