@@ -1,8 +1,12 @@
 use pinyin::ToPinyin;
+use std::collections::HashSet;
 
-use crate::state::user_profile::{HotWord, HotWordSource};
+use crate::state::user_profile::{
+    CorrectionPattern, CorrectionSource, HotWord, HotWordSource, UserProfile,
+};
 
 const MAX_ASR_HOT_WORDS: usize = 100;
+const MAX_ASR_ALIASES: usize = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HotWordCorrection {
@@ -23,6 +27,16 @@ struct ReplacementCandidate<'a> {
 struct WordSpan {
     start: usize,
     end: usize,
+}
+
+pub fn correct_qwen_profile_terms(text: &str, profile: &UserProfile) -> HotWordCorrection {
+    let aliases = correct_known_aliases(text, &profile.hot_words, &profile.correction_patterns);
+    let hot_words = correct_qwen_hot_words(&aliases.text, &profile.hot_words);
+
+    HotWordCorrection {
+        text: hot_words.text,
+        replacements: aliases.replacements + hot_words.replacements,
+    }
 }
 
 pub fn correct_qwen_hot_words(text: &str, hot_words: &[HotWord]) -> HotWordCorrection {
@@ -61,6 +75,144 @@ pub fn correct_qwen_hot_words(text: &str, hot_words: &[HotWord]) -> HotWordCorre
         }
     }
 
+    candidates.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then((b.end - b.start).cmp(&(a.end - a.start)))
+            .then(a.rank.cmp(&b.rank))
+            .then(a.start.cmp(&b.start))
+    });
+
+    let mut selected: Vec<ReplacementCandidate<'_>> = Vec::new();
+    for candidate in candidates {
+        let overlaps = selected
+            .iter()
+            .any(|kept| candidate.start < kept.end && kept.start < candidate.end);
+        if !overlaps {
+            selected.push(candidate);
+        }
+    }
+
+    selected.sort_by(|a, b| b.start.cmp(&a.start));
+    let replacements = selected.len();
+    let mut corrected = text.to_owned();
+    for candidate in selected {
+        corrected.replace_range(candidate.start..candidate.end, candidate.replacement);
+    }
+
+    HotWordCorrection {
+        text: corrected,
+        replacements,
+    }
+}
+
+fn correct_known_aliases(
+    text: &str,
+    hot_words: &[HotWord],
+    correction_patterns: &[CorrectionPattern],
+) -> HotWordCorrection {
+    if text.is_empty() || hot_words.is_empty() || correction_patterns.is_empty() {
+        return HotWordCorrection {
+            text: text.to_owned(),
+            replacements: 0,
+        };
+    }
+
+    let mut ranked_hot_words: Vec<&HotWord> = hot_words.iter().collect();
+    ranked_hot_words.sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
+    ranked_hot_words.truncate(MAX_ASR_HOT_WORDS);
+    let hot_targets: HashSet<String> = ranked_hot_words
+        .into_iter()
+        .map(|hot_word| normalize_profile_term(hot_word.text.trim()))
+        .filter(|normalized| !normalized.is_empty())
+        .collect();
+
+    let mut aliases: Vec<&CorrectionPattern> = correction_patterns
+        .iter()
+        .filter(|pattern| is_safe_alias(pattern, &hot_targets))
+        .collect();
+    aliases.sort_by(|a, b| b.count.cmp(&a.count).then(b.last_seen.cmp(&a.last_seen)));
+    aliases.truncate(MAX_ASR_ALIASES);
+
+    let mut candidates = Vec::new();
+    for (rank, alias) in aliases.into_iter().enumerate() {
+        collect_alias_candidates(text, alias, rank, &mut candidates);
+    }
+
+    apply_candidates(text, candidates)
+}
+
+fn is_safe_alias(pattern: &CorrectionPattern, hot_targets: &HashSet<String>) -> bool {
+    let original = pattern.original.trim();
+    let corrected = pattern.corrected.trim();
+    if original.is_empty() || corrected.is_empty() || original == corrected {
+        return false;
+    }
+
+    let original_normalized = normalize_profile_term(original);
+    let corrected_normalized = normalize_profile_term(corrected);
+    if !hot_targets.contains(&corrected_normalized) {
+        return false;
+    }
+
+    let original_is_ascii = original.is_ascii();
+    let corrected_is_ascii = corrected.is_ascii();
+    let original_is_han = original.chars().all(is_han);
+    let corrected_is_han = corrected.chars().all(is_han);
+    let same_script =
+        (original_is_ascii && corrected_is_ascii) || (original_is_han && corrected_is_han);
+    if !same_script {
+        return false;
+    }
+
+    let min_length = if original_is_ascii { 3 } else { 2 };
+    if original_normalized.chars().count() < min_length
+        || corrected_normalized.chars().count() < min_length
+        || original.chars().count() > 80
+        || corrected.chars().count() > 80
+    {
+        return false;
+    }
+
+    match pattern.source {
+        CorrectionSource::Ai => true,
+        CorrectionSource::User => {
+            if !original_is_ascii {
+                return false;
+            }
+            let original_words = ascii_word_spans(original).len();
+            original_words > 1 || levenshtein(&original_normalized, &corrected_normalized) <= 1
+        }
+    }
+}
+
+fn collect_alias_candidates<'a>(
+    text: &str,
+    alias: &'a CorrectionPattern,
+    rank: usize,
+    candidates: &mut Vec<ReplacementCandidate<'a>>,
+) {
+    let original = alias.original.trim();
+    let corrected = alias.corrected.trim();
+    for (start, matched) in text.match_indices(original) {
+        let end = start + matched.len();
+        if original.is_ascii() && !has_ascii_boundaries(text, start, end) {
+            continue;
+        }
+        candidates.push(ReplacementCandidate {
+            start,
+            end,
+            replacement: corrected,
+            score: 2_000 + alias.count.min(1_000) + original.chars().count() as u32,
+            rank,
+        });
+    }
+}
+
+fn apply_candidates<'a>(
+    text: &str,
+    mut candidates: Vec<ReplacementCandidate<'a>>,
+) -> HotWordCorrection {
     candidates.sort_by(|a, b| {
         b.score
             .cmp(&a.score)
@@ -271,6 +423,32 @@ fn normalize_ascii(text: &str) -> String {
         .collect()
 }
 
+fn normalize_profile_term(text: &str) -> String {
+    text.chars()
+        .filter_map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                Some(ch.to_ascii_lowercase())
+            } else if is_han(ch) {
+                Some(ch)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn has_ascii_boundaries(text: &str, start: usize, end: usize) -> bool {
+    let before_is_word = text[..start]
+        .chars()
+        .next_back()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric());
+    let after_is_word = text[end..]
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric());
+    !before_is_word && !after_is_word
+}
+
 fn has_canonical_ascii_style(text: &str) -> bool {
     text.chars().filter(|ch| ch.is_ascii_uppercase()).count() >= 2
 }
@@ -333,6 +511,21 @@ mod tests {
 
     use super::*;
 
+    fn correction(
+        original: &str,
+        corrected: &str,
+        count: u32,
+        source: CorrectionSource,
+    ) -> CorrectionPattern {
+        CorrectionPattern {
+            original: original.to_owned(),
+            corrected: corrected.to_owned(),
+            count,
+            last_seen: 0,
+            source,
+        }
+    }
+
     fn hot_word(text: &str, source: HotWordSource, weight: u8, use_count: u32) -> HotWord {
         HotWord {
             text: text.to_owned(),
@@ -376,6 +569,73 @@ mod tests {
             hot_words.push(learned(&format!("backgroundterm{:03}", hot_words.len())));
         }
         hot_words
+    }
+
+    fn maximum_profile_load() -> UserProfile {
+        let hot_words = maximum_hotword_load();
+        let correction_patterns = hot_words
+            .iter()
+            .filter(|hot_word| hot_word.text.starts_with("backgroundterm"))
+            .enumerate()
+            .map(|(index, hot_word)| {
+                correction(
+                    &format!("misheardterm{index:03}"),
+                    &hot_word.text,
+                    100 - index.min(99) as u32,
+                    CorrectionSource::Ai,
+                )
+            })
+            .collect();
+        UserProfile {
+            hot_words,
+            correction_patterns,
+            ..UserProfile::default()
+        }
+    }
+
+    fn replay_profile() -> UserProfile {
+        let hot_words = vec![
+            learned("claude"),
+            user("openclaw"),
+            learned("README"),
+            learned("Windows"),
+            learned("Python"),
+            learned("OpenAI"),
+            learned("Codex"),
+            user("github"),
+            learned("GPT Pro"),
+            user("宇树"),
+            user("同济"),
+            learned("OAuth"),
+            learned("xLSTM"),
+            learned("LaTeX"),
+            learned("智谱"),
+            user("agent"),
+        ];
+        let correction_patterns = vec![
+            correction("Cloud", "claude", 99, CorrectionSource::User),
+            correction("open cloud", "openclaw", 33, CorrectionSource::User),
+            correction("readme", "README", 19, CorrectionSource::Ai),
+            correction("read me", "README", 13, CorrectionSource::Ai),
+            correction("Claude", "claude", 10, CorrectionSource::User),
+            correction("codeex", "Codex", 10, CorrectionSource::Ai),
+            correction("语音", "宇树", 10, CorrectionSource::User),
+            correction("github", "GitHub", 9, CorrectionSource::Ai),
+            correction("GPT pro", "GPT Pro", 8, CorrectionSource::Ai),
+            correction("统计", "同济", 7, CorrectionSource::User),
+            correction("gitthub", "GitHub", 4, CorrectionSource::Ai),
+            correction("OAUTH", "OAuth", 4, CorrectionSource::Ai),
+            correction("XLSTM", "xLSTM", 3, CorrectionSource::Ai),
+            correction("gitub", "GitHub", 3, CorrectionSource::Ai),
+            correction("LATX", "LaTeX", 3, CorrectionSource::Ai),
+            correction("智朴", "智谱", 2, CorrectionSource::Ai),
+            correction("A正", "agent", 2, CorrectionSource::Ai),
+        ];
+        UserProfile {
+            hot_words,
+            correction_patterns,
+            ..UserProfile::default()
+        }
     }
 
     #[test]
@@ -429,17 +689,101 @@ mod tests {
     }
 
     #[test]
+    fn replays_safe_profile_aliases_without_ambiguous_user_rules() {
+        let profile = replay_profile();
+        let cases = [
+            ("open cloud", "openclaw"),
+            ("readme", "README"),
+            ("read me", "README"),
+            ("Claude", "claude"),
+            ("codeex", "Codex"),
+            ("github", "GitHub"),
+            ("GPT pro", "GPT Pro"),
+            ("gitthub", "GitHub"),
+            ("OAUTH", "OAuth"),
+            ("XLSTM", "xLSTM"),
+            ("gitub", "GitHub"),
+            ("LATX", "LaTeX"),
+            ("智朴", "智谱"),
+        ];
+        for (raw, expected) in cases {
+            assert_eq!(correct_qwen_profile_terms(raw, &profile).text, expected);
+        }
+
+        for unchanged in [
+            "Cloud storage is available.",
+            "语音助手已经打开。",
+            "统计结果已经完成。",
+            "渲染任务已经完成。",
+            "A正不是一个确定的术语。",
+            "readmefile",
+            "mygithubrepo",
+        ] {
+            assert_eq!(
+                correct_qwen_profile_terms(unchanged, &profile).text,
+                unchanged
+            );
+        }
+    }
+
+    #[test]
+    fn real_profile_replay_coverage_improves_without_unsafe_aliases() {
+        let profile = replay_profile();
+        let cases = [
+            ("Cloud", "claude", 99_u32),
+            ("open cloud", "openclaw", 33),
+            ("readme", "README", 19),
+            ("read me", "README", 13),
+            ("Claude", "claude", 10),
+            ("codeex", "Codex", 10),
+            ("语音", "宇树", 10),
+            ("github", "GitHub", 9),
+            ("GPT pro", "GPT Pro", 8),
+            ("统计", "同济", 7),
+            ("gitthub", "GitHub", 4),
+            ("OAUTH", "OAuth", 4),
+            ("XLSTM", "xLSTM", 3),
+            ("gitub", "GitHub", 3),
+            ("LATX", "LaTeX", 3),
+            ("智朴", "智谱", 2),
+            ("A正", "agent", 2),
+        ];
+        let total: u32 = cases.iter().map(|(_, _, count)| count).sum();
+        let before: u32 = cases
+            .iter()
+            .filter(|(raw, expected, _)| {
+                correct_qwen_hot_words(raw, &profile.hot_words).text == *expected
+            })
+            .map(|(_, _, count)| count)
+            .sum();
+        let after: u32 = cases
+            .iter()
+            .filter(|(raw, expected, _)| {
+                correct_qwen_profile_terms(raw, &profile).text == *expected
+            })
+            .map(|(_, _, count)| count)
+            .sum();
+
+        println!(
+            "LIGHT_WHISPER_ALIAS_METRICS before={before}/{total} after={after}/{total} delta_events={}",
+            after - before
+        );
+        assert_eq!(before, 47);
+        assert_eq!(after, 121);
+    }
+
+    #[test]
     fn hotword_correction_p95_stays_below_one_millisecond() {
-        let hot_words = maximum_hotword_load();
+        let profile = maximum_profile_load();
         let text = "请在 Cloud Code 和 get hub 中检查同机大学的项目，然后打开划词住手。";
         for _ in 0..100 {
-            let _ = correct_qwen_hot_words(text, &hot_words);
+            let _ = correct_qwen_profile_terms(text, &profile);
         }
 
         let mut samples = Vec::with_capacity(1000);
         for _ in 0..1000 {
             let started = Instant::now();
-            let result = correct_qwen_hot_words(text, &hot_words);
+            let result = correct_qwen_profile_terms(text, &profile);
             assert_eq!(result.replacements, 4);
             samples.push(started.elapsed().as_micros());
         }

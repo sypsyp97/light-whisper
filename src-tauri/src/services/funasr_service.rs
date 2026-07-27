@@ -1274,7 +1274,7 @@ fn server_response_to_transcription_result(
             let text = response.text.as_deref().unwrap_or_default();
             let started = Instant::now();
             let correction = state.with_profile(|profile| {
-                super::qwen_hotword_service::correct_qwen_hot_words(text, &profile.hot_words)
+                super::qwen_hotword_service::correct_qwen_profile_terms(text, profile)
             });
             if correction.replacements > 0 {
                 log::info!(
@@ -1904,7 +1904,7 @@ mod tests {
         server_response_to_transcription_result, EngineProgressGate, ServerResponse,
         StartingFlagGuard, ENGINE_ARCHIVE_FINGERPRINT,
     };
-    use crate::state::user_profile::{HotWord, HotWordSource};
+    use crate::state::user_profile::{CorrectionPattern, CorrectionSource, HotWord, HotWordSource};
     use crate::state::AppState;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
@@ -1957,25 +1957,39 @@ mod tests {
                 use_count: 10,
                 last_used: 0,
             });
+            profile.hot_words.push(HotWord {
+                text: "openclaw".to_string(),
+                weight: 3,
+                source: HotWordSource::User,
+                use_count: 10,
+                last_used: 0,
+            });
+            profile.correction_patterns.push(CorrectionPattern {
+                original: "open cloud".to_string(),
+                corrected: "openclaw".to_string(),
+                count: 33,
+                last_seen: 0,
+                source: CorrectionSource::User,
+            });
         });
 
         let qwen_response: ServerResponse = serde_json::from_value(serde_json::json!({
             "success": true,
-            "text": "请打开 get hub。",
+            "text": "请用 get hub 打开 open cloud。",
             "engine": "qwen3-asr-0.6b"
         }))
         .unwrap();
         let qwen_result = server_response_to_transcription_result(&state, qwen_response);
-        assert_eq!(qwen_result.text, "请打开 github。");
+        assert_eq!(qwen_result.text, "请用 github 打开 openclaw。");
 
         let whisper_response: ServerResponse = serde_json::from_value(serde_json::json!({
             "success": true,
-            "text": "请打开 get hub。",
+            "text": "请用 get hub 打开 open cloud。",
             "engine": "whisper"
         }))
         .unwrap();
         let whisper_result = server_response_to_transcription_result(&state, whisper_response);
-        assert_eq!(whisper_result.text, "请打开 get hub。");
+        assert_eq!(whisper_result.text, "请用 get hub 打开 open cloud。");
     }
 
     #[test]
