@@ -43,6 +43,17 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
         self.module.OUTPUT_ARCHIVE = self.output_archive
         self.module.WINDOWS_MANIFEST = self.root / "missing-manifest.xml"
 
+    def test_remove_file_retries_transient_windows_lock(self):
+        locked_path = mock.Mock(spec=Path)
+        locked_path.exists.return_value = True
+        locked_path.unlink.side_effect = [PermissionError("file is busy"), None]
+
+        with mock.patch.object(self.module.time, "sleep") as sleep:
+            self.module.remove_file(locked_path, warn_only=False, retries=2, delay=0.25)
+
+        self.assertEqual(locked_path.unlink.call_count, 2)
+        sleep.assert_called_once_with(0.25)
+
     def test_pyinstaller_failure_preserves_last_known_good_archive(self):
         failed_process = types.SimpleNamespace(returncode=23)
 

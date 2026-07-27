@@ -220,6 +220,34 @@ def remove_tree(path: Path, *, warn_only: bool, retries: int = 5, delay: float =
     raise RuntimeError(message) from last_error
 
 
+def remove_file(path: Path, *, warn_only: bool, retries: int = 5, delay: float = 1.0) -> None:
+    """删除文件；在 Windows 文件句柄尚未释放时做有限重试。"""
+    if not path.exists():
+        return
+
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if attempt == retries:
+                break
+            print(
+                f"警告: 删除 {path} 失败（文件占用），{delay:.0f} 秒后重试 "
+                f"{attempt}/{retries} ...",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+
+    message = f"清理文件失败: {path}\n{last_error}"
+    if warn_only:
+        print(f"警告: {message}", file=sys.stderr)
+        return
+    raise RuntimeError(message) from last_error
+
+
 def get_size_mb(path: Path) -> float:
     total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
     return total / (1024 * 1024)
@@ -384,7 +412,7 @@ def create_tar_xz_with_7z(engine_dir: Path, output: Path, seven_zip: str) -> flo
     try:
         subprocess.run(cmd, check=True, cwd=output.parent)
     finally:
-        tar_path.unlink(missing_ok=True)
+        remove_file(tar_path, warn_only=False)
 
     return output.stat().st_size / (1024 * 1024)
 
@@ -500,7 +528,7 @@ def main():
             raise RuntimeError("引擎归档构建结果为空")
         os.replace(staging_archive, OUTPUT_ARCHIVE)
     finally:
-        staging_archive.unlink(missing_ok=True)
+        remove_file(staging_archive, warn_only=True)
 
     # 清理未压缩目录
     remove_tree(DIST_DIR, warn_only=True)
