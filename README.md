@@ -26,7 +26,7 @@
 ## Features
 
 - **One-key dictation**: record with a configurable global hotkey, then type the transcript into the active window.
-- **Local and cloud ASR**: run SenseVoice or Faster Whisper locally, or use GLM-ASR / Alibaba DashScope without local models.
+- **Local and cloud ASR**: run SenseVoice, Faster Whisper, or Qwen3-ASR Q8 locally, or use GLM-ASR / Alibaba DashScope without local models.
 - **Raw-first AI polish**: show ASR output quickly, then replace or preview the polished result when the LLM returns. Result cards show ASR, AI, and total latency.
 - **Subtitle overlay**: a floating transparent window shows listening, recognition, polishing, web search, and assistant states.
 - **Voice assistant**: ask from a separate hotkey, with optional selected text, foreground app, and full-screen screenshot context.
@@ -40,10 +40,14 @@
 |:--|:--|:--|:--|:--|
 | **SenseVoice** | Local Python engine | Default low-latency dictation | zh / en / ja / ko / yue | Downloads SenseVoiceSmall + VAD models |
 | **Faster Whisper** | Local Python engine | Wider language coverage | large-v3-turbo-ct2, 99+ languages | Downloads Whisper model |
+| **Qwen3-ASR 0.6B Q8** | Local GGUF engine | Speed-oriented Qwen dictation | Multilingual, Q8_0 | Separate ~850 MB download; CUDA / Vulkan / CPU |
+| **Qwen3-ASR 1.7B Q8** | Local GGUF engine | Quality-oriented Qwen option | Multilingual, Q8_0 | Separate ~2.19 GB download; CUDA / Vulkan / CPU |
 | **GLM-ASR** | Online API | Cloud ASR without local models | `glm-asr-2512` | API key + region endpoint |
 | **Alibaba DashScope** | Online API | Qwen ASR / Omni on DashScope | Default `qwen3-asr-flash`; refreshable model list | API key + region + model |
 
 Online ASR engines return final results only and skip the local Python engine startup. Local engines use the bundled Python engine and cached HuggingFace models.
+
+Qwen weights are downloaded separately on first use and reused from the model cache. The 0.6B option is lighter, while 1.7B is larger; both support personal hot words and prefer CUDA with Vulkan/CPU fallback.
 
 ## Installation
 
@@ -87,6 +91,8 @@ Optional local-model prefetch:
 ```bash
 uv run python src-tauri/resources/download_models.py --engine sensevoice
 uv run python src-tauri/resources/download_models.py --engine whisper
+uv run python src-tauri/resources/download_models.py --engine qwen3-asr-0.6b
+uv run python src-tauri/resources/download_models.py --engine qwen3-asr-1.7b
 ```
 
 For China mainland downloads, set `HF_ENDPOINT=https://hf-mirror.com` before prefetching.
@@ -106,18 +112,20 @@ cd src-tauri && cargo check
 
 **Hotkey not working**: the current default dictation hotkey is `F2`. Change it in Settings if another app owns it.
 
-**GPU not detected**: check with `.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"`. Keep the NVIDIA driver current; CUDA Toolkit is not required because PyTorch bundles CUDA.
+**GPU not detected**: run `nvidia-smi`. SenseVoice/Whisper can also be checked with `.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"`; Qwen3-ASR records its selected backend in `qwen3_asr_server.log`.
 
 **Log locations**:
 
 - App log: `%LOCALAPPDATA%\com.light-whisper.desktop\logs\app.log`
 - Python ASR logs: `%APPDATA%\com.light-whisper.app\logs\funasr_server.log` / `whisper_server.log`
+- Qwen3-ASR log: `%TEMP%\light_whisper_logs\qwen3_asr_server.log`
 - Python stderr fallback: `%APPDATA%\com.light-whisper.app\funasr_stderr.log`
 
 ## Acknowledgements
 
 - [FunASR](https://github.com/modelscope/FunASR) & [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall)
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) & [large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2)
+- [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) & [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp)
 - [GLM-ASR](https://bigmodel.cn/)
 - [Alibaba DashScope](https://www.alibabacloud.com/help/en/model-studio/) & Qwen ASR / Omni
 - [Tauri](https://tauri.app/) / [React](https://react.dev/)
