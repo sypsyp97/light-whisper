@@ -412,7 +412,10 @@ def create_tar_xz_with_7z(engine_dir: Path, output: Path, seven_zip: str) -> flo
     try:
         subprocess.run(cmd, check=True, cwd=output.parent)
     finally:
-        remove_file(tar_path, warn_only=False)
+        # 7-Zip/antivirus indexing can retain a read handle briefly on Windows.
+        # Once compression succeeds, failure to delete this temporary tar must not
+        # invalidate the complete xz artifact; a later build can safely clean it.
+        remove_file(tar_path, warn_only=True)
 
     return output.stat().st_size / (1024 * 1024)
 
