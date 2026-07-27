@@ -5,11 +5,13 @@
 
 import importlib.metadata
 import os
+import subprocess
 import time
 import traceback
 
 from server_common import (
     BaseASRServer,
+    _has_nvidia_gpu,
     apply_hf_env_defaults,
     decode_inline_audio,
     ensure_safe_cuda_env,
@@ -37,6 +39,44 @@ class Qwen3ASRServer(BaseASRServer):
         self.backend = "cuda" if self.device == "cuda" else "auto"
         self._last_load_error = None
         self._total_inference_ms = 0.0
+
+    def _detect_device(self):
+        """Avoid importing the 2 GB PyTorch runtime just to probe one CUDA driver."""
+        if _has_nvidia_gpu():
+            logger.info("检测到 NVIDIA CUDA 驱动，Qwen3-ASR 优先使用 CUDA")
+            return "cuda"
+        logger.info("未检测到 NVIDIA CUDA 驱动，Qwen3-ASR 自动选择 Vulkan/CPU")
+        return "cpu"
+
+    def _get_gpu_device_info(self):
+        info = {"device": self.device}
+        if self.backend != "cuda":
+            return info
+        query = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        try:
+            name, memory_mb = [part.strip() for part in query.stdout.splitlines()[0].split(",", 1)]
+            info["gpu_name"] = name
+            info["gpu_memory_total"] = round(float(memory_mb) / 1024, 1)
+        except (IndexError, ValueError):
+            pass
+        return info
+
+    def _cleanup_memory(self):
+        # transcribe.cpp owns its CUDA allocations; torch.empty_cache() cannot
+        # release them and importing torch here would add substantial overhead.
+        import gc
+
+        gc.collect()
 
     def _get_model_repos(self):
         # Exact-file validation happens in initialize(); a repository may contain
