@@ -63,11 +63,7 @@ pub fn get_engine_config_path() -> PathBuf {
 pub fn read_engine_config() -> String {
     if let Some(engine) = read_engine_json().get("engine").and_then(|v| v.as_str()) {
         match engine {
-            "whisper"
-            | "sensevoice"
-            | "qwen3-asr-0.6b"
-            | "qwen3-asr-1.7b"
-            | "glm-asr"
+            "whisper" | "sensevoice" | "qwen3-asr-0.6b" | "qwen3-asr-1.7b" | "glm-asr"
             | "alibaba-asr" => return engine.to_string(),
             _ => {}
         }

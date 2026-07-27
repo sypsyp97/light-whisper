@@ -1833,12 +1833,8 @@ fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
             )
         };
         let mut missing_models = Vec::new();
-        let asr_present = report_model_repo_file_state(
-            repo_id,
-            Some(filename),
-            description,
-            &mut missing_models,
-        );
+        let asr_present =
+            report_model_repo_file_state(repo_id, Some(filename), description, &mut missing_models);
 
         ModelCheckResult {
             all_present: asr_present,
