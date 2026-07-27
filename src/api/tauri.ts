@@ -23,6 +23,7 @@ import type {
   PersistentHistoryPage,
   PersistentHistoryRecord,
   PersistentHistoryStats,
+  PolishStructureLevel,
   RecordingMode,
   TranscriptionResult,
   UserProfile,
@@ -346,6 +347,10 @@ export function setTranslationHotkey(shortcut: string | null): Promise<void> {
 
 export function setCustomPrompt(prompt: string | null): Promise<void> {
   return invokeCommand<void>("set_custom_prompt", { prompt });
+}
+
+export function setPolishStructureLevel(level: PolishStructureLevel): Promise<void> {
+  return invokeCommand<void>("set_polish_structure_level", { level });
 }
 
 export function setOpenaiFastMode(enabled: boolean): Promise<void> {

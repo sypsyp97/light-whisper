@@ -264,6 +264,7 @@ pub fn run() {
             commands::profile::set_translation_target,
             commands::profile::set_translation_hotkey,
             commands::profile::set_custom_prompt,
+            commands::profile::set_polish_structure_level,
             commands::profile::set_openai_fast_mode,
             commands::profile::add_custom_provider,
             commands::profile::update_custom_provider,

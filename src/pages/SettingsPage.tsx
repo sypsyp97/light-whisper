@@ -37,6 +37,7 @@ import {
   setTranslationTarget,
   setTranslationHotkey,
   setCustomPrompt,
+  setPolishStructureLevel,
   setRecordingMode,
   setOnlineAsrApiKey,
   getOnlineAsrApiKey,
@@ -67,7 +68,7 @@ import {
   getWebSearchApiKey,
   hideMainWindow,
 } from "@/api/tauri";
-import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, WebSearchProvider } from "@/types";
+import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, PolishStructureLevel, WebSearchProvider } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
@@ -78,6 +79,7 @@ import SystemSettingsSections from "@/components/settings/SystemSettingsSections
 import SelectionAssistantSettingsSection from "@/components/settings/SelectionAssistantSettingsSection";
 import AppProfileRulesSettingsSection from "@/components/settings/AppProfileRulesSettingsSection";
 import HistorySettingsSection from "@/components/settings/HistorySettingsSection";
+import PolishStructureControl from "@/components/settings/PolishStructureControl";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
 import { getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 import {
@@ -482,6 +484,8 @@ export default function SettingsPage({
   const [newHotWord, setNewHotWord] = useState("");
   const [translationTarget, setTranslationTargetState] = useState<string | null>(null);
   const [customPromptState, setCustomPromptState] = useState<string>("");
+  const [polishStructureLevel, setPolishStructureLevelState] = useState<PolishStructureLevel>("off");
+  const polishStructureSaveIdRef = useRef(0);
   const [assistantPromptState, setAssistantPromptState] = useState<string>("");
   const [assistantScreenContextEnabled, setAssistantScreenContextEnabledState] = useState(false);
   const [aiPolishScreenContextEnabled, setAiPolishScreenContextEnabledState] = useState(false);
@@ -735,6 +739,7 @@ export default function SettingsPage({
       setTranslationTargetState(p.translation_target ?? null);
       setTranslationHotkeyDisplay(p.translation_hotkey ? formatHotkeyForDisplay(p.translation_hotkey) : "");
       setCustomPromptState(p.custom_prompt ?? "");
+      setPolishStructureLevelState(p.polish_structure_level ?? "off");
       setAssistantHotkeyDisplay(p.assistant_hotkey ? formatHotkeyForDisplay(p.assistant_hotkey) : "");
       setAssistantPromptState(p.assistant_system_prompt ?? "");
       setAssistantScreenContextEnabledState(Boolean(p.assistant_screen_context_enabled));
@@ -2077,6 +2082,17 @@ export default function SettingsPage({
     });
   }, []);
 
+  const handlePolishStructureLevelChange = useCallback((level: PolishStructureLevel) => {
+    const previous = polishStructureLevel;
+    const saveId = ++polishStructureSaveIdRef.current;
+    setPolishStructureLevelState(level);
+    setPolishStructureLevel(level).catch(() => {
+      if (polishStructureSaveIdRef.current !== saveId) return;
+      setPolishStructureLevelState(previous);
+      toast.error(t("toast.polishStructureSaveFailed"));
+    });
+  }, [polishStructureLevel, t]);
+
   const handleWebSearchToggle = useCallback((enabled: boolean) => {
     setWebSearchEnabledState(enabled);
     webSearchConfigSave.schedule(enabled, webSearchProvider, webSearchMaxResults);
@@ -2851,6 +2867,11 @@ export default function SettingsPage({
                   <div className="toggle-knob" style={{ transform: aiPolishEnabled ? "translateX(20px)" : "translateX(0)" }} />
                 </button>
               </div>
+
+              <PolishStructureControl
+                level={polishStructureLevel}
+                onChange={handlePolishStructureLevelChange}
+              />
 
               <div className="settings-row">
                 <div className="permission-item" style={{ gap: 8 }}>

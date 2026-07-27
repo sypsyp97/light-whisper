@@ -659,6 +659,17 @@ pub async fn set_custom_prompt(
 }
 
 #[tauri::command]
+pub async fn set_polish_structure_level(
+    state: tauri::State<'_, AppState>,
+    level: PolishStructureLevel,
+) -> Result<(), String> {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile.polish_structure_level = level;
+    });
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn export_user_profile(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {

@@ -33,6 +33,17 @@ describe("settings CSS contracts", () => {
     expect(track).toMatch(/height:\s*4px;/);
   });
 
+  it("shows structure intensity as a filled progress track", () => {
+    const track = ruleBody(
+      settingsCss,
+      ".polish-structure-control .polish-structure-range::-webkit-slider-runnable-track",
+    );
+
+    expect(track).toMatch(/linear-gradient/);
+    expect(track).toMatch(/--structure-progress/);
+    expect(track).toMatch(/--color-accent/);
+  });
+
   it("uses the bundled full-coverage Source Han Sans variable font", () => {
     const fontFace = ruleBody(themeCss, "@font-face");
     const root = ruleBody(themeCss, ":root");

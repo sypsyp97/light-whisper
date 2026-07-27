@@ -77,6 +77,9 @@ pub struct UserProfile {
     /// 用户自定义润色指令
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_prompt: Option<String>,
+    /// AI 润色对口述内容进行归类、重排和摘要的强度
+    #[serde(default)]
+    pub polish_structure_level: PolishStructureLevel,
     /// 助手模式独立热键
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assistant_hotkey: Option<String>,
@@ -387,6 +390,21 @@ pub enum OpenaiAuthMode {
     ApiKey,
     /// 只使用 OAuth session，忽略手填的 API Key
     Oauth,
+}
+
+/// AI 润色的结构化改写强度。与模型推理深度彼此独立。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PolishStructureLevel {
+    /// 只校正和断句，不重排内容
+    #[default]
+    Off,
+    /// 只处理明确的列表、步骤和自然分段
+    Light,
+    /// 主动归类相关观点，使长口述更易扫读
+    Balanced,
+    /// 允许在忠实保留关键事实的前提下总结和重排
+    Strong,
 }
 
 /// 推理/思考模式（跨供应商抽象层）
@@ -715,8 +733,8 @@ impl UserProfile {
 mod tests {
     use super::{
         ApiFormat, AppProfileRule, AppRuleOverride, AppTranslationOverride, CustomProvider,
-        HistorySettings, LlmProviderConfig, LlmReasoningMode, SelectionAssistantConfig,
-        UserProfile,
+        HistorySettings, LlmProviderConfig, LlmReasoningMode, PolishStructureLevel,
+        SelectionAssistantConfig, UserProfile,
     };
 
     fn custom_provider(id: &str) -> CustomProvider {
@@ -727,6 +745,19 @@ mod tests {
             model: format!("model-{id}"),
             api_format: ApiFormat::OpenaiCompat,
         }
+    }
+
+    #[test]
+    fn legacy_profile_without_structure_level_defaults_to_unstructured() {
+        let mut value = serde_json::to_value(UserProfile::default()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("polish_structure_level");
+
+        let profile: UserProfile = serde_json::from_value(value).unwrap();
+
+        assert_eq!(profile.polish_structure_level, PolishStructureLevel::Off);
     }
 
     #[test]

@@ -164,6 +164,7 @@ export type LlmReasoningMode =
   | "light"
   | "balanced"
   | "deep";
+export type PolishStructureLevel = "off" | "light" | "balanced" | "strong";
 
 export interface LlmReasoningSupport {
   supported: boolean;
@@ -217,6 +218,7 @@ export interface UserProfile {
   translation_target?: string | null;
   translation_hotkey?: string | null;
   custom_prompt?: string | null;
+  polish_structure_level?: PolishStructureLevel;
   assistant_hotkey?: string | null;
   assistant_system_prompt?: string | null;
   assistant_screen_context_enabled?: boolean;

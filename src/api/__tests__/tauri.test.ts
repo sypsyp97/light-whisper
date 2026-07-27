@@ -434,6 +434,19 @@ describe("setLlmProviderConfig payload", () => {
   });
 });
 
+describe("setPolishStructureLevel payload", () => {
+  it("persists the selected structure level through its dedicated command", async () => {
+    const { setPolishStructureLevel } = await import("@/api/tauri");
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setPolishStructureLevel("strong");
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("set_polish_structure_level", {
+      level: "strong",
+    });
+  });
+});
+
 describe("setCorrectionValidationConfig payload", () => {
   it("omits provider/model set flags when those fields are not updated", async () => {
     const mod = await import("@/api/tauri");
