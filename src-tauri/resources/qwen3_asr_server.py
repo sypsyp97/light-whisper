@@ -246,6 +246,7 @@ class Qwen3ASRServer(BaseASRServer):
                     "success": True,
                     "text": "",
                     "duration": duration,
+                    "engine": self.engine,
                     "input_mode": input_mode,
                 }
 
@@ -268,6 +269,7 @@ class Qwen3ASRServer(BaseASRServer):
                 "confidence": 0.0,
                 "duration": duration,
                 "language": language,
+                "engine": self.engine,
                 "model_type": self.engine,
                 "backend": self.backend,
                 "input_mode": input_mode,

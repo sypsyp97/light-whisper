@@ -89,6 +89,7 @@ class Qwen3ASRServerTests(unittest.TestCase):
         )
         self.assertEqual(FakeModel.instances[0].session_instance.calls, 2)
         self.assertEqual(first["input_mode"], "memory")
+        self.assertEqual(first["engine"], "qwen3-asr-0.6b")
 
 
 if __name__ == "__main__":

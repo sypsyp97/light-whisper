@@ -1200,7 +1200,7 @@ pub async fn transcribe_pcm16(
 
     if response.input_mode.as_deref() == Some("memory") {
         state.set_inline_audio_transport(Some(true));
-        return Ok(server_response_to_transcription_result(response));
+        return Ok(server_response_to_transcription_result(state, response));
     }
 
     if response_indicates_inline_unsupported(&response) {
@@ -1210,7 +1210,7 @@ pub async fn transcribe_pcm16(
     }
 
     state.set_inline_audio_transport(Some(true));
-    Ok(server_response_to_transcription_result(response))
+    Ok(server_response_to_transcription_result(state, response))
 }
 
 fn profile_hot_words(state: &AppState) -> Option<Vec<String>> {
@@ -1261,8 +1261,31 @@ fn response_indicates_inline_unsupported(response: &ServerResponse) -> bool {
     })
 }
 
-fn server_response_to_transcription_result(response: ServerResponse) -> TranscriptionResult {
+fn server_response_to_transcription_result(
+    state: &AppState,
+    mut response: ServerResponse,
+) -> TranscriptionResult {
     if response.success == Some(true) {
+        if response
+            .engine
+            .as_deref()
+            .is_some_and(|engine| engine.starts_with("qwen3-asr-"))
+        {
+            let text = response.text.as_deref().unwrap_or_default();
+            let started = Instant::now();
+            let correction = state.with_profile(|profile| {
+                super::qwen_hotword_service::correct_qwen_hot_words(text, &profile.hot_words)
+            });
+            if correction.replacements > 0 {
+                log::info!(
+                    "Qwen3-ASR 本地热词纠偏完成: {} 处, {} 微秒",
+                    correction.replacements,
+                    started.elapsed().as_micros()
+                );
+                response.text = Some(correction.text);
+            }
+        }
+
         TranscriptionResult {
             text: response.text.unwrap_or_default(),
             duration: response.duration,
@@ -1310,7 +1333,7 @@ async fn transcribe_wav_bytes_via_path(
     .await;
 
     let _ = tokio::fs::remove_file(&temp_file).await;
-    response.map(server_response_to_transcription_result)
+    response.map(|response| server_response_to_transcription_result(state, response))
 }
 
 async fn transcribe_pcm16_via_path(
@@ -1878,8 +1901,11 @@ use tauri::Emitter;
 mod tests {
     use super::{
         engine_install_fingerprint_matches, read_json_response, read_json_response_matching,
-        EngineProgressGate, ServerResponse, StartingFlagGuard, ENGINE_ARCHIVE_FINGERPRINT,
+        server_response_to_transcription_result, EngineProgressGate, ServerResponse,
+        StartingFlagGuard, ENGINE_ARCHIVE_FINGERPRINT,
     };
+    use crate::state::user_profile::{HotWord, HotWordSource};
+    use crate::state::AppState;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
@@ -1918,6 +1944,38 @@ mod tests {
             "1.3.13+0000000000000001-0000000000000002",
             ENGINE_ARCHIVE_FINGERPRINT
         ));
+    }
+
+    #[test]
+    fn qwen_response_uses_profile_hotwords_without_touching_other_engines() {
+        let state = AppState::new();
+        state.update_profile_mut(|profile| {
+            profile.hot_words.push(HotWord {
+                text: "github".to_string(),
+                weight: 3,
+                source: HotWordSource::User,
+                use_count: 10,
+                last_used: 0,
+            });
+        });
+
+        let qwen_response: ServerResponse = serde_json::from_value(serde_json::json!({
+            "success": true,
+            "text": "请打开 get hub。",
+            "engine": "qwen3-asr-0.6b"
+        }))
+        .unwrap();
+        let qwen_result = server_response_to_transcription_result(&state, qwen_response);
+        assert_eq!(qwen_result.text, "请打开 github。");
+
+        let whisper_response: ServerResponse = serde_json::from_value(serde_json::json!({
+            "success": true,
+            "text": "请打开 get hub。",
+            "engine": "whisper"
+        }))
+        .unwrap();
+        let whisper_result = server_response_to_transcription_result(&state, whisper_response);
+        assert_eq!(whisper_result.text, "请打开 get hub。");
     }
 
     #[test]
