@@ -32,10 +32,12 @@ class FakeModel:
         self.backend = backend
         self.session_instance = FakeSession()
         self.session_calls = 0
+        self.session_options = None
         self.__class__.instances.append(self)
 
-    def session(self, **_kwargs):
+    def session(self, **kwargs):
         self.session_calls += 1
+        self.session_options = kwargs
         return self.session_instance
 
     def close(self):
@@ -81,6 +83,10 @@ class Qwen3ASRServerTests(unittest.TestCase):
         self.assertEqual((first["text"], second["text"]), ("测试文本", "测试文本"))
         self.assertEqual(len(FakeModel.instances), 1)
         self.assertEqual(FakeModel.instances[0].session_calls, 1)
+        self.assertEqual(
+            FakeModel.instances[0].session_options,
+            {"kv_type": "f16", "n_ctx": 32_768},
+        )
         self.assertEqual(FakeModel.instances[0].session_instance.calls, 2)
         self.assertEqual(first["input_mode"], "memory")
 

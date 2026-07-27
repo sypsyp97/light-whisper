@@ -24,6 +24,8 @@ logger = setup_rotating_logger(__name__, "qwen3_asr_server.log", "Qwen3-ASRÊúçÂä
 
 from hf_cache_utils import QWEN3_ASR_MODELS, find_hf_snapshot_file
 
+QWEN3_ASR_N_CTX = 32_768
+
 
 class Qwen3ASRServer(BaseASRServer):
     """Keep one GGUF model and one KV session resident across requests."""
@@ -111,7 +113,7 @@ class Qwen3ASRServer(BaseASRServer):
             try:
                 with self.stdout_suppressor.suppress():
                     model = transcribe_cpp.Model(model_path, backend=backend)
-                    session = model.session(kv_type="f16", n_ctx=4096)
+                    session = model.session(kv_type="f16", n_ctx=QWEN3_ASR_N_CTX)
                 self.model = model
                 self.session = session
                 self.backend = backend
