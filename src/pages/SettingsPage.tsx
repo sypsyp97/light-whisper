@@ -111,6 +111,8 @@ const CorrectionRulesModal = lazy(() => import("@/components/settings/Correction
 const engineOptions = [
   { key: "sensevoice", icon: AudioLines, label: "SenseVoice", labelKey: undefined, descKey: "settings.sensevoiceDesc" },
   { key: "whisper", icon: Zap, label: "Faster Whisper", labelKey: undefined, descKey: "settings.whisperDesc" },
+  { key: "qwen3-asr-0.6b", icon: Zap, label: "Qwen3-ASR 0.6B Q8", labelKey: undefined, descKey: "settings.qwen3Asr06Desc" },
+  { key: "qwen3-asr-1.7b", icon: Sparkles, label: "Qwen3-ASR 1.7B Q8", labelKey: undefined, descKey: "settings.qwen3Asr17Desc" },
   { key: "glm-asr", icon: Globe, label: "GLM-ASR", labelKey: undefined, descKey: "settings.glmAsrDesc" },
   { key: "alibaba-asr", icon: Cloud, label: "Alibaba DashScope", labelKey: "settings.alibabaAsrLabel", descKey: "settings.alibabaAsrDesc" },
 ] as const;

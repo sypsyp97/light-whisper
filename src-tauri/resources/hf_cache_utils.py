@@ -15,7 +15,24 @@ MODEL_REPOS = [ASR_REPO_ID, VAD_REPO_ID]
 WHISPER_REPO_ID = "deepdml/faster-whisper-large-v3-turbo-ct2"
 WHISPER_MODEL_REPOS = [WHISPER_REPO_ID]
 
-_WEIGHT_EXTS = (".pt", ".bin", ".safetensors", ".onnx")
+QWEN3_ASR_MODELS = {
+    "qwen3-asr-0.6b": {
+        "repo_id": "handy-computer/Qwen3-ASR-0.6B-gguf",
+        "filename": "Qwen3-ASR-0.6B-Q8_0.gguf",
+        "revision": "e4e16599b900eb0cb36e524514756bb92eb092b7",
+        "size": 850_423_456,
+        "sha256": "f081b2d5e23bd669d92cc331d722a8a0681943b8e6f34b48996fd5c319b5acd8",
+    },
+    "qwen3-asr-1.7b": {
+        "repo_id": "handy-computer/Qwen3-ASR-1.7B-gguf",
+        "filename": "Qwen3-ASR-1.7B-Q8_0.gguf",
+        "revision": "92282af1610a2db19d66f2bef1e260f5deca782d",
+        "size": 2_185_030_624,
+        "sha256": "9a0d81792dfea2d5f278b8a63deb3ea6e02139ce42c2301f32ea19c4f77526b7",
+    },
+}
+
+_WEIGHT_EXTS = (".pt", ".bin", ".safetensors", ".onnx", ".gguf")
 _MIN_WEIGHT_SIZE = 1_000_000  # 与 Rust 端阈值一致
 COMPLETE_MANIFEST_NAME = ".light_whisper_complete.json"
 
@@ -58,6 +75,53 @@ def is_hf_repo_ready(repo_id):
             return True
 
     return False
+
+
+def find_hf_snapshot_file(repo_id, filename):
+    """Resolve one exact cached file without scanning unrelated quantizations."""
+    cache_root = get_hf_cache_root()
+    repo_dir = os.path.join(cache_root, "models--" + repo_id.replace("/", "--"))
+    snapshots_dir = os.path.join(repo_dir, "snapshots")
+    if not os.path.isdir(snapshots_dir):
+        return None
+
+    snapshot_names = []
+    try:
+        with open(os.path.join(repo_dir, "refs", "main"), "r", encoding="utf-8") as f:
+            snapshot_names.append(f.read().strip())
+    except OSError:
+        pass
+    snapshot_names.extend(
+        name for name in os.listdir(snapshots_dir) if name not in snapshot_names
+    )
+
+    normalized = filename.replace("/", os.sep)
+    for snapshot_name in snapshot_names:
+        snapshot_path = os.path.join(snapshots_dir, snapshot_name)
+        candidate = os.path.join(snapshot_path, normalized)
+        try:
+            actual_size = os.path.getsize(candidate)
+        except OSError:
+            continue
+        if actual_size < _MIN_WEIGHT_SIZE:
+            continue
+
+        manifest_path = os.path.join(snapshot_path, COMPLETE_MANIFEST_NAME)
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            manifest_item = next(
+                (item for item in manifest.get("files", []) if item.get("path") == filename),
+                None,
+            )
+            if manifest_item is None or manifest_item.get("size") != actual_size:
+                continue
+        except (OSError, json.JSONDecodeError):
+            # Legacy Hugging Face caches predate the completion manifest.
+            pass
+        return candidate
+
+    return None
 
 
 def cleanup_incomplete_files(repo_id):

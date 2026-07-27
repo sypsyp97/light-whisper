@@ -13,6 +13,7 @@
 """
 
 import importlib.util
+import importlib.metadata
 import os
 import shutil
 import subprocess
@@ -27,11 +28,18 @@ DIST_DIR = RESOURCES_DIR / "python-dist"
 ENTRY_SCRIPT = RESOURCES_DIR / "engine.py"
 OUTPUT_ARCHIVE = RESOURCES_DIR / "engine.tar.xz"
 WINDOWS_MANIFEST = PROJECT_ROOT / "src-tauri" / "windows-app-manifest.xml"
+QWEN3_CUDA_PROVIDER_VERSION = "0.1.3"
+QWEN3_CUDA_PROVIDER_URL = (
+    "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.1.3/"
+    "transcribe_cpp_native_cu12-0.1.3-py3-none-win_amd64.whl"
+    "#sha256=b46eef15ccce2d3248bff99fe988f081511a1116032643276ec4ef50cb1716eb"
+)
 
 # 同级 Python 脚本，打包到 _internal/
 ADD_DATA_FILES = [
     "funasr_server.py",
     "whisper_server.py",
+    "qwen3_asr_server.py",
     "download_models.py",
     "server_common.py",
     "hf_cache_utils.py",
@@ -60,12 +68,24 @@ HIDDEN_IMPORTS = [
     "tqdm",
     "soundfile",
     "onnxruntime",
+    "transcribe_cpp",
+    "transcribe_cpp_native",
+    "transcribe_cpp_native_cu12",
 ]
 
 # 需要完整收集的包（子模块 + 数据文件）。
 # FunASR 仅显式收集当前使用的模型模块；完整源码会作为数据加入，供注册装饰器读取。
 COLLECT_ALL = [
     "faster_whisper",
+    "transcribe_cpp",
+    "transcribe_cpp_native",
+    "transcribe_cpp_native_cu12",
+]
+
+COPY_METADATA = [
+    "transcribe-cpp",
+    "transcribe-cpp-native",
+    "transcribe-cpp-native-cu12",
 ]
 
 EXCLUDE_MODULES = [
@@ -100,6 +120,38 @@ EXCLUDE_MODULES = [
     "aliyunsdkcore",
     "oss2",
 ]
+
+
+def ensure_qwen3_cuda_provider() -> None:
+    """Install the pinned CUDA provider without duplicate NVIDIA runtime wheels."""
+    try:
+        installed = importlib.metadata.version("transcribe-cpp-native-cu12")
+    except importlib.metadata.PackageNotFoundError:
+        installed = None
+    if installed == QWEN3_CUDA_PROVIDER_VERSION:
+        return
+
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError("构建 Qwen3-ASR CUDA 引擎需要 uv，但当前 PATH 中未找到")
+    cmd = [
+        uv,
+        "pip",
+        "install",
+        "--python",
+        sys.executable,
+        "--no-deps",
+        QWEN3_CUDA_PROVIDER_URL,
+    ]
+    if installed is not None:
+        cmd.insert(-1, "--reinstall")
+    subprocess.run(cmd, check=True)
+
+    actual = importlib.metadata.version("transcribe-cpp-native-cu12")
+    if actual != QWEN3_CUDA_PROVIDER_VERSION:
+        raise RuntimeError(
+            f"Qwen3-ASR CUDA provider 版本错误: got={actual}, expected={QWEN3_CUDA_PROVIDER_VERSION}"
+        )
 
 # 可安全裁剪的可选 CUDA DLL（glob 模式，匹配 torch/lib/ 下的文件）
 # 注意：torch_cuda.dll 在 Windows 上会直接依赖 cusolver/cusparse/cufft；
@@ -353,6 +405,8 @@ def main():
         print(f"错误: 入口脚本不存在: {ENTRY_SCRIPT}", file=sys.stderr)
         sys.exit(1)
 
+    ensure_qwen3_cuda_provider()
+
     # 清理旧构建
     if DIST_DIR.exists():
         print(f"清理旧构建: {DIST_DIR}")
@@ -391,6 +445,9 @@ def main():
 
     for pkg in COLLECT_ALL:
         cmd.extend(["--collect-all", pkg])
+
+    for distribution in COPY_METADATA:
+        cmd.extend(["--copy-metadata", distribution])
 
     for mod in EXCLUDE_MODULES:
         cmd.extend(["--exclude-module", mod])

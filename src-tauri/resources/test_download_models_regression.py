@@ -594,6 +594,32 @@ class ModelDownloadAtomicityTests(unittest.TestCase):
             self.assertTrue(os.path.exists(snapshot_incomplete))
             self.assertTrue(os.path.exists(complete_file))
 
+    def test_qwen_download_is_pinned_to_one_q8_file(self):
+        with (
+            mock.patch.object(
+                download_models,
+                "download_model",
+                return_value={"success": True, "model": "asr"},
+            ) as download_model,
+            mock.patch.object(download_models, "_emit"),
+            mock.patch("builtins.print"),
+        ):
+            download_models.main(engine="qwen3-asr-0.6b")
+
+        config = download_model.call_args.args[0]
+        self.assertEqual(config["name"], "handy-computer/Qwen3-ASR-0.6B-gguf")
+        self.assertEqual(config["revision"], "e4e16599b900eb0cb36e524514756bb92eb092b7")
+        self.assertEqual(
+            config["files"],
+            [
+                {
+                    "rfilename": "Qwen3-ASR-0.6B-Q8_0.gguf",
+                    "size": 850_423_456,
+                    "sha256": "f081b2d5e23bd669d92cc331d722a8a0681943b8e6f34b48996fd5c319b5acd8",
+                }
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -143,6 +143,10 @@ pub struct ModelCheckResult {
 const ASR_REPO_ID: &str = "FunAudioLLM/SenseVoiceSmall";
 const VAD_REPO_ID: &str = "funasr/fsmn-vad";
 const WHISPER_REPO_ID: &str = "deepdml/faster-whisper-large-v3-turbo-ct2";
+const QWEN3_ASR_06_REPO_ID: &str = "handy-computer/Qwen3-ASR-0.6B-gguf";
+const QWEN3_ASR_06_FILENAME: &str = "Qwen3-ASR-0.6B-Q8_0.gguf";
+const QWEN3_ASR_17_REPO_ID: &str = "handy-computer/Qwen3-ASR-1.7B-gguf";
+const QWEN3_ASR_17_FILENAME: &str = "Qwen3-ASR-1.7B-Q8_0.gguf";
 const HF_COMPLETE_MANIFEST_NAME: &str = ".light_whisper_complete.json";
 
 /// Python 服务器的 JSON 响应
@@ -366,7 +370,16 @@ fn report_model_repo_state(
     description: &str,
     missing_models: &mut Vec<String>,
 ) -> bool {
-    let present = is_hf_repo_ready(repo_id);
+    report_model_repo_file_state(repo_id, None, description, missing_models)
+}
+
+fn report_model_repo_file_state(
+    repo_id: &str,
+    required_file: Option<&str>,
+    description: &str,
+    missing_models: &mut Vec<String>,
+) -> bool {
+    let present = is_hf_repo_ready(repo_id, required_file);
     if present {
         log::info!("模型文件已就位: {} ({})", description, repo_id);
     } else {
@@ -923,6 +936,8 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
             log::info!("使用开发模式 Python: {}", python_path);
             let server_script = if ticket.engine == "whisper" {
                 paths::get_whisper_server_path(app_handle)
+            } else if ticket.engine.starts_with("qwen3-asr-") {
+                paths::get_qwen3_asr_server_path(app_handle)
             } else {
                 paths::get_funasr_server_path(app_handle)
             };
@@ -950,6 +965,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     cmd.env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
+        .env("LIGHT_WHISPER_ASR_ENGINE", &ticket.engine)
         .env("HF_HUB_CACHE", &models_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -1619,7 +1635,7 @@ fn get_hf_cache_root() -> PathBuf {
 ///
 /// 仅检查目录结构不够——下载中途取消会留下空壳目录（refs/snapshots 存在但无权重文件），
 /// 导致后续加载卡死。这里额外验证 snapshots 中存在 >1MB 的模型权重文件（.pt/.bin/.safetensors/.onnx）。
-fn is_hf_repo_ready(repo_id: &str) -> bool {
+fn is_hf_repo_ready(repo_id: &str, required_file: Option<&str>) -> bool {
     let cache_root = get_hf_cache_root();
     let dir_name = format!("models--{}", repo_id.replace('/', "--"));
     let repo_dir = cache_root.join(&dir_name);
@@ -1653,6 +1669,9 @@ fn is_hf_repo_ready(repo_id: &str) -> bool {
     for entry in entries.filter_map(Result::ok) {
         let snapshot_path = entry.path();
         if !snapshot_path.is_dir() {
+            continue;
+        }
+        if required_file.is_some_and(|filename| !snapshot_path.join(filename).is_file()) {
             continue;
         }
         log::info!("检查 snapshot: {}", snapshot_path.display());
@@ -1712,7 +1731,7 @@ fn snapshot_matches_completion_manifest(snapshot_path: &std::path::Path) -> bool
         if actual_size != expected_size {
             return false;
         }
-        if [".pt", ".bin", ".safetensors", ".onnx"]
+        if [".pt", ".bin", ".safetensors", ".onnx", ".gguf"]
             .iter()
             .any(|ext| rel_path.ends_with(ext))
             && actual_size >= MIN_SIZE
@@ -1725,7 +1744,7 @@ fn snapshot_matches_completion_manifest(snapshot_path: &std::path::Path) -> bool
 
 fn snapshot_matches_legacy_weight_check(snapshot_path: &std::path::Path) -> bool {
     const MIN_SIZE: u64 = 1_000_000;
-    const WEIGHT_EXTS: &[&str] = &[".pt", ".bin", ".safetensors", ".onnx"];
+    const WEIGHT_EXTS: &[&str] = &[".pt", ".bin", ".safetensors", ".onnx", ".gguf"];
 
     fn visit(dir: &std::path::Path, exts: &[&str], min_size: u64) -> Option<bool> {
         let entries = std::fs::read_dir(dir).ok()?;
@@ -1796,6 +1815,37 @@ fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
             vad_model: true,  // Whisper 内置 Silero VAD
             punc_model: true, // Whisper 内置标点
             engine: "whisper".to_string(),
+            cache_path,
+            missing_models,
+        }
+    } else if engine == "qwen3-asr-0.6b" || engine == "qwen3-asr-1.7b" {
+        let (repo_id, filename, description) = if engine == "qwen3-asr-1.7b" {
+            (
+                QWEN3_ASR_17_REPO_ID,
+                QWEN3_ASR_17_FILENAME,
+                "Qwen3-ASR 1.7B Q8模型",
+            )
+        } else {
+            (
+                QWEN3_ASR_06_REPO_ID,
+                QWEN3_ASR_06_FILENAME,
+                "Qwen3-ASR 0.6B Q8模型",
+            )
+        };
+        let mut missing_models = Vec::new();
+        let asr_present = report_model_repo_file_state(
+            repo_id,
+            Some(filename),
+            description,
+            &mut missing_models,
+        );
+
+        ModelCheckResult {
+            all_present: asr_present,
+            asr_model: asr_present,
+            vad_model: true,
+            punc_model: true,
+            engine: engine.to_string(),
             cache_path,
             missing_models,
         }

@@ -19,6 +19,8 @@ from hf_cache_utils import (
     ASR_REPO_ID,
     VAD_REPO_ID,
     WHISPER_REPO_ID,
+    QWEN3_ASR_MODELS,
+    find_hf_snapshot_file,
 )
 
 DEFAULT_HF_ENDPOINT = "https://huggingface.co"
@@ -363,7 +365,12 @@ def download_model(model_config):
 
     _cleanup_locks(model_name)
 
-    if is_hf_repo_ready(model_name):
+    required_files = model_config.get("files")
+    files_ready = required_files and all(
+        find_hf_snapshot_file(model_name, item["rfilename"])
+        for item in required_files
+    )
+    if files_ready or (not required_files and is_hf_repo_ready(model_name)):
         _emit(model_type, "completed", 100,
               message=f"{model_name} 已缓存，跳过下载")
         return {"success": True, "model": model_type}
@@ -383,7 +390,11 @@ def download_model(model_config):
             _emit(model_type, "downloading", 0, message=f"正在获取 {model_name} 文件列表...")
 
         try:
-            commit_hash, files = _get_repo_info(model_name, endpoint)
+            if required_files:
+                commit_hash = model_config["revision"]
+                files = required_files
+            else:
+                commit_hash, files = _get_repo_info(model_name, endpoint)
 
             # 构建 HF 缓存目录结构
             cache_root = get_hf_cache_root()
@@ -432,11 +443,31 @@ def main(engine=None):
     if engine is None:
         import argparse
         parser = argparse.ArgumentParser()
-        parser.add_argument("--engine", default="sensevoice", choices=["sensevoice", "whisper"])
+        parser.add_argument(
+            "--engine",
+            default="sensevoice",
+            choices=["sensevoice", "whisper", "qwen3-asr-0.6b", "qwen3-asr-1.7b"],
+        )
         args = parser.parse_args()
         engine = args.engine
 
-    if engine == "whisper":
+    if engine in QWEN3_ASR_MODELS:
+        config = QWEN3_ASR_MODELS[engine]
+        models = [
+            {
+                "name": config["repo_id"],
+                "type": "asr",
+                "revision": config["revision"],
+                "files": [
+                    {
+                        "rfilename": config["filename"],
+                        "size": config["size"],
+                        "sha256": config["sha256"],
+                    }
+                ],
+            }
+        ]
+    elif engine == "whisper":
         models = [
             {"name": WHISPER_REPO_ID, "type": "asr"},
         ]

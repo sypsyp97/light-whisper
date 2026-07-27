@@ -268,6 +268,8 @@ const zh = {
     engine: "识别引擎",
     sensevoiceDesc: "中英日韩粤语",
     whisperDesc: "99+语言，速度快",
+    qwen3Asr06Desc: "850 MB · 最快 · 推荐",
+    qwen3Asr17Desc: "2.19 GB · 更高精度",
     glmAsrDesc: "智谱在线语音识别",
     alibabaAsrDesc: "阿里 DashScope Qwen ASR / Omni",
     alibabaAsrLabel: "阿里 DashScope",

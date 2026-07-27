@@ -6,6 +6,8 @@ PyInstaller 打包入口脚本。
 通过子命令分发到不同功能：
   engine.exe serve --engine sensevoice   → 启动 SenseVoice ASR 服务器
   engine.exe serve --engine whisper      → 启动 Whisper ASR 服务器
+  engine.exe serve --engine qwen3-asr-0.6b → 启动 Qwen3-ASR 0.6B Q8 服务器
+  engine.exe serve --engine qwen3-asr-1.7b → 启动 Qwen3-ASR 1.7B Q8 服务器
   engine.exe download --engine sensevoice → 下载 SenseVoice 模型
   engine.exe download --engine whisper    → 下载 Whisper 模型
 """
@@ -25,7 +27,10 @@ def _setup_frozen_paths():
 
 
 def cmd_serve(engine: str):
-    if engine == "whisper":
+    if engine.startswith("qwen3-asr-"):
+        from qwen3_asr_server import Qwen3ASRServer
+        server = Qwen3ASRServer(engine=engine)
+    elif engine == "whisper":
         from whisper_server import WhisperServer
         server = WhisperServer()
     else:
@@ -46,10 +51,11 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     serve_p = sub.add_parser("serve")
-    serve_p.add_argument("--engine", required=True, choices=["sensevoice", "whisper"])
+    engine_choices = ["sensevoice", "whisper", "qwen3-asr-0.6b", "qwen3-asr-1.7b"]
+    serve_p.add_argument("--engine", required=True, choices=engine_choices)
 
     dl_p = sub.add_parser("download")
-    dl_p.add_argument("--engine", required=True, choices=["sensevoice", "whisper"])
+    dl_p.add_argument("--engine", required=True, choices=engine_choices)
 
     args = parser.parse_args()
 
