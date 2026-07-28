@@ -32,9 +32,6 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
         self.output_archive = self.resources_dir / "engine.tar.xz"
         self.output_archive.write_bytes(OLD_ARCHIVE)
         self.dist_dir = self.resources_dir / "python-dist"
-        self.package_dir = self.root / "fake-funasr"
-        self.package_dir.mkdir()
-
         self.module = load_build_engine_module()
         self.module.PROJECT_ROOT = self.root
         self.module.RESOURCES_DIR = self.resources_dir
@@ -69,7 +66,6 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
         failed_process = types.SimpleNamespace(returncode=23)
 
         with (
-            mock.patch.object(self.module, "find_package_dir", return_value=self.package_dir),
             mock.patch.object(self.module.subprocess, "run", return_value=failed_process),
             self.assertRaises(SystemExit) as exit_context,
         ):
@@ -97,13 +93,8 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
             raise RuntimeError("synthetic compression failure")
 
         with (
-            mock.patch.object(self.module, "find_package_dir", return_value=self.package_dir),
             mock.patch.object(self.module.subprocess, "run", side_effect=fake_pyinstaller),
-            mock.patch.object(self.module, "strip_cuda_dlls", return_value=0.0),
             mock.patch.object(self.module, "strip_dev_artifacts", return_value=0.0),
-            mock.patch.object(self.module, "strip_runtime_dirs", return_value=0.0),
-            mock.patch.object(self.module, "strip_funasr_bytecode_cache", return_value=0.0),
-            mock.patch.object(self.module, "validate_torch_cuda_deps", return_value=None),
             mock.patch.object(self.module, "create_tar_xz", side_effect=fail_compression),
             self.assertRaisesRegex(RuntimeError, "synthetic compression failure"),
         ):

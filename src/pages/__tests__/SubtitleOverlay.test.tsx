@@ -96,8 +96,16 @@ vi.mock("@/i18n", () => ({
 // streaming animation, so this is safe.
 vi.mock("@/hooks/useSmoothText", () => ({
   useSmoothText: (source: string) => source,
-  segmentGraphemes: (text: string) =>
-    text ? Array.from(text) : ([] as string[]),
+  segmentGraphemes: (text: string) => {
+    if (!text) return [] as string[];
+    const Segmenter = (Intl as typeof Intl & {
+      Segmenter: new (
+        locales?: string | string[],
+        options?: { granularity: "grapheme" },
+      ) => { segment(value: string): Iterable<{ segment: string }> };
+    }).Segmenter;
+    return Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
+  },
 }));
 
 import SubtitleOverlay from "@/pages/SubtitleOverlay";
@@ -1417,5 +1425,181 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     const polishingSlot = container.querySelector(".subtitle-status-indicator");
     expect(polishingSlot).toBe(waveformSlot);
     expect(polishingSlot?.querySelector(".subtitle-dot-polishing")).not.toBeNull();
+  });
+});
+
+describe("SubtitleOverlay local-ASR interim stability layers", () => {
+  it("renders the first local hypothesis entirely as tentative text", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 201,
+        text: "今天天气很好",
+        interim: true,
+        stableText: "",
+        tentativeText: "今天天气很好",
+      });
+    });
+
+    expect(container.querySelector(".subtitle-interim-stable")).not.toBeNull();
+    expect(container.querySelector(".subtitle-interim-stable")?.textContent).toBe("");
+    expect(container.querySelector(".subtitle-interim-tentative")?.textContent).toBe("今天天气很好");
+    expect(readSubtitleText(container)).toBe("今天天气很好");
+  });
+
+  it("renders a UTF-8 stable prefix separately from a rewritten tail", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 202,
+        text: "我们明天去上海",
+        interim: true,
+        stableText: "",
+        tentativeText: "我们明天去上海",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 202,
+        text: "我们明天去上班",
+        interim: true,
+        stableText: "我们明天去上",
+        tentativeText: "班",
+      });
+    });
+
+    expect(container.querySelector(".subtitle-interim-stable")?.textContent).toBe("我们明天去上");
+    expect(container.querySelector(".subtitle-interim-tentative")?.textContent).toBe("班");
+    expect(readSubtitleText(container)).toBe("我们明天去上班");
+  });
+
+  it("updates the tentative suffix without remounting and replaying its entrance", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 208,
+        text: "我们明天去上海",
+        interim: true,
+        stableText: "我们明天去上",
+        tentativeText: "海",
+      });
+    });
+    const firstTentativeNode = container.querySelector(".subtitle-interim-tentative");
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 208,
+        text: "我们明天去上班",
+        interim: true,
+        stableText: "我们明天去上",
+        tentativeText: "班",
+      });
+    });
+
+    expect(container.querySelector(".subtitle-interim-tentative")).toBe(firstTentativeNode);
+    expect(firstTentativeNode?.textContent).toBe("班");
+  });
+
+  it("does not split a combining grapheme across the stability layers", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 207,
+        text: "e\u0301clair",
+        interim: true,
+        stableText: "e",
+        tentativeText: "\u0301clair",
+      });
+    });
+
+    expect(container.querySelector(".subtitle-interim-stable")?.textContent).toBe("");
+    expect(container.querySelector(".subtitle-interim-tentative")?.textContent).toBe("e\u0301clair");
+    expect(readSubtitleText(container)).toBe("e\u0301clair");
+  });
+
+  it("clears stability layers for final results, new sessions, and invalid fragments", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 203,
+        text: "有效分层",
+        interim: true,
+        stableText: "有效",
+        tentativeText: "分层",
+      });
+    });
+    expect(container.querySelector(".subtitle-interim-stable")).not.toBeNull();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 203,
+        text: "最终结果",
+        interim: false,
+        stableText: "不应",
+        tentativeText: "保留",
+      });
+    });
+    expect(container.querySelector(".subtitle-interim-stable")).toBeNull();
+    expect(container.querySelector(".subtitle-interim-tentative")).toBeNull();
+    expect(readSubtitleText(container)).toBe("最终结果");
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 204,
+        text: "再次分层",
+        interim: true,
+        stableText: "再次",
+        tentativeText: "分层",
+      });
+      tauriEvents.emit("recording-state", {
+        sessionId: 205,
+        revision: 1,
+        isStarting: false,
+        isRecording: true,
+        isProcessing: false,
+        mode: "dictation",
+      });
+    });
+    expect(container.querySelector(".subtitle-interim-stable")).toBeNull();
+    expect(container.querySelector(".subtitle-interim-tentative")).toBeNull();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 205,
+        text: "完整文本",
+        interim: true,
+        stableText: "不匹配",
+        tentativeText: "分片",
+      });
+    });
+    expect(container.querySelector(".subtitle-interim-stable")).toBeNull();
+    expect(container.querySelector(".subtitle-interim-tentative")).toBeNull();
+    expect(readSubtitleText(container)).toBe("完整文本");
+  });
+
+  it("keeps legacy interim events on the existing unlayered rendering path", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 206,
+        text: "旧引擎中间结果",
+        interim: true,
+      });
+    });
+
+    expect(container.querySelector(".subtitle-interim-stable")).toBeNull();
+    expect(container.querySelector(".subtitle-interim-tentative")).toBeNull();
+    expect(container.querySelectorAll(".stream-char")).toHaveLength(Array.from("旧引擎中间结果").length);
+    expect(readSubtitleText(container)).toBe("旧引擎中间结果");
   });
 });

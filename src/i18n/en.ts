@@ -269,7 +269,6 @@ const en: TranslationSchema = {
     switchToTheme: "Switch to {{label}} mode",
     language: "Language",
     engine: "ASR Engine",
-    sensevoiceDesc: "CN/EN/JP/KR/Cantonese",
     whisperDesc: "99+ languages, fast",
     qwen3Asr06Desc: "850 MB · fastest · recommended",
     qwen3Asr17Desc: "2.19 GB · higher accuracy",

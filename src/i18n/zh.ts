@@ -267,7 +267,6 @@ const zh = {
     switchToTheme: "切换为{{label}}模式",
     language: "语言",
     engine: "识别引擎",
-    sensevoiceDesc: "中英日韩粤语",
     whisperDesc: "99+语言，速度快",
     qwen3Asr06Desc: "850 MB · 最快 · 推荐",
     qwen3Asr17Desc: "2.19 GB · 更高精度",

@@ -1,5 +1,4 @@
 export type AsrEngineKey =
-  | "sensevoice"
   | "whisper"
   | "qwen3-asr-0.6b"
   | "qwen3-asr-1.7b"
@@ -13,7 +12,6 @@ export interface AsrEngineCapability {
 }
 
 export const ASR_ENGINE_CAPABILITIES: Record<AsrEngineKey, AsrEngineCapability> = {
-  sensevoice: { execution: "local", final: true, interim: true },
   whisper: { execution: "local", final: true, interim: true },
   "qwen3-asr-0.6b": { execution: "local", final: true, interim: true },
   "qwen3-asr-1.7b": { execution: "local", final: true, interim: true },

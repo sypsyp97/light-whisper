@@ -31,6 +31,8 @@ pub fn spawn_interim_loop(
         let state = app_handle.state::<AppState>();
         let mut interval_ms = INTERIM_INTERVAL_BASE_MS;
         let mut last_sample_count: usize = 0;
+        let engine = paths::read_engine_config();
+        let mut previous_hypothesis: Option<String> = None;
         // 会话级重采样缓存：只对新增的原始增量执行一次重采样，结果追加到这里
         // 原生 16k 设备时与原始数据相同（resample_to_16k 走零拷贝路径）
         let mut resampled_cache: Vec<i16> = Vec::new();
@@ -62,7 +64,7 @@ pub fn spawn_interim_loop(
         }
 
         // 在线引擎不做中间转写（每次请求花钱且有网络延迟）
-        if paths::is_online_engine(&paths::read_engine_config()) {
+        if paths::is_online_engine(&engine) {
             log::info!("在线引擎，跳过中间转写 (session {})", session_id);
             stop_notify.notified().await;
             return;
@@ -145,30 +147,41 @@ pub fn spawn_interim_loop(
             let covered_sample_count =
                 current_count.min((sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize);
 
-            match funasr_service::transcribe_pcm16(
+            let transcription_result = funasr_service::transcribe_pcm16(
                 state.inner(),
                 interim_samples,
                 interim_sample_rate,
                 &app_handle,
             )
-            .await
-            {
+            .await;
+            // The request consumed this recording checkpoint even if the backend
+            // returned an empty/error result. Replaying the same window adds load
+            // and makes subsequent subtitle updates arrive in bursts.
+            last_sample_count = current_count;
+
+            match transcription_result {
                 Ok(result) if result.success && !result.text.is_empty() => {
-                    let _ = app_handle.emit(
-                        "transcription-result",
-                        serde_json::json!({
-                            "sessionId": session_id,
-                            "text": &result.text,
-                            "interim": true,
-                            "language": &result.language,
-                        }),
-                    );
+                    if let Some((stable_text, tentative_text)) =
+                        interim_event_segments(previous_hypothesis.as_deref(), &result.text)
+                    {
+                        let _ = app_handle.emit(
+                            "transcription-result",
+                            serde_json::json!({
+                                "sessionId": session_id,
+                                "text": &result.text,
+                                "stableText": stable_text,
+                                "tentativeText": tentative_text,
+                                "interim": true,
+                                "language": &result.language,
+                            }),
+                        );
+                    }
+                    previous_hypothesis = Some(result.text.clone());
                     *interim_cache.lock() = Some(crate::state::InterimCache {
                         text: result.text,
                         language: result.language,
                         sample_count: covered_sample_count,
                     });
-                    last_sample_count = current_count;
                 }
                 _ => {}
             }
@@ -180,6 +193,25 @@ pub fn spawn_interim_loop(
         }
         log::info!("中间转写循环结束 (session {})", session_id);
     })
+}
+
+fn utf8_common_prefix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .zip(right.chars())
+        .take_while(|(left_char, right_char)| left_char == right_char)
+        .map(|(character, _)| character.len_utf8())
+        .sum()
+}
+
+fn interim_event_segments<'a>(
+    previous: Option<&str>,
+    current: &'a str,
+) -> Option<(&'a str, &'a str)> {
+    if previous == Some(current) {
+        return None;
+    }
+    let stable_len = previous.map_or(0, |text| utf8_common_prefix_len(text, current));
+    Some(current.split_at(stable_len))
 }
 
 fn adjust_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
@@ -200,5 +232,45 @@ fn adjust_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
             std::cmp::Ordering::Less => (current + 4).min(INTERIM_INTERVAL_BASE_MS),
             std::cmp::Ordering::Equal => current,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{interim_event_segments, utf8_common_prefix_len};
+
+    #[test]
+    fn common_prefix_len_is_a_valid_utf8_boundary() {
+        let current = "你好，世界呀";
+        let prefix_len = utf8_common_prefix_len("你好，世界啊", current);
+
+        assert_eq!(&current[..prefix_len], "你好，世界");
+        assert_eq!(&current[prefix_len..], "呀");
+        assert!(current.is_char_boundary(prefix_len));
+    }
+
+    #[test]
+    fn common_prefix_len_stops_before_the_rewritten_tail() {
+        let current = "我们明天去上班";
+        let prefix_len = utf8_common_prefix_len("我们明天去上海", current);
+
+        assert_eq!(&current[..prefix_len], "我们明天去上");
+        assert_eq!(&current[prefix_len..], "班");
+    }
+
+    #[test]
+    fn duplicate_hypothesis_does_not_emit_another_ui_event() {
+        assert_eq!(
+            interim_event_segments(Some("今天天气很好"), "今天天气很好"),
+            None
+        );
+    }
+
+    #[test]
+    fn changed_hypothesis_emits_stable_and_tentative_segments() {
+        assert_eq!(
+            interim_event_segments(Some("我们明天去上海"), "我们明天去上班"),
+            Some(("我们明天去上", "班"))
+        );
     }
 }

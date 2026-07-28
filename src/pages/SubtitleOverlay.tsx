@@ -45,6 +45,8 @@ interface TranscriptionResult {
   sessionId?: number;
   text: string;
   interim?: boolean;
+  stableText?: string;
+  tentativeText?: string;
   polished?: boolean;
   mode?: "dictation" | "assistant";
   resultStage?: "raw" | "polished";
@@ -59,6 +61,11 @@ interface TranscriptionResult {
         | "unchanged";
     };
   };
+}
+
+interface InterimSegments {
+  stableText: string;
+  tentativeText: string;
 }
 
 interface RecordingOutcome {
@@ -132,6 +139,25 @@ function normalizeWaveformBars(bars: number[]): number[] {
   });
 }
 
+function validInterimSegments(payload: TranscriptionResult): InterimSegments | null {
+  const { stableText, tentativeText, text } = payload;
+  if (typeof stableText !== "string" || typeof tentativeText !== "string") return null;
+  if (`${stableText}${tentativeText}` !== text) return null;
+
+  // Rust guarantees a UTF-8 scalar boundary. Tighten it to a grapheme
+  // boundary here so combining marks and ZWJ emoji never straddle two spans.
+  let stableBoundary = 0;
+  for (const grapheme of segmentGraphemes(text)) {
+    const nextBoundary = stableBoundary + grapheme.length;
+    if (nextBoundary > stableText.length) break;
+    stableBoundary = nextBoundary;
+  }
+  return {
+    stableText: text.slice(0, stableBoundary),
+    tentativeText: text.slice(stableBoundary),
+  };
+}
+
 function mergeAssistantSources(
   current: AssistantSource[],
   incoming: AssistantSource[],
@@ -150,6 +176,7 @@ export default function SubtitleOverlay() {
   // 初始 "idle"：窗口预创建后隐藏，等待录音事件时切换状态
   const [phase, setPhase] = useState<Phase>("idle");
   const [text, setText] = useState("");
+  const [interimSegments, setInterimSegments] = useState<InterimSegments | null>(null);
   const [fadingOut, setFadingOut] = useState(false);
   const [polishFlash, setPolishFlash] = useState(false);
   const [rawFirstStatus, setRawFirstStatus] = useState<string | null>(null);
@@ -339,6 +366,7 @@ export default function SubtitleOverlay() {
       clearFadeTimer();
       setFadingOut(false);
       setText("");
+      setInterimSegments(null);
       setRawFirstStatus(null);
       setResultStage(null);
       setOutcome(null);
@@ -419,6 +447,7 @@ export default function SubtitleOverlay() {
         ? currentText
         : ""
     ));
+    setInterimSegments(null);
     setRawFirstStatus(null);
     setResultStage(null);
     setWaveformBars(EMPTY_WAVEFORM_BARS);
@@ -457,6 +486,7 @@ export default function SubtitleOverlay() {
       clearFadeTimer();
       setMode(snapshot.mode);
       setText("");
+      setInterimSegments(null);
       setRawFirstStatus(null);
       setResultStage(null);
       setOutcome(null);
@@ -608,6 +638,7 @@ export default function SubtitleOverlay() {
             clearFadeTimer();
             setFadingOut(false);
             setText("");
+            setInterimSegments(null);
             setRawFirstStatus(null);
             setResultStage(null);
             setOutcome(null);
@@ -846,6 +877,7 @@ export default function SubtitleOverlay() {
           const incomingText = event.payload.text || "";
           setOutcome(null);
           setText(incomingText);
+          setInterimSegments(interim ? validInterimSegments(event.payload) : null);
           setRawFirstStatus(event.payload.timing?.rawFirst?.status ?? null);
           setResultStage(event.payload.resultStage ?? null);
 
@@ -892,6 +924,7 @@ export default function SubtitleOverlay() {
             cleanupTimerRef.current = setTimeout(() => {
               if (latestSessionIdRef.current !== expectedSessionId) return;
               setText("");
+              setInterimSegments(null);
               setRawFirstStatus(null);
               setResultStage(null);
               setOutcome(null);
@@ -921,8 +954,8 @@ export default function SubtitleOverlay() {
     };
   }, [clearFadeTimer, updatePhase]);
 
-  const isStreaming = text.length > 0 && smoothText.length < text.length;
-  const hasText = smoothText.length > 0;
+  const isStreaming = !interimSegments && text.length > 0 && smoothText.length < text.length;
+  const hasText = (interimSegments ? text : smoothText).length > 0;
   const rawFirstLabelKey = rawFirstStatus === "preview_only" && resultStage === "polished"
     ? "polished_preview"
     : rawFirstStatus;
@@ -952,6 +985,7 @@ export default function SubtitleOverlay() {
     clearFadeTimer();
     setFadingOut(false);
     setText("");
+    setInterimSegments(null);
     setRawFirstStatus(null);
     setResultStage(null);
     setOutcome(null);
@@ -1347,7 +1381,14 @@ export default function SubtitleOverlay() {
                   if (e.target === e.currentTarget) setPolishFlash(false);
                 }}
               >
-                {segmentGraphemes(smoothText).map((g, i) => (
+                {interimSegments ? (
+                  <>
+                    <span className="subtitle-interim-stable">{interimSegments.stableText}</span>
+                    <span className="subtitle-interim-tentative">
+                      {interimSegments.tentativeText}
+                    </span>
+                  </>
+                ) : segmentGraphemes(smoothText).map((g, i) => (
                   <span key={i} className="stream-char">{g}</span>
                 ))}
               </div>

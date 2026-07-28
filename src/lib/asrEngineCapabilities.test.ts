@@ -3,7 +3,6 @@ import { getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 
 describe("ASR engine capabilities", () => {
   it.each([
-    ["sensevoice", { execution: "local", final: true, interim: true }],
     ["whisper", { execution: "local", final: true, interim: true }],
     ["qwen3-asr-0.6b", { execution: "local", final: true, interim: true }],
     ["qwen3-asr-1.7b", { execution: "local", final: true, interim: true }],
@@ -11,5 +10,9 @@ describe("ASR engine capabilities", () => {
     ["alibaba-asr", { execution: "cloud", final: true, interim: false }],
   ] as const)("%s exposes its product capability contract", (engineKey, expected) => {
     expect(getAsrEngineCapability(engineKey)).toEqual(expected);
+  });
+
+  it("does not advertise the retired SenseVoice engine", () => {
+    expect(getAsrEngineCapability("sensevoice")).toBeNull();
   });
 });

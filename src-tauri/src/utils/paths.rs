@@ -35,10 +35,6 @@ fn get_resource_script_path(app: &tauri::AppHandle, filename: &str) -> PathBuf {
     PathBuf::from("resources").join(filename)
 }
 
-pub fn get_funasr_server_path(app: &tauri::AppHandle) -> PathBuf {
-    get_resource_script_path(app, "funasr_server.py")
-}
-
 pub fn get_whisper_server_path(app: &tauri::AppHandle) -> PathBuf {
     get_resource_script_path(app, "whisper_server.py")
 }
@@ -63,12 +59,13 @@ pub fn get_engine_config_path() -> PathBuf {
 pub fn read_engine_config() -> String {
     if let Some(engine) = read_engine_json().get("engine").and_then(|v| v.as_str()) {
         match engine {
-            "whisper" | "sensevoice" | "qwen3-asr-0.6b" | "qwen3-asr-1.7b" | "glm-asr"
-            | "alibaba-asr" => return engine.to_string(),
+            "whisper" | "qwen3-asr-0.6b" | "qwen3-asr-1.7b" | "glm-asr" | "alibaba-asr" => {
+                return engine.to_string()
+            }
             _ => {}
         }
     }
-    "sensevoice".to_string()
+    "qwen3-asr-0.6b".to_string()
 }
 
 pub fn is_online_engine(engine: &str) -> bool {

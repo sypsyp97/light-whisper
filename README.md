@@ -26,7 +26,7 @@
 ## Features
 
 - **One-key dictation**: record with a configurable global hotkey, then type the transcript into the active window.
-- **Local and cloud ASR**: run SenseVoice, Faster Whisper, or Qwen3-ASR Q8 locally, or use GLM-ASR / Alibaba DashScope without local models.
+- **Local and cloud ASR**: run Faster Whisper or Qwen3-ASR Q8 locally, or use GLM-ASR / Alibaba DashScope without local models.
 - **Raw-first AI polish**: show ASR output quickly, then replace or preview the polished result when the LLM returns. Result cards show ASR, AI, and total latency.
 - **Subtitle overlay**: a floating transparent window shows listening, recognition, polishing, web search, and assistant states.
 - **Voice assistant**: ask from a separate hotkey, with optional selected text, foreground app, and full-screen screenshot context.
@@ -38,7 +38,6 @@
 
 | Engine | Runtime | Best for | Language / model | Notes |
 |:--|:--|:--|:--|:--|
-| **SenseVoice** | Local Python engine | Default low-latency dictation | zh / en / ja / ko / yue | Downloads SenseVoiceSmall + VAD models |
 | **Faster Whisper** | Local Python engine | Wider language coverage | large-v3-turbo-ct2, 99+ languages | Downloads Whisper model |
 | **Qwen3-ASR 0.6B Q8** | Local GGUF engine | Speed-oriented Qwen dictation | Multilingual, Q8_0 | Separate ~850 MB download; CUDA / Vulkan / CPU |
 | **Qwen3-ASR 1.7B Q8** | Local GGUF engine | Quality-oriented Qwen option | Multilingual, Q8_0 | Separate ~2.19 GB download; CUDA / Vulkan / CPU |
@@ -89,7 +88,6 @@ The NSIS installer is written to `src-tauri/target/release/bundle/nsis/`.
 Optional local-model prefetch:
 
 ```bash
-uv run python src-tauri/resources/download_models.py --engine sensevoice
 uv run python src-tauri/resources/download_models.py --engine whisper
 uv run python src-tauri/resources/download_models.py --engine qwen3-asr-0.6b
 uv run python src-tauri/resources/download_models.py --engine qwen3-asr-1.7b
@@ -112,18 +110,17 @@ cd src-tauri && cargo check
 
 **Hotkey not working**: the current default dictation hotkey is `F2`. Change it in Settings if another app owns it.
 
-**GPU not detected**: run `nvidia-smi`. SenseVoice/Whisper can also be checked with `.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"`; Qwen3-ASR records its selected backend in `qwen3_asr_server.log`.
+**GPU not detected**: run `nvidia-smi`. Whisper and Qwen3-ASR record their selected device/backend in `whisper_server.log` and `qwen3_asr_server.log`.
 
 **Log locations**:
 
 - App log: `%LOCALAPPDATA%\com.light-whisper.desktop\logs\app.log`
-- Python ASR logs: `%APPDATA%\com.light-whisper.app\logs\funasr_server.log` / `whisper_server.log`
+- Whisper log: `%APPDATA%\com.light-whisper.app\logs\whisper_server.log`
 - Qwen3-ASR log: `%TEMP%\light_whisper_logs\qwen3_asr_server.log`
 - Python stderr fallback: `%APPDATA%\com.light-whisper.app\funasr_stderr.log`
 
 ## Acknowledgements
 
-- [FunASR](https://github.com/modelscope/FunASR) & [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall)
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) & [large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2)
 - [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) & [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp)
 - [GLM-ASR](https://bigmodel.cn/)

@@ -111,7 +111,6 @@ import { useTranslation } from "react-i18next";
 const CorrectionRulesModal = lazy(() => import("@/components/settings/CorrectionRulesModal"));
 
 const engineOptions = [
-  { key: "sensevoice", icon: AudioLines, label: "SenseVoice", labelKey: undefined, descKey: "settings.sensevoiceDesc" },
   { key: "whisper", icon: Zap, label: "Faster Whisper", labelKey: undefined, descKey: "settings.whisperDesc" },
   { key: "qwen3-asr-0.6b", icon: Zap, label: "Qwen3-ASR 0.6B Q8", labelKey: undefined, descKey: "settings.qwen3Asr06Desc" },
   { key: "qwen3-asr-1.7b", icon: Sparkles, label: "Qwen3-ASR 1.7B Q8", labelKey: undefined, descKey: "settings.qwen3Asr17Desc" },
@@ -342,7 +341,7 @@ export default function SettingsPage({
   });
 
   // --- Core state ---
-  const [engine, setEngineState] = useState<string>("sensevoice");
+  const [engine, setEngineState] = useState<string>("qwen3-asr-0.6b");
   const [engineLoading, setEngineLoading] = useState(true);
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);

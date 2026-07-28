@@ -16,8 +16,6 @@ from hf_cache_utils import (
     is_hf_repo_ready,
     get_hf_cache_root,
     cleanup_incomplete_files,
-    ASR_REPO_ID,
-    VAD_REPO_ID,
     WHISPER_REPO_ID,
     QWEN3_ASR_MODELS,
     find_hf_snapshot_file,
@@ -445,8 +443,8 @@ def main(engine=None):
         parser = argparse.ArgumentParser()
         parser.add_argument(
             "--engine",
-            default="sensevoice",
-            choices=["sensevoice", "whisper", "qwen3-asr-0.6b", "qwen3-asr-1.7b"],
+            default="qwen3-asr-0.6b",
+            choices=["whisper", "qwen3-asr-0.6b", "qwen3-asr-1.7b"],
         )
         args = parser.parse_args()
         engine = args.engine
@@ -472,10 +470,7 @@ def main(engine=None):
             {"name": WHISPER_REPO_ID, "type": "asr"},
         ]
     else:
-        models = [
-            {"name": ASR_REPO_ID, "type": "asr"},
-            {"name": VAD_REPO_ID, "type": "vad"},
-        ]
+        raise ValueError(f"不支持的本地 ASR 引擎: {engine}")
 
     _total_count = len(models)
     for m in models:

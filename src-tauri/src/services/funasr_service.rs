@@ -140,8 +140,6 @@ pub struct ModelCheckResult {
     pub missing_models: Vec<String>,
 }
 
-const ASR_REPO_ID: &str = "FunAudioLLM/SenseVoiceSmall";
-const VAD_REPO_ID: &str = "funasr/fsmn-vad";
 const WHISPER_REPO_ID: &str = "deepdml/faster-whisper-large-v3-turbo-ct2";
 const QWEN3_ASR_06_REPO_ID: &str = "handy-computer/Qwen3-ASR-0.6B-gguf";
 const QWEN3_ASR_06_FILENAME: &str = "Qwen3-ASR-0.6B-Q8_0.gguf";
@@ -934,12 +932,12 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         }
         EngineRuntime::Development { python_path } => {
             log::info!("使用开发模式 Python: {}", python_path);
-            let server_script = if ticket.engine == "whisper" {
-                paths::get_whisper_server_path(app_handle)
-            } else if ticket.engine.starts_with("qwen3-asr-") {
-                paths::get_qwen3_asr_server_path(app_handle)
-            } else {
-                paths::get_funasr_server_path(app_handle)
+            let server_script = match ticket.engine.as_str() {
+                "whisper" => paths::get_whisper_server_path(app_handle),
+                engine if engine.starts_with("qwen3-asr-") => {
+                    paths::get_qwen3_asr_server_path(app_handle)
+                }
+                engine => return Err(AppError::Asr(format!("不支持的本地 ASR 引擎: {engine}"))),
             };
             let server_script_str = paths::strip_win_prefix(&server_script);
             log::info!(
@@ -1151,14 +1149,12 @@ pub async fn transcribe_pcm16(
     // 检查服务器是否就绪
     if !state.is_funasr_ready() {
         return Err(AppError::Asr(
-            "FunASR 服务器尚未就绪，请等待初始化完成".to_string(),
+            "语音识别引擎尚未就绪，请等待初始化完成".to_string(),
         ));
     }
 
-    // Python funasr_server.py 在 duration < 0.5s 时直接返回空文本（VAD 对短音频
-    // 会空张量索引）。interim 路径的首个 tick 可能只有 200-400ms，这里尾部 zero-pad
-    // 到 0.5s，VAD 能正常切出前面的 speech 段，尾部静音被自然跳过。只对短音频生效，
-    // 长于 0.5s 的输入走零拷贝原路。
+    // 本地引擎对过短输入的处理不稳定。interim 路径的首个 tick 可能只有
+    // 200-400ms，这里尾部 zero-pad 到 0.5s；只对短音频生效，长输入走原路。
     const MIN_IPC_DURATION_SEC: f64 = 0.5;
     let min_samples_for_ipc = (sample_rate as f64 * MIN_IPC_DURATION_SEC) as usize;
     let padded_storage: Vec<i16>;
@@ -1804,12 +1800,7 @@ fn snapshot_matches_legacy_weight_check(snapshot_path: &std::path::Path) -> bool
     ready
 }
 
-/// 检查模型文件是否已下载
-///
-/// 检查 HuggingFace 缓存中是否存在 SenseVoiceSmall 相关模型：
-/// - `FunAudioLLM/SenseVoiceSmall` + `funasr/fsmn-vad`
-///
-/// 注：SenseVoiceSmall 内置 ITN 标点恢复，不再需要独立的 ct-punc 模型
+/// 检查当前 ASR 引擎的模型文件是否已下载。
 fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
     if paths::is_online_engine(engine) {
         return ModelCheckResult {
@@ -1841,8 +1832,14 @@ fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
             cache_path,
             missing_models,
         }
-    } else if engine == "qwen3-asr-0.6b" || engine == "qwen3-asr-1.7b" {
-        let (repo_id, filename, description) = if engine == "qwen3-asr-1.7b" {
+    } else {
+        // 旧版或损坏的本地引擎值统一迁移到默认的 Qwen3-ASR 0.6B。
+        let normalized_engine = if engine == "qwen3-asr-1.7b" {
+            "qwen3-asr-1.7b"
+        } else {
+            "qwen3-asr-0.6b"
+        };
+        let (repo_id, filename, description) = if normalized_engine == "qwen3-asr-1.7b" {
             (
                 QWEN3_ASR_17_REPO_ID,
                 QWEN3_ASR_17_FILENAME,
@@ -1864,26 +1861,7 @@ fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
             asr_model: asr_present,
             vad_model: true,
             punc_model: true,
-            engine: engine.to_string(),
-            cache_path,
-            missing_models,
-        }
-    } else {
-        // SenseVoice 引擎：检查 ASR + VAD 模型
-        let mut missing_models = Vec::new();
-        let asr_present =
-            report_model_repo_state(ASR_REPO_ID, "ASR语音识别模型", &mut missing_models);
-        let vad_present =
-            report_model_repo_state(VAD_REPO_ID, "VAD语音活动检测模型", &mut missing_models);
-
-        let all_present = asr_present && vad_present;
-
-        ModelCheckResult {
-            all_present,
-            asr_model: asr_present,
-            vad_model: vad_present,
-            punc_model: true, // SenseVoiceSmall 内置 ITN，无需独立标点模型
-            engine: "sensevoice".to_string(),
+            engine: normalized_engine.to_string(),
             cache_path,
             missing_models,
         }

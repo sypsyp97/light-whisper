@@ -5,14 +5,13 @@
 
 流程：
 1. PyInstaller --onedir 构建 engine.exe
-2. 删除可安全裁剪的可选 CUDA DLL 和开发期库文件
+2. 删除开发期库文件
 3. 压缩为 engine.tar.xz（适配 NSIS 2GB 限制）
 4. 输出到 src-tauri/resources/engine.tar.xz
 
 必须在项目 .venv 环境中运行。
 """
 
-import importlib.util
 import importlib.metadata
 import os
 import shutil
@@ -37,7 +36,6 @@ QWEN3_CUDA_PROVIDER_URL = (
 
 # 同级 Python 脚本，打包到 _internal/
 ADD_DATA_FILES = [
-    "funasr_server.py",
     "whisper_server.py",
     "qwen3_asr_server.py",
     "download_models.py",
@@ -46,20 +44,10 @@ ADD_DATA_FILES = [
 ]
 
 HIDDEN_IMPORTS = [
-    "funasr",
-    "funasr.utils.postprocess_utils",
-    "funasr.models.sense_voice.model",
-    "funasr.models.fsmn_vad_streaming.model",
-    "funasr.models.fsmn_vad_streaming.encoder",
-    "funasr.models.specaug.specaug",
-    "funasr.frontends.wav_frontend",
-    "funasr.tokenizer.sentencepiece_tokenizer",
     "faster_whisper",
     "ctranslate2",
     "requests",
     "certifi",
-    "torch",
-    "torchaudio",
     "librosa",
     "numpy",
     "scipy",
@@ -74,7 +62,6 @@ HIDDEN_IMPORTS = [
 ]
 
 # 需要完整收集的包（子模块 + 数据文件）。
-# FunASR 仅显式收集当前使用的模型模块；完整源码会作为数据加入，供注册装饰器读取。
 COLLECT_ALL = [
     "faster_whisper",
     "transcribe_cpp",
@@ -153,23 +140,7 @@ def ensure_qwen3_cuda_provider() -> None:
             f"Qwen3-ASR CUDA provider 版本错误: got={actual}, expected={QWEN3_CUDA_PROVIDER_VERSION}"
         )
 
-# 可安全裁剪的可选 CUDA DLL（glob 模式，匹配 torch/lib/ 下的文件）
-# 注意：torch_cuda.dll 在 Windows 上会直接依赖 cusolver/cusparse/cufft；
-# 这些 DLL 即使在 CPU 回退场景下也必须保留，否则 import torch 会在无 NVIDIA 机器上崩溃。
-STRIP_CUDA_PATTERNS = [
-    "cudnn_engines_precompiled*.dll",   # ~562M cuDNN 预编译融合引擎
-    "curand*.dll",                       # ~61M  随机数生成（仅训练）
-    "cusolverMg*.dll",                   # ~145M 多 GPU 稠密求解器
-    "nvrtc*_0.alt.dll",                  # ~83M 备用 NVRTC 实现
-]
-
-# PyTorch wheel 中的命令行/开发工具；运行时使用 torch/lib/ 中的 DLL。
-STRIP_RUNTIME_DIRS = [
-    Path("_internal/torch/bin"),
-]
-
-# Windows 运行时不需要 .lib / .pdb；这些仅用于链接或调试，
-# 但在 PyTorch wheel 中体积很大（例如 dnnl.lib ~675 MB）。
+# Windows 运行时不需要 .lib / .pdb；这些仅用于链接或调试。
 STRIP_DEV_ARTIFACT_PATTERNS = [
     "*.lib",
     "*.pdb",
@@ -253,35 +224,6 @@ def get_size_mb(path: Path) -> float:
     return total / (1024 * 1024)
 
 
-def find_package_dir(package: str) -> Path:
-    """返回已安装包的源码目录，缺失时直接终止构建。"""
-    spec = importlib.util.find_spec(package)
-    if spec is None or not spec.submodule_search_locations:
-        raise RuntimeError(f"未找到 Python 包源码目录: {package}")
-
-    package_dir = Path(next(iter(spec.submodule_search_locations))).resolve()
-    if not package_dir.is_dir():
-        raise RuntimeError(f"Python 包源码目录不存在: {package_dir}")
-    return package_dir
-
-
-def strip_cuda_dlls(engine_dir: Path) -> float:
-    """删除可安全裁剪的 CUDA DLL，返回节省的 MB 数"""
-    torch_lib = engine_dir / "_internal" / "torch" / "lib"
-    if not torch_lib.is_dir():
-        return 0.0
-
-    saved = 0.0
-    for pattern in STRIP_CUDA_PATTERNS:
-        for match in torch_lib.glob(pattern):
-            size = match.stat().st_size / (1024 * 1024)
-            print(f"  删除: {match.name} ({size:.0f} MB)")
-            match.unlink()
-            saved += size
-
-    return saved
-
-
 def strip_dev_artifacts(engine_dir: Path) -> float:
     """删除运行时不需要的链接/调试产物，返回节省的 MB 数。"""
     internal_dir = engine_dir / "_internal"
@@ -299,71 +241,6 @@ def strip_dev_artifacts(engine_dir: Path) -> float:
             saved += size
 
     return saved
-
-
-def strip_runtime_dirs(engine_dir: Path) -> float:
-    """删除当前推理路径不需要的精确目录，返回节省的 MB 数。"""
-    saved = 0.0
-    for relative in STRIP_RUNTIME_DIRS:
-        target = engine_dir / relative
-        if not target.is_dir():
-            continue
-        size = get_size_mb(target)
-        print(f"  删除目录: {relative} ({size:.0f} MB)")
-        remove_tree(target, warn_only=False)
-        saved += size
-    return saved
-
-
-def strip_funasr_bytecode_cache(engine_dir: Path) -> float:
-    """保留 FunASR .py 源码，删除随源码目录复制的冗余字节码缓存。"""
-    funasr_dir = engine_dir / "_internal" / "funasr"
-    if not funasr_dir.is_dir():
-        return 0.0
-
-    saved = 0.0
-    for cache_dir in list(funasr_dir.rglob("__pycache__")):
-        if not cache_dir.is_dir():
-            continue
-        size = get_size_mb(cache_dir)
-        remove_tree(cache_dir, warn_only=False)
-        saved += size
-    if saved:
-        print(f"  删除 FunASR 字节码缓存: {saved:.0f} MB")
-    return saved
-
-
-def validate_torch_cuda_deps(engine_dir: Path) -> None:
-    """校验 torch_cuda.dll 的直接 CUDA 依赖仍然存在。"""
-    try:
-        import pefile
-    except ImportError:
-        print("警告: 未安装 pefile，跳过 torch CUDA 依赖校验", file=sys.stderr)
-        return
-
-    torch_lib = engine_dir / "_internal" / "torch" / "lib"
-    torch_cuda = torch_lib / "torch_cuda.dll"
-    if not torch_cuda.is_file():
-        return
-
-    pe = pefile.PE(str(torch_cuda), fast_load=True)
-    pe.parse_data_directories(
-        directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"]]
-    )
-
-    required = []
-    for entry in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []):
-        dll_name = entry.dll.decode("utf-8", "ignore")
-        lowered = dll_name.lower()
-        if lowered.startswith(("cu", "nv", "cudnn")):
-            required.append(dll_name)
-
-    missing = [name for name in required if not (torch_lib / name).is_file()]
-    if missing:
-        raise RuntimeError(
-            "torch_cuda.dll 依赖缺失，当前裁剪配置会导致引擎启动失败: "
-            + ", ".join(missing)
-        )
 
 
 def create_tar_xz_with_python(engine_dir: Path, output: Path) -> float:
@@ -466,11 +343,6 @@ def main():
             continue
         cmd.extend(["--add-data", f"{src}{os.pathsep}."])
 
-    # FunASR 的注册装饰器会通过 inspect 读取 .py 源码行号；因此保留源码数据，
-    # 同时用 HIDDEN_IMPORTS 精确控制进入 PYZ 的运行时模块。
-    funasr_dir = find_package_dir("funasr")
-    cmd.extend(["--add-data", f"{funasr_dir}{os.pathsep}funasr"])
-
     for mod in HIDDEN_IMPORTS:
         cmd.extend(["--hidden-import", mod])
 
@@ -503,17 +375,13 @@ def main():
     raw_size = get_size_mb(engine_dir)
     print(f"\nPyInstaller 输出: {raw_size:.0f} MB")
 
-    # 瘦身：删除可安全裁剪的 CUDA DLL
+    # 瘦身：删除开发期库文件
     print("=" * 60)
-    print("步骤 2/3: 瘦身（删除可安全裁剪的 CUDA DLL 和开发期库文件）")
+    print("步骤 2/3: 瘦身（删除开发期库文件）")
     print("=" * 60)
 
     saved = 0.0
-    saved += strip_cuda_dlls(engine_dir)
     saved += strip_dev_artifacts(engine_dir)
-    saved += strip_runtime_dirs(engine_dir)
-    saved += strip_funasr_bytecode_cache(engine_dir)
-    validate_torch_cuda_deps(engine_dir)
     stripped_size = get_size_mb(engine_dir)
     print(f"节省: {saved:.0f} MB, 瘦身后: {stripped_size:.0f} MB")
 

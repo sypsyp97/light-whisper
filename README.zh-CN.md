@@ -26,7 +26,7 @@
 ## 功能
 
 - **一键听写**：通过可配置全局热键录音，转写后自动输入到当前活动窗口。
-- **本地与云端 ASR**：本地运行 SenseVoice、Faster Whisper 或 Qwen3-ASR Q8，也可使用 GLM-ASR / 阿里 DashScope，免本地模型。
+- **本地与云端 ASR**：本地运行 Faster Whisper 或 Qwen3-ASR Q8，也可使用 GLM-ASR / 阿里 DashScope，免本地模型。
 - **ASR 原文优先 + AI 润色**：先快速显示 ASR 结果，再在 LLM 返回后替换或预览润色结果；结果卡片显示 ASR、AI 和总耗时。
 - **字幕悬浮窗**：透明浮窗显示听写、识别、润色、联网搜索和助手状态。
 - **语音助手**：独立热键唤起，可选读取选中文本、前台应用和全屏截图作为上下文。
@@ -38,7 +38,6 @@
 
 | 引擎 | 运行方式 | 适合场景 | 语言 / 模型 | 说明 |
 |:--|:--|:--|:--|:--|
-| **SenseVoice** | 本地 Python 引擎 | 默认低延迟听写 | 中 / 英 / 日 / 韩 / 粤 | 下载 SenseVoiceSmall + VAD 模型 |
 | **Faster Whisper** | 本地 Python 引擎 | 更广语言覆盖 | large-v3-turbo-ct2，99+ 语言 | 下载 Whisper 模型 |
 | **Qwen3-ASR 0.6B Q8** | 本地 GGUF 引擎 | 速度优先的 Qwen 听写 | 多语言，Q8_0 | 独立下载约 850 MB；CUDA / Vulkan / CPU |
 | **Qwen3-ASR 1.7B Q8** | 本地 GGUF 引擎 | 更偏质量的 Qwen 选项 | 多语言，Q8_0 | 独立下载约 2.19 GB；CUDA / Vulkan / CPU |
@@ -89,7 +88,6 @@ NSIS 安装包会输出到 `src-tauri/target/release/bundle/nsis/`。
 可选的本地模型预下载：
 
 ```bash
-uv run python src-tauri/resources/download_models.py --engine sensevoice
 uv run python src-tauri/resources/download_models.py --engine whisper
 uv run python src-tauri/resources/download_models.py --engine qwen3-asr-0.6b
 uv run python src-tauri/resources/download_models.py --engine qwen3-asr-1.7b
@@ -112,18 +110,17 @@ cd src-tauri && cargo check
 
 **热键没反应**：当前代码里的默认听写热键是 `F2`。如果被其他应用占用，可在设置中修改。
 
-**GPU 未检测到**：运行 `nvidia-smi`。SenseVoice/Whisper 还可用 `.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"` 检查；Qwen3-ASR 的实际后端记录在 `qwen3_asr_server.log`。
+**GPU 未检测到**：运行 `nvidia-smi`。Whisper 与 Qwen3-ASR 的实际设备/后端记录在 `whisper_server.log` 和 `qwen3_asr_server.log`。
 
 **日志位置**：
 
 - 应用日志：`%LOCALAPPDATA%\com.light-whisper.desktop\logs\app.log`
-- Python ASR 日志：`%APPDATA%\com.light-whisper.app\logs\funasr_server.log` / `whisper_server.log`
+- Whisper 日志：`%APPDATA%\com.light-whisper.app\logs\whisper_server.log`
 - Qwen3-ASR 日志：`%TEMP%\light_whisper_logs\qwen3_asr_server.log`
 - Python stderr 兜底日志：`%APPDATA%\com.light-whisper.app\funasr_stderr.log`
 
 ## 致谢
 
-- [FunASR](https://github.com/modelscope/FunASR) & [SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall)
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) & [large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2)
 - [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) & [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp)
 - [GLM-ASR](https://bigmodel.cn/)

@@ -127,6 +127,15 @@ body,
   font-kerning: normal;
 }
 
+.subtitle-interim-stable {
+  color: inherit;
+}
+
+.subtitle-interim-tentative {
+  color: var(--color-text-secondary);
+  opacity: 0.72;
+}
+
 /* Per-character fade-in for streaming text.
    Each new grapheme mounts as its own span and opacity-fades on mount,
    so newly-arriving text genuinely eases in instead of popping. */

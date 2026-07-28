@@ -187,7 +187,6 @@ pub async fn set_engine(
     engine: String,
 ) -> Result<String, AppError> {
     const VALID: &[&str] = &[
-        "sensevoice",
         "whisper",
         "qwen3-asr-0.6b",
         "qwen3-asr-1.7b",

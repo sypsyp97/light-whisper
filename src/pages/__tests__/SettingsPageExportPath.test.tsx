@@ -206,7 +206,7 @@ function resetTauriMocks(exportPath: string | null = null) {
     url: "https://dashscope-intl.aliyuncs.com",
   });
   tauriMock.getAssistantApiKey.mockResolvedValue("");
-  tauriMock.getEngine.mockResolvedValue("sensevoice");
+  tauriMock.getEngine.mockResolvedValue("qwen3-asr-0.6b");
   tauriMock.getLlmReasoningSupport.mockResolvedValue({
     strategy: null,
     summary: "reasoning unavailable",

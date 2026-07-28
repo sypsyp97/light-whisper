@@ -1,16 +1,12 @@
 """HuggingFace 缓存检测共享工具模块
 
-供 funasr_server.py 和 download_models.py 共同使用，
+供各本地 ASR 服务与 download_models.py 共同使用，
 避免重复实现缓存路径和模型就绪检查逻辑。
 """
 
 import os
 import json
 import hashlib
-
-ASR_REPO_ID = "FunAudioLLM/SenseVoiceSmall"
-VAD_REPO_ID = "funasr/fsmn-vad"
-MODEL_REPOS = [ASR_REPO_ID, VAD_REPO_ID]
 
 WHISPER_REPO_ID = "deepdml/faster-whisper-large-v3-turbo-ct2"
 WHISPER_MODEL_REPOS = [WHISPER_REPO_ID]
