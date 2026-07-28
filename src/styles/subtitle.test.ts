@@ -43,6 +43,31 @@ describe("subtitle indicator alignment", () => {
   });
 });
 
+describe("subtitle entrance motion", () => {
+  it("keeps the application surface and adds a restrained bottom-center reveal", () => {
+    const capsuleRule = ruleBody(subtitleCss, ".subtitle-capsule");
+
+    expect(capsuleRule).toMatch(/transform-origin:\s*50%\s+100%;/);
+    expect(capsuleRule).toMatch(/animation:\s*subtitle-rise-in\s+200ms/);
+    expect(capsuleRule).toMatch(/background:\s*rgba\(26,\s*25,\s*23,\s*0\.82\);/);
+    expect(capsuleRule).not.toMatch(/(?:linear|radial)-gradient\(/);
+    expect(ruleBody(subtitleCss, ".subtitle-capsule::before")).toBe("");
+    expect(subtitleCss).toMatch(
+      /@keyframes subtitle-rise-in\s*\{[\s\S]*?clip-path:\s*inset\(58%\s+32%[\s\S]*?translate3d\([\s\S]*?scale\(0\.96\)/,
+    );
+  });
+
+  it("keeps the original text and light-surface treatments", () => {
+    const textRule = ruleBody(subtitleCss, ".subtitle-text");
+    const lightCapsuleRule = ruleBody(subtitleCss, '[data-theme="light"] .subtitle-capsule');
+    const assistantRule = ruleBody(subtitleCss, ".subtitle-capsule-assistant");
+
+    expect(textRule).not.toMatch(/subtitle-text-grow-in/);
+    expect(lightCapsuleRule).toMatch(/background:\s*rgba\(255,\s*255,\s*255,\s*0\.88\);/);
+    expect(assistantRule).toMatch(/background:\s*var\(--subtitle-assistant-surface\);/);
+  });
+});
+
 describe("assistant and polish visual contracts", () => {
   it("keeps assistant and polish colors distinct in both themes", () => {
     const lightTheme = themeCss.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";

@@ -158,6 +158,7 @@ export default function SubtitleOverlay() {
   const [streamTokens, setStreamTokens] = useState(0);
   const [waveformBars, setWaveformBars] = useState<number[]>(EMPTY_WAVEFORM_BARS);
   const [mode, setMode] = useState<"dictation" | "assistant">("dictation");
+  const [capsuleSessionId, setCapsuleSessionId] = useState(0);
   const [assistantCopied, setAssistantCopied] = useState(false);
   const [assistantRequest, setAssistantRequest] = useState("");
   const [assistantSources, setAssistantSources] = useState<AssistantSource[]>([]);
@@ -252,6 +253,7 @@ export default function SubtitleOverlay() {
       latestRevisionRef.current = -1;
       pairedOutcomeRevisionRef.current = null;
       terminalSessionIdRef.current = 0;
+      setCapsuleSessionId(sessionId);
       resetConversationState();
     }
     // Revision-less payloads exist only in legacy frontend tests. Once a real
@@ -1183,6 +1185,7 @@ export default function SubtitleOverlay() {
       onClick={assistantOverlayDismissible ? closeAssistantOverlay : undefined}
     >
       <div
+        key={capsuleSessionId}
         className={
           `subtitle-capsule${fadingOut ? " subtitle-fade-out" : ""}${assistantPanelActive ? " subtitle-capsule-assistant" : ""}${assistantInteractive ? " subtitle-capsule-interactive" : ""}${conversationOpen ? " subtitle-capsule-conversation" : ""}`
         }

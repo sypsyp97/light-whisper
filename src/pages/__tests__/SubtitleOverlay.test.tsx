@@ -171,6 +171,31 @@ function readSubtitleText(container: HTMLElement): string {
 }
 
 describe("SubtitleOverlay stale-flash cleanup", () => {
+  it("restarts the capsule entrance for every recording session", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 10,
+        isRecording: true,
+        isProcessing: false,
+      });
+    });
+    const firstSessionCapsule = container.querySelector(".subtitle-capsule");
+    expect(firstSessionCapsule).not.toBeNull();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 11,
+        isRecording: true,
+        isProcessing: false,
+      });
+    });
+
+    expect(container.querySelector(".subtitle-capsule")).not.toBe(firstSessionCapsule);
+  });
+
   it("A. clears state after the fade completes", async () => {
     // Cleanup target: idle reset must occur after fade delay (~2000ms) +
     // animation (~300ms) + small buffer. 5000ms is well past any plausible

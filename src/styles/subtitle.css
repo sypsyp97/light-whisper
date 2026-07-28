@@ -51,7 +51,9 @@ body,
   max-width: 72vw;
   max-height: 60vh;
   overflow: hidden;
-  animation: subtitle-fade-in 0.2s var(--ease-out-expo) forwards;
+  transform-origin: 50% 100%;
+  will-change: transform, opacity, clip-path;
+  animation: subtitle-rise-in 200ms var(--ease-out-expo);
   transition:
     border-radius 0.26s var(--ease-out-expo),
     background-color 0.26s var(--ease-out-expo),
@@ -754,14 +756,16 @@ body,
   }
 }
 
-@keyframes subtitle-fade-in {
+@keyframes subtitle-rise-in {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.98);
+    clip-path: inset(58% 32% 0 32% round var(--radius-full));
+    transform: translate3d(0, 8px, 0) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    clip-path: inset(0);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
