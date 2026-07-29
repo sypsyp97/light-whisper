@@ -262,7 +262,8 @@ fn capture_raw_paste_replacement_target_windows(
         return None;
     }
 
-    use uiautomation::patterns::UIValuePattern;
+    use uiautomation::patterns::{UITextPattern, UIValuePattern};
+    use uiautomation::types::TextPatternRangeEndpoint;
     use uiautomation::UIAutomation;
 
     let automation = UIAutomation::new().ok()?;
@@ -272,12 +273,24 @@ fn capture_raw_paste_replacement_target_windows(
         return None;
     }
 
-    // Chromium contenteditable controls can expose a stale caret or a phantom
-    // terminal position through TextPattern, so caret coordinates are not a
-    // reliable precondition here. The replacement remains safe because it is
-    // allowed only when the same focused element later contains the exact
-    // value_before + raw_text suffix; mid-document insertion or user edits fail
-    // that guard and keep the already-pasted raw text unchanged.
+    let text_pattern: UITextPattern = focused.get_pattern().ok()?;
+    let (caret_active, caret_range) = text_pattern.get_caret_range().ok()?;
+    if !caret_active {
+        return None;
+    }
+    let document_range = text_pattern.get_document_range().ok()?;
+    let caret_at_document_end = caret_range
+        .compare_endpoints(
+            TextPatternRangeEndpoint::End,
+            &document_range,
+            TextPatternRangeEndpoint::End,
+        )
+        .ok()?
+        == 0;
+    if !caret_at_document_end {
+        return None;
+    }
+
     let runtime_id = focused.get_runtime_id().ok()?;
     let value_before = value_pattern.get_value().ok()?;
     Some(RawPasteReplacementToken::new(
