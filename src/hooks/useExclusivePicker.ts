@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
 const POPOVER_EXIT_MS = 160;
 
@@ -13,10 +13,12 @@ const POPOVER_EXIT_MS = 160;
 export function useExclusivePicker<T extends string>() {
   const [active, setActive] = useState<T | null>(null);
   const [closing, setClosing] = useState<T | null>(null);
+  const activeRef = useRef<T | null>(null);
   const refs = useRef(new Map<T, HTMLDivElement | null>());
   const closingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const typeaheadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const typeaheadBuffer = useRef("");
+  activeRef.current = active;
 
   // Popover stays rendered during both "active" and "closing" phases
   const isOpen = useCallback(
@@ -42,13 +44,17 @@ export function useExclusivePicker<T extends string>() {
   }, []);
 
   const close = useCallback(() => {
-    setActive((prev) => {
-      if (prev) {
-        setClosing(prev);
-        clearTimeout(closingTimer.current);
-        closingTimer.current = setTimeout(() => setClosing(null), POPOVER_EXIT_MS);
-      }
-      return null;
+    const closingId = activeRef.current;
+    if (!closingId) return;
+    setActive(null);
+    setClosing(closingId);
+    clearTimeout(closingTimer.current);
+    closingTimer.current = setTimeout(() => setClosing(null), POPOVER_EXIT_MS);
+    window.requestAnimationFrame(() => {
+      refs.current
+        .get(closingId)
+        ?.querySelector<HTMLElement>('[aria-haspopup="listbox"]')
+        ?.focus();
     });
   }, []);
 
@@ -68,7 +74,7 @@ export function useExclusivePicker<T extends string>() {
 
   useEffect(() => {
     if (!active) return;
-    const onPointerDown = (e: MouseEvent) => {
+    const onPointerDown = (e: PointerEvent) => {
       const ref = refs.current.get(active);
       if (ref && !ref.contains(e.target as Node)) {
         // Close via animated path
@@ -78,13 +84,13 @@ export function useExclusivePicker<T extends string>() {
         closingTimer.current = setTimeout(() => setClosing(null), POPOVER_EXIT_MS);
       }
     };
-    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("pointerdown", onPointerDown);
     return () => {
-      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("pointerdown", onPointerDown);
     };
   }, [active]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) return;
     const container = refs.current.get(active);
     const trigger = container?.querySelector<HTMLElement>('[aria-haspopup="listbox"]');
@@ -140,7 +146,6 @@ export function useExclusivePicker<T extends string>() {
       if (event.key === "Escape") {
         event.preventDefault();
         close();
-        window.requestAnimationFrame(() => trigger.focus());
         return;
       }
       if (event.key === "ArrowDown") {

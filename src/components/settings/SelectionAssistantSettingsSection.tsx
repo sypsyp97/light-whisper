@@ -306,8 +306,10 @@ export default function SelectionAssistantSettingsSection({
               <button
                 type="button"
                 className="picker-trigger"
+                data-open={picker.isOpen("selectionProvider")}
                 aria-haspopup="listbox"
                 aria-expanded={picker.isExpanded("selectionProvider")}
+                aria-label={t("settings.selectionProvider")}
                 onClick={() => picker.toggle("selectionProvider")}
               >
                 <span className="picker-trigger-copy">
@@ -394,6 +396,7 @@ export default function SelectionAssistantSettingsSection({
                 <button
                   type="button"
                   className="picker-inline-button"
+                  data-open={picker.isOpen("selectionModel")}
                   aria-haspopup="listbox"
                   aria-expanded={picker.isExpanded("selectionModel")}
                   aria-label={t("settings.openAssistantModelList")}
@@ -474,6 +477,7 @@ export default function SelectionAssistantSettingsSection({
               <button
                 type="button"
                 className="picker-trigger"
+                data-open={picker.isOpen("selectionReasoning")}
                 aria-haspopup="listbox"
                 aria-expanded={picker.isExpanded("selectionReasoning")}
                 aria-label={t("settings.assistantReasoningLabel")}

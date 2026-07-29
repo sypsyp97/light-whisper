@@ -53,4 +53,16 @@ describe("settings CSS contracts", () => {
     expect(fontFace).toMatch(/font-weight:\s*250 900;/);
     expect(root).toMatch(/--font-sans:\s*"Source Han Sans SC"/);
   });
+
+  it("keeps picker selection indicators beside their option on narrow windows", () => {
+    const option = ruleBody(settingsCss, ".picker-option");
+    const indicator = ruleBody(settingsCss, ".picker-option[data-active]::after");
+
+    expect(option).toMatch(/align-items:\s*center;/);
+    expect(indicator).toMatch(/flex:\s*0 0 18px;/);
+    expect(indicator).toMatch(/align-self:\s*center;/);
+    expect(settingsCss).not.toMatch(
+      /@media\s*\(max-width:\s*720px\)[\s\S]*?\.picker-option\s*\{[^}]*flex-direction:\s*column;/,
+    );
+  });
 });

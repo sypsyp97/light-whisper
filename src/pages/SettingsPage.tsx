@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } fro
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Mic, Monitor, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, Check, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Mic, Monitor, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
@@ -993,6 +993,7 @@ export default function SettingsPage({
   }, [active, isRecording, micLevelMonitorEnabled, selectedInputDeviceName]);
 
   const handleInputDeviceChange = async (name: string) => {
+    picker.close();
     setDeviceListLoading(true);
     try {
       await setInputDevice(name || null);
@@ -2292,7 +2293,6 @@ export default function SettingsPage({
                                   )}
                                 </span>
                               </span>
-                              {selected && <Check size={13} style={{ flexShrink: 0, opacity: 0.7 }} />}
                             </button>
                           );
                         })}
@@ -2406,13 +2406,13 @@ export default function SettingsPage({
                                 className="picker-option"
                                 data-active={alibabaAsrModel === m}
                                 onClick={async () => {
+                                  picker.close();
                                   try {
                                     await setAlibabaAsrModel(m);
                                     setAlibabaAsrModelState(m);
                                   } catch {
                                     // Keep the previous model when persistence fails.
                                   }
-                                  picker.close();
                                 }}
                               >
                                 <strong style={{ fontSize: 12, fontFamily: "var(--font-mono, monospace)" }}>{m}</strong>
@@ -3440,11 +3440,13 @@ export default function SettingsPage({
                     <button
                       type="button"
                       className="picker-trigger"
+                      data-open={picker.isOpen("assistantProvider")}
                       onClick={() => {
                         picker.toggle("assistantProvider");
                       }}
                       aria-haspopup="listbox"
                       aria-expanded={picker.isExpanded("assistantProvider")}
+                      aria-label={t("settings.assistantProvider")}
                     >
                       <span className="picker-trigger-copy">
                         <strong>{currentAssistantPreset.label}</strong>

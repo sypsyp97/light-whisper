@@ -5,26 +5,29 @@ import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 function PickerHarness() {
   const picker = useExclusivePicker<"engine">();
   return (
-    <div ref={picker.setRef("engine")}>
-      <button
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={picker.isExpanded("engine")}
-        aria-label="Engine"
-        onClick={() => picker.toggle("engine")}
-      >
-        Choose
-      </button>
-      {picker.isOpen("engine") && (
-        <div className={picker.popoverClass("engine")}>
-          <div className="picker-list" role="listbox">
-            <button className="picker-option" data-active="false">Alpha</button>
-            <button className="picker-option" data-active="true">Beta</button>
-            <button className="picker-option" data-active="false">Gamma</button>
+    <>
+      <div ref={picker.setRef("engine")}>
+        <button
+          type="button"
+          aria-haspopup="listbox"
+          aria-expanded={picker.isExpanded("engine")}
+          aria-label="Engine"
+          onClick={() => picker.toggle("engine")}
+        >
+          Choose
+        </button>
+        {picker.isOpen("engine") && (
+          <div className={picker.popoverClass("engine")}>
+            <div className="picker-list" role="listbox">
+              <button className="picker-option" data-active="false" onClick={picker.close}>Alpha</button>
+              <button className="picker-option" data-active="true" onClick={picker.close}>Beta</button>
+              <button className="picker-option" data-active="false" onClick={picker.close}>Gamma</button>
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+      <button type="button">Outside</button>
+    </>
   );
 }
 
@@ -51,6 +54,22 @@ describe("useExclusivePicker accessibility", () => {
     await user.keyboard("{End}{Escape}");
 
     await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("returns focus after selection but leaves outside-click focus in place", async () => {
+    const user = userEvent.setup();
+    render(<PickerHarness />);
+
+    const trigger = screen.getByRole("button", { name: "Engine" });
+    await user.click(trigger);
+    await user.click((await screen.findAllByRole("option"))[0]);
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    await user.click(trigger);
+    const outside = screen.getByRole("button", { name: "Outside" });
+    await user.click(outside);
+    expect(outside).toHaveFocus();
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 });

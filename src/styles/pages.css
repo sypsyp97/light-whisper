@@ -1662,10 +1662,10 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px;
+  padding: var(--space-sm);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 10px;
-  background: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
   box-shadow: var(--shadow-lg);
   animation: popover-enter 0.22s var(--ease-out-expo) forwards;
   transform-origin: top center;
@@ -1780,7 +1780,7 @@
 
 .picker-option {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
@@ -1795,6 +1795,31 @@
               background 0.2s var(--ease-out-expo),
               transform 0.25s var(--ease-spring-soft),
               box-shadow 0.25s var(--ease-out-expo);
+}
+
+/* Keep every selectable row on the same grid: the trailing slot is reserved
+   even when the row is inactive, so labels never jump when selection changes. */
+.picker-option[data-active]::after {
+  content: "✓";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  align-self: center;
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.72);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.picker-option[data-active="true"]::after {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .picker-option:active {
@@ -1916,8 +1941,7 @@
   }
 
   .picker-option {
-    flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
   }
 }
 
