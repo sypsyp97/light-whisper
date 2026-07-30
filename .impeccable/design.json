@@ -30,7 +30,7 @@
       "refersTo": "button-primary",
       "description": "The single high-emphasis action style.",
       "html": "<button class=\"ds-btn-primary\">继续</button>",
-      "css": ".ds-btn-primary{border:0;border-radius:8px;padding:8px 18px;background:var(--color-accent,#AE5630);color:#fff;font:500 13px system-ui;transition:background .2s cubic-bezier(.16,1,.3,1),transform .14s cubic-bezier(.16,1,.3,1)}.ds-btn-primary:hover{background:#C4633A}.ds-btn-primary:active{transform:scale(.97)}.ds-btn-primary:focus-visible{outline:2px solid var(--color-accent,#AE5630);outline-offset:2px}"
+      "css": ".ds-btn-primary{border:0;border-radius:8px;padding:8px 18px;background:var(--color-accent,#AE5630);color:#fff;font:500 13px 'MiSans','Microsoft YaHei UI',sans-serif;letter-spacing:-.004em;transition:background .2s cubic-bezier(.16,1,.3,1),transform .14s cubic-bezier(.16,1,.3,1)}.ds-btn-primary:hover{background:#C4633A}.ds-btn-primary:active{transform:scale(.97)}.ds-btn-primary:focus-visible{outline:2px solid var(--color-accent,#AE5630);outline-offset:2px}"
     },
     {
       "name": "Settings Input",
@@ -38,14 +38,14 @@
       "refersTo": "input",
       "description": "Compact labeled field on a raised neutral surface.",
       "html": "<input class=\"ds-input\" value=\"SenseVoice\" aria-label=\"模型\" />",
-      "css": ".ds-input{width:240px;border:1px solid #D5D9DD;border-radius:8px;padding:10px 12px;background:#fff;color:#1A1A18;font:400 12px system-ui}.ds-input:focus-visible{outline:2px solid rgba(174,86,48,.24);border-color:#AE5630}"
+      "css": ".ds-input{width:240px;border:1px solid #D5D9DD;border-radius:8px;padding:10px 12px;background:#fff;color:#1A1A18;font:400 12px 'MiSans','Microsoft YaHei UI',sans-serif;letter-spacing:-.008em}.ds-input:focus-visible{outline:2px solid rgba(174,86,48,.24);border-color:#AE5630}"
     },
     {
       "name": "Settings Card",
       "kind": "card",
       "description": "A flat section container with structural border.",
       "html": "<section class=\"ds-card\"><strong>AI 助手</strong><p>模型与联网搜索设置</p></section>",
-      "css": ".ds-card{width:280px;border:1px solid #D5D9DD;border-radius:12px;padding:16px;background:#fff;color:#1A1A18;font:400 13px system-ui}.ds-card strong{font-weight:600}.ds-card p{margin:6px 0 0;color:#5A5854}"
+      "css": ".ds-card{width:280px;border:1px solid #D5D9DD;border-radius:12px;padding:16px;background:#fff;color:#1A1A18;font:400 13px 'MiSans','Microsoft YaHei UI',sans-serif;letter-spacing:-.008em}.ds-card strong{font-weight:600;letter-spacing:-.014em}.ds-card p{margin:6px 0 0;color:#5A5854}"
     }
   ],
   "narrative": {

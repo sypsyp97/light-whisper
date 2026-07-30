@@ -126,6 +126,7 @@ cd src-tauri && cargo check
 - [GLM-ASR](https://bigmodel.cn/)
 - [Alibaba DashScope](https://www.alibabacloud.com/help/en/model-studio/) & Qwen ASR / Omni
 - [Tauri](https://tauri.app/) / [React](https://react.dev/)
+- [MiSans](https://hyperos.mi.com/font/en), used under the bundled MiSans Fonts License Agreement
 
 ## License
 

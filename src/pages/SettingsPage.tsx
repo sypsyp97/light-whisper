@@ -81,7 +81,7 @@ import AppProfileRulesSettingsSection from "@/components/settings/AppProfileRule
 import HistorySettingsSection from "@/components/settings/HistorySettingsSection";
 import PolishStructureControl from "@/components/settings/PolishStructureControl";
 import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
-import { getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
+import { formatAsrEngineDescription, getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 import {
   resolveAssistantModelForProviderChange,
   resolveAssistantModelForPolishProviderChange,
@@ -120,6 +120,11 @@ const engineOptions = [
 
 const ONLINE_ENGINES: ReadonlySet<string> = new Set(["glm-asr", "alibaba-asr"]);
 const isOnlineEngineKey = (engine: string) => ONLINE_ENGINES.has(engine);
+
+const engineOptionLabel = (
+  option: (typeof engineOptions)[number],
+  translate: (key: string) => string,
+) => option.labelKey ? translate(option.labelKey) : option.label;
 
 const asrCapabilityTagKeys = (engineKey: string) => {
   const capability = getAsrEngineCapability(engineKey);
@@ -847,7 +852,8 @@ export default function SettingsPage({
       }
       await setEngine(newEngine);
       setEngineState(newEngine);
-      const label = engineOptions.find((o) => o.key === newEngine)?.label ?? newEngine;
+      const option = engineOptions.find((item) => item.key === newEngine);
+      const label = option ? engineOptionLabel(option, t) : newEngine;
       toast.success(t("toast.switchedToEngine", { label }));
       // 切到在线引擎后，后端已按新 engine 的 keyring user 重新加载了 key；
       // 前端也同步刷新，否则输入框还会显示上一个引擎的 key。
@@ -2228,7 +2234,11 @@ export default function SettingsPage({
             {(() => {
               const currentOption = engineOptions.find((o) => o.key === engine) ?? engineOptions[0];
               const CurrentIcon = currentOption.icon;
-              const currentLabel = currentOption.labelKey ? t(currentOption.labelKey) : currentOption.label;
+              const currentLabel = engineOptionLabel(currentOption, t);
+              const currentDescription = formatAsrEngineDescription(
+                currentOption.key,
+                t(currentOption.descKey),
+              );
               const currentCapabilityTags = asrCapabilityTagKeys(currentOption.key);
               return (
                 <div ref={picker.setRef("engine")} style={{ position: "relative" }}>
@@ -2247,7 +2257,7 @@ export default function SettingsPage({
                       <span className="picker-trigger-copy">
                         <strong>{currentLabel}</strong>
                         <span>
-                          {t(currentOption.descKey)}
+                          {currentDescription}
                           {currentCapabilityTags.length > 0 && (
                             <span className="asr-capability-tags">
                               {currentCapabilityTags.map((tagKey) => (
@@ -2263,8 +2273,10 @@ export default function SettingsPage({
                   {picker.isOpen("engine") && (
                     <div className={picker.popoverClass("engine")}>
                       <div className="picker-list" role="listbox">
-                        {engineOptions.map(({ key, icon: Icon, label, labelKey, descKey }) => {
-                          const displayLabel = labelKey ? t(labelKey) : label;
+                        {engineOptions.map((option) => {
+                          const { key, icon: Icon, descKey } = option;
+                          const displayLabel = engineOptionLabel(option, t);
+                          const displayDescription = formatAsrEngineDescription(key, t(descKey));
                           const selected = engine === key;
                           const capabilityTags = asrCapabilityTagKeys(key);
                           return (
@@ -2283,7 +2295,7 @@ export default function SettingsPage({
                                 <Icon size={16} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                                 <span className="picker-option-copy">
                                   <strong>{displayLabel}</strong>
-                                  <span>{t(descKey)}</span>
+                                  <span>{displayDescription}</span>
                                   {capabilityTags.length > 0 && (
                                     <span className="asr-capability-tags">
                                       {capabilityTags.map((tagKey) => (

@@ -101,7 +101,7 @@
   gap: 6px;
   font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.035em;
   text-transform: uppercase;
   color: var(--color-text-tertiary);
 }
@@ -149,7 +149,7 @@
   margin-right: 6px;
   font-size: 10px;
   font-weight: 500;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.18px;
   text-transform: uppercase;
   border-radius: 3px;
   background: var(--color-bg-tertiary, rgba(128, 128, 128, 0.12));
@@ -508,7 +508,7 @@
   color: var(--color-accent);
   font-family: var(--font-sans);
   font-size: 17px;
-  font-weight: 650;
+  font-weight: 700;
 }
 
 .history-scroll-region {
@@ -657,7 +657,7 @@
   color: var(--color-text-tertiary);
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
 }
 
@@ -883,7 +883,7 @@
   font-weight: 600;
   color: var(--color-text-secondary);
   line-height: 1;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.008em;
   transition: background 0.2s var(--ease-out-expo),
               color 0.2s var(--ease-out-expo),
               border-color 0.2s var(--ease-out-expo),
@@ -1329,6 +1329,7 @@
 .settings-section-title {
   font-size: 14px;
   font-weight: 600;
+  letter-spacing: var(--tracking-heading);
   margin: 0;
 }
 
@@ -2000,7 +2001,7 @@
   font-size: 10px;
   line-height: 1.2;
   font-weight: 600;
-  letter-spacing: 0;
+  letter-spacing: var(--tracking-label);
   color: var(--color-text-tertiary);
 }
 

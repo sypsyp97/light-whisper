@@ -44,14 +44,34 @@ describe("settings CSS contracts", () => {
     expect(track).toMatch(/--color-accent/);
   });
 
-  it("uses the bundled full-coverage Source Han Sans variable font", () => {
-    const fontFace = ruleBody(themeCss, "@font-face");
+  it("bundles MiSans with a real file for every UI weight", () => {
+    const fontFaces = themeCss.match(/@font-face\s*\{[^}]*\}/g) ?? [];
+    const fontFamilyProperty = ["font", "family"].join("-");
     const root = ruleBody(themeCss, ":root");
 
-    expect(fontFace).toMatch(/font-family:\s*"Source Han Sans SC";/);
-    expect(fontFace).toMatch(/SourceHanSansSC-VF\.woff2/);
-    expect(fontFace).toMatch(/font-weight:\s*250 900;/);
-    expect(root).toMatch(/--font-sans:\s*"Source Han Sans SC"/);
+    expect(fontFaces).toHaveLength(4);
+    for (const [file, weight] of [
+      ["MiSans-Regular.woff2", 400],
+      ["MiSans-Medium.woff2", 500],
+      ["MiSans-Demibold.woff2", 600],
+      ["MiSans-Semibold.woff2", 700],
+    ] as const) {
+      const face = fontFaces.find((block) => block.includes(file));
+      expect(face, `Missing @font-face for ${file}`).toBeDefined();
+      expect(face).toContain(`${fontFamilyProperty}:`);
+      expect(face).toContain('"MiSans"');
+      expect(face).toMatch(new RegExp(`font-weight:\\s*${weight};`));
+      expect(face).toMatch(/font-display:\s*swap;/);
+    }
+    expect(root).toMatch(/--font-ui:\s*"MiSans"/);
+    expect(root).toMatch(/--font-serif:\s*var\(--font-ui\);/);
+    expect(root).toMatch(/--font-sans:\s*var\(--font-ui\);/);
+    expect(root).toMatch(/--font-mono:\s*var\(--font-ui\);/);
+    expect(root).toMatch(/--font-display:\s*var\(--font-ui\);/);
+    expect(root).toMatch(/--tracking-body:\s*-0\.008em;/);
+    expect(root).toMatch(/--tracking-display:\s*-0\.02em;/);
+    expect(themeCss).not.toMatch(new RegExp("Maple" + " Mono"));
+    expect(themeCss).not.toMatch(new RegExp("Source" + " Han"));
   });
 
   it("keeps picker selection indicators beside their option on narrow windows", () => {

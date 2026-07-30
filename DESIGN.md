@@ -15,17 +15,17 @@ colors:
   error: "#BF4D43"
 typography:
   title:
-    fontFamily: "PingFang SC, Microsoft YaHei, Noto Sans SC, system-ui, sans-serif"
+    fontFamily: "MiSans, Microsoft YaHei UI, sans-serif"
     fontSize: "14px"
-    fontWeight: 600
+    fontWeight: 700
     lineHeight: 1.3
   body:
-    fontFamily: "PingFang SC, Microsoft YaHei, Noto Sans SC, system-ui, sans-serif"
+    fontFamily: "MiSans, Microsoft YaHei UI, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.6
   label:
-    fontFamily: "PingFang SC, Microsoft YaHei, Noto Sans SC, system-ui, sans-serif"
+    fontFamily: "MiSans, Microsoft YaHei UI, sans-serif"
     fontSize: "12px"
     fontWeight: 500
     lineHeight: 1.4
@@ -82,9 +82,9 @@ components:
 
 ## Typography
 
-产品界面只使用一套中文友好的系统无衬线字体。标题依靠字重和间距建立层级；按钮、标签和数据保持同一种字形语言。正文行长控制在 65–75 个字符以内。
+产品界面只使用随应用内置的 MiSans。正文使用 Regular 400，标签使用 Medium 500，区块标题使用 Demibold 600，窗口标题和最高层级标题使用 Semibold 700；这些官方字体文件的实际笔画灰度比常规 400–700 更轻。正文使用 `-0.008em`，区块标题使用 `-0.014em`，最高层级标题使用 `-0.02em` 的克制负字距；正文行长控制在 65–75 个字符以内。
 
-**The Utility Type Rule.** 衬线字体不进入按钮、标签、状态和设置项。
+**The Single-Family Rule.** UI、正文、标签、状态、代码与数据都使用同一 MiSans 比例字形家族；数学公式保留 KaTeX 的专用数学字形。
 
 ## Elevation
 

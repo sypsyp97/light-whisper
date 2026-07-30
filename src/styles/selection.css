@@ -284,13 +284,14 @@ body,
   margin: 1em 0 0.45em;
   color: var(--color-text-primary);
   font-size: 1em;
-  font-weight: 650;
   line-height: 1.35;
   text-wrap: balance;
 }
 
-.selection-markdown h1 { font-size: 1.24em; }
-.selection-markdown h2 { font-size: 1.14em; }
+.selection-markdown h1 { font-size: 1.24em; font-weight: 700; letter-spacing: var(--tracking-display); }
+.selection-markdown h2 { font-size: 1.14em; font-weight: 600; letter-spacing: var(--tracking-heading); }
+.selection-markdown h3 { font-weight: 500; letter-spacing: var(--tracking-label); }
+.selection-markdown h4 { font-weight: 400; letter-spacing: var(--tracking-body); }
 
 .selection-markdown p,
 .selection-markdown ul,
@@ -361,7 +362,7 @@ body,
 
 .selection-markdown th {
   background: var(--color-bg-secondary);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .selection-markdown hr {

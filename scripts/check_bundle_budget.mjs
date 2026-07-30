@@ -40,9 +40,9 @@ const budgets = {
   selection_gzip_bytes: 145_000,
   core_js_gzip_bytes: 175_000,
   total_js_gzip_bytes: 310_000,
-  largest_font_bytes: 14_500_000,
-  total_font_bytes: 15_500_000,
-  total_dist_bytes: 17_000_000,
+  largest_font_bytes: 5_200_000,
+  total_font_bytes: 21_250_000,
+  total_dist_bytes: 22_500_000,
 };
 
 console.log(`LIGHT_WHISPER_BUNDLE_METRICS ${JSON.stringify(metrics)}`);
