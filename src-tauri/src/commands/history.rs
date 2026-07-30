@@ -246,7 +246,6 @@ async fn reprocess_stored_history(
             asr_ms,
             polish_ms,
             total_ms,
-            raw_first_status: None,
             error: None,
             reprocessed_from_id: Some(stored.record.id),
         },
@@ -353,7 +352,6 @@ mod tests {
             asr_ms: Some(100),
             polish_ms: Some(200),
             total_ms: Some(300),
-            raw_first_status: None,
             error: None,
             reprocessed_from_id: None,
         }]);

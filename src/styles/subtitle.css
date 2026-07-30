@@ -127,13 +127,10 @@ body,
   font-kerning: normal;
 }
 
-.subtitle-interim-stable {
-  color: inherit;
-}
-
+.subtitle-interim-stable,
 .subtitle-interim-tentative {
-  color: var(--color-text-secondary);
-  opacity: 0.72;
+  color: inherit;
+  opacity: 1;
 }
 
 /* Per-character fade-in for streaming text.
@@ -195,19 +192,6 @@ body,
 }
 
 /* subtitle-stream-badge uses --color-text-tertiary which auto-switches */
-
-.subtitle-raw-first-badge {
-  font-family: var(--font-mono, monospace);
-  font-size: 10px;
-  line-height: 1;
-  color: var(--color-text-tertiary);
-  flex-shrink: 0;
-  white-space: nowrap;
-  align-self: center;
-  padding: 3px 5px;
-  border-radius: 4px;
-  background: rgba(var(--color-accent-rgb), 0.1);
-}
 
 .subtitle-assistant-actions {
   position: absolute;

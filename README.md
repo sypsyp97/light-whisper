@@ -27,8 +27,8 @@
 
 - **One-key dictation**: record with a configurable global hotkey, then type the transcript into the active window.
 - **Local and cloud ASR**: run Faster Whisper or Qwen3-ASR Q8 locally, or use GLM-ASR / Alibaba DashScope without local models.
-- **Raw-first AI polish**: show ASR output quickly, then replace or preview the polished result when the LLM returns. Four structure levels range from faithful cleanup to stronger organization; result cards show ASR, AI, and total latency.
-- **Subtitle overlay**: a floating transparent window shows listening, recognition, polishing, web search, and assistant states.
+- **AI polish**: wait for the LLM and type only the final polished result. Four structure levels range from faithful cleanup to stronger organization; result cards show ASR, AI, and total latency.
+- **Subtitle overlay**: a floating transparent window shows listening, rolling recognition, polishing, web search, and assistant states; interim text keeps stable-prefix smoothing while the subtitle body uses one consistent high-contrast color.
 - **Voice assistant**: ask from a separate hotkey, with optional selected text, foreground app, and full-screen screenshot context.
 - **Selection and voice editing**: select text with the mouse to translate, explain, improve, copy, or search it; improved text can replace the original selection with one click. Translation supports preset or custom target languages, and voice commands can rewrite selected text in place.
 - **Provider flexibility**: built-in OpenAI, DeepSeek, Cerebras, and SiliconFlow presets; custom OpenAI-compatible or Anthropic endpoints; model-native / Exa / Tavily web search for assistant tasks.

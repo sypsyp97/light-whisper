@@ -10,7 +10,6 @@ import type {
   HistoryItem,
   HotkeyDiagnostic,
   RecordingMode,
-  TranscriptionResultStage,
   TranscriptionTiming,
 } from "@/types";
 
@@ -32,7 +31,6 @@ interface RecordingContextValue {
   detectedLanguage: string | null;
   editGrabStatus: EditGrabStatus | null;
   timing: TranscriptionTiming | null;
-  resultStage: TranscriptionResultStage | null;
   history: HistoryItem[];
   recordingMode: RecordingMode;
   // model
@@ -74,7 +72,6 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     detectedLanguage,
     editGrabStatus,
     timing,
-    resultStage,
     history,
     resultMode,
   } = useRecording();
@@ -176,7 +173,6 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     detectedLanguage,
     editGrabStatus,
     timing,
-    resultStage,
     history,
     recordingMode: resultMode,
     stage,
@@ -198,7 +194,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     isStarting, isRecording, isProcessing, startRecording, stopRecording, recordingError,
     transcriptionResult, setTranscriptionResult, originalAsrText,
     editBaselineText, setEditBaselineText,
-    durationSec, charCount, detectedLanguage, editGrabStatus, timing, resultStage, history, resultMode,
+    durationSec, charCount, detectedLanguage, editGrabStatus, timing, history, resultMode,
     stage, isReady, device, gpuName, downloadProgress, downloadMessage, isDownloading,
     modelError, downloadModels, cancelDownload, retryModel,
     hotkeyDisplay, hotkeyError, setHotkey, hotkeyDiagnostic,

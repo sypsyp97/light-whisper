@@ -140,15 +140,6 @@ const en: TranslationSchema = {
       ai: "AI {{ms}}ms",
       total: "total {{ms}}ms",
     },
-    rawFirst: {
-      preview_only: "raw preview",
-      polished_preview: "polish complete",
-      pasted: "raw pasted",
-      replaced: "raw-first replaced",
-      kept_raw: "raw kept",
-      final_fallback: "final pasted",
-      unchanged: "raw unchanged",
-    },
     editableTranscription: "Transcription result, editable",
     editGrab: {
       timeout: "Selected text lookup timed out",
@@ -180,15 +171,6 @@ const en: TranslationSchema = {
       retrying: "Retrying…",
       requestMissing: "The original request is missing, so this conversation cannot continue.",
       sendFailed: "Couldn't send the message. Please try again.",
-    },
-    rawFirst: {
-      preview_only: "raw preview",
-      polished_preview: "polish complete",
-      pasted: "raw pasted",
-      replaced: "raw-first replaced",
-      kept_raw: "raw kept",
-      final_fallback: "final pasted",
-      unchanged: "raw unchanged",
     },
   },
   toast: {

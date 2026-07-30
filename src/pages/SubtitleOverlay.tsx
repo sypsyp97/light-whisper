@@ -49,18 +49,6 @@ interface TranscriptionResult {
   tentativeText?: string;
   polished?: boolean;
   mode?: "dictation" | "assistant";
-  resultStage?: "raw" | "polished";
-  timing?: {
-    rawFirst?: {
-      status:
-        | "preview_only"
-        | "pasted"
-        | "replaced"
-        | "kept_raw"
-        | "final_fallback"
-        | "unchanged";
-    };
-  };
 }
 
 interface InterimSegments {
@@ -179,8 +167,6 @@ export default function SubtitleOverlay() {
   const [interimSegments, setInterimSegments] = useState<InterimSegments | null>(null);
   const [fadingOut, setFadingOut] = useState(false);
   const [polishFlash, setPolishFlash] = useState(false);
-  const [rawFirstStatus, setRawFirstStatus] = useState<string | null>(null);
-  const [resultStage, setResultStage] = useState<TranscriptionResult["resultStage"] | null>(null);
   const [outcome, setOutcome] = useState<RecordingOutcomeKind | null>(null);
   const [streamTokens, setStreamTokens] = useState(0);
   const [waveformBars, setWaveformBars] = useState<number[]>(EMPTY_WAVEFORM_BARS);
@@ -367,8 +353,6 @@ export default function SubtitleOverlay() {
       setFadingOut(false);
       setText("");
       setInterimSegments(null);
-      setRawFirstStatus(null);
-      setResultStage(null);
       setOutcome(null);
       setWaveformBars(EMPTY_WAVEFORM_BARS);
       setPolishFlash(false);
@@ -448,8 +432,6 @@ export default function SubtitleOverlay() {
         : ""
     ));
     setInterimSegments(null);
-    setRawFirstStatus(null);
-    setResultStage(null);
     setWaveformBars(EMPTY_WAVEFORM_BARS);
     setPolishFlash(false);
     setStreamTokens(0);
@@ -487,8 +469,6 @@ export default function SubtitleOverlay() {
       setMode(snapshot.mode);
       setText("");
       setInterimSegments(null);
-      setRawFirstStatus(null);
-      setResultStage(null);
       setOutcome(null);
       setWaveformBars(EMPTY_WAVEFORM_BARS);
       setPolishFlash(false);
@@ -639,8 +619,6 @@ export default function SubtitleOverlay() {
             setFadingOut(false);
             setText("");
             setInterimSegments(null);
-            setRawFirstStatus(null);
-            setResultStage(null);
             setOutcome(null);
             setAssistantCopied(false);
             setAssistantSearchError(false);
@@ -878,8 +856,6 @@ export default function SubtitleOverlay() {
           setOutcome(null);
           setText(incomingText);
           setInterimSegments(interim ? validInterimSegments(event.payload) : null);
-          setRawFirstStatus(event.payload.timing?.rawFirst?.status ?? null);
-          setResultStage(event.payload.resultStage ?? null);
 
           if (interim) {
             setFadingOut(false);
@@ -893,8 +869,6 @@ export default function SubtitleOverlay() {
           // to avoid the capsule shrinking into a tiny blank pill.
           if (!finalText) {
             setText("");
-            setRawFirstStatus(null);
-            setResultStage(null);
             updatePhase("processing");
             setFadingOut(true);
             return;
@@ -906,9 +880,6 @@ export default function SubtitleOverlay() {
           setPolishFlash(!!event.payload.polished);
           if (event.payload.mode === "assistant") {
             conversationInitialResponseRef.current = finalText;
-          }
-          if (event.payload.resultStage === "raw") {
-            return;
           }
 
           if (event.payload.mode !== "assistant") {
@@ -925,8 +896,6 @@ export default function SubtitleOverlay() {
               if (latestSessionIdRef.current !== expectedSessionId) return;
               setText("");
               setInterimSegments(null);
-              setRawFirstStatus(null);
-              setResultStage(null);
               setOutcome(null);
               updatePhase("idle");
               setFadingOut(false);
@@ -956,9 +925,6 @@ export default function SubtitleOverlay() {
 
   const isStreaming = !interimSegments && text.length > 0 && smoothText.length < text.length;
   const hasText = (interimSegments ? text : smoothText).length > 0;
-  const rawFirstLabelKey = rawFirstStatus === "preview_only" && resultStage === "polished"
-    ? "polished_preview"
-    : rawFirstStatus;
   const isAssistant = mode === "assistant";
 
   let indicatorClass: string | null = null;
@@ -986,8 +952,6 @@ export default function SubtitleOverlay() {
     setFadingOut(false);
     setText("");
     setInterimSegments(null);
-    setRawFirstStatus(null);
-    setResultStage(null);
     setOutcome(null);
     setWaveformBars(EMPTY_WAVEFORM_BARS);
     setAssistantCopied(false);
@@ -1433,9 +1397,6 @@ export default function SubtitleOverlay() {
             )}
             {hasText && phase === "polishing" && streamTokens > 0 && (
               <span className="subtitle-stream-badge">{streamTokens}</span>
-            )}
-            {hasText && rawFirstLabelKey && !isAssistant && (
-              <span className="subtitle-raw-first-badge">{t(`subtitle.rawFirst.${rawFirstLabelKey}`)}</span>
             )}
             {outcomeText && <span key={outcome} className="subtitle-hint" role="status">{outcomeText}</span>}
             {!hasText && !outcomeText && hintText && <span key={phase} className="subtitle-hint">{hintText}</span>}

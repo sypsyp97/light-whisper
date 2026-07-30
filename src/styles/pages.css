@@ -169,12 +169,6 @@
   color: var(--color-text-secondary);
 }
 
-.result-raw-first {
-  display: inline-block;
-  margin-left: 6px;
-  color: var(--color-text-secondary);
-}
-
 /* Error banner container */
 .error-banner {
   border-radius: var(--radius-md);

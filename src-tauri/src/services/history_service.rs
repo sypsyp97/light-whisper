@@ -35,7 +35,6 @@ pub struct HistoryDraft {
     pub asr_ms: Option<u64>,
     pub polish_ms: Option<u64>,
     pub total_ms: Option<u64>,
-    pub raw_first_status: Option<String>,
     pub error: Option<String>,
     pub reprocessed_from_id: Option<i64>,
 }
@@ -65,7 +64,6 @@ pub struct HistoryRecord {
     pub asr_ms: Option<u64>,
     pub polish_ms: Option<u64>,
     pub total_ms: Option<u64>,
-    pub raw_first_status: Option<String>,
     pub error: Option<String>,
     pub reprocessed_from_id: Option<i64>,
 }
@@ -231,6 +229,7 @@ fn migrate_schema(connection: &Connection) -> Result<(), String> {
                 asr_ms              INTEGER,
                 polish_ms           INTEGER,
                 total_ms            INTEGER,
+                -- Retained only so databases remain compatible with older app versions.
                 raw_first_status    TEXT,
                 error               TEXT,
                 reprocessed_from_id INTEGER,
@@ -342,11 +341,11 @@ fn map_stored_record(row: &Row<'_>) -> rusqlite::Result<StoredHistoryRecord> {
             created_at: row.get(2)?,
             updated_at: row.get(3)?,
             mode: row.get(4)?,
-            workflow: row.get(23)?,
+            workflow: row.get(22)?,
             status: row.get(5)?,
             text: row.get(6)?,
             original_text: row.get(7)?,
-            source_text: row.get(24)?,
+            source_text: row.get(23)?,
             duration_sec: row.get(8)?,
             language: row.get(9)?,
             engine: row.get(10)?,
@@ -359,9 +358,8 @@ fn map_stored_record(row: &Row<'_>) -> rusqlite::Result<StoredHistoryRecord> {
             asr_ms: optional_u64(row.get(17)?),
             polish_ms: optional_u64(row.get(18)?),
             total_ms: optional_u64(row.get(19)?),
-            raw_first_status: row.get(20)?,
-            error: row.get(21)?,
-            reprocessed_from_id: row.get(22)?,
+            error: row.get(20)?,
+            reprocessed_from_id: row.get(21)?,
         },
         audio_file,
     })
@@ -370,8 +368,8 @@ fn map_stored_record(row: &Row<'_>) -> rusqlite::Result<StoredHistoryRecord> {
 const HISTORY_COLUMNS: &str = r#"
     id, session_id, created_at, updated_at, mode, status, text, original_text,
     duration_sec, language, engine, provider, model, app_process, app_window_title,
-    audio_file, app_rule_name, asr_ms, polish_ms, total_ms, raw_first_status,
-    error, reprocessed_from_id, workflow, source_text
+    audio_file, app_rule_name, asr_ms, polish_ms, total_ms, error,
+    reprocessed_from_id, workflow, source_text
 "#;
 
 pub async fn insert(draft: HistoryDraft, retention_days: u32) -> Result<i64, String> {
@@ -386,11 +384,10 @@ pub async fn insert(draft: HistoryDraft, retention_days: u32) -> Result<i64, Str
                     session_id, created_at, updated_at, mode, status, text, original_text,
                     duration_sec, language, engine, provider, model, app_process,
                     app_window_title, app_rule_name, audio_file, asr_ms, polish_ms,
-                    total_ms, raw_first_status, error, reprocessed_from_id, workflow,
-                    source_text
+                    total_ms, error, reprocessed_from_id, workflow, source_text
                 ) VALUES (
                     ?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                    ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23
+                    ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22
                 )
                 "#,
                 params![
@@ -412,7 +409,6 @@ pub async fn insert(draft: HistoryDraft, retention_days: u32) -> Result<i64, Str
                     draft.asr_ms.and_then(|value| i64::try_from(value).ok()),
                     draft.polish_ms.and_then(|value| i64::try_from(value).ok()),
                     draft.total_ms.and_then(|value| i64::try_from(value).ok()),
-                    draft.raw_first_status,
                     draft.error,
                     draft.reprocessed_from_id,
                     draft.workflow,
@@ -910,6 +906,8 @@ mod tests {
         assert_eq!(stored.record.workflow, "dictation");
         assert_eq!(stored.record.total_ms, Some(380));
         assert!(!stored.record.audio_available);
+        let serialized = serde_json::to_value(&stored.record).expect("serialize history record");
+        assert!(serialized.get("rawFirstStatus").is_none());
 
         assert_eq!(
             cleanup_expired_with_connection(&mut connection, 1).expect("clean expired history"),

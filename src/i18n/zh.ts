@@ -138,15 +138,6 @@ const zh = {
       ai: "AI {{ms}}ms",
       total: "总计 {{ms}}ms",
     },
-    rawFirst: {
-      preview_only: "raw 预览",
-      polished_preview: "润色完成",
-      pasted: "raw 已上屏",
-      replaced: "raw 已替换",
-      kept_raw: "保留 raw",
-      final_fallback: "final 上屏",
-      unchanged: "raw 未变化",
-    },
     editableTranscription: "识别结果，可编辑",
     editGrab: {
       timeout: "选中文本读取超时",
@@ -178,15 +169,6 @@ const zh = {
       retrying: "重试中…",
       requestMissing: "缺少初始问题，无法继续对话。",
       sendFailed: "发送失败，请重试。",
-    },
-    rawFirst: {
-      preview_only: "raw 预览",
-      polished_preview: "润色完成",
-      pasted: "raw 已上屏",
-      replaced: "raw 已替换",
-      kept_raw: "保留 raw",
-      final_fallback: "final 上屏",
-      unchanged: "raw 未变化",
     },
   },
   toast: {
