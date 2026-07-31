@@ -92,6 +92,8 @@ mod interim;
 mod monitor;
 mod resample;
 mod wav;
+#[cfg(target_os = "windows")]
+mod windows_capture;
 
 // ---------- 外部 API 再导出 ----------
 //

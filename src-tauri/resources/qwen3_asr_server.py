@@ -9,6 +9,8 @@ import subprocess
 import time
 import traceback
 
+from faster_whisper.vad import VadOptions, get_speech_timestamps, get_vad_model
+
 from server_common import (
     BaseASRServer,
     _has_nvidia_gpu,
@@ -25,6 +27,15 @@ logger = setup_rotating_logger(__name__, "qwen3_asr_server.log", "Qwen3-ASR服�
 from hf_cache_utils import QWEN3_ASR_MODELS, find_hf_snapshot_file
 
 QWEN3_ASR_N_CTX = 32_768
+QWEN3_VAD_SAMPLE_RATE = 16_000
+# Keep short utterances while requiring enough consecutive speech to reject
+# clicks and handling noise. Padding protects first/last phonemes after trim.
+QWEN3_VAD_OPTIONS = VadOptions(
+    threshold=0.5,
+    min_speech_duration_ms=100,
+    min_silence_duration_ms=300,
+    speech_pad_ms=120,
+)
 
 
 class Qwen3ASRServer(BaseASRServer):
@@ -38,9 +49,13 @@ class Qwen3ASRServer(BaseASRServer):
         super().__init__(engine=engine, logger=logger)
         self.model = None
         self.session = None
+        self.vad_model = None
         self.backend = "cuda" if self.device == "cuda" else "auto"
         self._last_load_error = None
         self._total_inference_ms = 0.0
+        self._total_vad_ms = 0.0
+        self._vad_calls = 0
+        self._vad_rejected = 0
 
     def _detect_device(self):
         """Avoid importing the 2 GB PyTorch runtime just to probe one CUDA driver."""
@@ -132,11 +147,43 @@ class Qwen3ASRServer(BaseASRServer):
             started = time.perf_counter()
             rng = np.random.default_rng(0)
             audio = rng.standard_normal(16_000).astype(np.float32) * 0.002
+            padded = np.pad(audio, (0, (-len(audio)) % 512))
+            self.vad_model(padded)
             with self.stdout_suppressor.suppress():
                 self.session.run(audio, timestamps="none")
-            logger.info("Qwen3-ASR 预热完成，耗时 %.3f 秒", time.perf_counter() - started)
+            logger.info(
+                "Qwen3-ASR 与 Silero VAD 预热完成，耗时 %.3f 秒",
+                time.perf_counter() - started,
+            )
         except Exception as exc:
             logger.warning("Qwen3-ASR 预热失败（首次识别可能偏慢）: %s", exc)
+
+    def _filter_speech(self, audio):
+        import numpy as np
+
+        started = time.perf_counter()
+        chunks = get_speech_timestamps(
+            audio,
+            vad_options=QWEN3_VAD_OPTIONS,
+            sampling_rate=QWEN3_VAD_SAMPLE_RATE,
+        )
+        vad_ms = (time.perf_counter() - started) * 1000
+        self._vad_calls += 1
+        self._total_vad_ms += vad_ms
+
+        if not chunks:
+            self._vad_rejected += 1
+            return np.empty(0, dtype=np.float32), 0, vad_ms
+
+        start = max(0, int(chunks[0]["start"]))
+        end = min(len(audio), int(chunks[-1]["end"]))
+        if end <= start:
+            self._vad_rejected += 1
+            return np.empty(0, dtype=np.float32), 0, vad_ms
+
+        # Preserve pauses between spoken regions. Qwen still receives natural
+        # phrase timing; only idle time before/after the utterance is removed.
+        return np.ascontiguousarray(audio[start:end]), len(chunks), vad_ms
 
     def initialize(self):
         if self.initialized:
@@ -155,6 +202,7 @@ class Qwen3ASRServer(BaseASRServer):
         try:
             logger.info("加载 Qwen3-ASR: %s", model_path)
             self._load_runtime(model_path)
+            self.vad_model = get_vad_model()
             self._warmup_inference()
             self.initialized = True
             self._last_load_error = None
@@ -168,6 +216,8 @@ class Qwen3ASRServer(BaseASRServer):
                 **self._get_gpu_device_info(),
             }
         except ImportError as exc:
+            self._close_runtime()
+            self.vad_model = None
             self._last_load_error = str(exc)
             logger.error("Qwen3-ASR 依赖加载失败: %s", exc)
             logger.error(traceback.format_exc())
@@ -178,6 +228,8 @@ class Qwen3ASRServer(BaseASRServer):
                 "engine": self.engine,
             }
         except Exception as exc:
+            self._close_runtime()
+            self.vad_model = None
             self._last_load_error = str(exc)
             logger.error("Qwen3-ASR 初始化失败: %s", exc)
             logger.error(traceback.format_exc())
@@ -250,6 +302,25 @@ class Qwen3ASRServer(BaseASRServer):
                     "input_mode": input_mode,
                 }
 
+            audio, vad_segments, vad_ms = self._filter_speech(audio)
+            speech_duration = len(audio) / float(QWEN3_VAD_SAMPLE_RATE)
+            if not vad_segments:
+                return {
+                    "success": True,
+                    "text": "",
+                    "raw_text": "",
+                    "duration": duration,
+                    "speech_duration": 0.0,
+                    "language": "unknown",
+                    "engine": self.engine,
+                    "model_type": self.engine,
+                    "backend": self.backend,
+                    "input_mode": input_mode,
+                    "vad_segments": 0,
+                    "vad_ms": round(vad_ms, 3),
+                    "inference_ms": 0.0,
+                }
+
             started = time.perf_counter()
             with self.stdout_suppressor.suppress():
                 # Qwen3-ASR does not advertise speculative decoding. Keeping a
@@ -268,11 +339,14 @@ class Qwen3ASRServer(BaseASRServer):
                 "raw_text": text,
                 "confidence": 0.0,
                 "duration": duration,
+                "speech_duration": round(speech_duration, 3),
                 "language": language,
                 "engine": self.engine,
                 "model_type": self.engine,
                 "backend": self.backend,
                 "input_mode": input_mode,
+                "vad_segments": vad_segments,
+                "vad_ms": round(vad_ms, 3),
                 "inference_ms": round(inference_ms, 3),
             }
         except Exception as exc:
@@ -292,11 +366,18 @@ class Qwen3ASRServer(BaseASRServer):
             "average_inference_ms": round(
                 self._total_inference_ms / max(1, self.transcription_count), 3
             ),
+            "average_vad_ms": round(self._total_vad_ms / max(1, self._vad_calls), 3),
+            "vad_calls": self._vad_calls,
+            "vad_rejected": self._vad_rejected,
             "initialized": self.initialized,
             "engine": self.engine,
             "backend": self.backend,
             "speculative_decoding": False,
-            "models_loaded": {"asr": self.model is not None, "vad": True, "punc": True},
+            "models_loaded": {
+                "asr": self.model is not None,
+                "vad": self.vad_model is not None,
+                "punc": True,
+            },
         }
 
     def check_status(self):
@@ -311,7 +392,11 @@ class Qwen3ASRServer(BaseASRServer):
                 "engine": self.engine,
                 "backend": self.backend,
                 "model_loaded": model_loaded,
-                "models": {"asr": model_loaded, "vad": True, "punc": True},
+                "models": {
+                    "asr": model_loaded,
+                    "vad": self.vad_model is not None,
+                    "punc": True,
+                },
                 **self._get_gpu_device_info(),
             }
         except importlib.metadata.PackageNotFoundError as exc:

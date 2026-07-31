@@ -21,6 +21,15 @@ const AUDIO_CAPTURE_TIMEOUT_JOIN_MS: u64 = 500;
 /// 一次性的"已触达录音缓冲硬上限"警告标志。仅在第一次撞上限时打日志。
 static RECORD_CAP_WARNED: AtomicBool = AtomicBool::new(false);
 
+pub(super) fn warn_if_record_cap_reached(current_len: usize) {
+    if current_len >= MAX_RECORD_SAMPLES && !RECORD_CAP_WARNED.swap(true, Ordering::Relaxed) {
+        log::warn!(
+            "录音缓冲触达硬上限 {} 个 i16 样本，后续输入将被丢弃",
+            MAX_RECORD_SAMPLES
+        );
+    }
+}
+
 fn confirm_audio_thread_exit(handle: std::thread::JoinHandle<()>, wait: std::time::Duration) {
     let (done_tx, done_rx) = mpsc::sync_channel(1);
     let joiner = std::thread::Builder::new()
@@ -298,6 +307,31 @@ pub fn spawn_audio_capture_thread(
         .spawn(move || {
             use cpal::traits::StreamTrait;
 
+            #[cfg(target_os = "windows")]
+            {
+                match super::windows_capture::WindowsSpeechCapture::start(
+                    selected_device_name.as_deref(),
+                ) {
+                    Ok(mut capture) => {
+                        if let Err(err) = capture.prime(&samples) {
+                            log::warn!(
+                                "Windows 原生语音处理录音未能收到首个音频包，回退 CPAL: {}",
+                                err
+                            );
+                            samples.lock().clear();
+                        } else {
+                            let _ = rate_tx.send(Ok(TARGET_SAMPLE_RATE));
+                            capture.run(&stop, &samples);
+                            log::info!("Windows 原生音频捕获已停止");
+                            return;
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("Windows 原生语音处理录音不可用，回退 CPAL: {}", err);
+                    }
+                }
+            }
+
             let (device, device_name) = match resolve_input_device(selected_device_name.as_deref())
             {
                 Ok(r) => r,
@@ -337,14 +371,7 @@ pub fn spawn_audio_capture_thread(
                         return;
                     }
                     let mut locked = buf.lock();
-                    if locked.len() >= MAX_RECORD_SAMPLES
-                        && !RECORD_CAP_WARNED.swap(true, Ordering::Relaxed)
-                    {
-                        log::warn!(
-                            "录音缓冲触达硬上限 {} 个 i16 样本，后续输入将被丢弃",
-                            MAX_RECORD_SAMPLES
-                        );
-                    }
+                    warn_if_record_cap_reached(locked.len());
                     mix_to_mono_capped_i16(data, channels, &mut locked, MAX_RECORD_SAMPLES);
                 }
             };
@@ -356,14 +383,7 @@ pub fn spawn_audio_capture_thread(
                         return;
                     }
                     let mut locked = buf.lock();
-                    if locked.len() >= MAX_RECORD_SAMPLES
-                        && !RECORD_CAP_WARNED.swap(true, Ordering::Relaxed)
-                    {
-                        log::warn!(
-                            "录音缓冲触达硬上限 {} 个 i16 样本，后续输入将被丢弃",
-                            MAX_RECORD_SAMPLES
-                        );
-                    }
+                    warn_if_record_cap_reached(locked.len());
                     mix_to_mono_capped_f32(data, channels, &mut locked, MAX_RECORD_SAMPLES);
                 }
             };
@@ -375,14 +395,7 @@ pub fn spawn_audio_capture_thread(
                         return;
                     }
                     let mut locked = buf.lock();
-                    if locked.len() >= MAX_RECORD_SAMPLES
-                        && !RECORD_CAP_WARNED.swap(true, Ordering::Relaxed)
-                    {
-                        log::warn!(
-                            "录音缓冲触达硬上限 {} 个 i16 样本，后续输入将被丢弃",
-                            MAX_RECORD_SAMPLES
-                        );
-                    }
+                    warn_if_record_cap_reached(locked.len());
                     mix_to_mono_capped_u16(data, channels, &mut locked, MAX_RECORD_SAMPLES);
                 }
             };
@@ -452,6 +465,8 @@ mod cap_tests {
     //!
     //!   - `MAX_RECORD_SAMPLES` is 30 minutes of 48 kHz mono and must be
     //!     large enough to cover at least an hour of 16 kHz mono.
+    #[cfg(target_os = "windows")]
+    use super::spawn_audio_capture_thread;
     use super::{
         mix_to_mono_capped_f32, mix_to_mono_capped_i16, mix_to_mono_capped_u16, MAX_RECORD_SAMPLES,
     };
@@ -643,5 +658,23 @@ mod cap_tests {
         let mut out2: Vec<i16> = vec![0; 30];
         mix_to_mono_capped_u16(&data, 1, &mut out2, 0);
         assert_eq!(out2.len(), 30, "cap=0 must never shrink existing buffer");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "requires an available Windows microphone"]
+    fn capture_entrypoint_uses_16k_native_stream() {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let samples = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let (handle, sample_rate) =
+            spawn_audio_capture_thread(stop.clone(), samples.clone(), None).expect("start capture");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        handle.join().expect("join capture thread");
+
+        let frame_count = samples.lock().len();
+        eprintln!("entrypoint_sample_rate={sample_rate} entrypoint_frames={frame_count}");
+        assert_eq!(sample_rate, super::TARGET_SAMPLE_RATE);
+        assert!(frame_count >= sample_rate as usize / 4);
     }
 }
