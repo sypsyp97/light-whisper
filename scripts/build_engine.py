@@ -36,23 +36,24 @@ QWEN3_CUDA_PROVIDER_URL = (
 
 # 同级 Python 脚本，打包到 _internal/
 ADD_DATA_FILES = [
-    "whisper_server.py",
     "qwen3_asr_server.py",
+    "firered_vad.py",
+    "fireredvad_vad.onnx",
+    "fireredvad_cmvn.json",
+    "FireRedVAD-LICENSE.txt",
     "download_models.py",
     "server_common.py",
     "hf_cache_utils.py",
 ]
 
 HIDDEN_IMPORTS = [
-    "faster_whisper",
-    "ctranslate2",
     "requests",
     "certifi",
-    "librosa",
     "numpy",
-    "scipy",
     "huggingface_hub",
     "huggingface_hub.utils",
+    "kaldi_native_fbank",
+    "_kaldi_native_fbank",
     "tqdm",
     "soundfile",
     "onnxruntime",
@@ -63,7 +64,7 @@ HIDDEN_IMPORTS = [
 
 # 需要完整收集的包（子模块 + 数据文件）。
 COLLECT_ALL = [
-    "faster_whisper",
+    "kaldi_native_fbank",
     "transcribe_cpp",
     "transcribe_cpp_native",
     "transcribe_cpp_native_cu12",
@@ -76,6 +77,14 @@ COPY_METADATA = [
 ]
 
 EXCLUDE_MODULES = [
+    "faster_whisper",
+    "ctranslate2",
+    "av",
+    "tokenizers",
+    "librosa",
+    "scipy",
+    "numba",
+    "llvmlite",
     "matplotlib",
     "tkinter",
     "PyQt5",

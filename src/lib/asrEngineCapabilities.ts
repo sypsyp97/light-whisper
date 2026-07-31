@@ -1,5 +1,4 @@
 export type AsrEngineKey =
-  | "whisper"
   | "qwen3-asr-0.6b"
   | "qwen3-asr-1.7b"
   | "glm-asr"
@@ -16,7 +15,6 @@ export type AsrEngineCapability = AsrEngineCapabilityBase & (
 );
 
 export const ASR_ENGINE_CAPABILITIES: Record<AsrEngineKey, AsrEngineCapability> = {
-  whisper: { execution: "local", final: true, interim: true, downloadSize: "1.62 GB" },
   "qwen3-asr-0.6b": { execution: "local", final: true, interim: true, downloadSize: "850 MB" },
   "qwen3-asr-1.7b": { execution: "local", final: true, interim: true, downloadSize: "2.19 GB" },
   "glm-asr": { execution: "cloud", final: true, interim: false, downloadSize: null },

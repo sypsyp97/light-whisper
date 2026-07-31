@@ -9,7 +9,7 @@ import subprocess
 import time
 import traceback
 
-from faster_whisper.vad import VadOptions, get_speech_timestamps, get_vad_model
+from firered_vad import FireRedVad
 
 from server_common import (
     BaseASRServer,
@@ -28,14 +28,6 @@ from hf_cache_utils import QWEN3_ASR_MODELS, find_hf_snapshot_file
 
 QWEN3_ASR_N_CTX = 32_768
 QWEN3_VAD_SAMPLE_RATE = 16_000
-# Keep short utterances while requiring enough consecutive speech to reject
-# clicks and handling noise. Padding protects first/last phonemes after trim.
-QWEN3_VAD_OPTIONS = VadOptions(
-    threshold=0.5,
-    min_speech_duration_ms=100,
-    min_silence_duration_ms=300,
-    speech_pad_ms=120,
-)
 
 
 class Qwen3ASRServer(BaseASRServer):
@@ -147,12 +139,11 @@ class Qwen3ASRServer(BaseASRServer):
             started = time.perf_counter()
             rng = np.random.default_rng(0)
             audio = rng.standard_normal(16_000).astype(np.float32) * 0.002
-            padded = np.pad(audio, (0, (-len(audio)) % 512))
-            self.vad_model(padded)
+            self.vad_model.warmup()
             with self.stdout_suppressor.suppress():
                 self.session.run(audio, timestamps="none")
             logger.info(
-                "Qwen3-ASR 与 Silero VAD 预热完成，耗时 %.3f 秒",
+                "Qwen3-ASR 与 FireRedVAD 预热完成，耗时 %.3f 秒",
                 time.perf_counter() - started,
             )
         except Exception as exc:
@@ -162,11 +153,7 @@ class Qwen3ASRServer(BaseASRServer):
         import numpy as np
 
         started = time.perf_counter()
-        chunks = get_speech_timestamps(
-            audio,
-            vad_options=QWEN3_VAD_OPTIONS,
-            sampling_rate=QWEN3_VAD_SAMPLE_RATE,
-        )
+        chunks = self.vad_model.speech_timestamps(audio)
         vad_ms = (time.perf_counter() - started) * 1000
         self._vad_calls += 1
         self._total_vad_ms += vad_ms
@@ -202,7 +189,7 @@ class Qwen3ASRServer(BaseASRServer):
         try:
             logger.info("加载 Qwen3-ASR: %s", model_path)
             self._load_runtime(model_path)
-            self.vad_model = get_vad_model()
+            self.vad_model = FireRedVad()
             self._warmup_inference()
             self.initialized = True
             self._last_load_error = None
@@ -268,9 +255,15 @@ class Qwen3ASRServer(BaseASRServer):
 
         if not audio_path or not os.path.exists(audio_path):
             raise FileNotFoundError(f"音频文件不存在: {audio_path}")
-        import librosa
+        import soundfile as sf
 
-        audio, _ = librosa.load(audio_path, sr=16_000, mono=True, dtype=np.float32)
+        audio, source_rate = sf.read(
+            audio_path,
+            dtype="float32",
+            always_2d=True,
+        )
+        audio = audio.mean(axis=1, dtype=np.float32)
+        audio = self._resample(audio, source_rate)
         return np.ascontiguousarray(audio), len(audio) / 16_000.0, "path"
 
     def transcribe_audio(

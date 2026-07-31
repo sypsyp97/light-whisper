@@ -186,13 +186,7 @@ pub async fn set_engine(
     state: tauri::State<'_, AppState>,
     engine: String,
 ) -> Result<String, AppError> {
-    const VALID: &[&str] = &[
-        "whisper",
-        "qwen3-asr-0.6b",
-        "qwen3-asr-1.7b",
-        "glm-asr",
-        "alibaba-asr",
-    ];
+    const VALID: &[&str] = &["qwen3-asr-0.6b", "qwen3-asr-1.7b", "glm-asr", "alibaba-asr"];
     if !VALID.contains(&engine.as_str()) {
         return Err(AppError::Other(format!(
             "不支持的引擎类型: {}，可选值: {}",

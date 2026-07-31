@@ -46,6 +46,17 @@ class FakeModel:
         pass
 
 
+class FakeVad:
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    def warmup(self):
+        pass
+
+    def speech_timestamps(self, _audio):
+        return self.chunks
+
+
 class Qwen3ASRServerTests(unittest.TestCase):
     def setUp(self):
         FakeModel.instances.clear()
@@ -62,11 +73,10 @@ class Qwen3ASRServerTests(unittest.TestCase):
                 return_value="model.gguf",
             ),
             mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_warmup_inference"),
-            mock.patch.object(qwen3_asr_server, "get_vad_model", return_value=object()),
             mock.patch.object(
                 qwen3_asr_server,
-                "get_speech_timestamps",
-                return_value=[{"start": 0, "end": 16_000}],
+                "FireRedVad",
+                return_value=FakeVad([{"start": 0, "end": 16_000}]),
             ),
             mock.patch.dict(sys.modules, {"transcribe_cpp": fake_module}),
         ):
@@ -111,8 +121,11 @@ class Qwen3ASRServerTests(unittest.TestCase):
                 return_value="model.gguf",
             ),
             mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_warmup_inference"),
-            mock.patch.object(qwen3_asr_server, "get_vad_model", return_value=object()),
-            mock.patch.object(qwen3_asr_server, "get_speech_timestamps", return_value=[]),
+            mock.patch.object(
+                qwen3_asr_server,
+                "FireRedVad",
+                return_value=FakeVad([]),
+            ),
             mock.patch.dict(sys.modules, {"transcribe_cpp": fake_module}),
         ):
             server = qwen3_asr_server.Qwen3ASRServer(engine="qwen3-asr-0.6b")
@@ -152,9 +165,10 @@ class Qwen3ASRServerTests(unittest.TestCase):
                 return_value="model.gguf",
             ),
             mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_warmup_inference"),
-            mock.patch.object(qwen3_asr_server, "get_vad_model", return_value=object()),
             mock.patch.object(
-                qwen3_asr_server, "get_speech_timestamps", return_value=chunks
+                qwen3_asr_server,
+                "FireRedVad",
+                return_value=FakeVad(chunks),
             ),
             mock.patch.dict(sys.modules, {"transcribe_cpp": fake_module}),
         ):

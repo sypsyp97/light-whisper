@@ -16,7 +16,6 @@ from hf_cache_utils import (
     is_hf_repo_ready,
     get_hf_cache_root,
     cleanup_incomplete_files,
-    WHISPER_REPO_ID,
     QWEN3_ASR_MODELS,
     find_hf_snapshot_file,
 )
@@ -444,7 +443,7 @@ def main(engine=None):
         parser.add_argument(
             "--engine",
             default="qwen3-asr-0.6b",
-            choices=["whisper", "qwen3-asr-0.6b", "qwen3-asr-1.7b"],
+            choices=["qwen3-asr-0.6b", "qwen3-asr-1.7b"],
         )
         args = parser.parse_args()
         engine = args.engine
@@ -464,10 +463,6 @@ def main(engine=None):
                     }
                 ],
             }
-        ]
-    elif engine == "whisper":
-        models = [
-            {"name": WHISPER_REPO_ID, "type": "asr"},
         ]
     else:
         raise ValueError(f"不支持的本地 ASR 引擎: {engine}")

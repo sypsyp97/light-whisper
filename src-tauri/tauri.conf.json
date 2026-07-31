@@ -69,8 +69,11 @@
       }
     },
     "resources": [
-      "resources/whisper_server.py",
       "resources/qwen3_asr_server.py",
+      "resources/firered_vad.py",
+      "resources/fireredvad_vad.onnx",
+      "resources/fireredvad_cmvn.json",
+      "resources/FireRedVAD-LICENSE.txt",
       "resources/download_models.py",
       "resources/hf_cache_utils.py",
       "resources/server_common.py",

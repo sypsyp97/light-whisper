@@ -140,7 +140,6 @@ pub struct ModelCheckResult {
     pub missing_models: Vec<String>,
 }
 
-const WHISPER_REPO_ID: &str = "deepdml/faster-whisper-large-v3-turbo-ct2";
 const QWEN3_ASR_06_REPO_ID: &str = "handy-computer/Qwen3-ASR-0.6B-gguf";
 const QWEN3_ASR_06_FILENAME: &str = "Qwen3-ASR-0.6B-Q8_0.gguf";
 const QWEN3_ASR_17_REPO_ID: &str = "handy-computer/Qwen3-ASR-1.7B-gguf";
@@ -361,14 +360,6 @@ fn engine_install_fingerprint_matches(installed: &str, expected: &str) -> bool {
             && installed
                 .rsplit_once('+')
                 .is_some_and(|(_, archive_fingerprint)| archive_fingerprint == expected))
-}
-
-fn report_model_repo_state(
-    repo_id: &str,
-    description: &str,
-    missing_models: &mut Vec<String>,
-) -> bool {
-    report_model_repo_file_state(repo_id, None, description, missing_models)
 }
 
 fn report_model_repo_file_state(
@@ -933,7 +924,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         EngineRuntime::Development { python_path } => {
             log::info!("使用开发模式 Python: {}", python_path);
             let server_script = match ticket.engine.as_str() {
-                "whisper" => paths::get_whisper_server_path(app_handle),
                 engine if engine.starts_with("qwen3-asr-") => {
                     paths::get_qwen3_asr_server_path(app_handle)
                 }
@@ -1817,54 +1807,37 @@ fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
     let cache_root = get_hf_cache_root();
     let cache_path = cache_root.to_string_lossy().to_string();
 
-    if engine == "whisper" {
-        // Whisper 引擎：只需检查一个模型仓库，内置 VAD 和标点
-        let mut missing_models = Vec::new();
-        let asr_present =
-            report_model_repo_state(WHISPER_REPO_ID, "Whisper ASR模型", &mut missing_models);
-
-        ModelCheckResult {
-            all_present: asr_present,
-            asr_model: asr_present,
-            vad_model: true,  // Whisper 内置 Silero VAD
-            punc_model: true, // Whisper 内置标点
-            engine: "whisper".to_string(),
-            cache_path,
-            missing_models,
-        }
+    // 旧版或损坏的本地引擎值统一迁移到默认的 Qwen3-ASR 0.6B。
+    let normalized_engine = if engine == "qwen3-asr-1.7b" {
+        "qwen3-asr-1.7b"
     } else {
-        // 旧版或损坏的本地引擎值统一迁移到默认的 Qwen3-ASR 0.6B。
-        let normalized_engine = if engine == "qwen3-asr-1.7b" {
-            "qwen3-asr-1.7b"
-        } else {
-            "qwen3-asr-0.6b"
-        };
-        let (repo_id, filename, description) = if normalized_engine == "qwen3-asr-1.7b" {
-            (
-                QWEN3_ASR_17_REPO_ID,
-                QWEN3_ASR_17_FILENAME,
-                "Qwen3-ASR 1.7B Q8模型",
-            )
-        } else {
-            (
-                QWEN3_ASR_06_REPO_ID,
-                QWEN3_ASR_06_FILENAME,
-                "Qwen3-ASR 0.6B Q8模型",
-            )
-        };
-        let mut missing_models = Vec::new();
-        let asr_present =
-            report_model_repo_file_state(repo_id, Some(filename), description, &mut missing_models);
+        "qwen3-asr-0.6b"
+    };
+    let (repo_id, filename, description) = if normalized_engine == "qwen3-asr-1.7b" {
+        (
+            QWEN3_ASR_17_REPO_ID,
+            QWEN3_ASR_17_FILENAME,
+            "Qwen3-ASR 1.7B Q8模型",
+        )
+    } else {
+        (
+            QWEN3_ASR_06_REPO_ID,
+            QWEN3_ASR_06_FILENAME,
+            "Qwen3-ASR 0.6B Q8模型",
+        )
+    };
+    let mut missing_models = Vec::new();
+    let asr_present =
+        report_model_repo_file_state(repo_id, Some(filename), description, &mut missing_models);
 
-        ModelCheckResult {
-            all_present: asr_present,
-            asr_model: asr_present,
-            vad_model: true,
-            punc_model: true,
-            engine: normalized_engine.to_string(),
-            cache_path,
-            missing_models,
-        }
+    ModelCheckResult {
+        all_present: asr_present,
+        asr_model: asr_present,
+        vad_model: true,
+        punc_model: true,
+        engine: normalized_engine.to_string(),
+        cache_path,
+        missing_models,
     }
 }
 
@@ -1959,15 +1932,6 @@ mod tests {
         .unwrap();
         let qwen_result = server_response_to_transcription_result(&state, qwen_response);
         assert_eq!(qwen_result.text, "请用 github 打开 openclaw。");
-
-        let whisper_response: ServerResponse = serde_json::from_value(serde_json::json!({
-            "success": true,
-            "text": "请用 get hub 打开 open cloud。",
-            "engine": "whisper"
-        }))
-        .unwrap();
-        let whisper_result = server_response_to_transcription_result(&state, whisper_response);
-        assert_eq!(whisper_result.text, "请用 get hub 打开 open cloud。");
     }
 
     #[test]

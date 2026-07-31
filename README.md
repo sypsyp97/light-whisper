@@ -26,7 +26,7 @@
 ## Features
 
 - **One-key dictation**: record with a configurable global hotkey, then type the transcript into the active window.
-- **Local and cloud ASR**: run Faster Whisper or Qwen3-ASR Q8 locally, or use GLM-ASR / Alibaba DashScope without local models.
+- **Local and cloud ASR**: run Qwen3-ASR Q8 locally, or use GLM-ASR / Alibaba DashScope without local models.
 - **AI polish**: wait for the LLM and type only the final polished result. Four structure levels range from faithful cleanup to stronger organization; result cards show ASR, AI, and total latency.
 - **Subtitle overlay**: a floating transparent window shows listening, rolling recognition, polishing, web search, and assistant states; interim text keeps stable-prefix smoothing while the subtitle body uses one consistent high-contrast color.
 - **Voice assistant**: ask from a separate hotkey, with optional selected text, foreground app, and full-screen screenshot context.
@@ -38,15 +38,14 @@
 
 | Engine | Runtime | Best for | Language / model | Notes |
 |:--|:--|:--|:--|:--|
-| **Faster Whisper** | Local Python engine | Wider language coverage | large-v3-turbo-ct2, 99+ languages | Downloads Whisper model |
-| **Qwen3-ASR 0.6B Q8** | Local GGUF engine | Speed-oriented Qwen dictation | Multilingual, Q8_0 | Separate ~850 MB download; CUDA / Vulkan / CPU |
-| **Qwen3-ASR 1.7B Q8** | Local GGUF engine | Quality-oriented Qwen option | Multilingual, Q8_0 | Separate ~2.19 GB download; CUDA / Vulkan / CPU |
+| **Qwen3-ASR 0.6B Q8** | Local GGUF engine | Speed-oriented Qwen dictation | Multilingual, Q8_0 | Separate ~850 MB download; bundled FireRedVAD; CUDA / Vulkan / CPU |
+| **Qwen3-ASR 1.7B Q8** | Local GGUF engine | Quality-oriented Qwen option | Multilingual, Q8_0 | Separate ~2.19 GB download; bundled FireRedVAD; CUDA / Vulkan / CPU |
 | **GLM-ASR** | Online API | Cloud ASR without local models | `glm-asr-2512` | API key + region endpoint |
 | **Alibaba DashScope** | Online API | Qwen ASR / Omni on DashScope | Default `qwen3-asr-flash`; refreshable model list | API key + region + model |
 
 Online ASR engines return final results only and skip the local Python engine startup. Local engines use the bundled Python engine and cached HuggingFace models.
 
-Qwen weights are downloaded separately on first use and reused from the model cache. The 0.6B option is lighter, while 1.7B is larger; both support personal hot words and prefer CUDA with Vulkan/CPU fallback.
+Qwen weights are downloaded separately on first use and reused from the model cache. FireRedVAD ships inside the app and requires no separate model download. The 0.6B option is lighter, while 1.7B is larger; both support personal hot words and prefer CUDA with Vulkan/CPU fallback.
 
 ## Installation
 
@@ -88,7 +87,6 @@ The NSIS installer is written to `src-tauri/target/release/bundle/nsis/`.
 Optional local-model prefetch:
 
 ```bash
-uv run python src-tauri/resources/download_models.py --engine whisper
 uv run python src-tauri/resources/download_models.py --engine qwen3-asr-0.6b
 uv run python src-tauri/resources/download_models.py --engine qwen3-asr-1.7b
 ```
@@ -110,19 +108,18 @@ cd src-tauri && cargo check
 
 **Hotkey not working**: the current default dictation hotkey is `F2`. Change it in Settings if another app owns it.
 
-**GPU not detected**: run `nvidia-smi`. Whisper and Qwen3-ASR record their selected device/backend in `whisper_server.log` and `qwen3_asr_server.log`.
+**GPU not detected**: run `nvidia-smi`. Qwen3-ASR records its selected device/backend in `qwen3_asr_server.log`.
 
 **Log locations**:
 
 - App log: `%LOCALAPPDATA%\com.light-whisper.desktop\logs\app.log`
-- Whisper log: `%APPDATA%\com.light-whisper.app\logs\whisper_server.log`
 - Qwen3-ASR log: `%TEMP%\light_whisper_logs\qwen3_asr_server.log`
 - Python stderr fallback: `%APPDATA%\com.light-whisper.app\funasr_stderr.log`
 
 ## Acknowledgements
 
-- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) & [large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2)
 - [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) & [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp)
+- [FireRedVAD](https://huggingface.co/FireRedTeam/FireRedVAD)
 - [GLM-ASR](https://bigmodel.cn/)
 - [Alibaba DashScope](https://www.alibabacloud.com/help/en/model-studio/) & Qwen ASR / Omni
 - [Tauri](https://tauri.app/) / [React](https://react.dev/)

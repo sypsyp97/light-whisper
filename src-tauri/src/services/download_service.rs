@@ -150,7 +150,7 @@ pub async fn run_download(
     // 模型从 HuggingFace 下载，使用 HF 默认缓存目录
     let engine = paths::read_engine_config();
     let engine_arg = match engine.as_str() {
-        "whisper" | "qwen3-asr-0.6b" | "qwen3-asr-1.7b" => engine.as_str(),
+        "qwen3-asr-0.6b" | "qwen3-asr-1.7b" => engine.as_str(),
         _ => "qwen3-asr-0.6b",
     };
 

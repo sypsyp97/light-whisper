@@ -8,9 +8,6 @@ import os
 import json
 import hashlib
 
-WHISPER_REPO_ID = "deepdml/faster-whisper-large-v3-turbo-ct2"
-WHISPER_MODEL_REPOS = [WHISPER_REPO_ID]
-
 QWEN3_ASR_MODELS = {
     "qwen3-asr-0.6b": {
         "repo_id": "handy-computer/Qwen3-ASR-0.6B-gguf",

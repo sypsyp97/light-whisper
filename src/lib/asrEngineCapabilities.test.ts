@@ -6,7 +6,6 @@ import {
 
 describe("ASR engine capabilities", () => {
   it.each([
-    ["whisper", { execution: "local", final: true, interim: true, downloadSize: "1.62 GB" }],
     ["qwen3-asr-0.6b", { execution: "local", final: true, interim: true, downloadSize: "850 MB" }],
     ["qwen3-asr-1.7b", { execution: "local", final: true, interim: true, downloadSize: "2.19 GB" }],
     ["glm-asr", { execution: "cloud", final: true, interim: false, downloadSize: null }],
@@ -16,8 +15,6 @@ describe("ASR engine capabilities", () => {
   });
 
   it("shows a download size for every local model and leaves cloud descriptions unchanged", () => {
-    expect(formatAsrEngineDescription("whisper", "99+语言 · 速度快"))
-      .toBe("1.62 GB · 99+语言 · 速度快");
     expect(formatAsrEngineDescription("qwen3-asr-0.6b", "最快 · 推荐"))
       .toBe("850 MB · 最快 · 推荐");
     expect(formatAsrEngineDescription("qwen3-asr-1.7b", "更高精度"))
@@ -28,5 +25,9 @@ describe("ASR engine capabilities", () => {
 
   it("does not advertise the retired SenseVoice engine", () => {
     expect(getAsrEngineCapability("sensevoice")).toBeNull();
+  });
+
+  it("does not advertise the retired Whisper engine", () => {
+    expect(getAsrEngineCapability("whisper")).toBeNull();
   });
 });
