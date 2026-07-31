@@ -60,9 +60,28 @@ export function useHotkeyCapture(config: HotkeyCaptureConfig) {
       e.preventDefault();
       e.stopPropagation();
       if (e.key === "Escape") { setCapturing(false); reset(); return; }
+      if (e.key === "Fn" || e.code === "Fn") {
+        toast.error(i18n.t("toast.hotkeyFnUnsupported"));
+        setCapturing(false);
+        reset();
+        return;
+      }
 
       const mod = modifierFromKeyboardEvent(e);
-      if (mod) { active.add(mod); for (const m of active) peak.add(m); return; }
+      if (mod) {
+        // Windows exposes AltGr as a synthetic Left Ctrl followed by Right Alt.
+        // Keep the physical Right Alt binding instead of recording Ctrl+Right Alt.
+        if (
+          mod === "RightAlt" &&
+          (e.key === "AltGraph" || e.getModifierState("AltGraph"))
+        ) {
+          active.delete("LeftCtrl");
+          peak.delete("LeftCtrl");
+        }
+        active.add(mod);
+        for (const m of active) peak.add(m);
+        return;
+      }
 
       mainKeyPressed = true;
       const shortcut = keyboardEventToHotkey(e, active);

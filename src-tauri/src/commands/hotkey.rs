@@ -20,9 +20,9 @@ use windows_sys::Win32::System::{LibraryLoader::GetModuleHandleW, Threading::Get
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
-    VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT, VK_LCONTROL,
-    VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RETURN, VK_RIGHT,
-    VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
+    VK_BACK, VK_CAPITAL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT,
+    VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RETURN,
+    VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -63,6 +63,10 @@ fn classify_backend(spec: &HotkeySpec) -> HotkeyBackend {
     if is_toggle_mode() {
         match spec {
             HotkeySpec::ModifierOnly { .. } => HotkeyBackend::LowLevelHook,
+            HotkeySpec::Standard {
+                force_low_level_hook: true,
+                ..
+            } => HotkeyBackend::LowLevelHook,
             HotkeySpec::Standard { .. } => HotkeyBackend::RegisterHotKey,
         }
     } else {
@@ -130,24 +134,24 @@ fn probe_system_hotkey_conflict(spec: &HotkeySpec) -> Option<String> {
     let (win_mods, vk) = match spec {
         HotkeySpec::Standard {
             modifiers, main_vk, ..
-        } => {
+        } if !spec.force_low_level_hook() => {
             let mut m = 0u32;
-            if modifiers.ctrl {
+            if modifiers.has_ctrl() {
                 m |= MOD_CONTROL;
             }
-            if modifiers.alt {
+            if modifiers.has_alt() {
                 m |= MOD_ALT;
             }
-            if modifiers.shift {
+            if modifiers.has_shift() {
                 m |= MOD_SHIFT;
             }
-            if modifiers.super_key {
+            if modifiers.has_super() {
                 m |= MOD_WIN;
             }
             (m, *main_vk as u32)
         }
-        // Modifier-only combos can't be probed via RegisterHotKey
-        HotkeySpec::ModifierOnly { .. } => return None,
+        // Modifier-only, side-specific, and consumed lock keys require LLKH.
+        _ => return None,
     };
 
     // Attempt to register — success means no conflict
@@ -172,13 +176,17 @@ enum HotkeySpec {
     /// Pure modifier-key combination (e.g. Ctrl+Win, Alt alone)
     ModifierOnly {
         label: String,
-        required_vks: Vec<u16>,
+        required_modifiers: Vec<ModifierKey>,
     },
     /// Modifier(s) + a main key (e.g. F2, Ctrl+Space)
     Standard {
         label: String,
         modifiers: ShortcutModifiers,
         main_vk: u16,
+        /// Side-specific modifiers and lock keys cannot use RegisterHotKey.
+        force_low_level_hook: bool,
+        /// Consume both key-down and key-up so lock keys do not change OS state.
+        consume_main_key: bool,
     },
 }
 
@@ -189,14 +197,172 @@ impl HotkeySpec {
             Self::Standard { label, .. } => label,
         }
     }
+
+    fn force_low_level_hook(&self) -> bool {
+        matches!(
+            self,
+            Self::ModifierOnly { .. }
+                | Self::Standard {
+                    force_low_level_hook: true,
+                    ..
+                }
+        )
+    }
 }
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModifierKey {
+    Ctrl,
+    LeftCtrl,
+    RightCtrl,
+    Alt,
+    LeftAlt,
+    RightAlt,
+    Shift,
+    Super,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModifierFamily {
+    Ctrl,
+    Alt,
+    Shift,
+    Super,
+}
+
+const MODIFIER_ORDER: [ModifierKey; 8] = [
+    ModifierKey::Ctrl,
+    ModifierKey::LeftCtrl,
+    ModifierKey::RightCtrl,
+    ModifierKey::Alt,
+    ModifierKey::LeftAlt,
+    ModifierKey::RightAlt,
+    ModifierKey::Shift,
+    ModifierKey::Super,
+];
+
+impl ModifierKey {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Ctrl => "Ctrl",
+            Self::LeftCtrl => "Left Ctrl",
+            Self::RightCtrl => "Right Ctrl",
+            Self::Alt => "Alt",
+            Self::LeftAlt => "Left Alt",
+            Self::RightAlt => "Right Alt",
+            Self::Shift => "Shift",
+            Self::Super => "Win",
+        }
+    }
+
+    fn family(self) -> ModifierFamily {
+        match self {
+            Self::Ctrl | Self::LeftCtrl | Self::RightCtrl => ModifierFamily::Ctrl,
+            Self::Alt | Self::LeftAlt | Self::RightAlt => ModifierFamily::Alt,
+            Self::Shift => ModifierFamily::Shift,
+            Self::Super => ModifierFamily::Super,
+        }
+    }
+
+    fn is_generic(self) -> bool {
+        matches!(self, Self::Ctrl | Self::Alt | Self::Shift | Self::Super)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn matches_vk(self, physical_vk: u32) -> bool {
+        let vk = physical_vk as u16;
+        match self {
+            Self::Ctrl => vk == VK_LCONTROL || vk == VK_RCONTROL,
+            Self::LeftCtrl => vk == VK_LCONTROL,
+            Self::RightCtrl => vk == VK_RCONTROL,
+            Self::Alt => vk == VK_LMENU || vk == VK_RMENU,
+            Self::LeftAlt => vk == VK_LMENU,
+            Self::RightAlt => vk == VK_RMENU,
+            Self::Shift => vk == VK_LSHIFT || vk == VK_RSHIFT,
+            Self::Super => vk == VK_LWIN || vk == VK_RWIN,
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn is_physically_down(self) -> bool {
+        match self {
+            Self::Ctrl => {
+                is_key_physically_down(VK_LCONTROL) || is_key_physically_down(VK_RCONTROL)
+            }
+            Self::LeftCtrl => is_key_physically_down(VK_LCONTROL),
+            Self::RightCtrl => is_key_physically_down(VK_RCONTROL),
+            Self::Alt => is_key_physically_down(VK_LMENU) || is_key_physically_down(VK_RMENU),
+            Self::LeftAlt => is_key_physically_down(VK_LMENU),
+            Self::RightAlt => is_key_physically_down(VK_RMENU),
+            Self::Shift => is_key_physically_down(VK_LSHIFT) || is_key_physically_down(VK_RSHIFT),
+            Self::Super => is_key_physically_down(VK_LWIN) || is_key_physically_down(VK_RWIN),
+        }
+    }
+
+    fn is_alt(self) -> bool {
+        matches!(self, Self::Alt | Self::LeftAlt | Self::RightAlt)
+    }
+
+    fn is_super(self) -> bool {
+        self == Self::Super
+    }
+}
+
+#[derive(Clone, Default, Debug)]
 struct ShortcutModifiers {
-    ctrl: bool,
-    alt: bool,
-    shift: bool,
-    super_key: bool,
+    keys: Vec<ModifierKey>,
+}
+
+impl ShortcutModifiers {
+    fn insert(&mut self, key: ModifierKey) -> Result<(), AppError> {
+        if self.keys.contains(&key) {
+            return Ok(());
+        }
+        if self.keys.iter().any(|existing| {
+            existing.family() == key.family() && (existing.is_generic() || key.is_generic())
+        }) {
+            return Err(AppError::Other(format!(
+                "快捷键格式无效：{} 不能与同类左右修饰键同时使用",
+                key.label()
+            )));
+        }
+        self.keys.push(key);
+        Ok(())
+    }
+
+    fn ordered_keys(&self) -> impl Iterator<Item = ModifierKey> + '_ {
+        MODIFIER_ORDER
+            .into_iter()
+            .filter(|key| self.keys.contains(key))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
+    fn has_ctrl(&self) -> bool {
+        self.keys
+            .iter()
+            .any(|key| key.family() == ModifierFamily::Ctrl)
+    }
+
+    fn has_alt(&self) -> bool {
+        self.keys
+            .iter()
+            .any(|key| key.family() == ModifierFamily::Alt)
+    }
+
+    fn has_shift(&self) -> bool {
+        self.keys.contains(&ModifierKey::Shift)
+    }
+
+    fn has_super(&self) -> bool {
+        self.keys.contains(&ModifierKey::Super)
+    }
+
+    fn has_side_specific(&self) -> bool {
+        self.keys.iter().any(|key| !key.is_generic())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -758,56 +924,29 @@ fn is_alt_vk(vk: u32) -> bool {
 }
 
 /// Map a VK code to an index in UnifiedHookState::key_down for ModifierOnly specs.
-/// Returns None if the VK is not one of the required VKs.
+/// Returns None if the physical key is not one of the required modifiers.
 #[cfg(target_os = "windows")]
 fn vk_to_required_index(spec: &HotkeySpec, vk: u32) -> Option<usize> {
-    if let HotkeySpec::ModifierOnly { required_vks, .. } = spec {
-        required_vks
+    if let HotkeySpec::ModifierOnly {
+        required_modifiers, ..
+    } = spec
+    {
+        required_modifiers
             .iter()
-            .position(|&required| vk_matches_required(vk, required))
+            .position(|required| required.matches_vk(vk))
     } else {
         None
     }
 }
 
-/// Check if a physical VK matches a required VK (handling L/R variants).
-/// e.g. VK_LCONTROL matches VK_LCONTROL, VK_RCONTROL also matches VK_LCONTROL
-/// because we use the left variant as the canonical representative.
 #[cfg(target_os = "windows")]
-fn vk_matches_required(physical_vk: u32, required_vk: u16) -> bool {
-    let pv = physical_vk as u16;
-    if pv == required_vk {
-        return true;
-    }
-    // Map L/R pairs: if required is the left variant, also accept right variant
-    match required_vk {
-        x if x == VK_LCONTROL => pv == VK_RCONTROL,
-        x if x == VK_LMENU => pv == VK_RMENU,
-        x if x == VK_LSHIFT => pv == VK_RSHIFT,
-        x if x == VK_LWIN => pv == VK_RWIN,
-        _ => false,
-    }
+fn accepts_right_alt(required_modifiers: &[ModifierKey]) -> bool {
+    required_modifiers
+        .iter()
+        .any(|required| required.matches_vk(VK_RMENU as u32))
 }
 
 // --- Standard mode helpers ---
-
-#[cfg(target_os = "windows")]
-fn modifier_flags_to_vk_pairs(mods: &ShortcutModifiers) -> Vec<(u16, u16)> {
-    let mut pairs = Vec::new();
-    if mods.ctrl {
-        pairs.push((VK_LCONTROL, VK_RCONTROL));
-    }
-    if mods.alt {
-        pairs.push((VK_LMENU, VK_RMENU));
-    }
-    if mods.shift {
-        pairs.push((VK_LSHIFT, VK_RSHIFT));
-    }
-    if mods.super_key {
-        pairs.push((VK_LWIN, VK_RWIN));
-    }
-    pairs
-}
 
 #[cfg(target_os = "windows")]
 fn is_key_physically_down(vk: u16) -> bool {
@@ -816,12 +955,7 @@ fn is_key_physically_down(vk: u16) -> bool {
 
 #[cfg(target_os = "windows")]
 fn all_modifiers_down(mods: &ShortcutModifiers) -> bool {
-    for (left, right) in modifier_flags_to_vk_pairs(mods) {
-        if !is_key_physically_down(left) && !is_key_physically_down(right) {
-            return false;
-        }
-    }
-    true
+    mods.keys.iter().all(|key| key.is_physically_down())
 }
 
 // ---------------------------------------------------------------------------
@@ -881,13 +1015,23 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
         swallow |= match &state.spec {
             HotkeySpec::ModifierOnly {
                 label,
-                required_vks,
-            } => handle_modifier_only_event(state, vk, is_key_down, label, required_vks),
+                required_modifiers,
+            } => handle_modifier_only_event(state, vk, is_key_down, label, required_modifiers),
             HotkeySpec::Standard {
                 label,
                 modifiers,
                 main_vk,
-            } => handle_standard_event(state, vk, is_key_down, label, modifiers, *main_vk),
+                consume_main_key,
+                ..
+            } => handle_standard_event(
+                state,
+                vk,
+                is_key_down,
+                label,
+                modifiers,
+                *main_vk,
+                *consume_main_key,
+            ),
         };
     }
 
@@ -907,9 +1051,12 @@ fn handle_modifier_only_event(
     vk: u32,
     is_key_down: bool,
     label: &str,
-    required_vks: &[u16],
+    required_modifiers: &[ModifierKey],
 ) -> bool {
     let is_required = vk_to_required_index(&state.spec, vk).is_some();
+    // Windows represents AltGr as a synthetic Left Ctrl followed by Right Alt.
+    // Do not taint a Right Alt binding with that companion event.
+    let is_altgr_ctrl_companion = vk as u16 == VK_LCONTROL && accepts_right_alt(required_modifiers);
     let was_activated = state.activated.load(Ordering::Acquire);
 
     if is_key_down {
@@ -926,7 +1073,7 @@ fn handle_modifier_only_event(
                     format!("{} 按下，开始录音", label),
                 ));
             }
-        } else {
+        } else if !is_altgr_ctrl_companion {
             // Non-required key pressed → taint
             state.tainted.store(true, Ordering::Release);
             if was_activated {
@@ -961,13 +1108,13 @@ fn handle_modifier_only_event(
             state.activated.store(false, Ordering::Release);
 
             if need_cleanup {
-                for &rvk in required_vks {
-                    if is_win_vk(rvk as u32) {
+                for required in required_modifiers {
+                    if required.is_super() {
                         log::debug!("补发合成 Win key-up 修复 OS 修饰键状态");
                         send_synthetic_key_up(VK_LWIN);
                         send_synthetic_key_up(VK_RWIN);
                     }
-                    if is_alt_vk(rvk as u32) {
+                    if required.is_alt() {
                         log::debug!("补发合成 Alt key-up 修复 OS 修饰键状态");
                         send_synthetic_key_up(VK_LMENU);
                         send_synthetic_key_up(VK_RMENU);
@@ -1018,6 +1165,7 @@ fn handle_standard_event(
     label: &str,
     modifiers: &ShortcutModifiers,
     main_vk: u16,
+    consume_main_key: bool,
 ) -> bool {
     let is_main_key = vk as u16 == main_vk;
 
@@ -1042,11 +1190,11 @@ fn handle_standard_event(
             // Clean up leaked modifier state in one read
             let leaked = state.modifier_leaked.swap(false, Ordering::AcqRel);
             if leaked {
-                if modifiers.super_key {
+                if modifiers.has_super() {
                     send_synthetic_key_up(VK_LWIN);
                     send_synthetic_key_up(VK_RWIN);
                 }
-                if modifiers.alt {
+                if modifiers.has_alt() {
                     send_synthetic_key_up(VK_LMENU);
                     send_synthetic_key_up(VK_RMENU);
                 }
@@ -1065,12 +1213,12 @@ fn handle_standard_event(
     // Track modifier leaks for Win/Alt (key-down that we won't swallow)
     if is_key_down
         && !currently_activated
-        && ((is_win_vk(vk) && modifiers.super_key) || (is_alt_vk(vk) && modifiers.alt))
+        && ((is_win_vk(vk) && modifiers.has_super()) || (is_alt_vk(vk) && modifiers.has_alt()))
     {
         state.modifier_leaked.store(true, Ordering::Release);
     }
 
-    currently_activated && is_main_key
+    is_main_key && (consume_main_key || currently_activated)
 }
 
 // ---------------------------------------------------------------------------
@@ -1132,16 +1280,16 @@ fn hotkey_kind_to_reg_id(kind: HotkeyKind) -> i32 {
 #[cfg(target_os = "windows")]
 fn shortcut_mods_to_reg_mods(mods: &ShortcutModifiers) -> u32 {
     let mut m = MOD_NOREPEAT;
-    if mods.ctrl {
+    if mods.has_ctrl() {
         m |= MOD_CONTROL;
     }
-    if mods.alt {
+    if mods.has_alt() {
         m |= MOD_ALT;
     }
-    if mods.shift {
+    if mods.has_shift() {
         m |= MOD_SHIFT;
     }
-    if mods.super_key {
+    if mods.has_super() {
         m |= MOD_WIN;
     }
     m
@@ -1510,7 +1658,9 @@ fn build_hook_state_with_backend(
     backend: HotkeyBackend,
 ) -> Arc<UnifiedHookState> {
     let key_down_count = match &spec {
-        HotkeySpec::ModifierOnly { required_vks, .. } => required_vks.len(),
+        HotkeySpec::ModifierOnly {
+            required_modifiers, ..
+        } => required_modifiers.len(),
         HotkeySpec::Standard { .. } => 0,
     };
 
@@ -1584,6 +1734,7 @@ fn parse_main_key_to_vk(main_key: &str) -> Option<u16> {
         "ArrowDown" => Some(VK_DOWN),
         "ArrowLeft" => Some(VK_LEFT),
         "ArrowRight" => Some(VK_RIGHT),
+        "CapsLock" => Some(VK_CAPITAL),
         _ if main_key.len() == 1 => {
             let byte = main_key.as_bytes()[0];
             if byte.is_ascii_uppercase() || byte.is_ascii_digit() {
@@ -1605,25 +1756,6 @@ fn parse_main_key_to_vk(main_key: &str) -> Option<u16> {
     }
 }
 
-/// Convert modifier flags to a list of canonical (left variant) VK codes.
-#[cfg(target_os = "windows")]
-fn modifiers_to_required_vks(mods: &ShortcutModifiers) -> Vec<u16> {
-    let mut vks = Vec::new();
-    if mods.ctrl {
-        vks.push(VK_LCONTROL);
-    }
-    if mods.alt {
-        vks.push(VK_LMENU);
-    }
-    if mods.shift {
-        vks.push(VK_LSHIFT);
-    }
-    if mods.super_key {
-        vks.push(VK_LWIN);
-    }
-    vks
-}
-
 // ---------------------------------------------------------------------------
 // normalize_shortcut → HotkeySpec
 // ---------------------------------------------------------------------------
@@ -1639,41 +1771,44 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
             ));
         }
 
-        match token.to_ascii_lowercase().as_str() {
-            "ctrl" | "control" => modifiers.ctrl = true,
-            "alt" | "option" | "altgraph" => modifiers.alt = true,
-            "shift" => modifiers.shift = true,
+        let modifier = match token.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => Some(ModifierKey::Ctrl),
+            "leftctrl" | "ctrlleft" | "leftcontrol" | "controlleft" => Some(ModifierKey::LeftCtrl),
+            "rightctrl" | "ctrlright" | "rightcontrol" | "controlright" => {
+                Some(ModifierKey::RightCtrl)
+            }
+            "alt" | "option" | "altgraph" => Some(ModifierKey::Alt),
+            "leftalt" | "altleft" | "leftoption" => Some(ModifierKey::LeftAlt),
+            "rightalt" | "altright" | "rightoption" => Some(ModifierKey::RightAlt),
+            "shift" => Some(ModifierKey::Shift),
             "super" | "meta" | "win" | "windows" | "cmd" | "command" | "os" => {
-                modifiers.super_key = true
+                Some(ModifierKey::Super)
             }
-            _ => {
-                if main_key.is_some() {
-                    return Err(AppError::Other(
-                        "快捷键格式无效：只能包含一个主键（例如 Ctrl+Win+R）".to_string(),
-                    ));
-                }
-                main_key = Some(token.to_string());
+            _ => None,
+        };
+
+        if let Some(modifier) = modifier {
+            modifiers.insert(modifier)?;
+        } else {
+            if main_key.is_some() {
+                return Err(AppError::Other(
+                    "快捷键格式无效：只能包含一个主键（例如 Ctrl+Win+R）".to_string(),
+                ));
             }
+            main_key = Some(token.to_string());
         }
     }
 
     // Build ordered label
     let mut label_parts = Vec::with_capacity(5);
-    if modifiers.ctrl {
-        label_parts.push("Ctrl");
-    }
-    if modifiers.alt {
-        label_parts.push("Alt");
-    }
-    if modifiers.shift {
-        label_parts.push("Shift");
-    }
-    if modifiers.super_key {
-        label_parts.push("Win");
-    }
+    label_parts.extend(
+        modifiers
+            .ordered_keys()
+            .map(|modifier| modifier.label().to_string()),
+    );
 
     if let Some(ref mk) = main_key {
-        label_parts.push(mk);
+        label_parts.push(mk.clone());
 
         #[cfg(target_os = "windows")]
         let main_vk = parse_main_key_to_vk(mk)
@@ -1682,30 +1817,32 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
         let main_vk = 0u16;
 
         let label = label_parts.join("+");
+        let consume_main_key = mk.eq_ignore_ascii_case("CapsLock");
+        let force_low_level_hook = modifiers.has_side_specific() || consume_main_key;
         Ok(HotkeySpec::Standard {
             label,
             modifiers,
             main_vk,
+            force_low_level_hook,
+            consume_main_key,
         })
     } else {
         // Pure modifier-only hotkey
-        let has_any_modifier =
-            modifiers.ctrl || modifiers.alt || modifiers.shift || modifiers.super_key;
-        if !has_any_modifier {
+        if modifiers.is_empty() {
             return Err(AppError::Other(
                 "快捷键格式无效：请至少指定一个按键".to_string(),
             ));
         }
 
         #[cfg(target_os = "windows")]
-        let required_vks = modifiers_to_required_vks(&modifiers);
+        let required_modifiers = modifiers.ordered_keys().collect();
         #[cfg(not(target_os = "windows"))]
-        let required_vks = Vec::new();
+        let required_modifiers = Vec::new();
 
         let label = label_parts.join("+");
         Ok(HotkeySpec::ModifierOnly {
             label,
-            required_vks,
+            required_modifiers,
         })
     }
 }
@@ -1725,7 +1862,7 @@ fn register_on_chosen_backend(
             modifiers, main_vk, ..
         } = &hook_state.spec
         {
-            let (mods_copy, vk_copy) = (*modifiers, *main_vk);
+            let (mods_copy, vk_copy) = (modifiers.clone(), *main_vk);
             match register_via_reg_hotkey(kind, &mods_copy, vk_copy, hook_state.clone()) {
                 Ok(()) => {
                     // Sync LLKH lifecycle — may stop hook if not needed by others
@@ -1785,7 +1922,7 @@ fn try_register_hotkey_backend(kind: HotkeyKind, state: &Arc<UnifiedHookState>) 
         modifiers, main_vk, ..
     } = &state.spec
     {
-        let (mods_copy, vk_copy) = (*modifiers, *main_vk);
+        let (mods_copy, vk_copy) = (modifiers.clone(), *main_vk);
         if let Err(e) = register_via_reg_hotkey(kind, &mods_copy, vk_copy, state.clone()) {
             log::warn!(
                 "{} RegisterHotKey 失败，回退到 LLKH: {}",
@@ -2148,7 +2285,12 @@ pub async fn get_hotkey_diagnostic(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_ignorable_start_audio_error, RECORDING_START_CANCELLED_ERROR};
+    #[cfg(target_os = "windows")]
+    use super::{accepts_right_alt, VK_CAPITAL, VK_LCONTROL, VK_LMENU, VK_RCONTROL, VK_RMENU};
+    use super::{
+        is_ignorable_start_audio_error, normalize_shortcut, HotkeySpec, ModifierKey,
+        RECORDING_START_CANCELLED_ERROR,
+    };
 
     #[test]
     fn quick_cancel_is_not_rebroadcast_as_a_start_error() {
@@ -2176,5 +2318,119 @@ mod tests {
                 && !hook_body.contains(".lock()"),
             "WH_KEYBOARD_LL callback must read lock-free state only; mutex locking in the hook path can stall global keyboard input"
         );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn side_specific_ctrl_is_not_collapsed_to_generic_ctrl() {
+        let left = normalize_shortcut("LeftCtrl").expect("Left Ctrl should parse");
+        let generic = normalize_shortcut("Ctrl").expect("generic Ctrl should parse");
+
+        let HotkeySpec::ModifierOnly {
+            required_modifiers: left_required,
+            ..
+        } = left
+        else {
+            panic!("Left Ctrl should be a modifier-only shortcut");
+        };
+        assert_eq!(left_required, vec![ModifierKey::LeftCtrl]);
+        assert!(left_required[0].matches_vk(VK_LCONTROL as u32));
+        assert!(!left_required[0].matches_vk(VK_RCONTROL as u32));
+
+        let HotkeySpec::ModifierOnly {
+            required_modifiers: generic_required,
+            ..
+        } = generic
+        else {
+            panic!("Ctrl should be a modifier-only shortcut");
+        };
+        assert!(generic_required[0].matches_vk(VK_LCONTROL as u32));
+        assert!(generic_required[0].matches_vk(VK_RCONTROL as u32));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn right_alt_accepts_altgr_companion_but_not_left_alt() {
+        let spec = normalize_shortcut("RightAlt").expect("Right Alt should parse");
+        let HotkeySpec::ModifierOnly {
+            required_modifiers, ..
+        } = spec
+        else {
+            panic!("Right Alt should be a modifier-only shortcut");
+        };
+
+        assert!(accepts_right_alt(&required_modifiers));
+        assert!(required_modifiers[0].matches_vk(VK_RMENU as u32));
+        assert!(!required_modifiers[0].matches_vk(VK_LMENU as u32));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn caps_lock_uses_low_level_hook_and_consumes_native_toggle() {
+        let spec = normalize_shortcut("CapsLock").expect("Caps Lock should parse");
+        let HotkeySpec::Standard {
+            main_vk,
+            force_low_level_hook,
+            consume_main_key,
+            ..
+        } = spec
+        else {
+            panic!("Caps Lock should be a standard main key");
+        };
+
+        assert_eq!(main_vk, VK_CAPITAL);
+        assert!(force_low_level_hook);
+        assert!(consume_main_key);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn side_specific_modifier_combinations_force_the_low_level_hook() {
+        let spec = normalize_shortcut("RightCtrl+LeftAlt+R")
+            .expect("side-specific modifier combination should parse");
+        let HotkeySpec::Standard {
+            modifiers,
+            main_vk,
+            force_low_level_hook,
+            consume_main_key,
+            ..
+        } = spec
+        else {
+            panic!("modifier plus R should be a standard shortcut");
+        };
+
+        assert_eq!(
+            modifiers.keys,
+            vec![ModifierKey::RightCtrl, ModifierKey::LeftAlt]
+        );
+        assert_eq!(main_vk, b'R' as u16);
+        assert!(force_low_level_hook);
+        assert!(!consume_main_key);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn legacy_generic_modifier_combinations_keep_the_standard_backend_path() {
+        let spec = normalize_shortcut("Ctrl+Alt+F2")
+            .expect("legacy generic modifier combination should parse");
+        let HotkeySpec::Standard {
+            force_low_level_hook,
+            consume_main_key,
+            ..
+        } = spec
+        else {
+            panic!("modifier plus F2 should be a standard shortcut");
+        };
+
+        assert!(!force_low_level_hook);
+        assert!(!consume_main_key);
+    }
+
+    #[test]
+    fn generic_and_side_specific_aliases_cannot_be_mixed() {
+        let error = normalize_shortcut("Ctrl+LeftCtrl")
+            .expect_err("generic and side-specific Ctrl should conflict")
+            .to_string();
+        assert!(error.contains("同类左右修饰键"));
     }
 }

@@ -1,6 +1,15 @@
 import { DEFAULT_HOTKEY } from "./constants";
 
-export const HOTKEY_MODIFIER_ORDER = ["Ctrl", "Alt", "Shift", "Super"] as const;
+export const HOTKEY_MODIFIER_ORDER = [
+  "Ctrl",
+  "LeftCtrl",
+  "RightCtrl",
+  "Alt",
+  "LeftAlt",
+  "RightAlt",
+  "Shift",
+  "Super",
+] as const;
 
 export type HotkeyModifier = (typeof HOTKEY_MODIFIER_ORDER)[number];
 
@@ -26,6 +35,46 @@ const NAMED_KEY_ALIASES: Record<string, string> = {
   left: "ArrowLeft",
   arrowright: "ArrowRight",
   right: "ArrowRight",
+  capslock: "CapsLock",
+  "caps lock": "CapsLock",
+};
+
+const MODIFIER_ALIASES: Record<string, HotkeyModifier> = {
+  ctrl: "Ctrl",
+  control: "Ctrl",
+  leftctrl: "LeftCtrl",
+  ctrlleft: "LeftCtrl",
+  leftcontrol: "LeftCtrl",
+  controlleft: "LeftCtrl",
+  rightctrl: "RightCtrl",
+  ctrlright: "RightCtrl",
+  rightcontrol: "RightCtrl",
+  controlright: "RightCtrl",
+  alt: "Alt",
+  option: "Alt",
+  altgraph: "Alt",
+  leftalt: "LeftAlt",
+  altleft: "LeftAlt",
+  leftoption: "LeftAlt",
+  rightalt: "RightAlt",
+  altright: "RightAlt",
+  rightoption: "RightAlt",
+  shift: "Shift",
+  meta: "Super",
+  super: "Super",
+  win: "Super",
+  cmd: "Super",
+  command: "Super",
+  os: "Super",
+  windows: "Super",
+};
+
+const MODIFIER_DISPLAY: Partial<Record<HotkeyModifier, string>> = {
+  LeftCtrl: "Left Ctrl",
+  RightCtrl: "Right Ctrl",
+  LeftAlt: "Left Alt",
+  RightAlt: "Right Alt",
+  Super: "Win",
 };
 
 function isModifierOnlyCombo(modifiers: HotkeyModifier[]): boolean {
@@ -44,7 +93,10 @@ function normalizeMainKeyToken(token: string): string {
 }
 
 export function formatHotkeyForDisplay(shortcut: string): string {
-  return shortcut.replace(/\bSuper\b/g, "Win");
+  return shortcut
+    .split("+")
+    .map((token) => MODIFIER_DISPLAY[token.trim() as HotkeyModifier] ?? token.trim())
+    .join("+");
 }
 
 export function normalizeHotkey(raw: string, fallback = DEFAULT_HOTKEY): string {
@@ -60,28 +112,9 @@ export function normalizeHotkey(raw: string, fallback = DEFAULT_HOTKEY): string 
 
   for (const token of parts) {
     const lower = token.toLowerCase();
-    if (lower === "ctrl" || lower === "control") {
-      modifiers.add("Ctrl");
-      continue;
-    }
-    if (lower === "alt" || lower === "option" || lower === "altgraph") {
-      modifiers.add("Alt");
-      continue;
-    }
-    if (lower === "shift") {
-      modifiers.add("Shift");
-      continue;
-    }
-    if (
-      lower === "meta" ||
-      lower === "super" ||
-      lower === "win" ||
-      lower === "cmd" ||
-      lower === "command" ||
-      lower === "os" ||
-      lower === "windows"
-    ) {
-      modifiers.add("Super");
+    const modifier = MODIFIER_ALIASES[lower];
+    if (modifier) {
+      modifiers.add(modifier);
       continue;
     }
 
@@ -103,10 +136,12 @@ export function modifierFromKeyboardEvent(event: KeyboardEvent): HotkeyModifier 
   const key = event.key.toLowerCase();
   const code = event.code.toLowerCase();
 
-  if (key === "control" || code === "controlleft" || code === "controlright") {
-    return "Ctrl";
-  }
-  if (key === "alt" || key === "altgraph" || code === "altleft" || code === "altright") {
+  if (code === "controlleft") return "LeftCtrl";
+  if (code === "controlright") return "RightCtrl";
+  if (key === "control") return "Ctrl";
+  if (code === "altleft") return "LeftAlt";
+  if (code === "altright") return "RightAlt";
+  if (key === "alt" || key === "altgraph") {
     return "Alt";
   }
   if (key === "shift" || code === "shiftleft" || code === "shiftright") {
@@ -130,9 +165,17 @@ function collectModifiers(
   activeModifiers: Set<HotkeyModifier>
 ): Set<HotkeyModifier> {
   const modifiers = new Set<HotkeyModifier>(activeModifiers);
+  const hasPhysicalCtrl = activeModifiers.has("LeftCtrl") || activeModifiers.has("RightCtrl");
+  const hasPhysicalAlt = activeModifiers.has("LeftAlt") || activeModifiers.has("RightAlt");
+  const altGraphActive = activeModifiers.has("RightAlt") && event.getModifierState("AltGraph");
 
-  if (event.ctrlKey || event.getModifierState("Control")) modifiers.add("Ctrl");
-  if (event.altKey || event.getModifierState("Alt") || event.getModifierState("AltGraph")) {
+  if (!hasPhysicalCtrl && !altGraphActive && (event.ctrlKey || event.getModifierState("Control"))) {
+    modifiers.add("Ctrl");
+  }
+  if (
+    !hasPhysicalAlt &&
+    (event.altKey || event.getModifierState("Alt") || event.getModifierState("AltGraph"))
+  ) {
     modifiers.add("Alt");
   }
   if (event.shiftKey || event.getModifierState("Shift")) modifiers.add("Shift");
