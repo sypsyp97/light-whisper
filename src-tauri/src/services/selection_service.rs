@@ -1662,15 +1662,6 @@ fn run_selection_worker(
                 else {
                     continue;
                 };
-                let character_count = text.chars().count();
-                let min_chars = config.min_chars.clamp(1, 100);
-                let max_chars = config.max_chars.clamp(min_chars, 50_000);
-                if !(min_chars..=max_chars).contains(&character_count) {
-                    log::debug!(
-                        "划词长度超出范围，已忽略: {character_count} (允许 {min_chars}-{max_chars})"
-                    );
-                    continue;
-                }
                 let dedupe_value = format!("{source_app}\0{text}");
                 if dedupe_value == last_value
                     && last_seen.elapsed() < Duration::from_millis(DUPLICATE_WINDOW_MS)

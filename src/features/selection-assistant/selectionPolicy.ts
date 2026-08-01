@@ -1,25 +1,6 @@
-export const DEFAULT_MAX_SELECTION_CHARS = 8_000;
-
-export interface NormalizedSelectionText {
-  text: string;
-  truncated: boolean;
-  originalChars: number;
-}
-
-export function normalizeSelectionText(
-  value: string,
-  maxChars = DEFAULT_MAX_SELECTION_CHARS,
-): NormalizedSelectionText | null {
+export function normalizeSelectionText(value: string): string | null {
   const normalized = value.replace(/\r\n?/g, "\n").trim();
-  if (!normalized) return null;
-
-  const characters = Array.from(normalized);
-  const limit = Math.max(1, Math.floor(maxChars));
-  return {
-    text: characters.slice(0, limit).join(""),
-    truncated: characters.length > limit,
-    originalChars: characters.length,
-  };
+  return normalized || null;
 }
 
 export interface SelectionEventCandidate {

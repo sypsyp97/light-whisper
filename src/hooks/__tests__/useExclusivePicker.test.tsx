@@ -31,6 +31,31 @@ function PickerHarness() {
   );
 }
 
+function PickerWithInputHarness() {
+  const picker = useExclusivePicker<"language">();
+  return (
+    <div ref={picker.setRef("language")}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={picker.isExpanded("language")}
+        aria-label="Language"
+        onClick={() => picker.toggle("language")}
+      >
+        Choose
+      </button>
+      {picker.isOpen("language") && (
+        <div className={picker.popoverClass("language")}>
+          <div className="picker-list" role="listbox">
+            <button className="picker-option" data-active="true">English</button>
+          </div>
+          <input aria-label="Custom language" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 describe("useExclusivePicker accessibility", () => {
   it("adds option semantics and supports arrow, Home, End, typeahead and Escape", async () => {
     const user = userEvent.setup();
@@ -70,6 +95,23 @@ describe("useExclusivePicker accessibility", () => {
     const outside = screen.getByRole("button", { name: "Outside" });
     await user.click(outside);
     expect(outside).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps arrow keys inside custom text inputs and still closes with Escape", async () => {
+    const user = userEvent.setup();
+    render(<PickerWithInputHarness />);
+
+    const trigger = screen.getByRole("button", { name: "Language" });
+    await user.click(trigger);
+    const input = screen.getByRole("textbox", { name: "Custom language" });
+    input.focus();
+
+    await user.keyboard("{ArrowLeft}{ArrowRight}");
+    expect(input).toHaveFocus();
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 });

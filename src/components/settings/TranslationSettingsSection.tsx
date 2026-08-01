@@ -1,11 +1,8 @@
-import { useState } from "react";
-import { Check, Languages } from "lucide-react";
+import { Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Kbd from "@/components/Kbd";
-
-const COMMON_LANGUAGES = [
-  "English", "日本語", "한국어", "Français", "Deutsch", "Español", "Русский", "Português",
-] as const;
+import TranslationLanguagePicker from "@/components/settings/TranslationLanguagePicker";
+import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 
 interface HotkeyCaptureController {
   capturing: boolean;
@@ -30,26 +27,7 @@ export default function TranslationSettingsSection({
   onSelectTarget,
 }: TranslationSettingsSectionProps) {
   const { t } = useTranslation();
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [customInput, setCustomInput] = useState("");
-  const [showCustomInput, setShowCustomInput] = useState(false);
-
-  const selectTarget = (nextTarget: string | null) => {
-    setPickerOpen(false);
-    setShowCustomInput(false);
-    setCustomInput("");
-    void onSelectTarget(nextTarget);
-  };
-
-  const togglePicker = () => {
-    setPickerOpen((current) => {
-      if (!current) {
-        setShowCustomInput(false);
-        setCustomInput("");
-      }
-      return !current;
-    });
-  };
+  const picker = useExclusivePicker<"translationLanguage">();
 
   return (
     <section className="settings-card" data-nav-id="translation">
@@ -80,89 +58,23 @@ export default function TranslationSettingsSection({
           </button>
         </div>
         <p className="settings-hint settings-hint-flush">{t("settings.translationHint")}</p>
-        <div className="settings-row">
-          <span className="permission-label">
-            {target ? t("settings.targetLanguage", { language: target }) : t("settings.notEnabled")}
-          </span>
-          <button className="btn-ghost translation-picker-toggle" onClick={togglePicker}>
-            {pickerOpen ? t("settings.collapse") : target ? t("settings.changeTarget") : t("settings.selectLanguage")}
-          </button>
+        <div className="settings-column" style={{ gap: 4 }}>
+          <span className="settings-option-desc">{t("settings.translationTargetLanguage")}</span>
+          <TranslationLanguagePicker
+            value={target}
+            ariaLabel={t("settings.translationTargetLanguage")}
+            allowOff
+            control={{
+              open: picker.isOpen("translationLanguage"),
+              expanded: picker.isExpanded("translationLanguage"),
+              toggle: () => picker.toggle("translationLanguage"),
+              close: picker.close,
+              setRef: picker.setRef("translationLanguage"),
+              popoverClassName: picker.popoverClass("translationLanguage"),
+            }}
+            onSelect={(nextTarget) => { void onSelectTarget(nextTarget); }}
+          />
         </div>
-        {pickerOpen && (
-          <div className="settings-column translation-picker-panel">
-            <p className="settings-hint settings-hint-flush">{t("settings.translationSelectHint")}</p>
-            <div className="translation-language-list" role="listbox" aria-label={t("settings.selectLanguage")}>
-              <button
-                type="button"
-                className="picker-option translation-language-option"
-                role="option"
-                aria-selected={!target}
-                data-active={!target}
-                onClick={() => selectTarget(null)}
-              >
-                {t("settings.off")}
-              </button>
-              {COMMON_LANGUAGES.map((language) => (
-                <button
-                  key={language}
-                  type="button"
-                  className="picker-option translation-language-option"
-                  role="option"
-                  aria-selected={target === language}
-                  data-active={target === language}
-                  onClick={() => selectTarget(language)}
-                >
-                  {language}
-                </button>
-              ))}
-              {target && !COMMON_LANGUAGES.includes(target as typeof COMMON_LANGUAGES[number]) && (
-                <button
-                  type="button"
-                  className="picker-option translation-language-option"
-                  role="option"
-                  aria-selected="true"
-                  data-active="true"
-                >
-                  {target}
-                </button>
-              )}
-              <button
-                type="button"
-                className="picker-option translation-language-option"
-                data-active={showCustomInput}
-                onClick={() => setShowCustomInput((current) => !current)}
-              >
-                {t("settings.customLang")}
-              </button>
-            </div>
-            {showCustomInput && (
-              <div className="translation-custom-row">
-                <input
-                  type="text"
-                  className="settings-input"
-                  placeholder={t("settings.customLangPlaceholder")}
-                  aria-label={t("settings.customLangLabel")}
-                  value={customInput}
-                  onChange={(event) => setCustomInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && customInput.trim()) selectTarget(customInput.trim());
-                  }}
-                  autoFocus
-                />
-                <button
-                  className="test-btn translation-custom-submit"
-                  disabled={!customInput.trim()}
-                  aria-label={t("settings.selectLanguage")}
-                  onClick={() => {
-                    if (customInput.trim()) selectTarget(customInput.trim());
-                  }}
-                >
-                  <Check size={14} />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </section>
   );

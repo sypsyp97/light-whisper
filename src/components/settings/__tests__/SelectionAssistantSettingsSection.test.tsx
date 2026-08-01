@@ -37,8 +37,6 @@ const profile: UserProfile = {
   selection_assistant: {
     enabled: true,
     auto_screenshot: true,
-    min_chars: 4,
-    max_chars: 900,
     translation_target: "English",
     excluded_apps: ["old.exe"],
   },
@@ -53,6 +51,16 @@ function section(profileValue: UserProfile) {
       openaiControls={null}
     />
   );
+}
+
+function selectCustomTarget(value: string) {
+  fireEvent.click(screen.getByRole("button", {
+    name: "settings.selectionTranslationTarget",
+  }));
+  fireEvent.click(screen.getByText("settings.customLang"));
+  const input = screen.getByRole("textbox", { name: "settings.customLangLabel" });
+  fireEvent.change(input, { target: { value } });
+  fireEvent.keyDown(input, { key: "Enter" });
 }
 
 beforeEach(() => {
@@ -87,9 +95,7 @@ describe("SelectionAssistantSettingsSection", () => {
     const rendered = render(section(profile));
 
     fireEvent.click(screen.getByRole("switch", { name: "settings.selectionAssistantEnabled" }));
-    fireEvent.change(screen.getByDisplayValue("English"), {
-      target: { value: "German" },
-    });
+    selectCustomTarget("German");
     fireEvent.change(screen.getByDisplayValue("old.exe"), {
       target: { value: "alpha.exe\nbeta.exe" },
     });
@@ -111,7 +117,8 @@ describe("SelectionAssistantSettingsSection", () => {
 
     expect(screen.getByRole("switch", { name: "settings.selectionAssistantEnabled" }))
       .toHaveAttribute("aria-checked", "false");
-    expect(screen.getByDisplayValue("German")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "settings.selectionTranslationTarget" }))
+      .toHaveTextContent("German");
     expect(rendered.container.querySelector("textarea"))
       .toHaveValue("alpha.exe\nbeta.exe");
 
@@ -127,8 +134,6 @@ describe("SelectionAssistantSettingsSection", () => {
     expect(api.setSelectionAssistantConfig).toHaveBeenCalledWith({
       enabled: false,
       autoScreenshot: true,
-      minChars: 4,
-      maxChars: 900,
       translationTarget: "German",
       excludedApps: ["alpha.exe", "beta.exe"],
       useSeparateModel: false,
@@ -147,9 +152,7 @@ describe("SelectionAssistantSettingsSection", () => {
     );
 
     fireEvent.click(screen.getByRole("switch", { name: "settings.selectionAssistantEnabled" }));
-    fireEvent.change(screen.getByDisplayValue("English"), {
-      target: { value: "German" },
-    });
+    selectCustomTarget("German");
     fireEvent.change(screen.getByDisplayValue("old.exe"), {
       target: { value: "alpha.exe\nbeta.exe" },
     });
@@ -161,8 +164,6 @@ describe("SelectionAssistantSettingsSection", () => {
     expect(api.setSelectionAssistantConfig).toHaveBeenCalledWith({
       enabled: false,
       autoScreenshot: true,
-      minChars: 4,
-      maxChars: 900,
       translationTarget: "German",
       excludedApps: ["alpha.exe", "beta.exe"],
       useSeparateModel: false,
@@ -186,8 +187,6 @@ describe("SelectionAssistantSettingsSection", () => {
       selection_assistant: {
         enabled: false,
         auto_screenshot: false,
-        min_chars: 5,
-        max_chars: 1200,
         translation_target: "Japanese",
         excluded_apps: ["new.exe"],
       },
@@ -202,9 +201,8 @@ describe("SelectionAssistantSettingsSection", () => {
     expect(screen.getByRole("switch", { name: "settings.selectionSeparateConfig" }))
       .toHaveAttribute("aria-checked", "true");
     expect(screen.getByDisplayValue("deepseek-chat")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Japanese")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("5")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("1200")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "settings.selectionTranslationTarget" }))
+      .toHaveTextContent("Japanese");
     expect(screen.getByDisplayValue("new.exe")).toBeInTheDocument();
 
     act(() => {
@@ -212,5 +210,34 @@ describe("SelectionAssistantSettingsSection", () => {
     });
     rendered.unmount();
     expect(api.setSelectionAssistantConfig).not.toHaveBeenCalled();
+  });
+
+  it("does not expose selection length controls", () => {
+    render(section(profile));
+
+    expect(screen.queryByText("settings.selectionLengthRange")).not.toBeInTheDocument();
+    expect(screen.queryByText("settings.selectionMinChars")).not.toBeInTheDocument();
+    expect(screen.queryByText("settings.selectionMaxChars")).not.toBeInTheDocument();
+  });
+
+  it("uses the shared picker styles and offers common language presets", () => {
+    render(section(profile));
+
+    const trigger = screen.getByRole("button", {
+      name: "settings.selectionTranslationTarget",
+    });
+    expect(trigger).toHaveClass("picker-trigger");
+    fireEvent.click(trigger);
+
+    const simplifiedChinese = screen.getByRole("option", { name: "简体中文" });
+    expect(simplifiedChinese).toHaveClass("picker-option");
+    fireEvent.click(simplifiedChinese);
+
+    act(() => {
+      vi.advanceTimersByTime(350);
+    });
+    expect(api.setSelectionAssistantConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({ translationTarget: "简体中文" }),
+    );
   });
 });

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import SecretInput from "@/components/SecretInput";
+import TranslationLanguagePicker from "@/components/settings/TranslationLanguagePicker";
 import { resolveSelectionModelConfig } from "@/features/selection-assistant/modelConfig";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
@@ -34,11 +35,11 @@ export default function SelectionAssistantSettingsSection({
   openaiControls,
 }: SelectionAssistantSettingsSectionProps) {
   const { t } = useTranslation();
-  const picker = useExclusivePicker<"selectionProvider" | "selectionModel" | "selectionReasoning">();
+  const picker = useExclusivePicker<
+    "selectionProvider" | "selectionModel" | "selectionReasoning" | "selectionLanguage"
+  >();
   const [enabled, setEnabled] = useState(false);
   const [autoScreenshot, setAutoScreenshot] = useState(false);
-  const [minChars, setMinChars] = useState(2);
-  const [maxChars, setMaxChars] = useState(8000);
   const [translationTarget, setTranslationTarget] = useState("English");
   const [excludedApps, setExcludedApps] = useState("");
   const [separate, setSeparate] = useState(false);
@@ -59,8 +60,6 @@ export default function SelectionAssistantSettingsSection({
   latestSelectionConfig.current = {
     enabled,
     autoScreenshot,
-    minChars,
-    maxChars,
     translationTarget,
     excludedApps: excludedApps.split(/[,;\n]/).map((value) => value.trim()).filter(Boolean),
     useSeparateModel: separate,
@@ -96,8 +95,6 @@ export default function SelectionAssistantSettingsSection({
     const config = profile.selection_assistant ?? {
       enabled: false,
       auto_screenshot: false,
-      min_chars: 2,
-      max_chars: 8000,
       translation_target: "English",
       excluded_apps: ["light-whisper.exe", "snipaste.exe", "pixpin.exe", "sharex.exe"],
     };
@@ -108,8 +105,6 @@ export default function SelectionAssistantSettingsSection({
     const value: Parameters<typeof setSelectionAssistantConfig>[0] = {
       enabled: config.enabled,
       autoScreenshot: Boolean(config.auto_screenshot),
-      minChars: config.min_chars,
-      maxChars: config.max_chars,
       translationTarget: config.translation_target,
       excludedApps: config.excluded_apps,
       useSeparateModel: !resolved.followsPolish,
@@ -164,8 +159,6 @@ export default function SelectionAssistantSettingsSection({
     const config = profileSelectionConfig.value;
     setEnabled(config.enabled);
     setAutoScreenshot(config.autoScreenshot);
-    setMinChars(config.minChars);
-    setMaxChars(config.maxChars);
     setTranslationTarget(config.translationTarget);
     setExcludedApps(config.excludedApps.join("\n"));
     setSeparate(config.useSeparateModel);
@@ -517,51 +510,26 @@ export default function SelectionAssistantSettingsSection({
           </div>
         )}
 
-        <label className="settings-column" style={{ gap: 4 }}>
+        <div className="settings-column" style={{ gap: 4 }}>
           <span className="settings-option-desc">{t("settings.selectionTranslationTarget")}</span>
-          <input
-            className="settings-input"
+          <TranslationLanguagePicker
             value={translationTarget}
             maxLength={80}
-            onChange={(event) => {
-              setTranslationTarget(event.target.value);
+            ariaLabel={t("settings.selectionTranslationTarget")}
+            control={{
+              open: picker.isOpen("selectionLanguage"),
+              expanded: picker.isExpanded("selectionLanguage"),
+              toggle: () => picker.toggle("selectionLanguage"),
+              close: picker.close,
+              setRef: picker.setRef("selectionLanguage"),
+              popoverClassName: picker.popoverClass("selectionLanguage"),
+            }}
+            onSelect={(nextTarget) => {
+              if (!nextTarget) return;
+              setTranslationTarget(nextTarget);
               scheduleSelectionConfigSave();
             }}
           />
-        </label>
-
-        <div className="settings-column" style={{ gap: 5 }}>
-          <span className="settings-option-desc">{t("settings.selectionLengthRange")}</span>
-          <div className="settings-row" style={{ gap: 8 }}>
-            <label className="settings-column" style={{ gap: 3, flex: 1 }}>
-              <span className="settings-hint">{t("settings.selectionMinChars")}</span>
-              <input
-                className="settings-input"
-                type="number"
-                min={1}
-                max={100}
-                value={minChars}
-                onChange={(event) => {
-                  setMinChars(Number(event.target.value) || 1);
-                  scheduleSelectionConfigSave();
-                }}
-              />
-            </label>
-            <label className="settings-column" style={{ gap: 3, flex: 1 }}>
-              <span className="settings-hint">{t("settings.selectionMaxChars")}</span>
-              <input
-                className="settings-input"
-                type="number"
-                min={minChars}
-                max={50000}
-                value={maxChars}
-                onChange={(event) => {
-                  setMaxChars(Number(event.target.value) || minChars);
-                  scheduleSelectionConfigSave();
-                }}
-              />
-            </label>
-          </div>
         </div>
 
         <label className="settings-column" style={{ gap: 4 }}>

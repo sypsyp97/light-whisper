@@ -27,7 +27,6 @@ describe("readSelectedText", () => {
       kind: "text",
       text: "direct text",
       source: "direct",
-      truncated: false,
     });
     expect(port.snapshotClipboard).not.toHaveBeenCalled();
     expect(port.requestCopy).not.toHaveBeenCalled();

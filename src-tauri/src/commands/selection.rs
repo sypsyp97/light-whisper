@@ -58,8 +58,6 @@ pub async fn set_selection_assistant_config(
     state: tauri::State<'_, AppState>,
     enabled: bool,
     auto_screenshot: bool,
-    min_chars: usize,
-    max_chars: usize,
     translation_target: String,
     excluded_apps: Vec<String>,
     use_separate_model: bool,
@@ -67,8 +65,6 @@ pub async fn set_selection_assistant_config(
     model: Option<String>,
     reasoning_mode: LlmReasoningMode,
 ) -> Result<(), String> {
-    let min_chars = min_chars.clamp(1, 100);
-    let max_chars = max_chars.clamp(min_chars, 50_000);
     let translation_target = translation_target.trim().to_string();
     if translation_target.is_empty() || translation_target.chars().count() > 80 {
         return Err("翻译目标语言不能为空且不得超过 80 个字符".to_string());
@@ -106,8 +102,6 @@ pub async fn set_selection_assistant_config(
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.selection_assistant.enabled = enabled;
         profile.selection_assistant.auto_screenshot = auto_screenshot;
-        profile.selection_assistant.min_chars = min_chars;
-        profile.selection_assistant.max_chars = max_chars;
         profile.selection_assistant.translation_target = translation_target;
         profile.selection_assistant.excluded_apps = excluded_apps;
         profile.llm_provider.selection_use_separate_model = use_separate_model;
@@ -253,20 +247,8 @@ pub async fn run_selection_action(
     text: String,
     request_id: u64,
 ) -> Result<String, AppError> {
-    let text = text.trim().to_string();
-    let (enabled, min_chars, max_chars) = state.with_profile(|profile| {
-        (
-            profile.selection_assistant.enabled,
-            profile.selection_assistant.min_chars.clamp(1, 100),
-            profile.selection_assistant.max_chars.clamp(1, 50_000),
-        )
-    });
-    let count = text.chars().count();
-    if !enabled || count < min_chars || count > max_chars.max(min_chars) {
-        return Err(AppError::Other(
-            "划词内容已失效或长度超出设置范围".to_string(),
-        ));
-    }
+    let enabled = state.with_profile(|profile| profile.selection_assistant.enabled);
+    let text = validated_selection_text(enabled, text)?;
     if !matches!(action.as_str(), "translate" | "explain" | "optimize") {
         return Err(AppError::Other("不支持的划词操作".to_string()));
     }
@@ -282,6 +264,14 @@ pub async fn run_selection_action(
     };
     clear_selection_task(state.inner(), generation);
     result
+}
+
+fn validated_selection_text(enabled: bool, text: String) -> Result<String, AppError> {
+    let text = text.trim().to_string();
+    if !enabled || text.is_empty() {
+        return Err(AppError::Other("划词内容已失效或为空".to_string()));
+    }
+    Ok(text)
 }
 
 #[tauri::command]
@@ -552,8 +542,8 @@ fn selection_instruction(action: &str, target: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        selection_instruction, selection_transport_plan, SELECTION_STREAM_EVENT,
-        SELECTION_SYSTEM_PROMPT,
+        selection_instruction, selection_transport_plan, validated_selection_text,
+        SELECTION_STREAM_EVENT, SELECTION_SYSTEM_PROMPT,
     };
     use crate::state::user_profile::LlmReasoningMode;
 
@@ -605,5 +595,14 @@ mod tests {
         assert_eq!(fallback.reasoning_mode, LlmReasoningMode::Deep);
         assert!(fallback.openai_fast_mode);
         assert_eq!(fallback.stream_total_timeout_secs, Some(240));
+    }
+
+    #[test]
+    fn selection_action_keeps_the_complete_selected_text() {
+        let selected = "文".repeat(100_000);
+
+        let validated = validated_selection_text(true, selected.clone()).unwrap();
+
+        assert_eq!(validated, selected);
     }
 }

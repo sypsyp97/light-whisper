@@ -148,6 +148,9 @@ export function useExclusivePicker<T extends string>() {
         close();
         return;
       }
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
       if (event.key === "ArrowDown") {
         event.preventDefault();
         focusOption(currentIndex < 0 ? 0 : currentIndex + 1);

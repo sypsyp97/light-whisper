@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_MAX_SELECTION_CHARS,
   createSelectionEventGate,
   normalizeSelectionText,
 } from "../selectionPolicy";
@@ -12,23 +11,16 @@ describe("normalizeSelectionText", () => {
   });
 
   it("normalizes line endings and trims only the outer whitespace", () => {
-    expect(normalizeSelectionText("  first\r\n  second  \r\n")).toEqual({
-      text: "first\n  second",
-      truncated: false,
-      originalChars: 14,
-    });
+    expect(normalizeSelectionText("  first\r\n  second  \r\n"))
+      .toBe("first\n  second");
   });
 
-  it("caps oversized selections by Unicode code points without splitting an emoji", () => {
-    const text = `${"a".repeat(DEFAULT_MAX_SELECTION_CHARS - 1)}😀tail`;
+  it("keeps the complete selection regardless of length", () => {
+    const text = `${"a".repeat(100_000)}😀tail`;
 
     const normalized = normalizeSelectionText(text);
 
-    expect(normalized).not.toBeNull();
-    expect(Array.from(normalized!.text)).toHaveLength(DEFAULT_MAX_SELECTION_CHARS);
-    expect(normalized!.text.endsWith("😀")).toBe(true);
-    expect(normalized!.truncated).toBe(true);
-    expect(normalized!.originalChars).toBe(DEFAULT_MAX_SELECTION_CHARS + 4);
+    expect(normalized).toBe(text);
   });
 });
 

@@ -1055,41 +1055,6 @@
   margin: 0;
 }
 
-.translation-picker-toggle {
-  padding: 6px 10px;
-  font-size: 12px;
-}
-
-.translation-picker-panel {
-  gap: 8px;
-}
-
-.translation-language-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.translation-language-option {
-  width: auto;
-  padding: 5px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-}
-
-.translation-custom-row {
-  display: flex;
-  gap: 6px;
-}
-
-.translation-custom-row .settings-input {
-  flex: 1;
-}
-
-.translation-custom-submit {
-  padding: 7px 12px;
-}
-
 .history-settings-column,
 .app-rules-column {
   gap: 12px;
@@ -1574,6 +1539,12 @@
   transition: transform 60ms ease-out;
 }
 
+.picker-inline-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
 .picker-inline-button[data-open="true"] {
   border-color: var(--color-border-accent);
   background: var(--color-accent-subtle);
@@ -1595,11 +1566,17 @@
   text-align: left;
   transition: border-color 0.2s var(--ease-out-expo),
               background 0.2s var(--ease-out-expo),
-              box-shadow 0.25s var(--ease-out-expo);
+              box-shadow 0.25s var(--ease-out-expo),
+              transform 0.25s var(--ease-spring-soft);
 }
 
 .picker-trigger:hover:not([data-open="true"]) {
   border-color: var(--color-border);
+}
+
+.picker-trigger:active {
+  transform: scale(0.99);
+  transition: transform 60ms ease-out;
 }
 
 .picker-trigger[data-open="true"] {

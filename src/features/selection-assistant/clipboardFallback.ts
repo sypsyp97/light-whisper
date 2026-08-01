@@ -18,8 +18,7 @@ export async function readSelectedText(port: SelectionReadPort) {
     if (direct) {
       return {
         kind: "text" as const,
-        text: direct.text,
-        truncated: direct.truncated,
+        text: direct,
         source: "direct" as const,
       };
     }
@@ -50,8 +49,7 @@ export async function readSelectedText(port: SelectionReadPort) {
   if (!normalized) return { kind: "unavailable" as const, reason: "empty" as const };
   return {
     kind: "text" as const,
-    text: normalized.text,
-    truncated: normalized.truncated,
+    text: normalized,
     source: "clipboard" as const,
   };
 }

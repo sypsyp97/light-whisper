@@ -372,8 +372,6 @@ export function setAssistantScreenContextEnabled(enabled: boolean): Promise<void
 export function setSelectionAssistantConfig(params: {
   enabled: boolean;
   autoScreenshot: boolean;
-  minChars: number;
-  maxChars: number;
   translationTarget: string;
   excludedApps: string[];
   useSeparateModel: boolean;

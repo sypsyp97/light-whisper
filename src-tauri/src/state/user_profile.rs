@@ -286,22 +286,10 @@ pub struct SelectionAssistantConfig {
     pub enabled: bool,
     #[serde(default)]
     pub auto_screenshot: bool,
-    #[serde(default = "default_selection_min_chars")]
-    pub min_chars: usize,
-    #[serde(default = "default_selection_max_chars")]
-    pub max_chars: usize,
     #[serde(default = "default_selection_translation_target")]
     pub translation_target: String,
     #[serde(default = "default_selection_excluded_apps")]
     pub excluded_apps: Vec<String>,
-}
-
-fn default_selection_min_chars() -> usize {
-    2
-}
-
-fn default_selection_max_chars() -> usize {
-    8_000
 }
 
 fn default_selection_translation_target() -> String {
@@ -325,8 +313,6 @@ impl Default for SelectionAssistantConfig {
         Self {
             enabled: false,
             auto_screenshot: false,
-            min_chars: default_selection_min_chars(),
-            max_chars: default_selection_max_chars(),
             translation_target: default_selection_translation_target(),
             excluded_apps: default_selection_excluded_apps(),
         }
@@ -870,6 +856,20 @@ mod tests {
         let legacy: SelectionAssistantConfig =
             serde_json::from_value(serde_json::json!({ "enabled": true })).unwrap();
         assert!(!legacy.auto_screenshot);
+    }
+
+    #[test]
+    fn legacy_selection_length_limits_are_ignored() {
+        let config: SelectionAssistantConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "min_chars": 4,
+            "max_chars": 900
+        }))
+        .unwrap();
+        let serialized = serde_json::to_value(config).unwrap();
+
+        assert!(serialized.get("min_chars").is_none());
+        assert!(serialized.get("max_chars").is_none());
     }
 
     /// TDD red-state: the new `openai_fast_mode` field must default to `false`
