@@ -182,6 +182,12 @@ promo/
 *.tar.xz
 
 .impeccable.md
+.impeccable/
+
+# Local design and research-agent artifacts
+DESIGN.md
+.design.md
+autoresearch*.tsv
 
 .omc/
 
