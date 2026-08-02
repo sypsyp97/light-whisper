@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CI: "true"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.14.0
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.28.2 --activate
+          pnpm --version
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend checks
+        run: pnpm check
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
+      - name: Check changed lines
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if (-not $env:BASE_SHA -or $env:BASE_SHA -match '^0+$') {
+            git show --check --format= $env:HEAD_SHA
+          } else {
+            git diff --check "$env:BASE_SHA...$env:HEAD_SHA"
+          }
+
+      - name: Verify tracked files are unchanged
+        run: git diff --exit-code
+
+  python:
+    name: Python
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: 0.11.30
+
+      - name: Verify Python lockfile
+        run: uv lock --check
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Compile and test Python sources
+        run: |
+          uv run --no-sync python -m compileall -q scripts src-tauri/resources
+          uv run --no-sync python -m unittest discover -s src-tauri/resources -p "test_*.py"
+          uv run --no-sync python scripts/test_build_engine_atomicity.py
+
+      - name: Verify tracked files are unchanged
+        run: git diff --exit-code
+
+  rust:
+    name: Rust
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.93.0 --profile minimal --component rustfmt,clippy
+          rustup default 1.93.0
+          rustc --version
+
+      - name: Check Rust formatting and lints
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Run Rust tests
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked --
+          --skip services::qwen_hotword_service::tests::hotword_correction_p95_stays_below_one_millisecond
+
+      - name: Measure hotword correction performance
+        continue-on-error: true
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+          services::qwen_hotword_service::tests::hotword_correction_p95_stays_below_one_millisecond --
+          --exact --nocapture --test-threads=1
+
+      - name: Verify tracked files are unchanged
+        run: git diff --exit-code
