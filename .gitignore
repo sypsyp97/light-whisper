@@ -164,9 +164,6 @@ python
 src-tauri/resources/python-dist/
 src-tauri/resources/engine.tar.xz
 
-# 本地发版指南
-RELEASE_GUIDE.md
-
 .claude/
 
 models/

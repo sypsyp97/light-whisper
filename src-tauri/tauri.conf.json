@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1422",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm build:distribution",
     "frontendDist": "../dist"
   },
   "app": {
@@ -57,6 +57,8 @@
   },
   "bundle": {
     "active": true,
+    "license": "GPL-3.0-only",
+    "licenseFile": "../LICENSE",
     "targets": [
       "nsis"
     ],
@@ -68,17 +70,19 @@
         "compression": "none"
       }
     },
-    "resources": [
-      "resources/qwen3_asr_server.py",
-      "resources/firered_vad.py",
-      "resources/fireredvad_vad.onnx",
-      "resources/fireredvad_cmvn.json",
-      "resources/FireRedVAD-LICENSE.txt",
-      "resources/download_models.py",
-      "resources/hf_cache_utils.py",
-      "resources/server_common.py",
-      "resources/MiSans-LICENSE.pdf",
-      "resources/engine.tar.xz"
-    ]
+    "resources": {
+      "resources/qwen3_asr_server.py": "resources/qwen3_asr_server.py",
+      "resources/firered_vad.py": "resources/firered_vad.py",
+      "resources/fireredvad_vad.onnx": "resources/fireredvad_vad.onnx",
+      "resources/fireredvad_cmvn.json": "resources/fireredvad_cmvn.json",
+      "resources/FireRedVAD-LICENSE.txt": "resources/FireRedVAD-LICENSE.txt",
+      "resources/download_models.py": "resources/download_models.py",
+      "resources/hf_cache_utils.py": "resources/hf_cache_utils.py",
+      "resources/server_common.py": "resources/server_common.py",
+      "resources/engine.tar.xz": "resources/engine.tar.xz",
+      "../LICENSE": "LICENSE.txt",
+      "../NOTICE": "NOTICE.txt",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    }
   }
 }

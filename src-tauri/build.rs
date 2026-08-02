@@ -1,31 +1,12 @@
 use sha2::{Digest, Sha256};
+use std::env;
 use std::fs;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
-const ENGINE_ARCHIVE_CANDIDATES: &[&str] = &["resources/engine.tar.xz", "resources/engine.zip"];
+mod build_support;
 
-fn ensure_engine_archive_placeholder() -> PathBuf {
-    let archive = PathBuf::from(ENGINE_ARCHIVE_CANDIDATES[0]);
-    if !archive.exists() {
-        let _ = fs::File::create(&archive);
-    }
-    archive
-}
-
-fn has_non_empty_archive(path: &Path) -> bool {
-    fs::metadata(path)
-        .map(|meta| meta.len() > 0)
-        .unwrap_or(false)
-}
-
-fn selected_engine_archive_path() -> PathBuf {
-    ENGINE_ARCHIVE_CANDIDATES
-        .iter()
-        .map(PathBuf::from)
-        .find(|path| has_non_empty_archive(path))
-        .unwrap_or_else(ensure_engine_archive_placeholder)
-}
+use build_support::{select_engine_archive, ENGINE_ARCHIVE_CANDIDATES};
 
 fn emit_rerun_hints() {
     for path in ENGINE_ARCHIVE_CANDIDATES {
@@ -55,7 +36,12 @@ fn compute_file_fingerprint(path: &Path) -> String {
 fn main() {
     emit_rerun_hints();
 
-    let engine_archive = selected_engine_archive_path();
+    let manifest_dir = PathBuf::from(
+        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set by Cargo"),
+    );
+    let allow_placeholder = env::var("PROFILE").map_or(true, |profile| profile != "release");
+    let engine_archive = select_engine_archive(&manifest_dir, allow_placeholder)
+        .unwrap_or_else(|message| panic!("{message}"));
     println!(
         "cargo:rustc-env=LIGHT_WHISPER_ENGINE_ARCHIVE_FINGERPRINT={}",
         compute_file_fingerprint(&engine_archive)

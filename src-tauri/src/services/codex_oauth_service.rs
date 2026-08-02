@@ -1,4 +1,3 @@
-use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
@@ -30,10 +29,6 @@ const OAUTH_TIMEOUT_SECS: u64 = 5 * 60;
 const REFRESH_SKEW_SECS: u64 = 60;
 const CHATGPT_BEARER_PREFIX: &str = "openai-codex-chatgpt:";
 const OAUTH_API_KEY_PREFIX: &str = "openai-codex-oauth-api-key:";
-const OAUTH_BODY_FONT: &[u8] = include_bytes!("../../../src/assets/fonts/MiSans-Regular.woff2");
-const OAUTH_TITLE_FONT: &[u8] = include_bytes!("../../../src/assets/fonts/MiSans-Semibold.woff2");
-static OAUTH_FONT_CSS: OnceLock<String> = OnceLock::new();
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OpenaiCodexOauthSession {
     pub id_token: String,
@@ -430,17 +425,6 @@ fn html_escape(input: &str) -> String {
     escaped
 }
 
-fn oauth_font_css() -> &'static str {
-    OAUTH_FONT_CSS.get_or_init(|| {
-        let body_font = base64::engine::general_purpose::STANDARD.encode(OAUTH_BODY_FONT);
-        let title_font = base64::engine::general_purpose::STANDARD.encode(OAUTH_TITLE_FONT);
-        format!(
-            "@font-face{{font-family:'MiSans';src:url('data:font/woff2;base64,{body_font}') format('woff2');font-style:normal;font-weight:400;font-display:swap}}\
-             @font-face{{font-family:'MiSans';src:url('data:font/woff2;base64,{title_font}') format('woff2');font-style:normal;font-weight:700;font-display:swap}}"
-        )
-    })
-}
-
 fn callback_html(title: &str, message: &str, auto_close: bool) -> String {
     let script = if auto_close {
         "<script>setTimeout(() => window.close(), 1200)</script>"
@@ -449,9 +433,8 @@ fn callback_html(title: &str, message: &str, auto_close: bool) -> String {
     };
     let title = html_escape(title);
     let message = html_escape(message);
-    let font_css = oauth_font_css();
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title><style>{font_css}body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#111827;color:#f9fafb;font-family:'MiSans','Microsoft YaHei UI','Segoe UI',sans-serif;font-weight:400;letter-spacing:-.008em;text-align:center}}h1{{margin:0;font-size:34px;line-height:1.2;font-weight:700;letter-spacing:-.02em}}p{{margin:0;font-size:21px;line-height:1.65;white-space:pre-wrap}}</style></head><body><div style=\"max-width:680px;padding:48px 32px;display:flex;flex-direction:column;align-items:center;gap:18px;\"><h1>{title}</h1><p>{message}</p></div>{script}</body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title><style>body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#111827;color:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC','Helvetica Neue','Segoe UI','Microsoft YaHei UI',system-ui,sans-serif;font-weight:400;letter-spacing:-.008em;text-align:center}}h1{{margin:0;font-size:34px;line-height:1.2;font-weight:700;letter-spacing:-.02em}}p{{margin:0;font-size:21px;line-height:1.65;white-space:pre-wrap}}</style></head><body><div style=\"max-width:680px;padding:48px 32px;display:flex;flex-direction:column;align-items:center;gap:18px;\"><h1>{title}</h1><p>{message}</p></div>{script}</body></html>"
     )
 }
 
@@ -1265,16 +1248,15 @@ mod tests {
     }
 
     #[test]
-    fn callback_page_uses_the_bundled_ui_font() {
+    fn callback_page_uses_the_native_ui_font_stack() {
         let html = callback_html("<Title>", "Message & details", false);
 
-        assert!(html.contains("font-family:'MiSans'"));
-        assert!(html.contains("data:font/woff2;base64,"));
-        assert!(html.contains("font-weight:400"));
-        assert!(html.contains("font-weight:700"));
+        assert!(html
+            .contains("font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC'"));
+        assert!(!html.contains("@font-face"));
+        assert!(!html.contains("data:font/woff2;base64,"));
         assert!(html.contains("letter-spacing:-.008em"));
         assert!(html.contains("letter-spacing:-.02em"));
-        assert!(!html.contains("font-family:system-ui"));
         assert!(html.contains("&lt;Title&gt;"));
         assert!(html.contains("Message &amp; details"));
     }

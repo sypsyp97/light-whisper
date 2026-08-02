@@ -3,6 +3,7 @@ name = "light-whisper"
 version = "1.5.4"
 description = "轻语 - 本地与云端语音转文字桌面应用"
 authors = ["sun"]
+license = "GPL-3.0-only"
 edition = "2021"
 
 [lib]

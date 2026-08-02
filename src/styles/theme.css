@@ -4,38 +4,6 @@
    compact typography, and state-driven motion.
    ============================================================ */
 
-@font-face {
-  font-family: "MiSans";
-  src: url("../assets/fonts/MiSans-Regular.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "MiSans";
-  src: url("../assets/fonts/MiSans-Medium.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "MiSans";
-  src: url("../assets/fonts/MiSans-Demibold.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "MiSans";
-  src: url("../assets/fonts/MiSans-Semibold.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-}
-
 /* ---------- Light theme (default) ---------- */
 :root {
   /* Surfaces — neutral layers keep long settings sessions visually quiet */
@@ -129,8 +97,8 @@
   --transition-slow: var(--dur-5) var(--ease-out-quart);
   --transition-spring: 450ms var(--ease-spring);
 
-  /* Typography — one bundled proportional family, with real files for every UI weight */
-  --font-ui: "MiSans", "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+  /* Typography — prefer the macOS native UI stack without bundling Apple font files */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
   --font-serif: var(--font-ui);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-ui);
@@ -150,7 +118,7 @@
   --leading-normal: 1.6;
   --leading-relaxed: 1.8;
 
-  /* MiSans is already compact; these values add only a restrained editorial finish. */
+  /* Restrained tracking keeps the native font stack visually compact. */
   --tracking-body: -0.008em;
   --tracking-label: -0.004em;
   --tracking-heading: -0.014em;

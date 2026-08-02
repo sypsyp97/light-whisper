@@ -9,7 +9,7 @@
 [![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24c8db?style=for-the-badge&logo=tauri)](https://tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61dafb?style=for-the-badge&logo=react)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-2021-f74c00?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey?style=for-the-badge)](LICENSE)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-2f6f9f?style=for-the-badge)](LICENSE)
 
 <br>
 
@@ -76,13 +76,19 @@ uv sync
 pnpm tauri dev
 ```
 
-Build the installer:
+Build a distributable installer. The bundled Python engine archive is intentionally
+not stored in Git, so build it first:
 
 ```bash
+uv run --locked python scripts/build_engine.py
 pnpm tauri build
 ```
 
 The NSIS installer is written to `src-tauri/target/release/bundle/nsis/`.
+`pnpm tauri build` rejects a missing, empty, or non-XZ engine archive instead of
+silently producing an installer without local ASR. For a patch that does not
+change the packaged Python runtime, an existing verified `engine.tar.xz` may be
+reused.
 
 Optional local-model prefetch:
 
@@ -97,7 +103,7 @@ For China mainland downloads, set `HF_ENDPOINT=https://hf-mirror.com` before pre
 
 ```bash
 pnpm tauri dev
-pnpm tauri build
+pnpm check
 pnpm build
 pnpm test
 uv sync
@@ -123,8 +129,16 @@ cd src-tauri && cargo check
 - [GLM-ASR](https://bigmodel.cn/)
 - [Alibaba DashScope](https://www.alibabacloud.com/help/en/model-studio/) & Qwen ASR / Omni
 - [Tauri](https://tauri.app/) / [React](https://react.dev/)
-- [MiSans](https://hyperos.mi.com/font/en), used under the bundled MiSans Fonts License Agreement
 
 ## License
 
-[Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](LICENSE)
+Light-Whisper is open-source software licensed under the
+[GNU General Public License v3.0 only](LICENSE). Personal, organizational, and
+commercial use is permitted. Distribution in source or compiled form, whether
+modified or unmodified, must comply with the GPL. Binary distributions must
+make corresponding source code available when required by its terms.
+Previously published versions remain under the license distributed with those
+versions.
+
+Third-party software, models, and fonts remain under their own licenses. See
+[NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

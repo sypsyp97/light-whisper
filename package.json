@@ -2,10 +2,12 @@
   "name": "light-whisper",
   "private": true,
   "version": "1.5.4",
+  "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:distribution": "node scripts/verify_engine_archive.mjs && pnpm build",
     "check": "pnpm lint && pnpm test && pnpm build && pnpm check:bundle",
     "check:bundle": "node scripts/check_bundle_budget.mjs",
     "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",

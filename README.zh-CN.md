@@ -9,7 +9,7 @@
 [![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24c8db?style=for-the-badge&logo=tauri)](https://tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61dafb?style=for-the-badge&logo=react)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-2021-f74c00?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey?style=for-the-badge)](LICENSE)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-2f6f9f?style=for-the-badge)](LICENSE)
 
 <br>
 
@@ -76,13 +76,15 @@ uv sync
 pnpm tauri dev
 ```
 
-构建安装包：
+构建可分发安装包。Python 引擎归档不会提交到 Git，因此需要先构建：
 
 ```bash
+uv run --locked python scripts/build_engine.py
 pnpm tauri build
 ```
 
 NSIS 安装包会输出到 `src-tauri/target/release/bundle/nsis/`。
+`pnpm tauri build` 会拒绝缺失、空文件或并非 XZ 格式的引擎归档，不再静默生成缺少本地 ASR 的安装包。如果补丁版本没有改动打包进引擎的 Python 运行时代码，可以复用已经验证过的 `engine.tar.xz`。
 
 可选的本地模型预下载：
 
@@ -97,7 +99,7 @@ uv run python src-tauri/resources/download_models.py --engine qwen3-asr-1.7b
 
 ```bash
 pnpm tauri dev
-pnpm tauri build
+pnpm check
 pnpm build
 pnpm test
 uv sync
@@ -123,8 +125,13 @@ cd src-tauri && cargo check
 - [GLM-ASR](https://bigmodel.cn/)
 - [Alibaba DashScope](https://www.alibabacloud.com/help/zh/model-studio/) & Qwen ASR / Omni
 - [Tauri](https://tauri.app/) / [React](https://react.dev/)
-- [MiSans](https://hyperos.mi.com/font/zh)，依据应用内附带的 MiSans 字体知识产权许可协议使用
 
 ## 许可证
 
-[知识共享署名-非商业性使用 4.0 国际许可协议 (CC BY-NC 4.0)](LICENSE)
+Light-Whisper 是采用 [GNU General Public License v3.0 only](LICENSE) 的开源软件。
+个人、组织和企业均可使用，包括商业使用。无论是否修改，以源代码或编译形式分发时都必须
+遵守 GPL；分发二进制版本时，应按其条款要求提供对应源代码。
+已经发布的旧版本继续适用其发布时附带的许可证。
+
+第三方软件、模型和字体继续适用各自的许可证，详见 [NOTICE](NOTICE) 和
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
