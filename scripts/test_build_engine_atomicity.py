@@ -39,6 +39,12 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
         self.module.ENTRY_SCRIPT = self.entry_script
         self.module.OUTPUT_ARCHIVE = self.output_archive
         self.module.WINDOWS_MANIFEST = self.root / "missing-manifest.xml"
+        # Archive failure tests must not install or inspect the real CUDA provider.
+        provider_patcher = mock.patch.object(
+            self.module, "ensure_qwen3_cuda_provider"
+        )
+        self.ensure_qwen3_cuda_provider = provider_patcher.start()
+        self.addCleanup(provider_patcher.stop)
 
     def test_remove_file_retries_transient_windows_lock(self):
         locked_path = mock.Mock(spec=Path)
@@ -71,6 +77,7 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
         ):
             self.module.main()
 
+        self.ensure_qwen3_cuda_provider.assert_called_once_with()
         self.assertEqual(exit_context.exception.code, 23)
         self.assertTrue(
             self.output_archive.exists(),
@@ -100,6 +107,7 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
         ):
             self.module.main()
 
+        self.ensure_qwen3_cuda_provider.assert_called_once_with()
         used_staging_path = bool(attempted_outputs) and attempted_outputs[0] != self.output_archive
         preserved_archive = (
             self.output_archive.exists()
