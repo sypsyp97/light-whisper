@@ -41,10 +41,10 @@ jobs:
           package-manager-cache: false
 
       - name: Set up pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.28.2 --activate
-          pnpm --version
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10.28.2
+          run_install: false
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -76,6 +76,8 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      PYTHONUTF8: "1"
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
