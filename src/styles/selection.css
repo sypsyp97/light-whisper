@@ -33,7 +33,6 @@ body,
   border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--color-bg-elevated) 98%, transparent);
-  box-shadow: var(--shadow-lg);
 }
 
 .selection-toolbar {
