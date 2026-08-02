@@ -60,6 +60,18 @@ class FakeVad:
 class Qwen3ASRServerTests(unittest.TestCase):
     def setUp(self):
         FakeModel.instances.clear()
+        # Model and VAD tests must not query GPU metadata from the host machine.
+        gpu_info_patcher = mock.patch.object(
+            qwen3_asr_server.Qwen3ASRServer,
+            "_get_gpu_device_info",
+            return_value={
+                "device": "cuda",
+                "gpu_name": "Test GPU",
+                "gpu_memory_total": 24.0,
+            },
+        )
+        gpu_info_patcher.start()
+        self.addCleanup(gpu_info_patcher.stop)
 
     def test_reuses_one_model_and_session_for_inline_pcm_requests(self):
         fake_module = types.SimpleNamespace(Model=FakeModel)
