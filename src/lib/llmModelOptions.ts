@@ -24,7 +24,7 @@ export const llmProviderOptions: ReadonlyArray<LlmProviderOption> = [
     descKey: "settings.deepseekDesc",
     baseUrl: "https://api.deepseek.com",
     defaultModel: "deepseek-v4-flash",
-    models: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
+    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
   },
   {
     key: "cerebras",

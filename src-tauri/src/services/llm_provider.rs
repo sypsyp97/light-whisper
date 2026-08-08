@@ -1181,6 +1181,16 @@ pub fn apply_reasoning_controls(
             body["thinking"] = serde_json::json!({ "type": thinking_type });
         }
         (ReasoningControlKind::DeepSeekThinkingToggle, _) => {
+            if uses_responses_api {
+                let effort = match mode {
+                    LlmReasoningMode::Light => "low",
+                    LlmReasoningMode::Balanced => "medium",
+                    LlmReasoningMode::Deep => "high",
+                    LlmReasoningMode::Off | LlmReasoningMode::ProviderDefault => return,
+                };
+                body["reasoning"] = serde_json::json!({ "effort": effort });
+                return;
+            }
             let thinking_type = if mode == LlmReasoningMode::Off {
                 "disabled"
             } else {

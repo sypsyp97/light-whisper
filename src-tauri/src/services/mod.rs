@@ -20,6 +20,8 @@ mod ai_polish_transport_retry_tests;
 #[cfg(test)]
 mod codex_oauth_prewarm_tests;
 #[cfg(test)]
+mod deepseek_native_web_search_tests;
+#[cfg(test)]
 mod llm_reasoning_negotiation_tests;
 #[cfg(test)]
 mod openai_fast_mode_oauth_tests;

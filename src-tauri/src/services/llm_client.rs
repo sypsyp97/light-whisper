@@ -121,6 +121,39 @@ fn uses_responses_api(endpoint: &LlmEndpoint) -> bool {
     llm_provider::endpoint_uses_responses_api(endpoint)
 }
 
+fn uses_deepseek_flash_responses(
+    endpoint: &LlmEndpoint,
+    reasoning_mode: LlmReasoningMode,
+    web_search: bool,
+) -> bool {
+    endpoint.api_format == ApiFormat::OpenaiCompat
+        && endpoint.provider == "deepseek"
+        && endpoint.model == "deepseek-v4-flash"
+        && (web_search || reasoning_mode != LlmReasoningMode::Off)
+}
+
+fn request_uses_responses_api(
+    endpoint: &LlmEndpoint,
+    reasoning_mode: LlmReasoningMode,
+    web_search: bool,
+) -> bool {
+    uses_responses_api(endpoint)
+        || uses_deepseek_flash_responses(endpoint, reasoning_mode, web_search)
+}
+
+fn responses_api_url(api_url: &str) -> String {
+    let trimmed = api_url.trim_end_matches('/');
+    if trimmed.to_ascii_lowercase().ends_with("/responses") {
+        return trimmed.to_string();
+    }
+    let suffix = "/chat/completions";
+    if trimmed.to_ascii_lowercase().ends_with(suffix) {
+        format!("{}/responses", &trimmed[..trimmed.len() - suffix.len()])
+    } else {
+        format!("{trimmed}/responses")
+    }
+}
+
 fn uses_openai_chat_completions_api(endpoint: &LlmEndpoint) -> bool {
     endpoint.api_format == ApiFormat::OpenaiCompat
         && endpoint.api_url.contains("/chat/completions")
@@ -266,7 +299,8 @@ pub fn build_llm_body(
             "stream": options.stream,
         }),
         ApiFormat::OpenaiCompat => {
-            let is_responses_api = uses_responses_api(endpoint);
+            let is_responses_api =
+                request_uses_responses_api(endpoint, options.reasoning_mode, options.web_search);
 
             let mut body = if is_responses_api {
                 serde_json::json!({
@@ -1148,6 +1182,17 @@ pub async fn send_llm_request(
     app_handle: Option<&tauri::AppHandle>,
     options: LlmRequestOptions<'_>,
 ) -> Result<String, String> {
+    let deepseek_responses_endpoint =
+        uses_deepseek_flash_responses(endpoint, options.reasoning_mode, options.web_search).then(
+            || LlmEndpoint {
+                provider: endpoint.provider.clone(),
+                api_url: responses_api_url(&endpoint.api_url),
+                model: endpoint.model.clone(),
+                timeout_secs: endpoint.timeout_secs,
+                api_format: endpoint.api_format.clone(),
+            },
+        );
+    let endpoint = deepseek_responses_endpoint.as_ref().unwrap_or(endpoint);
     let mut headers = llm_provider::build_auth_headers(&endpoint.api_format, api_key)
         .map_err(|e| format!("构建请求头失败: {e}"))?;
     if uses_codex_chatgpt_backend(endpoint, api_key) {
