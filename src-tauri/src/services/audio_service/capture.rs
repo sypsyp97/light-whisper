@@ -18,6 +18,11 @@ use crate::utils::AppError;
 pub(crate) const MAX_RECORD_SAMPLES: usize = 30 * 60 * 48_000;
 const AUDIO_CAPTURE_TIMEOUT_JOIN_MS: u64 = 500;
 
+#[cfg(target_os = "windows")]
+const WINDOWS_NATIVE_CAPTURE_INIT_TIMEOUT_MS: u64 = 2_000;
+#[cfg(target_os = "windows")]
+static WINDOWS_NATIVE_CAPTURE_DISABLED: AtomicBool = AtomicBool::new(false);
+
 /// 一次性的"已触达录音缓冲硬上限"警告标志。仅在第一次撞上限时打日志。
 static RECORD_CAP_WARNED: AtomicBool = AtomicBool::new(false);
 
@@ -50,6 +55,125 @@ fn confirm_audio_thread_exit(handle: std::thread::JoinHandle<()>, wait: std::tim
         }
         Err(err) => {
             log::warn!("创建录音线程退出确认 helper 失败: {}", err);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, PartialEq, Eq)]
+enum WindowsNativeCaptureStartup {
+    Ready,
+    Unavailable(String),
+    TimedOut,
+    Disconnected,
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_windows_native_capture(
+    receiver: &mpsc::Receiver<Result<(), String>>,
+    timeout: std::time::Duration,
+) -> WindowsNativeCaptureStartup {
+    match receiver.recv_timeout(timeout) {
+        Ok(Ok(())) => WindowsNativeCaptureStartup::Ready,
+        Ok(Err(error)) => WindowsNativeCaptureStartup::Unavailable(error),
+        Err(mpsc::RecvTimeoutError::Timeout) => WindowsNativeCaptureStartup::TimedOut,
+        Err(mpsc::RecvTimeoutError::Disconnected) => WindowsNativeCaptureStartup::Disconnected,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn run_windows_native_capture(
+    stop: Arc<AtomicBool>,
+    samples: Arc<parking_lot::Mutex<Vec<i16>>>,
+    selected_device_name: Option<String>,
+    rate_tx: &mpsc::SyncSender<Result<u32, String>>,
+) -> bool {
+    if WINDOWS_NATIVE_CAPTURE_DISABLED.load(Ordering::Acquire) {
+        log::info!("Windows 原生语音处理已在本次进程中降级，直接使用 CPAL");
+        return false;
+    }
+
+    let (startup_tx, startup_rx) = mpsc::sync_channel::<Result<(), String>>(1);
+    let (accept_tx, accept_rx) = mpsc::sync_channel::<bool>(1);
+    let worker_stop = stop.clone();
+    let worker_samples = samples.clone();
+    let native_handle = match std::thread::Builder::new()
+        .name("windows-speech-capture".into())
+        .spawn(move || {
+            let probe_samples = Arc::new(parking_lot::Mutex::new(Vec::with_capacity(
+                TARGET_SAMPLE_RATE as usize,
+            )));
+            match super::windows_capture::WindowsSpeechCapture::start(
+                selected_device_name.as_deref(),
+            ) {
+                Ok(mut capture) => match capture.prime(&probe_samples) {
+                    Ok(()) => {
+                        // The watchdog must explicitly accept this stream. A late
+                        // success after timeout is dropped instead of mixing its 16 kHz
+                        // samples into the CPAL fallback buffer.
+                        if startup_tx.send(Ok(())).is_ok() && matches!(accept_rx.recv(), Ok(true)) {
+                            capture.run(&worker_stop, &worker_samples);
+                            log::info!("Windows 原生音频捕获已停止");
+                        }
+                    }
+                    Err(error) => {
+                        let _ = startup_tx.send(Err(format!(
+                            "Windows 原生语音处理录音未能收到首个音频包: {error}"
+                        )));
+                    }
+                },
+                Err(error) => {
+                    let _ =
+                        startup_tx.send(Err(format!("Windows 原生语音处理录音不可用: {error}")));
+                }
+            }
+        }) {
+        Ok(handle) => handle,
+        Err(error) => {
+            log::warn!("创建 Windows 原生音频线程失败，回退 CPAL: {}", error);
+            return false;
+        }
+    };
+
+    match wait_for_windows_native_capture(
+        &startup_rx,
+        std::time::Duration::from_millis(WINDOWS_NATIVE_CAPTURE_INIT_TIMEOUT_MS),
+    ) {
+        WindowsNativeCaptureStartup::Ready => {
+            if accept_tx.send(true).is_err() {
+                let _ = native_handle.join();
+                log::warn!("Windows 原生音频线程在确认启动前退出，回退 CPAL");
+                return false;
+            }
+            let _ = rate_tx.send(Ok(TARGET_SAMPLE_RATE));
+            if native_handle.join().is_err() {
+                log::warn!("Windows 原生音频线程退出时发生 panic");
+            }
+            true
+        }
+        WindowsNativeCaptureStartup::Unavailable(error) => {
+            drop(accept_tx);
+            let _ = native_handle.join();
+            log::warn!("{}，回退 CPAL", error);
+            false
+        }
+        WindowsNativeCaptureStartup::TimedOut => {
+            WINDOWS_NATIVE_CAPTURE_DISABLED.store(true, Ordering::Release);
+            drop(accept_tx);
+            log::warn!(
+                "Windows 原生语音处理录音启动超过 {} ms，回退 CPAL；本次进程后续录音将直接使用 CPAL",
+                WINDOWS_NATIVE_CAPTURE_INIT_TIMEOUT_MS
+            );
+            // Do not join a worker that is blocked in a driver/COM call. Once it
+            // returns, the closed acceptance channel releases the late stream.
+            drop(native_handle);
+            false
+        }
+        WindowsNativeCaptureStartup::Disconnected => {
+            drop(accept_tx);
+            let _ = native_handle.join();
+            log::warn!("Windows 原生音频线程未返回启动结果，回退 CPAL");
+            false
         }
     }
 }
@@ -309,26 +433,13 @@ pub fn spawn_audio_capture_thread(
 
             #[cfg(target_os = "windows")]
             {
-                match super::windows_capture::WindowsSpeechCapture::start(
-                    selected_device_name.as_deref(),
+                if run_windows_native_capture(
+                    stop.clone(),
+                    samples.clone(),
+                    selected_device_name.clone(),
+                    &rate_tx,
                 ) {
-                    Ok(mut capture) => {
-                        if let Err(err) = capture.prime(&samples) {
-                            log::warn!(
-                                "Windows 原生语音处理录音未能收到首个音频包，回退 CPAL: {}",
-                                err
-                            );
-                            samples.lock().clear();
-                        } else {
-                            let _ = rate_tx.send(Ok(TARGET_SAMPLE_RATE));
-                            capture.run(&stop, &samples);
-                            log::info!("Windows 原生音频捕获已停止");
-                            return;
-                        }
-                    }
-                    Err(err) => {
-                        log::warn!("Windows 原生语音处理录音不可用，回退 CPAL: {}", err);
-                    }
+                    return;
                 }
             }
 
@@ -465,10 +576,12 @@ mod cap_tests {
     //!
     //!   - `MAX_RECORD_SAMPLES` is 30 minutes of 48 kHz mono and must be
     //!     large enough to cover at least an hour of 16 kHz mono.
-    #[cfg(target_os = "windows")]
-    use super::spawn_audio_capture_thread;
     use super::{
         mix_to_mono_capped_f32, mix_to_mono_capped_i16, mix_to_mono_capped_u16, MAX_RECORD_SAMPLES,
+    };
+    #[cfg(target_os = "windows")]
+    use super::{
+        spawn_audio_capture_thread, wait_for_windows_native_capture, WindowsNativeCaptureStartup,
     };
 
     const MIN_ONE_HOUR_16K_SAMPLES: usize = 60 * 60 * 16_000;
@@ -479,6 +592,43 @@ mod cap_tests {
     #[test]
     fn max_record_samples_constant_value() {
         assert_eq!(MAX_RECORD_SAMPLES, 30 * 60 * 48_000);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_capture_watchdog_accepts_ready_startup() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(Ok(())).unwrap();
+
+        assert_eq!(
+            wait_for_windows_native_capture(&rx, std::time::Duration::from_millis(20)),
+            WindowsNativeCaptureStartup::Ready
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_capture_watchdog_preserves_startup_error() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(Err("device unavailable".into())).unwrap();
+
+        assert_eq!(
+            wait_for_windows_native_capture(&rx, std::time::Duration::from_millis(20)),
+            WindowsNativeCaptureStartup::Unavailable("device unavailable".into())
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_capture_watchdog_times_out_without_waiting_for_worker() {
+        let (_tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
+        let started = std::time::Instant::now();
+
+        assert_eq!(
+            wait_for_windows_native_capture(&rx, std::time::Duration::from_millis(20)),
+            WindowsNativeCaptureStartup::TimedOut
+        );
+        assert!(started.elapsed() < std::time::Duration::from_millis(200));
     }
 
     // ----- mix_to_mono_capped_i16 ----------------------------------------
