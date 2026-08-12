@@ -527,7 +527,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         let assistant_pipeline = async {
             // 搜索判断、搜索关键词和最终生成都基于校正后的语音请求。
             // 显式关闭翻译覆盖，避免“翻译输出”设置改变用户实际发给助手的指令。
-            let assistant_request = ai_polish_service::polish_text_with_overrides(
+            let polish_outcome = ai_polish_service::polish_text_with_overrides_detailed(
                 state.inner(),
                 &original_request,
                 &app_handle,
@@ -542,11 +542,16 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     ..Default::default()
                 },
             )
-            .await
-            .unwrap_or_else(|err| {
-                log::warn!("助手请求预润色失败，使用原始转写: {}", err);
-                original_request.clone()
-            });
+            .await;
+            let (assistant_request, screen_context_description) = match polish_outcome {
+                Ok(outcome) => (outcome.text, outcome.screen_context_description),
+                Err(err) => {
+                    log::warn!("助手请求预润色失败，使用原始转写: {}", err);
+                    (original_request.clone(), None)
+                }
+            };
+            let assistant_request_context = assistant_request_context
+                .with_screen_context_description(screen_context_description);
 
             assistant_service::generate_content_with_context(
                 state.inner(),

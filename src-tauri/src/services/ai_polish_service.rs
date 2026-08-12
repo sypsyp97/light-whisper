@@ -646,6 +646,13 @@ pub struct PolishOutcome {
     pub executed: bool,
     pub provider: Option<String>,
     pub model: Option<String>,
+    /// 本次润色通过视觉代理生成的屏幕描述，可供同一语音助手会话复用。
+    pub screen_context_description: Option<String>,
+}
+
+struct PreparedPolishUserInput {
+    input: llm_client::LlmUserInput,
+    screen_context_description: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -662,6 +669,7 @@ impl PolishOutcome {
             executed: false,
             provider: None,
             model: None,
+            screen_context_description: None,
         }
     }
 }
@@ -676,18 +684,6 @@ fn passthrough_unless_required(
     } else {
         Ok(text.to_string())
     }
-}
-
-pub async fn polish_text_with_overrides(
-    state: &AppState,
-    text: &str,
-    app_handle: &tauri::AppHandle,
-    session_id: u64,
-    overrides: PolishOverrides,
-) -> Result<String, String> {
-    polish_text_with_overrides_detailed(state, text, app_handle, session_id, overrides)
-        .await
-        .map(|outcome| outcome.text)
 }
 
 pub async fn polish_text_with_overrides_detailed(
@@ -772,7 +768,7 @@ pub async fn polish_text_with_overrides_detailed(
         emit_polish_status(app_handle, "user_input", text, "", "", session_id);
     }
     let user_input_start = std::time::Instant::now();
-    let user_input = build_polish_user_input(
+    let prepared_user_input = build_polish_user_input(
         state,
         app_handle,
         &endpoint,
@@ -783,6 +779,8 @@ pub async fn polish_text_with_overrides_detailed(
         overrides.app_context.as_deref(),
     )
     .await;
+    let user_input = prepared_user_input.input;
+    let screen_context_description = prepared_user_input.screen_context_description;
     let user_content_len = user_input.text.len();
     let image_count = user_input.images.len();
     let user_input_elapsed_ms = user_input_start.elapsed().as_millis();
@@ -902,6 +900,7 @@ pub async fn polish_text_with_overrides_detailed(
         executed: true,
         provider: Some(endpoint.provider),
         model: Some(endpoint.model),
+        screen_context_description,
     })
 }
 
@@ -1074,7 +1073,7 @@ async fn build_polish_user_input(
     screen_context_override: Option<bool>,
     screen_context_foreground: Option<&ForegroundApp>,
     app_context_override: Option<&str>,
-) -> llm_client::LlmUserInput {
+) -> PreparedPolishUserInput {
     let screen_context_enabled = screen_context_override
         .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
     let cache_key = llm_provider::image_support_cache_key(endpoint);
@@ -1176,23 +1175,32 @@ async fn build_polish_user_input(
     if effective_image_support == Some(false) && !images.is_empty() {
         let base_text = build_user_content(text, true, app_context_override);
         return match screen_vision_service::describe_images(state, app_handle, &images).await {
-            Ok(description) => llm_client::LlmUserInput {
-                text: screen_vision_service::with_screen_description(&base_text, &description),
-                images: Vec::new(),
+            Ok(description) => PreparedPolishUserInput {
+                input: llm_client::LlmUserInput {
+                    text: screen_vision_service::with_screen_description(&base_text, &description),
+                    images: Vec::new(),
+                },
+                screen_context_description: Some(description),
             },
             Err(err) => {
                 log::warn!("AI 润色视觉代理读取失败，继续无屏幕上下文请求: {}", err);
-                llm_client::LlmUserInput {
-                    text: screen_vision_service::without_screen_context(&base_text),
-                    images: Vec::new(),
+                PreparedPolishUserInput {
+                    input: llm_client::LlmUserInput {
+                        text: screen_vision_service::without_screen_context(&base_text),
+                        images: Vec::new(),
+                    },
+                    screen_context_description: None,
                 }
             }
         };
     }
 
-    llm_client::LlmUserInput {
-        text: build_user_content(text, !images.is_empty(), app_context_override),
-        images,
+    PreparedPolishUserInput {
+        input: llm_client::LlmUserInput {
+            text: build_user_content(text, !images.is_empty(), app_context_override),
+            images,
+        },
+        screen_context_description: None,
     }
 }
 
@@ -1400,6 +1408,7 @@ mod tests {
         assert!(!outcome.executed);
         assert!(outcome.provider.is_none());
         assert!(outcome.model.is_none());
+        assert!(outcome.screen_context_description.is_none());
     }
 
     #[test]

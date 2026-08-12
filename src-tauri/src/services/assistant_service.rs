@@ -33,6 +33,7 @@ pub struct AssistantRequestContext {
     screen_context_enabled: Option<bool>,
     recording_foreground: Option<ForegroundApp>,
     app_context: Option<String>,
+    screen_context_description: Option<String>,
     bound_to_recording: bool,
 }
 
@@ -53,8 +54,22 @@ impl AssistantRequestContext {
             screen_context_enabled: Some(screen_context_enabled),
             recording_foreground,
             app_context,
+            screen_context_description: None,
             bound_to_recording: true,
         }
+    }
+
+    pub fn with_screen_context_description(mut self, description: Option<String>) -> Self {
+        self.screen_context_description = description
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        self
+    }
+
+    fn reusable_screen_context_description(&self, screen_context_enabled: bool) -> Option<String> {
+        screen_context_enabled
+            .then(|| self.screen_context_description.clone())
+            .flatten()
     }
 
     fn foreground_matches(&self, current: Option<&ForegroundApp>) -> bool {
@@ -917,9 +932,12 @@ async fn generate_content_inner(
     let screen_context_enabled = request_context
         .screen_context_enabled
         .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
+    let reusable_screen_description =
+        request_context.reusable_screen_context_description(screen_context_enabled);
+    let needs_screen_capture = screen_context_enabled && reusable_screen_description.is_none();
     let image_support_cache_key = llm_provider::image_support_cache_key(&endpoint);
     let cached_image_support = state.assistant_image_support(&image_support_cache_key);
-    let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
+    let probed_image_support = if needs_screen_capture && cached_image_support.is_none() {
         let support = llm_provider::probe_image_support_from_provider_metadata(
             &state.http_client,
             &endpoint,
@@ -946,7 +964,7 @@ async fn generate_content_inner(
         let current = crate::utils::foreground::get_foreground_app();
         request_context.foreground_matches(current.as_ref())
     };
-    let mut images = if screen_context_enabled
+    let mut images = if needs_screen_capture
         && (effective_image_support != Some(false) || screen_vision_enabled)
         && foreground_still_matches()
     {
@@ -973,22 +991,26 @@ async fn generate_content_inner(
             }
         }
     } else {
-        if screen_context_enabled
-            && effective_image_support == Some(false)
-            && !screen_vision_enabled
+        if needs_screen_capture && effective_image_support == Some(false) && !screen_vision_enabled
         {
             log::info!(
                 "当前助手模型不支持图片输入且视觉代理已关闭，跳过屏幕截图上下文: provider={}, model={}",
                 endpoint.provider,
                 endpoint.model
             );
-        } else if screen_context_enabled && !foreground_still_matches() {
+        } else if needs_screen_capture && !foreground_still_matches() {
             log::warn!("助手截图已跳过：前台窗口已离开录音开始时的目标应用");
         }
         Vec::new()
     };
 
-    let screen_description = if effective_image_support == Some(false) && !images.is_empty() {
+    let screen_description = if let Some(description) = reusable_screen_description {
+        log::info!(
+            "助手复用前置润色视觉描述: {}字符",
+            description.chars().count()
+        );
+        Some(description)
+    } else if effective_image_support == Some(false) && !images.is_empty() {
         match screen_vision_service::describe_images(state, app_handle, &images).await {
             Ok(description) => {
                 images.clear();
@@ -1206,6 +1228,26 @@ mod tests {
         assert!(!context.foreground_matches(None));
         assert!(!AssistantRequestContext::for_recording(true, None, None).foreground_matches(None));
         assert!(AssistantRequestContext::default().foreground_matches(Some(&switched)));
+    }
+
+    #[test]
+    fn recording_assistant_reuses_non_empty_polish_screen_description() {
+        let context = AssistantRequestContext::for_recording(true, None, None)
+            .with_screen_context_description(Some("  当前窗口显示设置页。  ".into()));
+
+        assert_eq!(
+            context.reusable_screen_context_description(true).as_deref(),
+            Some("当前窗口显示设置页。")
+        );
+        assert_eq!(context.reusable_screen_context_description(false), None);
+    }
+
+    #[test]
+    fn empty_polish_screen_description_does_not_suppress_assistant_capture() {
+        let context = AssistantRequestContext::for_recording(true, None, None)
+            .with_screen_context_description(Some("   ".into()));
+
+        assert_eq!(context.reusable_screen_context_description(true), None);
     }
 
     #[test]
