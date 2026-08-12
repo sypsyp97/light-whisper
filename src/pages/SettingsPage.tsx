@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } fro
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Mic, Monitor, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Mic, Monitor, Eye, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
@@ -19,7 +19,7 @@ import {
   testMicrophone,
   setInputMethodCommand,
   setAiPolishConfig,
-  setAiPolishScreenContextEnabled,
+  setScreenContextEnabled,
   getAiPolishApiKey,
   getOpenaiCodexOauthStatus,
   getUserProfile,
@@ -27,6 +27,9 @@ import {
   listAiModels,
   removeHotWord,
   setLlmProviderConfig,
+  setScreenVisionConfig,
+  getScreenVisionApiKey,
+  setScreenVisionApiKey,
   exportUserProfile,
   listInputDevices,
   importUserProfile,
@@ -52,7 +55,6 @@ import {
   addCustomProvider,
   removeCustomProvider,
   setAssistantHotkey,
-  setAssistantScreenContextEnabled,
   setAssistantSystemPrompt,
   getLlmReasoningSupport,
   setAssistantApiKey,
@@ -109,6 +111,10 @@ import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { useTranslation } from "react-i18next";
 
 const CorrectionRulesModal = lazy(() => import("@/components/settings/CorrectionRulesModal"));
+const ScreenVisionModelPicker = lazy(() => import("@/components/settings/ScreenVisionModelPicker"));
+
+const DEFAULT_SCREEN_VISION_PROVIDER = "openai";
+const DEFAULT_SCREEN_VISION_MODEL = "gpt-4.1-mini";
 
 const engineOptions = [
   { key: "qwen3-asr-0.6b", icon: Zap, label: "Qwen3-ASR 0.6B Q8", labelKey: undefined, descKey: "settings.qwen3Asr06Desc" },
@@ -490,8 +496,15 @@ export default function SettingsPage({
   const [polishStructureLevel, setPolishStructureLevelState] = useState<PolishStructureLevel>("off");
   const polishStructureSaveIdRef = useRef(0);
   const [assistantPromptState, setAssistantPromptState] = useState<string>("");
-  const [assistantScreenContextEnabled, setAssistantScreenContextEnabledState] = useState(false);
-  const [aiPolishScreenContextEnabled, setAiPolishScreenContextEnabledState] = useState(false);
+  const [screenContextEnabled, setScreenContextEnabledState] = useState(false);
+  const [screenVisionEnabled, setScreenVisionEnabled] = useState(false);
+  const [screenVisionProvider, setScreenVisionProvider] = useState(DEFAULT_SCREEN_VISION_PROVIDER);
+  const [screenVisionModel, setScreenVisionModel] = useState(DEFAULT_SCREEN_VISION_MODEL);
+  const [screenVisionApiKey, setScreenVisionApiKeyState] = useState("");
+  const screenVisionKeyRequestIdRef = useRef(0);
+  const screenVisionBaseUrl = customProviders
+    .find((provider) => provider.id === screenVisionProvider)?.base_url
+    ?? findLlmPreset(screenVisionProvider).baseUrl;
   const [webSearchEnabled, setWebSearchEnabledState] = useState(false);
   const [webSearchProvider, setWebSearchProviderState] = useState<WebSearchProvider>("model_native");
   const [webSearchMaxResults, setWebSearchMaxResultsState] = useState(5);
@@ -519,6 +532,12 @@ export default function SettingsPage({
 
   const assistantKeySave = useDebouncedCallback((value: string) => {
     setAssistantApiKey(value).catch(() => {});
+  }, 600, { onUnmount: "flush" });
+
+  const screenVisionKeySave = useDebouncedCallback((provider: string, value: string) => {
+    setScreenVisionApiKey(provider, value).catch(() => {
+      toast.error(t("toast.screenVisionKeySaveFailed"));
+    });
   }, 600, { onUnmount: "flush" });
 
   const webSearchKeySave = useDebouncedCallback((provider: WebSearchProvider, value: string) => {
@@ -651,6 +670,22 @@ export default function SettingsPage({
     }
   }, []);
 
+  const refreshScreenVisionKey = useCallback(async (provider: string) => {
+    const requestId = ++screenVisionKeyRequestIdRef.current;
+    try {
+      const key = (await getScreenVisionApiKey(provider)) || "";
+      if (requestId === screenVisionKeyRequestIdRef.current) {
+        setScreenVisionApiKeyState(key);
+      }
+      return key;
+    } catch {
+      if (requestId === screenVisionKeyRequestIdRef.current) {
+        setScreenVisionApiKeyState("");
+      }
+      return "";
+    }
+  }, []);
+
   const refreshWebSearchKey = useCallback(async (provider: WebSearchProvider) => {
     const requestId = ++webSearchKeyRequestIdRef.current;
     if (!webSearchProviderNeedsKey(provider)) {
@@ -745,8 +780,20 @@ export default function SettingsPage({
       setPolishStructureLevelState(p.polish_structure_level ?? "off");
       setAssistantHotkeyDisplay(p.assistant_hotkey ? formatHotkeyForDisplay(p.assistant_hotkey) : "");
       setAssistantPromptState(p.assistant_system_prompt ?? "");
-      setAssistantScreenContextEnabledState(Boolean(p.assistant_screen_context_enabled));
-      setAiPolishScreenContextEnabledState(Boolean(p.ai_polish_screen_context_enabled));
+      setScreenContextEnabledState(Boolean(
+        p.ai_polish_screen_context_enabled || p.assistant_screen_context_enabled,
+      ));
+      const nextScreenVisionProvider = p.llm_provider.screen_vision_provider
+        || DEFAULT_SCREEN_VISION_PROVIDER;
+      const screenVisionCustomProvider = cps.find((provider) => provider.id === nextScreenVisionProvider);
+      setScreenVisionEnabled(Boolean(p.llm_provider.screen_vision_enabled));
+      setScreenVisionProvider(nextScreenVisionProvider);
+      setScreenVisionModel(
+        p.llm_provider.screen_vision_model
+          || screenVisionCustomProvider?.model
+          || findLlmPreset(nextScreenVisionProvider).defaultModel
+          || DEFAULT_SCREEN_VISION_MODEL,
+      );
       setWebSearchEnabledState(Boolean(p.web_search?.enabled));
       setWebSearchProviderState(p.web_search?.provider ?? "model_native");
       setWebSearchMaxResultsState(p.web_search?.max_results ?? 5);
@@ -762,9 +809,12 @@ export default function SettingsPage({
     refreshProfile().then((loadedProfile) => {
       void refreshAssistantKey();
       void refreshOpenaiCodexOauthStatus();
+      void refreshScreenVisionKey(
+        loadedProfile?.llm_provider.screen_vision_provider || DEFAULT_SCREEN_VISION_PROVIDER,
+      );
       void refreshWebSearchKey(loadedProfile?.web_search?.provider ?? "model_native");
     });
-  }, [refreshProfile, refreshAssistantKey, refreshOpenaiCodexOauthStatus, refreshWebSearchKey]);
+  }, [refreshProfile, refreshAssistantKey, refreshOpenaiCodexOauthStatus, refreshScreenVisionKey, refreshWebSearchKey]);
 
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
@@ -2071,21 +2121,68 @@ export default function SettingsPage({
     setRecordingMode(mode === "toggle").catch(() => {});
   }, []);
 
-  const handleAssistantScreenContextToggle = useCallback((enabled: boolean) => {
-    setAssistantScreenContextEnabledState(enabled);
-    setAssistantScreenContextEnabled(enabled).catch(() => {
-      setAssistantScreenContextEnabledState(!enabled);
-      toast.error(t("toast.assistantScreenContextFailed"));
+  const handleScreenContextToggle = useCallback((enabled: boolean) => {
+    setScreenContextEnabledState(enabled);
+    setScreenContextEnabled(enabled).catch(() => {
+      setScreenContextEnabledState(!enabled);
+      toast.error(t("toast.screenContextFailed"));
     });
-  }, []);
+  }, [t]);
 
-  const handleAiPolishScreenContextToggle = useCallback((enabled: boolean) => {
-    setAiPolishScreenContextEnabledState(enabled);
-    setAiPolishScreenContextEnabled(enabled).catch(() => {
-      setAiPolishScreenContextEnabledState(!enabled);
-      toast.error(t("toast.polishScreenContextFailed"));
+  const handleScreenVisionToggle = useCallback((enabled: boolean) => {
+    const previous = screenVisionEnabled;
+    setScreenVisionEnabled(enabled);
+    setScreenVisionConfig(enabled, screenVisionProvider, screenVisionModel).catch(() => {
+      setScreenVisionEnabled(previous);
+      toast.error(t("toast.screenVisionSaveFailed"));
     });
-  }, []);
+  }, [screenVisionEnabled, screenVisionModel, screenVisionProvider, t]);
+
+  const handleScreenVisionProviderChange = useCallback((provider: string) => {
+    const customProvider = customProviders.find((item) => item.id === provider);
+    const nextModel = customProvider?.model
+      || findLlmPreset(provider).defaultModel
+      || DEFAULT_SCREEN_VISION_MODEL;
+    const previousProvider = screenVisionProvider;
+    const previousModel = screenVisionModel;
+    screenVisionKeySave.cancel();
+    setScreenVisionProvider(provider);
+    setScreenVisionModel(nextModel);
+    setScreenVisionApiKeyState("");
+    void refreshScreenVisionKey(provider);
+    setScreenVisionConfig(screenVisionEnabled, provider, nextModel).catch(() => {
+      setScreenVisionProvider(previousProvider);
+      setScreenVisionModel(previousModel);
+      toast.error(t("toast.screenVisionSaveFailed"));
+    });
+  }, [customProviders, refreshScreenVisionKey, screenVisionEnabled, screenVisionKeySave, screenVisionModel, screenVisionProvider, t]);
+
+  const handleScreenVisionModelSelect = useCallback((model: string) => {
+    const normalized = model.trim();
+    if (!normalized) return;
+    setScreenVisionModel(normalized);
+    setScreenVisionConfig(screenVisionEnabled, screenVisionProvider, normalized).catch(() => {
+      toast.error(t("toast.screenVisionSaveFailed"));
+    });
+  }, [screenVisionEnabled, screenVisionProvider, t]);
+
+  const handleScreenVisionModelBlur = useCallback(() => {
+    const normalized = screenVisionModel.trim();
+    if (!normalized) {
+      const customProvider = customProviders.find((item) => item.id === screenVisionProvider);
+      setScreenVisionModel(
+        customProvider?.model
+          || findLlmPreset(screenVisionProvider).defaultModel
+          || DEFAULT_SCREEN_VISION_MODEL,
+      );
+      toast.error(t("toast.screenVisionModelRequired"));
+      return;
+    }
+    setScreenVisionModel(normalized);
+    setScreenVisionConfig(screenVisionEnabled, screenVisionProvider, normalized).catch(() => {
+      toast.error(t("toast.screenVisionSaveFailed"));
+    });
+  }, [customProviders, screenVisionEnabled, screenVisionModel, screenVisionProvider, t]);
 
   const handlePolishStructureLevelChange = useCallback((level: PolishStructureLevel) => {
     const previous = polishStructureLevel;
@@ -2848,7 +2945,11 @@ export default function SettingsPage({
             data-nav-id="ai-polish"
             style={{
               position: "relative",
-              zIndex: picker.isOpen("provider") || picker.isOpen("model") || picker.isOpen("polishReasoning") ? 8 : "auto",
+              zIndex: picker.isOpen("provider")
+                || picker.isOpen("model")
+                || picker.isOpen("polishReasoning")
+                ? 8
+                : "auto",
             }}
           >
             <div className="settings-section-header">
@@ -2895,12 +2996,12 @@ export default function SettingsPage({
                 </div>
                 <button
                   role="switch"
-                  aria-checked={aiPolishScreenContextEnabled}
+                  aria-checked={screenContextEnabled}
                   aria-label={t("settings.screenContext")}
-                  onClick={() => handleAiPolishScreenContextToggle(!aiPolishScreenContextEnabled)}
+                  onClick={() => handleScreenContextToggle(!screenContextEnabled)}
                   className="toggle-switch"
                   style={{
-                    background: aiPolishScreenContextEnabled
+                    background: screenContextEnabled
                       ? "var(--color-accent)"
                       : "var(--color-bg-tertiary)",
                     flexShrink: 0,
@@ -2909,13 +3010,74 @@ export default function SettingsPage({
                   <div
                     className="toggle-knob"
                     style={{
-                      transform: aiPolishScreenContextEnabled
+                      transform: screenContextEnabled
                         ? "translateX(20px)"
                         : "translateX(0)",
                     }}
                   />
                 </button>
               </div>
+
+              <div className="settings-row">
+                <div className="permission-item" style={{ gap: 8 }}>
+                  <Eye size={14} className="icon-tertiary" />
+                  <div className="settings-column" style={{ gap: 2 }}>
+                    <span className="permission-label">{t("settings.screenVision")}</span>
+                    <span className="settings-hint" style={{ margin: 0 }}>
+                      {t("settings.screenVisionHint")}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={screenVisionEnabled}
+                  aria-label={t("settings.screenVision")}
+                  onClick={() => handleScreenVisionToggle(!screenVisionEnabled)}
+                  className="toggle-switch"
+                  style={{
+                    background: screenVisionEnabled
+                      ? "var(--color-accent)"
+                      : "var(--color-bg-tertiary)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    className="toggle-knob"
+                    style={{
+                      transform: screenVisionEnabled
+                        ? "translateX(20px)"
+                        : "translateX(0)",
+                    }}
+                  />
+                </button>
+              </div>
+
+              {screenVisionEnabled && (
+                <Suspense fallback={null}>
+                  <ScreenVisionModelPicker
+                    model={screenVisionModel}
+                    provider={screenVisionProvider}
+                    baseUrl={screenVisionBaseUrl}
+                    apiKey={screenVisionApiKey}
+                    loggedIn={openaiCodexOauthStatus.loggedIn}
+                    authIdentity={oauthModelIdentity}
+                    openaiAuthMode={screenVisionProvider === "openai"
+                      ? effectiveOpenaiAuthMode
+                      : undefined}
+                    providerOptions={allProviderOptions.filter(
+                      (option) => option.key !== "deepseek",
+                    )}
+                    onProviderChange={handleScreenVisionProviderChange}
+                    onApiKeyChange={(value) => {
+                      setScreenVisionApiKeyState(value);
+                      screenVisionKeySave.schedule(screenVisionProvider, value);
+                    }}
+                    onChange={setScreenVisionModel}
+                    onBlur={handleScreenVisionModelBlur}
+                    onSelect={handleScreenVisionModelSelect}
+                  />
+                </Suspense>
+              )}
 
 
               <div className="settings-column" style={{ gap: 10 }}>
@@ -3373,39 +3535,6 @@ export default function SettingsPage({
                 {t("settings.assistantHint")}
               </p>
 
-              <div className="settings-row">
-                <div className="permission-item" style={{ gap: 8 }}>
-                  <Monitor size={14} className="icon-tertiary" />
-                  <div className="settings-column" style={{ gap: 2 }}>
-                    <span className="permission-label">{t("settings.screenContext")}</span>
-                    <span className="settings-hint" style={{ margin: 0 }}>
-                      {t("settings.screenContextAssistantHint")}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  role="switch"
-                  aria-checked={assistantScreenContextEnabled}
-                  aria-label={t("settings.assistantScreenContext")}
-                  onClick={() => handleAssistantScreenContextToggle(!assistantScreenContextEnabled)}
-                  className="toggle-switch"
-                  style={{
-                    background: assistantScreenContextEnabled
-                      ? "var(--color-accent)"
-                      : "var(--color-bg-tertiary)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <div
-                    className="toggle-knob"
-                    style={{
-                      transform: assistantScreenContextEnabled
-                        ? "translateX(20px)"
-                        : "translateX(0)",
-                    }}
-                  />
-                </button>
-              </div>
               <div className="settings-row">
                 <div className="permission-item" style={{ gap: 8 }}>
                   <Sparkles size={14} className="icon-tertiary" />

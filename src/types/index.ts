@@ -192,6 +192,9 @@ export interface LlmProviderConfig {
   validation_use_separate_model?: boolean;
   validation_provider?: string | null;
   validation_model?: string | null;
+  screen_vision_enabled?: boolean;
+  screen_vision_provider?: string | null;
+  screen_vision_model?: string | null;
   openai_auth_mode?: OpenaiAuthMode | null;
   openai_fast_mode?: boolean;
 }

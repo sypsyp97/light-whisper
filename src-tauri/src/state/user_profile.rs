@@ -471,6 +471,15 @@ pub struct LlmProviderConfig {
     /// 纠错审核独立模型
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validation_model: Option<String>,
+    /// 当前模型不支持图片输入时，是否启用独立视觉模型读取屏幕
+    #[serde(default)]
+    pub screen_vision_enabled: bool,
+    /// 屏幕视觉模型供应商
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen_vision_provider: Option<String>,
+    /// 屏幕视觉模型
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen_vision_model: Option<String>,
     /// OpenAI 认证方式：None = 用户未显式选择（resolver 按 OAuth 登录状态推断智能默认）；
     /// Some(ApiKey) / Some(Oauth) = 用户通过设置页明确选定后存进来
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -502,6 +511,9 @@ impl Default for LlmProviderConfig {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            screen_vision_enabled: false,
+            screen_vision_provider: None,
+            screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
         }
@@ -650,6 +662,46 @@ impl LlmProviderConfig {
         self.resolve_active_provider()
     }
 
+    pub fn screen_vision_model(&self) -> Option<&str> {
+        if !self.has_valid_screen_vision_model() {
+            return None;
+        }
+        self.screen_vision_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn resolve_screen_vision_provider(&self) -> Option<String> {
+        if !self.has_valid_screen_vision_model() {
+            return None;
+        }
+        self.screen_vision_provider
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_string)
+    }
+
+    pub fn has_valid_screen_vision_model(&self) -> bool {
+        if !self.screen_vision_enabled {
+            return false;
+        }
+        let provider = self
+            .screen_vision_provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let model_is_set = self
+            .screen_vision_model
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+        provider.is_some_and(|provider| {
+            Self::is_builtin_provider(provider)
+                || self.custom_providers.iter().any(|item| item.id == provider)
+        }) && model_is_set
+    }
+
     /// 解析助手实际使用的 provider（独立配置 > 润色 active）
     pub fn resolve_assistant_provider(&self) -> String {
         if self.assistant_use_separate_model {
@@ -666,6 +718,10 @@ impl LlmProviderConfig {
 }
 
 impl UserProfile {
+    pub fn screen_context_enabled(&self) -> bool {
+        self.ai_polish_screen_context_enabled || self.assistant_screen_context_enabled
+    }
+
     pub fn resolve_app_profile(
         &self,
         process_name: &str,
@@ -744,6 +800,56 @@ mod tests {
         let profile: UserProfile = serde_json::from_value(value).unwrap();
 
         assert_eq!(profile.polish_structure_level, PolishStructureLevel::Off);
+    }
+
+    #[test]
+    fn legacy_profile_without_screen_vision_defaults_to_disabled() {
+        let mut value = serde_json::to_value(UserProfile::default()).unwrap();
+        let llm_provider = value
+            .get_mut("llm_provider")
+            .and_then(serde_json::Value::as_object_mut)
+            .unwrap();
+        llm_provider.remove("screen_vision_enabled");
+        llm_provider.remove("screen_vision_provider");
+        llm_provider.remove("screen_vision_model");
+
+        let profile: UserProfile = serde_json::from_value(value).unwrap();
+
+        assert!(!profile.llm_provider.screen_vision_enabled);
+        assert!(!profile.llm_provider.has_valid_screen_vision_model());
+    }
+
+    #[test]
+    fn legacy_screen_context_flags_are_unified_when_either_is_enabled() {
+        let polish_only = UserProfile {
+            ai_polish_screen_context_enabled: true,
+            ..Default::default()
+        };
+        let assistant_only = UserProfile {
+            assistant_screen_context_enabled: true,
+            ..Default::default()
+        };
+
+        assert!(polish_only.screen_context_enabled());
+        assert!(assistant_only.screen_context_enabled());
+        assert!(!UserProfile::default().screen_context_enabled());
+    }
+
+    #[test]
+    fn screen_vision_requires_an_existing_provider_and_model() {
+        let valid = LlmProviderConfig {
+            screen_vision_enabled: true,
+            screen_vision_provider: Some("openai".to_string()),
+            screen_vision_model: Some("gpt-4.1-mini".to_string()),
+            ..Default::default()
+        };
+        let invalid = LlmProviderConfig {
+            screen_vision_provider: Some("missing".to_string()),
+            ..valid.clone()
+        };
+
+        assert!(valid.has_valid_screen_vision_model());
+        assert!(!invalid.has_valid_screen_vision_model());
     }
 
     #[test]

@@ -60,6 +60,7 @@ pub async fn set_assistant_screen_context_enabled(
 ) -> Result<(), String> {
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.assistant_screen_context_enabled = enabled;
+        profile.ai_polish_screen_context_enabled = enabled;
     });
     Ok(())
 }

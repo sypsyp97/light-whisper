@@ -75,6 +75,19 @@ pub async fn set_ai_polish_screen_context_enabled(
 ) -> Result<(), String> {
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.ai_polish_screen_context_enabled = enabled;
+        profile.assistant_screen_context_enabled = enabled;
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_screen_context_enabled(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile.ai_polish_screen_context_enabled = enabled;
+        profile.assistant_screen_context_enabled = enabled;
     });
     Ok(())
 }

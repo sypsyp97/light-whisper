@@ -326,6 +326,46 @@ pub fn validation_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint
     endpoint_for_config(&resolved)
 }
 
+pub fn screen_vision_endpoint_for_config(config: &LlmProviderConfig) -> Option<LlmEndpoint> {
+    let provider = config.resolve_screen_vision_provider()?;
+    let model = config.screen_vision_model()?;
+    let active_provider = config.resolve_active_provider();
+    let mut resolved = config.clone();
+
+    if provider != active_provider {
+        resolved.active = provider;
+        if is_preset(&resolved.active) {
+            resolved.custom_model = None;
+            resolved.custom_base_url = None;
+        }
+    }
+
+    let target_provider = resolved.resolve_active_provider();
+    if is_preset(&target_provider) {
+        resolved.custom_model = Some(model.to_string());
+    } else if let Some(custom) = resolved
+        .custom_providers
+        .iter_mut()
+        .find(|item| item.id == target_provider)
+    {
+        custom.model = model.to_string();
+    } else {
+        return None;
+    }
+
+    Some(endpoint_for_config(&resolved))
+}
+
+pub fn known_image_input_support(endpoint: &LlmEndpoint) -> Option<bool> {
+    // DeepSeek's official V4 Flash/Pro text endpoints do not accept image input.
+    // Keep this provider-scoped so a custom multimodal gateway with a similar
+    // model name can still be probed or tried normally.
+    if endpoint.provider == DEEPSEEK {
+        return Some(false);
+    }
+    None
+}
+
 pub fn image_support_probe_url(endpoint: &LlmEndpoint) -> Option<String> {
     if endpoint.api_format != ApiFormat::OpenaiCompat {
         return None;
@@ -411,6 +451,9 @@ pub async fn probe_image_support_from_provider_metadata(
     endpoint: &LlmEndpoint,
     api_key: &str,
 ) -> Option<bool> {
+    if let Some(supported) = known_image_input_support(endpoint) {
+        return Some(supported);
+    }
     if codex_oauth_service::decode_chatgpt_bearer_token(api_key).is_some() {
         return None;
     }
@@ -496,6 +539,9 @@ pub fn endpoint_for_preview(
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            screen_vision_enabled: false,
+            screen_vision_provider: None,
+            screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
         }
@@ -524,6 +570,9 @@ pub fn endpoint_for_preview(
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            screen_vision_enabled: false,
+            screen_vision_provider: None,
+            screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
         }
@@ -1426,6 +1475,9 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            screen_vision_enabled: false,
+            screen_vision_provider: None,
+            screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
         };
@@ -1460,6 +1512,9 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            screen_vision_enabled: false,
+            screen_vision_provider: None,
+            screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
         };
@@ -1490,6 +1545,9 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            screen_vision_enabled: false,
+            screen_vision_provider: None,
+            screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
         };
@@ -1555,6 +1613,9 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            screen_vision_enabled: false,
+            screen_vision_provider: None,
+            screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
         };
@@ -1589,6 +1650,9 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            screen_vision_enabled: false,
+            screen_vision_provider: None,
+            screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
         };
@@ -1629,6 +1693,9 @@ mod tests {
             validation_use_separate_model: false,
             validation_provider: None,
             validation_model: None,
+            screen_vision_enabled: false,
+            screen_vision_provider: None,
+            screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
         };
@@ -2253,5 +2320,53 @@ mod tests {
             support.strategy.as_deref(),
             Some("cerebras_disable_reasoning")
         );
+    }
+
+    #[test]
+    fn resolves_independent_screen_vision_endpoint() {
+        let config = LlmProviderConfig {
+            active: DEEPSEEK.to_string(),
+            custom_model: Some("deepseek-v4-pro".to_string()),
+            screen_vision_enabled: true,
+            screen_vision_provider: Some(OPENAI.to_string()),
+            screen_vision_model: Some("gpt-4.1-mini".to_string()),
+            ..Default::default()
+        };
+
+        let endpoint = screen_vision_endpoint_for_config(&config).expect("vision endpoint");
+
+        assert_eq!(endpoint.provider, OPENAI);
+        assert_eq!(endpoint.model, "gpt-4.1-mini");
+        assert_eq!(endpoint.api_url, "https://api.openai.com/v1/responses");
+    }
+
+    #[test]
+    fn disabled_screen_vision_has_no_endpoint() {
+        let config = LlmProviderConfig {
+            screen_vision_provider: Some(OPENAI.to_string()),
+            screen_vision_model: Some("gpt-4.1-mini".to_string()),
+            ..Default::default()
+        };
+
+        assert!(screen_vision_endpoint_for_config(&config).is_none());
+    }
+
+    #[test]
+    fn official_deepseek_is_known_to_be_text_only() {
+        let official = endpoint_for_preview(
+            DEEPSEEK,
+            None,
+            Some("deepseek-v4-pro"),
+            ApiFormat::OpenaiCompat,
+        );
+        let custom = endpoint_for_preview(
+            CUSTOM,
+            Some("https://example.com/v1"),
+            Some("deepseek-v4-pro"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        assert_eq!(known_image_input_support(&official), Some(false));
+        assert_eq!(known_image_input_support(&custom), None);
     }
 }

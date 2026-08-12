@@ -196,6 +196,10 @@ export function setAiPolishScreenContextEnabled(enabled: boolean): Promise<void>
   return invokeCommand<void>("set_ai_polish_screen_context_enabled", { enabled });
 }
 
+export function setScreenContextEnabled(enabled: boolean): Promise<void> {
+  return invokeCommand<void>("set_screen_context_enabled", { enabled });
+}
+
 export function listAiModels(
   provider: string,
   baseUrl: string | undefined,
@@ -291,6 +295,26 @@ export function setLlmProviderConfig(
     args.assistantProviderSet = true;
   }
   return invokeCommand<void>("set_llm_provider_config", args);
+}
+
+export function setScreenVisionConfig(
+  enabled: boolean,
+  provider: string,
+  model: string,
+): Promise<void> {
+  return invokeCommand<void>("set_screen_vision_config", {
+    enabled,
+    provider,
+    model,
+  });
+}
+
+export function getScreenVisionApiKey(provider: string): Promise<string> {
+  return invokeCommand<string>("get_screen_vision_api_key", { provider });
+}
+
+export function setScreenVisionApiKey(provider: string, apiKey: string): Promise<void> {
+  return invokeCommand<void>("set_screen_vision_api_key", { provider, apiKey });
 }
 
 export function setAssistantApiKey(apiKey: string): Promise<void> {

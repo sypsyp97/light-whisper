@@ -39,6 +39,7 @@ const tauriMock = vi.hoisted(() => ({
   removeHotWord: vi.fn(),
   setAiPolishConfig: vi.fn(),
   setAiPolishScreenContextEnabled: vi.fn(),
+  setScreenContextEnabled: vi.fn(),
   setAlibabaAsrModel: vi.fn(),
   setAssistantApiKey: vi.fn(),
   setAssistantHotkey: vi.fn(),

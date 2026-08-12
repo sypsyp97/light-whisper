@@ -7,8 +7,11 @@ use serde::Deserialize;
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions};
 use crate::services::{
     codex_oauth_service, llm_client, llm_provider, profile_service, screen_capture_service,
+    screen_vision_service,
 };
-use crate::state::user_profile::{CorrectionSource, LlmReasoningMode, PolishStructureLevel};
+use crate::state::user_profile::{
+    CorrectionSource, LlmReasoningMode, PolishStructureLevel, UserProfile,
+};
 use crate::state::AppState;
 use crate::utils::foreground::ForegroundApp;
 
@@ -562,8 +565,27 @@ async fn send_llm_request_with_fallback(
                 );
             }
 
+            let fallback_text =
+                match screen_vision_service::describe_images(state, app_handle, &user_input.images)
+                    .await
+                {
+                    Ok(description) => {
+                        log::info!("AI 润色已通过视觉代理保留屏幕上下文");
+                        screen_vision_service::with_screen_description(
+                            &user_input.text,
+                            &description,
+                        )
+                    }
+                    Err(vision_err) => {
+                        log::warn!(
+                            "AI 润色视觉代理不可用，继续无屏幕上下文请求: {}",
+                            vision_err
+                        );
+                        screen_vision_service::without_screen_context(&user_input.text)
+                    }
+                };
             let fallback_input = llm_client::LlmUserInput {
-                text: user_input.text.clone(),
+                text: fallback_text,
                 images: Vec::new(),
             };
             send_llm_request_with_transport_fallback(
@@ -752,6 +774,7 @@ pub async fn polish_text_with_overrides_detailed(
     let user_input_start = std::time::Instant::now();
     let user_input = build_polish_user_input(
         state,
+        app_handle,
         &endpoint,
         &api_key,
         text,
@@ -1041,8 +1064,10 @@ fn render_polish_user_content(
     sections.join("\n\n")
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_polish_user_input(
     state: &AppState,
+    app_handle: &tauri::AppHandle,
     endpoint: &llm_provider::LlmEndpoint,
     api_key: &str,
     text: &str,
@@ -1051,7 +1076,7 @@ async fn build_polish_user_input(
     app_context_override: Option<&str>,
 ) -> llm_client::LlmUserInput {
     let screen_context_enabled = screen_context_override
-        .unwrap_or_else(|| state.with_profile(|profile| profile.ai_polish_screen_context_enabled));
+        .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
     let cache_key = llm_provider::image_support_cache_key(endpoint);
     let cached_image_support = state.assistant_image_support(&cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
@@ -1085,13 +1110,14 @@ async fn build_polish_user_input(
         None
     };
     let effective_image_support = cached_image_support.or(probed_image_support);
+    let screen_vision_enabled = screen_vision_service::is_enabled(state);
 
     let foreground_still_matches = || {
         screen_context_foreground.is_none()
             || crate::utils::foreground::get_foreground_app().as_ref() == screen_context_foreground
     };
     let images = if screen_context_enabled
-        && effective_image_support != Some(false)
+        && (effective_image_support != Some(false) || screen_vision_enabled)
         && foreground_still_matches()
     {
         let capture_start = std::time::Instant::now();
@@ -1134,15 +1160,35 @@ async fn build_polish_user_input(
         {
             log::warn!("AI 润色截图前前台窗口已变化，跳过截图并继续纯文本请求");
         }
-        if screen_context_enabled && effective_image_support == Some(false) {
+        if screen_context_enabled
+            && effective_image_support == Some(false)
+            && !screen_vision_enabled
+        {
             log::info!(
-                "当前 AI 润色模型已缓存为不支持图片输入，跳过屏幕截图上下文: provider={}, model={}",
+                "当前 AI 润色模型不支持图片输入且视觉代理已关闭，跳过屏幕截图上下文: provider={}, model={}",
                 endpoint.provider,
                 endpoint.model
             );
         }
         Vec::new()
     };
+
+    if effective_image_support == Some(false) && !images.is_empty() {
+        let base_text = build_user_content(text, true, app_context_override);
+        return match screen_vision_service::describe_images(state, app_handle, &images).await {
+            Ok(description) => llm_client::LlmUserInput {
+                text: screen_vision_service::with_screen_description(&base_text, &description),
+                images: Vec::new(),
+            },
+            Err(err) => {
+                log::warn!("AI 润色视觉代理读取失败，继续无屏幕上下文请求: {}", err);
+                llm_client::LlmUserInput {
+                    text: screen_vision_service::without_screen_context(&base_text),
+                    images: Vec::new(),
+                }
+            }
+        };
+    }
 
     llm_client::LlmUserInput {
         text: build_user_content(text, !images.is_empty(), app_context_override),

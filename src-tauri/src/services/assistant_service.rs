@@ -7,7 +7,8 @@ use tauri::Emitter;
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
 use crate::services::{
-    codex_oauth_service, llm_client, llm_provider, screen_capture_service, web_search_service,
+    codex_oauth_service, llm_client, llm_provider, screen_capture_service, screen_vision_service,
+    web_search_service,
 };
 use crate::state::user_profile::{UserProfile, WebSearchConfig, WebSearchProvider};
 use crate::state::AppState;
@@ -915,7 +916,7 @@ async fn generate_content_inner(
 
     let screen_context_enabled = request_context
         .screen_context_enabled
-        .unwrap_or_else(|| state.with_profile(|profile| profile.assistant_screen_context_enabled));
+        .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
     let image_support_cache_key = llm_provider::image_support_cache_key(&endpoint);
     let cached_image_support = state.assistant_image_support(&image_support_cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {
@@ -939,13 +940,14 @@ async fn generate_content_inner(
         None
     };
     let effective_image_support = cached_image_support.or(probed_image_support);
+    let screen_vision_enabled = screen_vision_service::is_enabled(state);
 
     let foreground_still_matches = || {
         let current = crate::utils::foreground::get_foreground_app();
         request_context.foreground_matches(current.as_ref())
     };
-    let images = if screen_context_enabled
-        && effective_image_support != Some(false)
+    let mut images = if screen_context_enabled
+        && (effective_image_support != Some(false) || screen_vision_enabled)
         && foreground_still_matches()
     {
         match screen_capture_service::capture_full_screen_context_async().await {
@@ -971,9 +973,12 @@ async fn generate_content_inner(
             }
         }
     } else {
-        if screen_context_enabled && effective_image_support == Some(false) {
+        if screen_context_enabled
+            && effective_image_support == Some(false)
+            && !screen_vision_enabled
+        {
             log::info!(
-                "当前助手模型已缓存为不支持图片输入，跳过屏幕截图上下文: provider={}, model={}",
+                "当前助手模型不支持图片输入且视觉代理已关闭，跳过屏幕截图上下文: provider={}, model={}",
                 endpoint.provider,
                 endpoint.model
             );
@@ -983,24 +988,44 @@ async fn generate_content_inner(
         Vec::new()
     };
 
+    let screen_description = if effective_image_support == Some(false) && !images.is_empty() {
+        match screen_vision_service::describe_images(state, app_handle, &images).await {
+            Ok(description) => {
+                images.clear();
+                Some(description)
+            }
+            Err(err) => {
+                log::warn!("助手视觉代理读取失败，继续无屏幕上下文请求: {}", err);
+                images.clear();
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let has_screen_context = !images.is_empty() || screen_description.is_some();
+
     let mut user_content = if let Some(conversation) = conversation {
         build_conversation_user_content(
             conversation.initial_request,
             conversation.initial_response,
             conversation.history,
             asr_text,
-            !images.is_empty(),
+            has_screen_context,
         )
     } else if request_context.bound_to_recording {
         render_assistant_user_content(
             request_context.app_context.as_deref(),
             asr_text,
             selected_text,
-            !images.is_empty(),
+            has_screen_context,
         )
     } else {
-        build_assistant_user_content_with_selection(asr_text, selected_text, !images.is_empty())
+        build_assistant_user_content_with_selection(asr_text, selected_text, has_screen_context)
     };
+    if let Some(description) = screen_description.as_deref() {
+        user_content = screen_vision_service::with_screen_description(&user_content, description);
+    }
     if let Some(search_context) = external_search_context {
         user_content.push_str("\n\n");
         user_content.push_str(&search_context);
@@ -1051,8 +1076,21 @@ async fn generate_content_inner(
                 err
             );
             state.set_assistant_image_support(image_support_cache_key.clone(), false);
+            let fallback_text =
+                match screen_vision_service::describe_images(state, app_handle, &user_input.images)
+                    .await
+                {
+                    Ok(description) => {
+                        log::info!("助手已通过视觉代理保留屏幕上下文");
+                        screen_vision_service::with_screen_description(&user_content, &description)
+                    }
+                    Err(vision_err) => {
+                        log::warn!("助手视觉代理不可用，继续无屏幕上下文请求: {}", vision_err);
+                        screen_vision_service::without_screen_context(&user_content)
+                    }
+                };
             let fallback_input = LlmUserInput {
-                text: user_content.clone(),
+                text: fallback_text,
                 images: Vec::new(),
             };
             let fallback_body = llm_client::build_llm_body(

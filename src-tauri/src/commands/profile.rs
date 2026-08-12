@@ -352,6 +352,75 @@ pub async fn set_llm_provider_config(
 }
 
 #[tauri::command]
+pub async fn set_screen_vision_config(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+    provider: Option<String>,
+    model: Option<String>,
+) -> Result<(), String> {
+    let provider = provider
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let model = model
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if enabled {
+        let valid = state.with_profile(|profile| {
+            let mut config = profile.llm_provider.clone();
+            config.screen_vision_enabled = true;
+            config.screen_vision_provider = provider.clone();
+            config.screen_vision_model = model.clone();
+            config.has_valid_screen_vision_model()
+        });
+        if !valid {
+            return Err("请选择有效的视觉模型供应商和模型".to_string());
+        }
+    }
+
+    profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile.llm_provider.screen_vision_enabled = enabled;
+        if provider.is_some() {
+            profile.llm_provider.screen_vision_provider = provider.clone();
+        }
+        if model.is_some() {
+            profile.llm_provider.screen_vision_model = model.clone();
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_screen_vision_api_key(
+    app_handle: tauri::AppHandle,
+    provider: String,
+) -> Result<String, String> {
+    let provider = provider.trim();
+    if provider.is_empty() {
+        return Err("视觉模型供应商不能为空".to_string());
+    }
+    Ok(llm_provider::load_api_key_for_provider(
+        &app_handle,
+        provider,
+    ))
+}
+
+#[tauri::command]
+pub async fn set_screen_vision_api_key(
+    app_handle: tauri::AppHandle,
+    provider: String,
+    api_key: String,
+) -> Result<(), String> {
+    let provider = provider.trim();
+    if provider.is_empty() {
+        return Err("视觉模型供应商不能为空".to_string());
+    }
+    let keyring_user = llm_provider::keyring_user_for_provider(provider);
+    llm_provider::save_or_delete_api_key(&app_handle, &keyring_user, api_key.trim());
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_llm_reasoning_support(
     provider: String,
     base_url: Option<String>,

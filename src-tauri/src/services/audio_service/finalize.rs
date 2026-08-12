@@ -511,13 +511,12 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     } else if mode == RecordingMode::Assistant {
         let original_request = text;
         let assistant_started = Instant::now();
-        let requested_polish_screen_context =
-            app_profile.screen_context_enabled.unwrap_or_else(|| {
-                state.with_profile(|profile| profile.ai_polish_screen_context_enabled)
-            });
-        let assistant_screen_context = app_profile.screen_context_enabled.unwrap_or_else(|| {
-            state.with_profile(|profile| profile.assistant_screen_context_enabled)
-        });
+        let requested_polish_screen_context = app_profile
+            .screen_context_enabled
+            .unwrap_or_else(|| state.with_profile(|profile| profile.screen_context_enabled()));
+        let assistant_screen_context = app_profile
+            .screen_context_enabled
+            .unwrap_or_else(|| state.with_profile(|profile| profile.screen_context_enabled()));
         let assistant_request_context = assistant_service::AssistantRequestContext::for_recording(
             assistant_screen_context,
             foreground_app.clone(),
@@ -664,9 +663,9 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 DictationOutputMode::Original => Some(None),
                 DictationOutputMode::Translated => None,
             });
-        let requested_screen_context = app_profile.screen_context_enabled.unwrap_or_else(|| {
-            state.with_profile(|profile| profile.ai_polish_screen_context_enabled)
-        });
+        let requested_screen_context = app_profile
+            .screen_context_enabled
+            .unwrap_or_else(|| state.with_profile(|profile| profile.screen_context_enabled()));
         let current_foreground = requested_screen_context
             .then(crate::utils::foreground::get_foreground_app)
             .flatten();

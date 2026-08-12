@@ -447,6 +447,48 @@ describe("setPolishStructureLevel payload", () => {
   });
 });
 
+describe("screen vision IPC payloads", () => {
+  it("persists one shared screen-context switch", async () => {
+    const { setScreenContextEnabled } = await import("@/api/tauri");
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setScreenContextEnabled(true);
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("set_screen_context_enabled", {
+      enabled: true,
+    });
+  });
+
+  it("persists the fallback provider and model", async () => {
+    const { setScreenVisionConfig } = await import("@/api/tauri");
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setScreenVisionConfig(true, "openai", "gpt-4.1-mini");
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("set_screen_vision_config", {
+      enabled: true,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+    });
+  });
+
+  it("reads and writes the key for the explicitly selected provider", async () => {
+    const { getScreenVisionApiKey, setScreenVisionApiKey } = await import("@/api/tauri");
+    invokeMock.invoke.mockResolvedValueOnce("stored-key").mockResolvedValueOnce(undefined);
+
+    await expect(getScreenVisionApiKey("openai")).resolves.toBe("stored-key");
+    await setScreenVisionApiKey("openai", "new-key");
+
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(1, "get_screen_vision_api_key", {
+      provider: "openai",
+    });
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(2, "set_screen_vision_api_key", {
+      provider: "openai",
+      apiKey: "new-key",
+    });
+  });
+});
+
 describe("setCorrectionValidationConfig payload", () => {
   it("omits provider/model set flags when those fields are not updated", async () => {
     const mod = await import("@/api/tauri");
