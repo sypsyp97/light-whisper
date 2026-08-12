@@ -162,170 +162,198 @@ async fn dispatch_and_capture_with_reasoning(
 }
 
 #[tokio::test]
-async fn deepseek_native_web_search_flash_assistant_dispatches_responses_wire_request() {
-    let config = separate_assistant_config("deepseek", "deepseek-v4-flash", Vec::new());
-    let polish_endpoint = endpoint_for_config(&config);
-    let assistant_endpoint = assistant_endpoint_for_config(&config);
+async fn deepseek_native_web_search_v4_assistant_dispatches_responses_wire_request() {
+    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let config = separate_assistant_config("deepseek", model, Vec::new());
+        let polish_endpoint = endpoint_for_config(&config);
+        let assistant_endpoint = assistant_endpoint_for_config(&config);
 
-    assert_eq!(polish_endpoint.provider, "cerebras");
-    assert_eq!(assistant_endpoint.provider, "deepseek");
-    assert_eq!(assistant_endpoint.model, "deepseek-v4-flash");
+        assert_eq!(polish_endpoint.provider, "cerebras");
+        assert_eq!(assistant_endpoint.provider, "deepseek");
+        assert_eq!(assistant_endpoint.model, model);
 
-    let (result, captured) = dispatch_and_capture(
-        assistant_endpoint,
-        "/v1/chat/completions",
-        responses_response("searched answer"),
-        true,
-    )
-    .await;
-
-    assert_eq!(captured.path, "/v1/responses");
-    assert_eq!(
-        captured.body["tools"],
-        serde_json::json!([{ "type": "web_search" }])
-    );
-    assert!(captured.body.get("input").is_some());
-    assert!(captured.body.get("messages").is_none());
-    assert!(captured.body.get("thinking").is_none());
-    assert!(captured.body.get("reasoning").is_none());
-    assert_eq!(
-        result.expect("Responses payload should parse"),
-        "searched answer"
-    );
-}
-
-#[tokio::test]
-async fn deepseek_flash_reasoning_route_provider_default_uses_responses_wire_request() {
-    let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
-        "deepseek",
-        "deepseek-v4-flash",
-        Vec::new(),
-    ));
-
-    let (result, captured) = dispatch_and_capture_with_reasoning(
-        endpoint,
-        "/v1/chat/completions",
-        responses_response("ordinary answer"),
-        false,
-        LlmReasoningMode::ProviderDefault,
-    )
-    .await;
-
-    assert_eq!(captured.path, "/v1/responses");
-    assert!(captured.body.get("tools").is_none());
-    assert!(captured.body.get("input").is_some());
-    assert!(captured.body.get("messages").is_none());
-    assert!(captured.body.get("thinking").is_none());
-    assert!(captured.body.get("reasoning").is_none());
-    assert_eq!(
-        result.expect("Responses payload should parse"),
-        "ordinary answer"
-    );
-}
-
-#[tokio::test]
-async fn deepseek_flash_reasoning_route_maps_explicit_modes_to_responses_effort() {
-    for (reasoning_mode, expected_effort) in [
-        (LlmReasoningMode::Light, "low"),
-        (LlmReasoningMode::Balanced, "medium"),
-        (LlmReasoningMode::Deep, "high"),
-    ] {
-        let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
-            "deepseek",
-            "deepseek-v4-flash",
-            Vec::new(),
-        ));
-        let (result, captured) = dispatch_and_capture_with_reasoning(
-            endpoint,
+        let (result, captured) = dispatch_and_capture(
+            assistant_endpoint,
             "/v1/chat/completions",
-            responses_response("reasoned answer"),
-            false,
-            reasoning_mode,
+            responses_response("searched answer"),
+            true,
         )
         .await;
 
-        assert_eq!(captured.path, "/v1/responses", "mode={reasoning_mode:?}");
-        assert!(
-            captured.body.get("input").is_some(),
-            "mode={reasoning_mode:?}"
-        );
-        assert!(
-            captured.body.get("messages").is_none(),
-            "mode={reasoning_mode:?}"
-        );
+        assert_eq!(captured.path, "/v1/responses", "model={model}");
         assert_eq!(
-            captured.body["reasoning"]["effort"], expected_effort,
-            "mode={reasoning_mode:?}"
+            captured.body["tools"],
+            serde_json::json!([{ "type": "web_search" }]),
+            "model={model}"
         );
-        assert!(
-            captured.body.get("thinking").is_none(),
-            "DeepSeek Responses ignores top-level thinking; mode={reasoning_mode:?}"
-        );
+        assert!(captured.body.get("input").is_some(), "model={model}");
+        assert!(captured.body.get("messages").is_none(), "model={model}");
+        assert!(captured.body.get("thinking").is_none(), "model={model}");
+        assert!(captured.body.get("reasoning").is_none(), "model={model}");
         assert_eq!(
             result.expect("Responses payload should parse"),
-            "reasoned answer",
-            "mode={reasoning_mode:?}"
+            "searched answer",
+            "model={model}"
         );
     }
 }
 
 #[tokio::test]
-async fn deepseek_flash_reasoning_route_off_keeps_chat_and_disables_thinking() {
-    let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
-        "deepseek",
-        "deepseek-v4-flash",
-        Vec::new(),
-    ));
-    let (result, captured) = dispatch_and_capture_with_reasoning(
-        endpoint,
-        "/v1/chat/completions",
-        chat_response("direct answer"),
-        false,
-        LlmReasoningMode::Off,
-    )
-    .await;
+async fn deepseek_v4_reasoning_route_provider_default_uses_responses_wire_request() {
+    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
+            "deepseek",
+            model,
+            Vec::new(),
+        ));
 
-    assert_eq!(captured.path, "/v1/chat/completions");
-    assert!(captured.body.get("messages").is_some());
-    assert!(captured.body.get("input").is_none());
-    assert_eq!(captured.body["thinking"]["type"], "disabled");
-    assert!(captured.body.get("reasoning").is_none());
-    assert_eq!(result.expect("Chat payload should parse"), "direct answer");
+        let (result, captured) = dispatch_and_capture_with_reasoning(
+            endpoint,
+            "/v1/chat/completions",
+            responses_response("ordinary answer"),
+            false,
+            LlmReasoningMode::ProviderDefault,
+        )
+        .await;
+
+        assert_eq!(captured.path, "/v1/responses", "model={model}");
+        assert!(captured.body.get("tools").is_none(), "model={model}");
+        assert!(captured.body.get("input").is_some(), "model={model}");
+        assert!(captured.body.get("messages").is_none(), "model={model}");
+        assert!(captured.body.get("thinking").is_none(), "model={model}");
+        assert!(captured.body.get("reasoning").is_none(), "model={model}");
+        assert_eq!(
+            result.expect("Responses payload should parse"),
+            "ordinary answer",
+            "model={model}"
+        );
+    }
 }
 
 #[tokio::test]
-async fn deepseek_flash_reasoning_route_web_search_overrides_off_to_responses() {
-    let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
-        "deepseek",
-        "deepseek-v4-flash",
-        Vec::new(),
-    ));
-    let (result, captured) = dispatch_and_capture_with_reasoning(
-        endpoint,
-        "/v1/chat/completions",
-        responses_response("searched answer"),
-        true,
-        LlmReasoningMode::Off,
-    )
-    .await;
+async fn deepseek_v4_reasoning_route_maps_explicit_modes_to_responses_effort() {
+    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        for (reasoning_mode, expected_effort) in [
+            (LlmReasoningMode::Light, "low"),
+            (LlmReasoningMode::Balanced, "medium"),
+            (LlmReasoningMode::Deep, "high"),
+        ] {
+            let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
+                "deepseek",
+                model,
+                Vec::new(),
+            ));
+            let (result, captured) = dispatch_and_capture_with_reasoning(
+                endpoint,
+                "/v1/chat/completions",
+                responses_response("reasoned answer"),
+                false,
+                reasoning_mode,
+            )
+            .await;
 
-    assert_eq!(captured.path, "/v1/responses");
-    assert_eq!(
-        captured.body["tools"],
-        serde_json::json!([{ "type": "web_search" }])
-    );
-    assert!(captured.body.get("input").is_some());
-    assert!(captured.body.get("messages").is_none());
-    assert!(captured.body.get("thinking").is_none());
-    assert!(captured.body.get("reasoning").is_none());
-    assert_eq!(
-        result.expect("Responses payload should parse"),
-        "searched answer"
-    );
+            assert_eq!(
+                captured.path, "/v1/responses",
+                "model={model}, mode={reasoning_mode:?}"
+            );
+            assert!(
+                captured.body.get("input").is_some(),
+                "model={model}, mode={reasoning_mode:?}"
+            );
+            assert!(
+                captured.body.get("messages").is_none(),
+                "model={model}, mode={reasoning_mode:?}"
+            );
+            assert_eq!(
+                captured.body["reasoning"]["effort"], expected_effort,
+                "model={model}, mode={reasoning_mode:?}"
+            );
+            assert!(
+                captured.body.get("thinking").is_none(),
+                "DeepSeek Responses ignores top-level thinking; model={model}, mode={reasoning_mode:?}"
+            );
+            assert_eq!(
+                result.expect("Responses payload should parse"),
+                "reasoned answer",
+                "model={model}, mode={reasoning_mode:?}"
+            );
+        }
+    }
 }
 
 #[tokio::test]
-async fn deepseek_flash_reasoning_route_keeps_legacy_models_on_chat_with_off_control() {
+async fn deepseek_v4_reasoning_route_off_uses_responses_and_disables_thinking() {
+    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
+            "deepseek",
+            model,
+            Vec::new(),
+        ));
+        let (result, captured) = dispatch_and_capture_with_reasoning(
+            endpoint,
+            "/v1/chat/completions",
+            responses_response("direct answer"),
+            false,
+            LlmReasoningMode::Off,
+        )
+        .await;
+
+        assert_eq!(captured.path, "/v1/responses", "model={model}");
+        assert!(captured.body.get("input").is_some(), "model={model}");
+        assert!(captured.body.get("messages").is_none(), "model={model}");
+        assert_eq!(
+            captured.body["reasoning"]["effort"], "none",
+            "model={model}"
+        );
+        assert!(captured.body.get("thinking").is_none(), "model={model}");
+        assert_eq!(
+            result.expect("Responses payload should parse"),
+            "direct answer",
+            "model={model}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn deepseek_v4_reasoning_route_web_search_overrides_off_to_responses() {
+    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
+            "deepseek",
+            model,
+            Vec::new(),
+        ));
+        let (result, captured) = dispatch_and_capture_with_reasoning(
+            endpoint,
+            "/v1/chat/completions",
+            responses_response("searched answer"),
+            true,
+            LlmReasoningMode::Off,
+        )
+        .await;
+
+        assert_eq!(captured.path, "/v1/responses", "model={model}");
+        assert_eq!(
+            captured.body["tools"],
+            serde_json::json!([{ "type": "web_search" }]),
+            "model={model}"
+        );
+        assert!(captured.body.get("input").is_some(), "model={model}");
+        assert!(captured.body.get("messages").is_none(), "model={model}");
+        assert!(captured.body.get("thinking").is_none(), "model={model}");
+        assert_eq!(
+            captured.body["reasoning"]["effort"], "none",
+            "model={model}"
+        );
+        assert_eq!(
+            result.expect("Responses payload should parse"),
+            "searched answer",
+            "model={model}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn deepseek_v4_reasoning_route_keeps_legacy_models_on_chat_with_off_control() {
     for model in ["deepseek-chat", "deepseek-reasoner"] {
         let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
             "deepseek",
@@ -358,9 +386,8 @@ async fn deepseek_flash_reasoning_route_keeps_legacy_models_on_chat_with_off_con
 }
 
 #[tokio::test]
-async fn deepseek_flash_reasoning_route_keeps_non_target_providers_and_models_on_chat() {
+async fn deepseek_v4_reasoning_route_keeps_non_target_providers_and_models_on_chat() {
     let cases = [
-        ("deepseek", "deepseek-v4-pro", Vec::new()),
         ("deepseek", "deepseek-v4-flash-preview", Vec::new()),
         (
             "custom-deepseek-gateway",
@@ -413,7 +440,7 @@ async fn deepseek_flash_reasoning_route_keeps_non_target_providers_and_models_on
 }
 
 #[tokio::test]
-async fn deepseek_flash_reasoning_route_keeps_openai_on_responses() {
+async fn deepseek_v4_reasoning_route_keeps_openai_on_responses() {
     let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
         "openai",
         "gpt-4.1-mini",
@@ -438,8 +465,8 @@ async fn deepseek_flash_reasoning_route_keeps_openai_on_responses() {
 }
 
 #[tokio::test]
-async fn deepseek_native_web_search_requires_exact_flash_model() {
-    for model in ["deepseek-v4-pro", "deepseek-v4-flash-preview"] {
+async fn deepseek_native_web_search_requires_exact_v4_model() {
+    for model in ["deepseek-v4-flash-preview", "deepseek-chat"] {
         let endpoint = assistant_endpoint_for_config(&separate_assistant_config(
             "deepseek",
             model,
@@ -567,28 +594,36 @@ async fn deepseek_native_web_search_keeps_custom_anthropic_dispatch() {
 }
 
 #[tokio::test]
-async fn deepseek_flash_reasoning_route_off_keeps_deepseek_polish_on_chat() {
-    let config = LlmProviderConfig {
-        active: "deepseek".to_string(),
-        custom_model: Some("deepseek-v4-flash".to_string()),
-        ..LlmProviderConfig::default()
-    };
-    let endpoint = endpoint_for_config(&config);
+async fn deepseek_v4_reasoning_route_off_keeps_deepseek_polish_on_responses() {
+    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let config = LlmProviderConfig {
+            active: "deepseek".to_string(),
+            custom_model: Some(model.to_string()),
+            ..LlmProviderConfig::default()
+        };
+        let endpoint = endpoint_for_config(&config);
 
-    let (result, captured) = dispatch_and_capture_with_reasoning(
-        endpoint,
-        "/v1/chat/completions",
-        chat_response("polished"),
-        false,
-        LlmReasoningMode::Off,
-    )
-    .await;
+        let (result, captured) = dispatch_and_capture_with_reasoning(
+            endpoint,
+            "/v1/chat/completions",
+            responses_response("polished"),
+            false,
+            LlmReasoningMode::Off,
+        )
+        .await;
 
-    assert_eq!(captured.path, "/v1/chat/completions");
-    assert!(captured.body.get("tools").is_none());
-    assert!(captured.body.get("messages").is_some());
-    assert_eq!(
-        result.expect("polish Chat payload should parse"),
-        "polished"
-    );
+        assert_eq!(captured.path, "/v1/responses", "model={model}");
+        assert!(captured.body.get("tools").is_none(), "model={model}");
+        assert!(captured.body.get("input").is_some(), "model={model}");
+        assert!(captured.body.get("messages").is_none(), "model={model}");
+        assert_eq!(
+            captured.body["reasoning"]["effort"], "none",
+            "model={model}"
+        );
+        assert_eq!(
+            result.expect("polish Responses payload should parse"),
+            "polished",
+            "model={model}"
+        );
+    }
 }
