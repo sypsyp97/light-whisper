@@ -700,6 +700,45 @@ pub fn is_volcengine_like_endpoint(endpoint: &LlmEndpoint) -> bool {
         || model.contains("seed-")
 }
 
+fn is_xai_like_endpoint(endpoint: &LlmEndpoint) -> bool {
+    endpoint.provider == XAI
+        || endpoint_host_matches(endpoint, "api.x.ai")
+        || endpoint_host_matches(endpoint, "cli-chat-proxy.grok.com")
+}
+
+fn grok_model_tail(model: &str) -> &str {
+    let normalized = model.trim();
+    normalized.rsplit('/').next().unwrap_or(normalized)
+}
+
+fn supports_xai_reasoning(model: &str) -> bool {
+    grok_model_tail(model)
+        .to_ascii_lowercase()
+        .starts_with("grok-")
+}
+
+fn grok_supports_disabled_reasoning(model: &str) -> bool {
+    let tail = grok_model_tail(model).to_ascii_lowercase();
+    tail.starts_with("grok-4.3") || tail.starts_with("grok-3")
+}
+
+/// Grok 4.5/4.6 cannot disable reasoning; omitted effort defaults to high.
+fn grok_effort_for_mode(model: &str, mode: LlmReasoningMode) -> Option<&'static str> {
+    match mode {
+        LlmReasoningMode::Off => {
+            if grok_supports_disabled_reasoning(model) {
+                Some("none")
+            } else {
+                Some("low")
+            }
+        }
+        LlmReasoningMode::Light => Some("low"),
+        LlmReasoningMode::Balanced => Some("medium"),
+        LlmReasoningMode::Deep => Some("high"),
+        LlmReasoningMode::ProviderDefault => None,
+    }
+}
+
 fn is_deepseek_like_endpoint(endpoint: &LlmEndpoint) -> bool {
     endpoint.provider == DEEPSEEK || endpoint_host_matches(endpoint, "deepseek.com")
 }
@@ -832,6 +871,7 @@ fn supports_deepseek_thinking(model: &str) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReasoningControlKind {
     OpenaiEffort,
+    XaiReasoningEffort,
     AnthropicThinking,
     DeepSeekThinkingToggle,
     SiliconFlowThinkingBudget,
@@ -845,6 +885,7 @@ impl ReasoningControlKind {
     fn strategy_name(self) -> &'static str {
         match self {
             Self::OpenaiEffort => "openai_reasoning_effort",
+            Self::XaiReasoningEffort => "xai_reasoning_effort",
             Self::AnthropicThinking => "anthropic_thinking",
             Self::DeepSeekThinkingToggle => "deepseek_thinking",
             Self::SiliconFlowThinkingBudget => "siliconflow_thinking_budget",
@@ -859,6 +900,9 @@ impl ReasoningControlKind {
         match self {
             Self::OpenaiEffort => {
                 "当前模型支持 reasoning effort；关闭/轻量/标准/深度会映射为对应的推理强度。"
+            }
+            Self::XaiReasoningEffort => {
+                "当前 Grok 模型支持 reasoning.effort；关闭/轻量会映射为 low（Grok 4.5/4.6 无法关闭思考，省略参数会默认 high）。"
             }
             Self::AnthropicThinking => {
                 "当前模型支持 extended thinking；会映射为 thinking + budget_tokens。"
@@ -909,6 +953,10 @@ fn reasoning_control_kind(
 
     if is_siliconflow_like_endpoint(endpoint) && supports_siliconflow_reasoning(model) {
         return Some(ReasoningControlKind::SiliconFlowThinkingBudget);
+    }
+
+    if is_xai_like_endpoint(endpoint) && supports_xai_reasoning(model) {
+        return Some(ReasoningControlKind::XaiReasoningEffort);
     }
 
     if is_cerebras_like_endpoint(endpoint) && supports_cerebras_reasoning(model) {
@@ -1290,6 +1338,17 @@ pub fn apply_reasoning_controls(
         }
         (ReasoningControlKind::OpenaiEffort, _) => {
             let Some(effort) = openai_gpt5_effort_for_mode(&endpoint.model, mode) else {
+                return;
+            };
+
+            if uses_responses_api {
+                body["reasoning"] = serde_json::json!({ "effort": effort });
+            } else {
+                body["reasoning_effort"] = serde_json::json!(effort);
+            }
+        }
+        (ReasoningControlKind::XaiReasoningEffort, _) => {
+            let Some(effort) = grok_effort_for_mode(&endpoint.model, mode) else {
                 return;
             };
 
@@ -2365,6 +2424,76 @@ mod tests {
         };
 
         assert!(screen_vision_endpoint_for_config(&config).is_none());
+    }
+
+    #[test]
+    fn grok_4_6_reports_xai_reasoning_support_instead_of_auto_probe() {
+        let endpoint = endpoint_for_preview(XAI, None, Some("grok-4.6"), ApiFormat::OpenaiCompat);
+
+        let support = reasoning_support(&endpoint, true);
+
+        assert!(support.supported);
+        assert_eq!(support.strategy.as_deref(), Some("xai_reasoning_effort"));
+    }
+
+    #[test]
+    fn grok_4_6_off_sends_reasoning_effort_low_on_responses() {
+        let endpoint = endpoint_for_preview(XAI, None, Some("grok-4.6"), ApiFormat::OpenaiCompat);
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, true, &mut body, LlmReasoningMode::Off);
+
+        assert_eq!(body["reasoning"]["effort"], serde_json::json!("low"));
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn grok_4_6_reasoning_modes_map_to_xai_efforts() {
+        let endpoint = endpoint_for_preview(XAI, None, Some("grok-4.6"), ApiFormat::OpenaiCompat);
+
+        assert_eq!(
+            reasoning_efforts_for_modes(&endpoint),
+            strings(&["low", "low", "medium", "high"])
+        );
+    }
+
+    #[test]
+    fn grok_4_6_chat_completions_use_top_level_reasoning_effort() {
+        let endpoint = endpoint_for_preview(XAI, None, Some("grok-4.6"), ApiFormat::OpenaiCompat);
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Off);
+
+        assert_eq!(body["reasoning_effort"], serde_json::json!("low"));
+        assert!(body.get("reasoning").is_none());
+        assert!(body.get("thinking").is_none());
+    }
+
+    #[test]
+    fn grok_4_3_off_can_disable_reasoning() {
+        let endpoint = endpoint_for_preview(XAI, None, Some("grok-4.3"), ApiFormat::OpenaiCompat);
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, true, &mut body, LlmReasoningMode::Off);
+
+        assert_eq!(body["reasoning"]["effort"], serde_json::json!("none"));
+    }
+
+    #[test]
+    fn grok_4_6_provider_default_omits_effort() {
+        let endpoint = endpoint_for_preview(XAI, None, Some("grok-4.6"), ApiFormat::OpenaiCompat);
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(
+            &endpoint,
+            true,
+            &mut body,
+            LlmReasoningMode::ProviderDefault,
+        );
+
+        assert!(body.get("reasoning").is_none());
+        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]
