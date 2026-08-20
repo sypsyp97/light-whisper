@@ -7,6 +7,7 @@ const tauriMock = vi.hoisted(() => ({
   addCustomProvider: vi.fn(),
   addHotWord: vi.fn(),
   checkAppUpdate: vi.fn(),
+  completeGrokBuildOauthDeviceCode: vi.fn(),
   completeOpenaiCodexOauthDeviceCode: vi.fn(),
   copyToClipboard: vi.fn(),
   disableAutostart: vi.fn(),
@@ -68,7 +69,6 @@ const tauriMock = vi.hoisted(() => ({
   startMicrophoneLevelMonitor: vi.fn(),
   startGrokBuildOauthDeviceCode: vi.fn(),
   startOpenaiCodexOauthDeviceCode: vi.fn(),
-  completeGrokBuildOauthDeviceCode: vi.fn(),
   stopMicrophoneLevelMonitor: vi.fn(),
   testMicrophone: vi.fn(),
   validateCorrections: vi.fn(),
@@ -227,8 +227,8 @@ function resetTauriMocks(exportPath: string | null = null) {
     region: "international",
     url: "https://api.zhipuai.cn",
   });
-  tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: false });
   tauriMock.getGrokBuildOauthStatus.mockResolvedValue({ loggedIn: false });
+  tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: false });
   tauriMock.getUserProfile.mockResolvedValue(profile);
   tauriMock.getWebSearchApiKey.mockResolvedValue("");
   tauriMock.isAutostartEnabled.mockResolvedValue(false);
@@ -245,6 +245,12 @@ function resetTauriMocks(exportPath: string | null = null) {
   tauriMock.setOnlineAsrEndpoint.mockResolvedValue({
     region: "international",
     url: "https://api.zhipuai.cn",
+  });
+  tauriMock.startGrokBuildOauthDeviceCode.mockResolvedValue({
+    deviceCode: "device",
+    intervalSecs: 5,
+    userCode: "CODE-123",
+    verificationUrl: "https://example.com",
   });
   tauriMock.startOpenaiCodexOauthDeviceCode.mockResolvedValue({
     deviceAuthId: "device",

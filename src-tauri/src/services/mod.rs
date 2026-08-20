@@ -26,4 +26,6 @@ mod deepseek_native_web_search_tests;
 #[cfg(test)]
 mod llm_reasoning_negotiation_tests;
 #[cfg(test)]
+mod grok_build_oauth_tests;
+#[cfg(test)]
 mod openai_fast_mode_oauth_tests;

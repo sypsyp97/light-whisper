@@ -327,6 +327,38 @@ describe("listAiModels payload", () => {
       xaiAuthMode: null,
     });
   });
+
+  it("forwards an explicit xAI auth mode as the optional sixth argument", async () => {
+    invokeMock.invoke.mockResolvedValueOnce({ models: [], sourceUrl: "" });
+
+    const { listAiModels } = await import("@/api/tauri");
+    await listAiModels("xai", undefined, "", true, undefined, "oauth");
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("list_ai_models", {
+      provider: "xai",
+      baseUrl: null,
+      apiKey: "",
+      forceRefresh: true,
+      openaiAuthMode: null,
+      xaiAuthMode: "oauth",
+    });
+  });
+
+  it("keeps OpenAI and xAI auth modes independent when both are provided", async () => {
+    invokeMock.invoke.mockResolvedValueOnce({ models: [], sourceUrl: "" });
+
+    const { listAiModels } = await import("@/api/tauri");
+    await listAiModels("openai", "https://api.openai.com", "sk-test", false, "oauth", "api_key");
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("list_ai_models", {
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-test",
+      forceRefresh: false,
+      openaiAuthMode: "oauth",
+      xaiAuthMode: "api_key",
+    });
+  });
 });
 
 describe("setLlmProviderConfig payload", () => {
@@ -432,6 +464,155 @@ describe("setLlmProviderConfig payload", () => {
         assistantProviderSet: true,
       }),
     );
+  });
+
+  it("forwards xaiAuthMode as the optional last argument", async () => {
+    const mod = await import("@/api/tauri");
+    const { setLlmProviderConfig } = mod as {
+      setLlmProviderConfig: (
+        active: string,
+        customBaseUrl?: string,
+        customModel?: string,
+        polishReasoningMode?: string,
+        assistantReasoningMode?: string,
+        assistantUseSeparateModel?: boolean,
+        assistantModel?: string,
+        assistantProvider?: string | null,
+        openaiAuthMode?: string | null,
+        xaiAuthMode?: string | null,
+      ) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setLlmProviderConfig(
+      "xai",
+      undefined,
+      "grok-4.6",
+      "provider_default",
+      "provider_default",
+      false,
+      undefined,
+      undefined,
+      null,
+      "oauth",
+    );
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "set_llm_provider_config",
+      expect.objectContaining({
+        active: "xai",
+        openaiAuthMode: null,
+        xaiAuthMode: "oauth",
+      }),
+    );
+  });
+
+  it("sends xaiAuthMode null when the caller omits the last argument", async () => {
+    const mod = await import("@/api/tauri");
+    const { setLlmProviderConfig } = mod as {
+      setLlmProviderConfig: (
+        active: string,
+        customBaseUrl?: string,
+        customModel?: string,
+        polishReasoningMode?: string,
+        assistantReasoningMode?: string,
+        assistantUseSeparateModel?: boolean,
+        assistantModel?: string,
+        assistantProvider?: string | null,
+        openaiAuthMode?: string | null,
+        xaiAuthMode?: string | null,
+      ) => Promise<void>;
+    };
+    invokeMock.invoke.mockResolvedValueOnce(undefined);
+
+    await setLlmProviderConfig(
+      "openai",
+      undefined,
+      "gpt-4.1-mini",
+      "balanced",
+      "light",
+      false,
+      undefined,
+      undefined,
+      "oauth",
+    );
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith(
+      "set_llm_provider_config",
+      expect.objectContaining({
+        openaiAuthMode: "oauth",
+        xaiAuthMode: null,
+      }),
+    );
+  });
+});
+
+describe("Grok Build OAuth IPC wrappers", () => {
+  it("invokes status, login, device-code start, and logout without arguments", async () => {
+    const {
+      getGrokBuildOauthStatus,
+      loginGrokBuildOauth,
+      startGrokBuildOauthDeviceCode,
+      logoutGrokBuildOauth,
+    } = await import("@/api/tauri");
+
+    invokeMock.invoke
+      .mockResolvedValueOnce({ loggedIn: false })
+      .mockResolvedValueOnce({
+        loggedIn: true,
+        email: "user@example.com",
+        planType: "super",
+        accountId: "acc-1",
+        expiresAtMs: 1_700_000_000_000,
+      })
+      .mockResolvedValueOnce({
+        verificationUrl: "https://auth.x.ai/device",
+        userCode: "ABCD-1234",
+        deviceCode: "device-code",
+        intervalSecs: 5,
+      })
+      .mockResolvedValueOnce(undefined);
+
+    await expect(getGrokBuildOauthStatus()).resolves.toEqual({ loggedIn: false });
+    await expect(loginGrokBuildOauth()).resolves.toEqual({
+      loggedIn: true,
+      email: "user@example.com",
+      planType: "super",
+      accountId: "acc-1",
+      expiresAtMs: 1_700_000_000_000,
+    });
+    await expect(startGrokBuildOauthDeviceCode()).resolves.toEqual({
+      verificationUrl: "https://auth.x.ai/device",
+      userCode: "ABCD-1234",
+      deviceCode: "device-code",
+      intervalSecs: 5,
+    });
+    await expect(logoutGrokBuildOauth()).resolves.toBeUndefined();
+
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(1, "get_grok_build_oauth_status");
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(2, "login_grok_build_oauth");
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(3, "start_grok_build_oauth_device_code");
+    expect(invokeMock.invoke).toHaveBeenNthCalledWith(4, "logout_grok_build_oauth");
+  });
+
+  it("forwards the device-code challenge as { challenge }", async () => {
+    const { completeGrokBuildOauthDeviceCode } = await import("@/api/tauri");
+    const challenge = {
+      verificationUrl: "https://auth.x.ai/device",
+      userCode: "ABCD-1234",
+      deviceCode: "device-code",
+      intervalSecs: 5,
+    };
+    invokeMock.invoke.mockResolvedValueOnce({ loggedIn: true, email: "user@example.com" });
+
+    await expect(completeGrokBuildOauthDeviceCode(challenge)).resolves.toEqual({
+      loggedIn: true,
+      email: "user@example.com",
+    });
+
+    expect(invokeMock.invoke).toHaveBeenCalledWith("complete_grok_build_oauth_device_code", {
+      challenge,
+    });
   });
 });
 
