@@ -6,6 +6,7 @@ use serde_json::Value;
 use tauri_plugin_keyring::KeyringExt;
 
 use crate::services::codex_oauth_service;
+use crate::services::grok_build_oauth_service;
 use crate::state::user_profile::{ApiFormat, CustomProvider, LlmProviderConfig, LlmReasoningMode};
 use crate::state::AppState;
 
@@ -22,12 +23,13 @@ pub const KEYRING_SERVICE: &str = "light-whisper";
 
 const CEREBRAS: &str = "cerebras";
 const OPENAI: &str = "openai";
+const XAI: &str = "xai";
 const DEEPSEEK: &str = "deepseek";
 const SILICONFLOW: &str = "siliconflow";
 const CUSTOM: &str = "custom";
 
 /// 预置服务商列表（用于判断是否为预置）
-const PRESET_PROVIDERS: &[&str] = &[CEREBRAS, OPENAI, DEEPSEEK, SILICONFLOW, CUSTOM];
+const PRESET_PROVIDERS: &[&str] = &[CEREBRAS, OPENAI, XAI, DEEPSEEK, SILICONFLOW, CUSTOM];
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct LlmReasoningSupport {
@@ -64,6 +66,7 @@ static AUTO_REASONING_STRATEGY_CACHE: OnceLock<
 fn default_endpoint_parts(provider: &str) -> (&'static str, &'static str, u64) {
     match provider {
         OPENAI => ("https://api.openai.com", "gpt-4.1-mini", 10),
+        XAI => ("https://api.x.ai", "grok-4.6", 10),
         DEEPSEEK => ("https://api.deepseek.com", "deepseek-v4-flash", 10),
         SILICONFLOW => ("https://api.siliconflow.cn", "Qwen/Qwen3-32B", 10),
         CUSTOM => ("http://127.0.0.1:8000", "gpt-4.1-mini", 10),
@@ -73,7 +76,7 @@ fn default_endpoint_parts(provider: &str) -> (&'static str, &'static str, u64) {
 
 fn default_api_suffix(provider: &str) -> &'static str {
     match provider {
-        OPENAI => "responses",
+        OPENAI | XAI => "responses",
         _ => "chat/completions",
     }
 }
@@ -544,6 +547,7 @@ pub fn endpoint_for_preview(
             screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
+            xai_auth_mode: None,
         }
     } else {
         LlmProviderConfig {
@@ -575,6 +579,7 @@ pub fn endpoint_for_preview(
             screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
+            xai_auth_mode: None,
         }
     };
 
@@ -1354,6 +1359,7 @@ fn normalize_anthropic_models_url(base_url: &str) -> String {
 pub fn keyring_user_for_provider(provider: &str) -> String {
     match provider {
         OPENAI => "openai-api-key".to_string(),
+        XAI => "xai-api-key".to_string(),
         DEEPSEEK => "deepseek-api-key".to_string(),
         SILICONFLOW => "siliconflow-api-key".to_string(),
         CUSTOM => "custom-api-key".to_string(),
@@ -1397,6 +1403,10 @@ pub fn build_auth_headers(
                     "User-Agent",
                     parse(codex_oauth_service::CHATGPT_BEARER_USER_AGENT)?,
                 );
+            } else if let Some(token) =
+                grok_build_oauth_service::decode_grok_build_oauth_access_token(api_key)
+            {
+                headers.insert("Authorization", parse(&format!("Bearer {token}"))?);
             } else {
                 let bearer_api_key = codex_oauth_service::decode_oauth_api_key(api_key)
                     .unwrap_or_else(|| api_key.to_string());
@@ -1480,6 +1490,7 @@ mod tests {
             screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
+            xai_auth_mode: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1517,6 +1528,7 @@ mod tests {
             screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
+            xai_auth_mode: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1550,6 +1562,7 @@ mod tests {
             screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
+            xai_auth_mode: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1618,6 +1631,7 @@ mod tests {
             screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
+            xai_auth_mode: None,
         };
 
         let endpoint = endpoint_for_config(&config);
@@ -1655,6 +1669,7 @@ mod tests {
             screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
+            xai_auth_mode: None,
         };
 
         let endpoint = assistant_endpoint_for_config(&config);
@@ -1698,6 +1713,7 @@ mod tests {
             screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
+            xai_auth_mode: None,
         };
 
         let endpoint = assistant_endpoint_for_config(&config);

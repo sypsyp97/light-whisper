@@ -9,12 +9,14 @@ use tauri_plugin_keyring::KeyringExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
+use crate::services::grok_build_oauth_service;
 use crate::services::llm_provider::KEYRING_SERVICE;
-use crate::state::user_profile::{LlmProviderConfig, OpenaiAuthMode};
+use crate::state::user_profile::{LlmProviderConfig, OpenaiAuthMode, XaiAuthMode};
 use crate::state::AppState;
 use crate::utils::paths;
 
 const OPENAI_PROVIDER: &str = "openai";
+const XAI_PROVIDER: &str = "xai";
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const ISSUER: &str = "https://auth.openai.com";
 pub const ORIGINATOR: &str = "codex_cli_rs";
@@ -1147,8 +1149,15 @@ pub async fn resolve_api_key_for_provider(
     provider: &str,
     manual_api_key: &str,
 ) -> Result<String, String> {
-    resolve_api_key_for_provider_with_auth_mode(app_handle, state, provider, manual_api_key, None)
-        .await
+    resolve_api_key_for_provider_with_auth_mode(
+        app_handle,
+        state,
+        provider,
+        manual_api_key,
+        None,
+        None,
+    )
+    .await
 }
 
 pub async fn resolve_api_key_for_provider_with_auth_mode(
@@ -1157,8 +1166,23 @@ pub async fn resolve_api_key_for_provider_with_auth_mode(
     provider: &str,
     manual_api_key: &str,
     auth_mode_override: Option<OpenaiAuthMode>,
+    xai_auth_mode_override: Option<XaiAuthMode>,
 ) -> Result<String, String> {
     let manual_api_key = manual_api_key.trim();
+
+    if provider == XAI_PROVIDER {
+        let stored_mode = state.llm_provider_config().xai_auth_mode;
+        let effective_mode = grok_build_oauth_service::effective_xai_auth_mode(
+            xai_auth_mode_override.or(stored_mode),
+            state.read_grok_build_oauth_session().is_some(),
+        );
+        return match effective_mode {
+            XaiAuthMode::ApiKey => Ok(manual_api_key.to_string()),
+            XaiAuthMode::Oauth => {
+                grok_build_oauth_service::resolve_oauth_origin_api_key(app_handle, state).await
+            }
+        };
+    }
 
     // 非 OpenAI provider：直接返回用户填的 key（可能为空，由调用方决定报错）
     if provider != OPENAI_PROVIDER {

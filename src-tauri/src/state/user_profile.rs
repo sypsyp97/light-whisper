@@ -378,6 +378,14 @@ pub enum OpenaiAuthMode {
     Oauth,
 }
 
+/// xAI 认证方式选择（仅当 active / assistant provider 为 xai 时生效）
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum XaiAuthMode {
+    ApiKey,
+    Oauth,
+}
+
 /// AI 润色的结构化改写强度。与模型推理深度彼此独立。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -489,6 +497,10 @@ pub struct LlmProviderConfig {
     /// 用户侧叫 "fast mode / 快速模式"，wire 值是 "priority"（对齐官方 Codex CLI）。
     #[serde(default)]
     pub openai_fast_mode: bool,
+    /// xAI 认证方式：None = 用户未显式选择（resolver 按 Grok Build 登录状态推断智能默认）；
+    /// Some(ApiKey) / Some(Oauth) = 用户通过设置页明确选定后存进来
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xai_auth_mode: Option<XaiAuthMode>,
 }
 
 impl Default for LlmProviderConfig {
@@ -516,6 +528,7 @@ impl Default for LlmProviderConfig {
             screen_vision_model: None,
             openai_auth_mode: None,
             openai_fast_mode: false,
+            xai_auth_mode: None,
         }
     }
 }
@@ -524,7 +537,7 @@ impl LlmProviderConfig {
     fn is_builtin_provider(provider: &str) -> bool {
         matches!(
             provider,
-            "cerebras" | "openai" | "deepseek" | "siliconflow" | "custom"
+            "cerebras" | "openai" | "xai" | "deepseek" | "siliconflow" | "custom"
         )
     }
 

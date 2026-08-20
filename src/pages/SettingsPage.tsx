@@ -21,6 +21,7 @@ import {
   setAiPolishConfig,
   setScreenContextEnabled,
   getAiPolishApiKey,
+  getGrokBuildOauthStatus,
   getOpenaiCodexOauthStatus,
   getUserProfile,
   addHotWord,
@@ -59,9 +60,13 @@ import {
   getLlmReasoningSupport,
   setAssistantApiKey,
   getAssistantApiKey,
+  loginGrokBuildOauth,
   loginOpenaiCodexOauth,
+  startGrokBuildOauthDeviceCode,
   startOpenaiCodexOauthDeviceCode,
+  completeGrokBuildOauthDeviceCode,
   completeOpenaiCodexOauthDeviceCode,
+  logoutGrokBuildOauth,
   logoutOpenaiCodexOauth,
   copyToClipboard,
   setOpenaiFastMode,
@@ -70,7 +75,7 @@ import {
   getWebSearchApiKey,
   hideMainWindow,
 } from "@/api/tauri";
-import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, PolishStructureLevel, WebSearchProvider } from "@/types";
+import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, GrokBuildOauthDeviceCodeChallenge, GrokBuildOauthStatus, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, PolishStructureLevel, WebSearchProvider, XaiAuthMode } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
@@ -93,6 +98,11 @@ import {
   resolveEffectiveAssistantProvider,
   shouldShowFastModeToggle,
 } from "@/lib/fastMode";
+import {
+  effectiveXaiAuthMode,
+  shouldShowGrokBuildAuth,
+  shouldUseGrokBuildOauth,
+} from "@/lib/grokBuildAuth";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
 import {
   resolveAssistantLlmReasoningProbeTarget,
@@ -373,6 +383,9 @@ export default function SettingsPage({
   const [openaiCodexOauthStatus, setOpenaiCodexOauthStatus] = useState<OpenaiCodexOauthStatus>({ loggedIn: false });
   const [openaiCodexOauthLoading, setOpenaiCodexOauthLoading] = useState(false);
   const [openaiCodexOauthDeviceCode, setOpenaiCodexOauthDeviceCode] = useState<OpenaiCodexOauthDeviceCodeChallenge | null>(null);
+  const [grokBuildOauthStatus, setGrokBuildOauthStatus] = useState<GrokBuildOauthStatus>({ loggedIn: false });
+  const [grokBuildOauthLoading, setGrokBuildOauthLoading] = useState(false);
+  const [grokBuildOauthDeviceCode, setGrokBuildOauthDeviceCode] = useState<GrokBuildOauthDeviceCodeChallenge | null>(null);
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
@@ -415,6 +428,7 @@ export default function SettingsPage({
   const [assistantApiKeyState, setAssistantApiKeyState] = useState("");
   // null = 用户未显式选择，effectiveOpenaiAuthMode 会根据 OAuth 登录态给出智能默认
   const [openaiAuthMode, setOpenaiAuthModeState] = useState<OpenaiAuthMode | null>(null);
+  const [xaiAuthMode, setXaiAuthModeState] = useState<XaiAuthMode | null>(null);
   const [openaiFastMode, setOpenaiFastModeState] = useState<boolean>(false);
   const [polishReasoningMode, setPolishReasoningMode] = useState<LlmReasoningMode>("provider_default");
   const [assistantReasoningMode, setAssistantReasoningMode] = useState<LlmReasoningMode>("provider_default");
@@ -455,27 +469,50 @@ export default function SettingsPage({
   // 的默认推断逻辑完全对齐，避免 UI 显示和实际请求走向不一致。
   const effectiveOpenaiAuthMode: OpenaiAuthMode =
     openaiAuthMode ?? (openaiCodexOauthStatus.loggedIn ? "oauth" : "api_key");
+  const effectiveXaiAuthModeValue: XaiAuthMode = effectiveXaiAuthMode({
+    storedMode: xaiAuthMode,
+    loggedIn: grokBuildOauthStatus.loggedIn,
+  });
   const assistantUsesOpenaiOauth =
     effectiveAssistantProvider === "openai"
     && effectiveOpenaiAuthMode === "oauth"
     && openaiCodexOauthStatus.loggedIn;
-  const polishHasAuth = llmProvider === "openai"
-    ? (effectiveOpenaiAuthMode === "oauth" ? openaiCodexOauthStatus.loggedIn : !!polishManualApiKey)
-    : !!polishManualApiKey;
-  const assistantHasAuth = effectiveAssistantProvider === "openai"
-    ? (effectiveOpenaiAuthMode === "oauth" ? openaiCodexOauthStatus.loggedIn : !!assistantManualApiKey)
-    : !!assistantManualApiKey;
+  const polishHasAuth = shouldUseGrokBuildOauth({
+    provider: llmProvider,
+    authMode: effectiveXaiAuthModeValue,
+    loggedIn: grokBuildOauthStatus.loggedIn,
+  })
+    || (llmProvider === "openai"
+      ? (effectiveOpenaiAuthMode === "oauth" ? openaiCodexOauthStatus.loggedIn : !!polishManualApiKey)
+      : llmProvider !== "xai" && !!polishManualApiKey)
+    || (llmProvider === "xai" && effectiveXaiAuthModeValue === "api_key" && !!polishManualApiKey);
+  const assistantHasAuth = shouldUseGrokBuildOauth({
+    provider: effectiveAssistantProvider,
+    authMode: effectiveXaiAuthModeValue,
+    loggedIn: grokBuildOauthStatus.loggedIn,
+  })
+    || (effectiveAssistantProvider === "openai"
+      ? (effectiveOpenaiAuthMode === "oauth" ? openaiCodexOauthStatus.loggedIn : !!assistantManualApiKey)
+      : effectiveAssistantProvider !== "xai" && !!assistantManualApiKey)
+    || (effectiveAssistantProvider === "xai" && effectiveXaiAuthModeValue === "api_key" && !!assistantManualApiKey);
   const oauthModelIdentity = [
     openaiCodexOauthStatus.loggedIn ? "connected" : "disconnected",
     openaiCodexOauthStatus.accountId ?? "",
     openaiCodexOauthStatus.email ?? "",
+  ].join(":");
+  const grokOauthModelIdentity = [
+    grokBuildOauthStatus.loggedIn ? "connected" : "disconnected",
+    grokBuildOauthStatus.accountId ?? "",
+    grokBuildOauthStatus.email ?? "",
   ].join(":");
   const polishModelsContext = JSON.stringify([
     llmProvider,
     customBaseUrl.trim(),
     llmProvider === "openai" && effectiveOpenaiAuthMode === "oauth"
       ? `oauth:${oauthModelIdentity}`
-      : `key:${polishManualApiKey}`,
+      : llmProvider === "xai" && effectiveXaiAuthModeValue === "oauth"
+        ? `grok-oauth:${grokOauthModelIdentity}`
+        : `key:${polishManualApiKey}`,
   ]);
   const assistantCustomProvider = customProviders.find(
     (provider) => provider.id === effectiveAssistantProvider,
@@ -485,7 +522,9 @@ export default function SettingsPage({
     assistantCustomProvider?.base_url ?? findLlmPreset(effectiveAssistantProvider).baseUrl,
     effectiveAssistantProvider === "openai" && effectiveOpenaiAuthMode === "oauth"
       ? `oauth:${oauthModelIdentity}`
-      : `key:${assistantManualApiKey}`,
+      : effectiveAssistantProvider === "xai" && effectiveXaiAuthModeValue === "oauth"
+        ? `grok-oauth:${grokOauthModelIdentity}`
+        : `key:${assistantManualApiKey}`,
   ]);
 
   // --- Profile & misc ---
@@ -574,6 +613,7 @@ export default function SettingsPage({
       nextAssistantModel || undefined,
       nextAssistantProvider,
       openaiAuthMode,
+      xaiAuthMode,
     ).catch(() => {});
   }, 400, { onUnmount: "flush" });
 
@@ -718,6 +758,18 @@ export default function SettingsPage({
     }
   }, []);
 
+  const refreshGrokBuildOauthStatus = useCallback(async () => {
+    try {
+      const status = await getGrokBuildOauthStatus();
+      setGrokBuildOauthStatus(status);
+      return status;
+    } catch {
+      const fallback = { loggedIn: false } as GrokBuildOauthStatus;
+      setGrokBuildOauthStatus(fallback);
+      return fallback;
+    }
+  }, []);
+
   // 从系统密钥环加载 API Key，并同步 enabled 状态到后端
   useEffect(() => {
     void refreshAiPolishKey(readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
@@ -772,6 +824,10 @@ export default function SettingsPage({
       setOpenaiAuthModeState(
         storedAuthMode === "api_key" || storedAuthMode === "oauth" ? storedAuthMode : null,
       );
+      const storedXaiAuthMode = p.llm_provider.xai_auth_mode;
+      setXaiAuthModeState(
+        storedXaiAuthMode === "api_key" || storedXaiAuthMode === "oauth" ? storedXaiAuthMode : null,
+      );
       setOpenaiFastModeState(Boolean(p.llm_provider.openai_fast_mode));
       updateProviderDraft(nextProvider, nextBaseUrl, nextModel);
       setTranslationTargetState(p.translation_target ?? null);
@@ -809,12 +865,13 @@ export default function SettingsPage({
     refreshProfile().then((loadedProfile) => {
       void refreshAssistantKey();
       void refreshOpenaiCodexOauthStatus();
+      void refreshGrokBuildOauthStatus();
       void refreshScreenVisionKey(
         loadedProfile?.llm_provider.screen_vision_provider || DEFAULT_SCREEN_VISION_PROVIDER,
       );
       void refreshWebSearchKey(loadedProfile?.web_search?.provider ?? "model_native");
     });
-  }, [refreshProfile, refreshAssistantKey, refreshOpenaiCodexOauthStatus, refreshScreenVisionKey, refreshWebSearchKey]);
+  }, [refreshProfile, refreshAssistantKey, refreshGrokBuildOauthStatus, refreshOpenaiCodexOauthStatus, refreshScreenVisionKey, refreshWebSearchKey]);
 
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
@@ -1159,7 +1216,7 @@ export default function SettingsPage({
     if (!polishHasAuth) {
       setAiModels([]);
       setAiModelsSourceUrl("");
-      setAiModelsError(t("settings.apiKeyOrLoginMissing"));
+      setAiModelsError(t(llmProvider === "xai" ? "settings.apiKeyOrGrokLoginMissing" : "settings.apiKeyOrLoginMissing"));
       setAiModelsLoading(false);
       aiModelsContextRef.current = null;
       return;
@@ -1177,6 +1234,7 @@ export default function SettingsPage({
         apiKey,
         !silent,
         llmProvider === "openai" ? effectiveOpenaiAuthMode : undefined,
+        llmProvider === "xai" ? effectiveXaiAuthModeValue : undefined,
       );
       if (requestId !== aiModelsRequestIdRef.current) return;
       setAiModels(payload.models);
@@ -1198,7 +1256,7 @@ export default function SettingsPage({
         setAiModelsLoading(false);
       }
     }
-  }, [aiPolishApiKey, customBaseUrl, effectiveOpenaiAuthMode, llmProvider, polishHasAuth, polishModelsContext, t]);
+  }, [aiPolishApiKey, customBaseUrl, effectiveOpenaiAuthMode, effectiveXaiAuthModeValue, llmProvider, polishHasAuth, polishModelsContext, t]);
 
   const aiModelsFetch = useDebouncedCallback((silent: boolean) => {
     void refreshAiModels(silent);
@@ -1239,6 +1297,7 @@ export default function SettingsPage({
         apiKey,
         !silent,
         effectiveAssistantProvider === "openai" ? effectiveOpenaiAuthMode : undefined,
+        effectiveAssistantProvider === "xai" ? effectiveXaiAuthModeValue : undefined,
       );
       if (requestId !== assistantModelsRequestIdRef.current) return;
       setAssistantModels(payload.models);
@@ -1258,7 +1317,7 @@ export default function SettingsPage({
         setAssistantModelsLoading(false);
       }
     }
-  }, [aiModels, assistantApiKeyState, assistantHasAuth, assistantModelsContext, customProviders, effectiveAssistantProvider, effectiveOpenaiAuthMode, llmProvider, t]);
+  }, [aiModels, assistantApiKeyState, assistantHasAuth, assistantModelsContext, customProviders, effectiveAssistantProvider, effectiveOpenaiAuthMode, effectiveXaiAuthModeValue, llmProvider, t]);
 
   const assistantModelsFetch = useDebouncedCallback((silent: boolean) => {
     void refreshAssistantModels(silent);
@@ -1373,6 +1432,82 @@ export default function SettingsPage({
     setOpenaiCodexOauthDeviceCode(null);
     toast.success(t("toast.codexOauthLoginSuccess"));
   }, [effectiveAssistantProvider, llmProvider, refreshAiModels, refreshAssistantModels, refreshOpenaiCodexOauthStatus, t]);
+  const finalizeGrokBuildOauthLogin = useCallback(async (loginStatus: GrokBuildOauthStatus) => {
+    setGrokBuildOauthStatus(loginStatus);
+    const refreshedStatus = await refreshGrokBuildOauthStatus();
+    if (refreshedStatus.loggedIn) {
+      setGrokBuildOauthStatus(refreshedStatus);
+    }
+    if (llmProvider === "xai") {
+      void refreshAiModels(true);
+    }
+    if (effectiveAssistantProvider === "xai") {
+      void refreshAssistantModels(true);
+    }
+    setGrokBuildOauthDeviceCode(null);
+    toast.success(t("toast.grokBuildOauthLoginSuccess"));
+  }, [effectiveAssistantProvider, llmProvider, refreshAiModels, refreshAssistantModels, refreshGrokBuildOauthStatus, t]);
+  const handleGrokBuildOauthLogin = useCallback(async () => {
+    setGrokBuildOauthLoading(true);
+    try {
+      const loginStatus = await loginGrokBuildOauth();
+      await finalizeGrokBuildOauthLogin(loginStatus);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("toast.grokBuildOauthLoginFailed"));
+    } finally {
+      setGrokBuildOauthLoading(false);
+    }
+  }, [finalizeGrokBuildOauthLogin, t]);
+  const handleGrokBuildOauthDeviceCodeStart = useCallback(async () => {
+    setGrokBuildOauthLoading(true);
+    try {
+      const challenge = await startGrokBuildOauthDeviceCode();
+      setGrokBuildOauthDeviceCode(challenge);
+      toast.success(t("settings.grokBuildOauthDeviceCodeReady"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("toast.grokBuildOauthLoginFailed"));
+    } finally {
+      setGrokBuildOauthLoading(false);
+    }
+  }, [t]);
+  const handleGrokBuildOauthDeviceCodeComplete = useCallback(async () => {
+    if (!grokBuildOauthDeviceCode) return;
+    setGrokBuildOauthLoading(true);
+    try {
+      const loginStatus = await completeGrokBuildOauthDeviceCode(grokBuildOauthDeviceCode);
+      await finalizeGrokBuildOauthLogin(loginStatus);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("toast.grokBuildOauthLoginFailed"));
+    } finally {
+      setGrokBuildOauthLoading(false);
+    }
+  }, [finalizeGrokBuildOauthLogin, grokBuildOauthDeviceCode, t]);
+  const handleGrokBuildOauthLogout = useCallback(async () => {
+    setGrokBuildOauthLoading(true);
+    try {
+      await logoutGrokBuildOauth();
+      aiModelsRequestIdRef.current += 1;
+      assistantModelsRequestIdRef.current += 1;
+      const status = { loggedIn: false } as GrokBuildOauthStatus;
+      setGrokBuildOauthStatus(status);
+      setGrokBuildOauthDeviceCode(null);
+      if (llmProvider === "xai") {
+        aiModelsContextRef.current = null;
+        setAiModels([]);
+        setAiModelsSourceUrl("");
+      }
+      if (effectiveAssistantProvider === "xai") {
+        assistantModelsContextRef.current = null;
+        setAssistantModels([]);
+        setAssistantModelsError("");
+      }
+      toast.success(t("toast.grokBuildOauthLogoutSuccess"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("toast.grokBuildOauthLogoutFailed"));
+    } finally {
+      setGrokBuildOauthLoading(false);
+    }
+  }, [effectiveAssistantProvider, llmProvider, t]);
   const handleOpenaiCodexOauthLogin = useCallback(async () => {
     setOpenaiCodexOauthLoading(true);
     try {
@@ -1468,6 +1603,33 @@ export default function SettingsPage({
     llmProvider,
     openaiAuthMode,
     polishReasoningMode,
+  ]);
+
+  const handleXaiAuthModeChange = useCallback((mode: XaiAuthMode) => {
+    if (mode === effectiveXaiAuthModeValue && xaiAuthMode !== null) return;
+    setXaiAuthModeState(mode);
+    llmConfigSave.schedule(
+      llmProvider,
+      customBaseUrl,
+      customModel,
+      polishReasoningMode,
+      assistantReasoningMode,
+      assistantUseSeparateModel,
+      assistantModel,
+      assistantProviderToPersist,
+    );
+  }, [
+    assistantModel,
+    assistantReasoningMode,
+    assistantUseSeparateModel,
+    assistantProviderToPersist,
+    customBaseUrl,
+    customModel,
+    effectiveXaiAuthModeValue,
+    llmConfigSave,
+    llmProvider,
+    polishReasoningMode,
+    xaiAuthMode,
   ]);
 
   const renderOpenaiAuthModeToggle = useCallback(() => (
@@ -1643,6 +1805,140 @@ export default function SettingsPage({
       </div>
     );
   }, [effectiveAssistantProvider, effectiveOpenaiAuthMode, handleOpenaiCodexOauthDeviceCodeComplete, handleOpenaiCodexOauthDeviceCodeStart, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, handleOpenaiFastModeToggle, llmProvider, openaiCodexOauthDeviceCode, openaiCodexOauthLoading, openaiCodexOauthStatus, openaiFastMode, t]);
+
+  const renderXaiAuthModeToggle = useCallback(() => (
+    <div className="settings-column" style={{ gap: 6 }}>
+      <span className="settings-option-desc">{t("settings.xaiAuthModeLabel")}</span>
+      <div
+        role="radiogroup"
+        aria-label={t("settings.xaiAuthModeLabel")}
+        className="openai-auth-mode-toggle"
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={effectiveXaiAuthModeValue === "api_key"}
+          data-active={effectiveXaiAuthModeValue === "api_key"}
+          className="openai-auth-mode-toggle-btn"
+          onClick={() => handleXaiAuthModeChange("api_key")}
+        >
+          {t("settings.xaiAuthModeApiKey")}
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={effectiveXaiAuthModeValue === "oauth"}
+          data-active={effectiveXaiAuthModeValue === "oauth"}
+          className="openai-auth-mode-toggle-btn"
+          onClick={() => handleXaiAuthModeChange("oauth")}
+        >
+          {t("settings.xaiAuthModeOauth")}
+        </button>
+      </div>
+      <p className="settings-hint" style={{ margin: 0 }}>
+        {effectiveXaiAuthModeValue === "oauth"
+          ? t("settings.xaiAuthModeOauthHint")
+          : t("settings.xaiAuthModeApiKeyHint")}
+      </p>
+    </div>
+  ), [effectiveXaiAuthModeValue, handleXaiAuthModeChange, t]);
+
+  const renderGrokBuildOauthBlock = useCallback((
+    scope: "polish" | "assistant",
+    forceVisible = false,
+  ) => {
+    const visible = forceVisible
+      || (scope === "polish" ? shouldShowGrokBuildAuth(llmProvider) : shouldShowGrokBuildAuth(effectiveAssistantProvider));
+    if (!visible) return null;
+
+    const loggedIn = grokBuildOauthStatus.loggedIn;
+    const summaryParts = [
+      grokBuildOauthStatus.email,
+      grokBuildOauthStatus.planType,
+      grokBuildOauthStatus.accountId,
+    ].filter(Boolean);
+
+    return (
+      <div className="settings-column" style={{ gap: 6 }}>
+        <span className="settings-option-desc">{t("settings.grokBuildOauthLabel")}</span>
+        <p className="settings-hint" style={{ margin: 0 }}>
+          {loggedIn
+            ? t("settings.grokBuildOauthConnectedHint", { summary: summaryParts.join(" · ") || "xAI" })
+            : t("settings.grokBuildOauthHint")}
+        </p>
+        <div className="settings-row" style={{ gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            className="test-btn"
+            onClick={() => { void handleGrokBuildOauthLogin(); }}
+            disabled={grokBuildOauthLoading}
+            style={{ opacity: grokBuildOauthLoading ? 0.7 : 1 }}
+          >
+            {grokBuildOauthLoading
+              ? t("settings.grokBuildOauthWorking")
+              : loggedIn
+                ? t("settings.grokBuildOauthReauth")
+                : t("settings.grokBuildOauthLogin")}
+          </button>
+          {!loggedIn ? (
+            <button
+              type="button"
+              className="btn-ghost btn-ghost-sm"
+              onClick={() => { void handleGrokBuildOauthDeviceCodeStart(); }}
+              disabled={grokBuildOauthLoading}
+              style={{ opacity: grokBuildOauthLoading ? 0.7 : 1 }}
+            >
+              {t("settings.grokBuildOauthDeviceCodeLogin")}
+            </button>
+          ) : null}
+          {loggedIn ? (
+            <button
+              type="button"
+              className="btn-ghost btn-ghost-sm"
+              onClick={() => { void handleGrokBuildOauthLogout(); }}
+              disabled={grokBuildOauthLoading}
+              style={{ opacity: grokBuildOauthLoading ? 0.7 : 1 }}
+            >
+              {t("settings.grokBuildOauthLogout")}
+            </button>
+          ) : null}
+        </div>
+        {grokBuildOauthDeviceCode && !loggedIn ? (
+          <div className="settings-column" style={{ gap: 6 }}>
+            <p className="settings-hint" style={{ margin: 0 }}>
+              {t("settings.grokBuildOauthDeviceCodeReady")}
+            </p>
+            <code className="settings-hint" style={{ margin: 0, wordBreak: "break-all" }}>
+              {grokBuildOauthDeviceCode.verificationUrl}
+            </code>
+            <div className="settings-row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <code style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0 }}>
+                {grokBuildOauthDeviceCode.userCode}
+              </code>
+              <button
+                type="button"
+                className="btn-ghost btn-ghost-sm"
+                onClick={() => { void copyToClipboard(grokBuildOauthDeviceCode.userCode); }}
+              >
+                {t("common.copy")}
+              </button>
+              <button
+                type="button"
+                className="test-btn"
+                onClick={() => { void handleGrokBuildOauthDeviceCodeComplete(); }}
+                disabled={grokBuildOauthLoading}
+                style={{ opacity: grokBuildOauthLoading ? 0.7 : 1 }}
+              >
+                {grokBuildOauthLoading
+                  ? t("settings.grokBuildOauthWorking")
+                  : t("settings.grokBuildOauthDeviceCodeContinue")}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }, [effectiveAssistantProvider, grokBuildOauthDeviceCode, grokBuildOauthLoading, grokBuildOauthStatus, handleGrokBuildOauthDeviceCodeComplete, handleGrokBuildOauthDeviceCodeStart, handleGrokBuildOauthLogin, handleGrokBuildOauthLogout, llmProvider, t]);
   const allProviderOptions = useMemo(() => {
     const presets = llmProviderOptions.map((opt) => ({ key: opt.key, label: opt.label, desc: t(opt.descKey), baseUrl: opt.baseUrl, isCustom: false as const }));
     const customs = customProviders.map((cp) => ({
@@ -3064,6 +3360,10 @@ export default function SettingsPage({
                     openaiAuthMode={screenVisionProvider === "openai"
                       ? effectiveOpenaiAuthMode
                       : undefined}
+                    xaiAuthMode={screenVisionProvider === "xai"
+                      ? effectiveXaiAuthModeValue
+                      : undefined}
+                    grokLoggedIn={grokBuildOauthStatus.loggedIn}
                     providerOptions={allProviderOptions.filter(
                       (option) => option.key !== "deepseek",
                     )}
@@ -3264,6 +3564,7 @@ export default function SettingsPage({
                 </div>
 
                 {llmProvider === "openai" && renderOpenaiAuthModeToggle()}
+                {shouldShowGrokBuildAuth(llmProvider) && renderXaiAuthModeToggle()}
 
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">{t("settings.apiKey")}</span>
@@ -3280,6 +3581,7 @@ export default function SettingsPage({
                 </div>
 
                 {renderOpenaiCodexOauthBlock("polish")}
+                {shouldShowGrokBuildAuth(llmProvider) && renderGrokBuildOauthBlock("polish")}
 
                 <div className="settings-column" style={{ gap: 6 }}>
                   <div className="settings-row">
@@ -3401,7 +3703,7 @@ export default function SettingsPage({
                             <div className="picker-empty">
                               {aiModelsLoading
                                 ? t("settings.fetchModelsFromApi")
-                                : aiModelsError || t("settings.fillApiKeyOrLogin")}
+                                : aiModelsError || t(llmProvider === "xai" ? "settings.fillApiKeyOrGrokLogin" : "settings.fillApiKeyOrLogin")}
                             </div>
                           )}
                         </div>
@@ -3631,6 +3933,7 @@ export default function SettingsPage({
                   {assistantProviderDiffers ? (
                     <>
                       {effectiveAssistantProvider === "openai" && renderOpenaiAuthModeToggle()}
+                      {shouldShowGrokBuildAuth(effectiveAssistantProvider) && renderXaiAuthModeToggle()}
                       <div className="settings-column" style={{ gap: 4 }}>
                         <span className="settings-option-desc">{currentAssistantPreset.label} API Key</span>
                         <SecretInput
@@ -3645,6 +3948,7 @@ export default function SettingsPage({
                           }}
                         />
                       </div>
+                      {shouldShowGrokBuildAuth(effectiveAssistantProvider) && renderGrokBuildOauthBlock("assistant")}
                     </>
                   ) : null}
 
@@ -3761,9 +4065,11 @@ export default function SettingsPage({
                               {(assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading)
                                 ? t("settings.fetchModelsFromApi")
                                 : (assistantProviderDiffers && !assistantHasAuth)
-                                  ? t("settings.fillAssistantApiKeyOrLogin")
+                                  ? t(effectiveAssistantProvider === "xai" ? "settings.fillApiKeyOrGrokLogin" : "settings.fillAssistantApiKeyOrLogin")
                                   : (assistantProviderDiffers ? assistantModelsError : aiModelsError)
-                                    || t("settings.fillApiKeyOrLogin")}
+                                    || t((assistantProviderDiffers ? effectiveAssistantProvider : llmProvider) === "xai"
+                                      ? "settings.fillApiKeyOrGrokLogin"
+                                      : "settings.fillApiKeyOrLogin")}
                             </div>
                           )}
                         </div>
@@ -3980,12 +4286,16 @@ export default function SettingsPage({
             profile={profile}
             openaiAuthMode={effectiveOpenaiAuthMode}
             openaiOauthLoggedIn={openaiCodexOauthStatus.loggedIn}
+            xaiAuthMode={effectiveXaiAuthModeValue}
+            grokOauthLoggedIn={grokBuildOauthStatus.loggedIn}
             openaiControls={(
               <>
                 {renderOpenaiAuthModeToggle()}
                 {renderOpenaiCodexOauthBlock("assistant", true)}
               </>
             )}
+            grokAuthToggle={renderXaiAuthModeToggle()}
+            grokOauthBlock={renderGrokBuildOauthBlock("assistant", true)}
           />
 
           <TranslationSettingsSection

@@ -16,9 +16,12 @@ import type {
   LlmReasoningMode,
   LlmReasoningSupport,
   ModelCheckResult,
+  GrokBuildOauthDeviceCodeChallenge,
+  GrokBuildOauthStatus,
   OpenaiAuthMode,
   OpenaiCodexOauthDeviceCodeChallenge,
   OpenaiCodexOauthStatus,
+  XaiAuthMode,
   PersistentHistoryFilter,
   PersistentHistoryPage,
   PersistentHistoryRecord,
@@ -153,6 +156,15 @@ export function completeOpenaiCodexOauthDeviceCode(
   return invokeCommand<OpenaiCodexOauthStatus>("complete_openai_codex_oauth_device_code", { challenge });
 }
 export const logoutOpenaiCodexOauth = createNoArgCommand<void>("logout_openai_codex_oauth");
+export const getGrokBuildOauthStatus = createNoArgCommand<GrokBuildOauthStatus>("get_grok_build_oauth_status");
+export const loginGrokBuildOauth = createNoArgCommand<GrokBuildOauthStatus>("login_grok_build_oauth");
+export const startGrokBuildOauthDeviceCode = createNoArgCommand<GrokBuildOauthDeviceCodeChallenge>("start_grok_build_oauth_device_code");
+export function completeGrokBuildOauthDeviceCode(
+  challenge: GrokBuildOauthDeviceCodeChallenge
+): Promise<GrokBuildOauthStatus> {
+  return invokeCommand<GrokBuildOauthStatus>("complete_grok_build_oauth_device_code", { challenge });
+}
+export const logoutGrokBuildOauth = createNoArgCommand<void>("logout_grok_build_oauth");
 
 export const unregisterAllHotkeys = createNoArgCommand<string>("unregister_all_hotkeys");
 
@@ -206,6 +218,7 @@ export function listAiModels(
   apiKey: string,
   forceRefresh = false,
   openaiAuthMode?: OpenaiAuthMode,
+  xaiAuthMode?: XaiAuthMode,
 ): Promise<AiModelListPayload> {
   return invokeCommand<AiModelListPayload>("list_ai_models", {
     provider,
@@ -213,6 +226,7 @@ export function listAiModels(
     apiKey,
     forceRefresh,
     openaiAuthMode: openaiAuthMode ?? null,
+    xaiAuthMode: xaiAuthMode ?? null,
   });
 }
 
@@ -279,6 +293,7 @@ export function setLlmProviderConfig(
   assistantModel?: string,
   assistantProvider?: string | null,
   openaiAuthMode?: OpenaiAuthMode | null,
+  xaiAuthMode?: XaiAuthMode | null,
 ): Promise<void> {
   const args: InvokeArgs = {
     active,
@@ -289,6 +304,7 @@ export function setLlmProviderConfig(
     assistantUseSeparateModel: assistantUseSeparateModel ?? null,
     assistantModel: assistantModel ?? null,
     openaiAuthMode: openaiAuthMode ?? null,
+    xaiAuthMode: xaiAuthMode ?? null,
   };
   if (assistantProvider !== undefined) {
     args.assistantProvider = assistantProvider;

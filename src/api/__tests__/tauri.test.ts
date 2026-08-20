@@ -324,6 +324,7 @@ describe("listAiModels payload", () => {
       apiKey: "",
       forceRefresh: true,
       openaiAuthMode: "api_key",
+      xaiAuthMode: null,
     });
   });
 });

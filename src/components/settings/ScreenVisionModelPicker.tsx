@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { listAiModels } from "@/api/tauri";
-import type { AiModelInfo, OpenaiAuthMode } from "@/types";
+import { shouldUseGrokBuildOauth } from "@/lib/grokBuildAuth";
+import type { AiModelInfo, OpenaiAuthMode, XaiAuthMode } from "@/types";
 import ScreenVisionAuth from "@/components/settings/ScreenVisionAuth";
 
 interface ScreenVisionModelPickerProps {
@@ -15,6 +16,8 @@ interface ScreenVisionModelPickerProps {
   loggedIn: boolean;
   authIdentity: string;
   openaiAuthMode?: OpenaiAuthMode;
+  xaiAuthMode?: XaiAuthMode;
+  grokLoggedIn?: boolean;
   providerOptions: Array<{ key: string; label: string }>;
   onProviderChange: (provider: string) => void;
   onApiKeyChange: (value: string) => void;
@@ -31,6 +34,8 @@ export default function ScreenVisionModelPicker({
   loggedIn,
   authIdentity,
   openaiAuthMode,
+  xaiAuthMode,
+  grokLoggedIn = false,
   providerOptions,
   onProviderChange,
   onApiKeyChange,
@@ -47,15 +52,23 @@ export default function ScreenVisionModelPicker({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
-  const hasAuth = provider === "openai" && openaiAuthMode === "oauth"
-    ? loggedIn
-    : Boolean(apiKey.trim());
+  const hasAuth = shouldUseGrokBuildOauth({
+    provider,
+    authMode: xaiAuthMode ?? "api_key",
+    loggedIn: grokLoggedIn,
+  })
+    || (provider === "openai" && openaiAuthMode === "oauth"
+      ? loggedIn
+      : provider !== "xai" && Boolean(apiKey.trim()))
+    || (provider === "xai" && (xaiAuthMode ?? "api_key") === "api_key" && Boolean(apiKey.trim()));
   const requestContext = JSON.stringify([
     provider,
     baseUrl,
     apiKey.trim(),
     authIdentity,
     openaiAuthMode,
+    xaiAuthMode,
+    grokLoggedIn,
   ]);
   const contextRef = useRef<string | null>(null);
   const filteredModels = useMemo(() => {
@@ -71,7 +84,7 @@ export default function ScreenVisionModelPicker({
     if (!hasAuth) {
       setModels([]);
       setSourceUrl("");
-      setError(t("settings.apiKeyOrLoginMissing"));
+      setError(t(provider === "xai" ? "settings.apiKeyOrGrokLoginMissing" : "settings.apiKeyOrLoginMissing"));
       contextRef.current = null;
       return;
     }
@@ -84,6 +97,7 @@ export default function ScreenVisionModelPicker({
         apiKey.trim(),
         !silent,
         provider === "openai" ? openaiAuthMode : undefined,
+        provider === "xai" ? xaiAuthMode : undefined,
       );
       if (requestId !== requestIdRef.current) return;
       setModels(payload.models);
@@ -101,7 +115,7 @@ export default function ScreenVisionModelPicker({
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [apiKey, baseUrl, hasAuth, openaiAuthMode, provider, requestContext, t]);
+  }, [apiKey, baseUrl, grokLoggedIn, hasAuth, openaiAuthMode, provider, requestContext, t, xaiAuthMode]);
   const fetchModels = useDebouncedCallback((silent: boolean) => {
     void refresh(silent);
   }, 700);
@@ -252,7 +266,9 @@ export default function ScreenVisionModelPicker({
       <ScreenVisionAuth
         provider={provider}
         openaiAuthMode={openaiAuthMode ?? "api_key"}
+        xaiAuthMode={xaiAuthMode}
         loggedIn={loggedIn}
+        grokLoggedIn={grokLoggedIn}
         apiKey={apiKey}
         onChange={onApiKeyChange}
       />

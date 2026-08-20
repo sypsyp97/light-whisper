@@ -6,8 +6,10 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::services::{codex_oauth_service, llm_provider, profile_service};
-use crate::state::user_profile::{ApiFormat, OpenaiAuthMode};
+use crate::services::{
+    codex_oauth_service, grok_build_oauth_service, llm_provider, profile_service,
+};
+use crate::state::user_profile::{ApiFormat, OpenaiAuthMode, XaiAuthMode};
 use crate::state::AppState;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -258,7 +260,9 @@ fn codex_models_headers(
 }
 
 fn openai_models_bearer(api_key: &str) -> String {
-    codex_oauth_service::decode_oauth_api_key(api_key).unwrap_or_else(|| api_key.to_string())
+    grok_build_oauth_service::decode_grok_build_oauth_access_token(api_key)
+        .or_else(|| codex_oauth_service::decode_oauth_api_key(api_key))
+        .unwrap_or_else(|| api_key.to_string())
 }
 
 fn parse_models_payload(
@@ -376,6 +380,7 @@ fn codex_models_auth_context(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn list_ai_models(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -384,6 +389,7 @@ pub async fn list_ai_models(
     api_key: String,
     force_refresh: bool,
     openai_auth_mode: Option<OpenaiAuthMode>,
+    xai_auth_mode: Option<XaiAuthMode>,
 ) -> Result<AiModelListPayload, String> {
     let api_key = codex_oauth_service::resolve_api_key_for_provider_with_auth_mode(
         &app_handle,
@@ -391,9 +397,13 @@ pub async fn list_ai_models(
         &provider,
         &api_key,
         openai_auth_mode,
+        xai_auth_mode,
     )
     .await?;
     if api_key.is_empty() {
+        if provider == "xai" {
+            return Err("请先填写 API Key 或完成 Grok Build 登录".to_string());
+        }
         return Err("请先填写 API Key 或完成 OpenAI Codex 登录".to_string());
     }
 
@@ -410,6 +420,7 @@ pub async fn list_ai_models(
         .find(|p| p.id == provider)
         .is_some_and(|p| p.api_format == ApiFormat::Anthropic);
 
+    let grok_oauth_token = grok_build_oauth_service::decode_grok_build_oauth_access_token(&api_key);
     let model_list_format = if chatgpt_token.is_some() && inference_uses_chatgpt_backend {
         ModelListFormat::CodexChatgpt
     } else if chatgpt_token.is_some() {
@@ -419,6 +430,10 @@ pub async fn list_ai_models(
     };
     let source_url = if model_list_format.is_codex() {
         codex_models_source_url()
+    } else if grok_oauth_token.is_some() {
+        grok_build_oauth_service::GROK_BUILD_MODELS_URL.to_string()
+    } else if provider == "xai" {
+        grok_build_oauth_service::XAI_API_MODELS_URL.to_string()
     } else {
         llm_provider::models_url(&config, &provider, base_url.as_deref())
     };
@@ -454,6 +469,8 @@ pub async fn list_ai_models(
         ));
     if let Some(token) = chatgpt_token {
         req = req.headers(codex_models_headers(&token)?);
+    } else if let Some(token) = grok_oauth_token {
+        req = req.headers(grok_build_oauth_service::grok_cli_request_headers(&token)?);
     } else if is_anthropic {
         req = req
             .header("x-api-key", &api_key)

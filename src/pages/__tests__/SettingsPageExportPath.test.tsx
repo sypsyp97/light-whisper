@@ -20,6 +20,7 @@ const tauriMock = vi.hoisted(() => ({
   getModelsDir: vi.fn(),
   getOnlineAsrApiKey: vi.fn(),
   getOnlineAsrEndpoint: vi.fn(),
+  getGrokBuildOauthStatus: vi.fn(),
   getOpenaiCodexOauthStatus: vi.fn(),
   getUserProfile: vi.fn(),
   getWebSearchApiKey: vi.fn(),
@@ -29,7 +30,9 @@ const tauriMock = vi.hoisted(() => ({
   listAiModels: vi.fn(),
   listAlibabaAsrModels: vi.fn(),
   listInputDevices: vi.fn(),
+  loginGrokBuildOauth: vi.fn(),
   loginOpenaiCodexOauth: vi.fn(),
+  logoutGrokBuildOauth: vi.fn(),
   logoutOpenaiCodexOauth: vi.fn(),
   openAppReleasePage: vi.fn(),
   pasteText: vi.fn(),
@@ -63,7 +66,9 @@ const tauriMock = vi.hoisted(() => ({
   setWebSearchApiKey: vi.fn(),
   setWebSearchConfig: vi.fn(),
   startMicrophoneLevelMonitor: vi.fn(),
+  startGrokBuildOauthDeviceCode: vi.fn(),
   startOpenaiCodexOauthDeviceCode: vi.fn(),
+  completeGrokBuildOauthDeviceCode: vi.fn(),
   stopMicrophoneLevelMonitor: vi.fn(),
   testMicrophone: vi.fn(),
   validateCorrections: vi.fn(),
@@ -223,6 +228,7 @@ function resetTauriMocks(exportPath: string | null = null) {
     url: "https://api.zhipuai.cn",
   });
   tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: false });
+  tauriMock.getGrokBuildOauthStatus.mockResolvedValue({ loggedIn: false });
   tauriMock.getUserProfile.mockResolvedValue(profile);
   tauriMock.getWebSearchApiKey.mockResolvedValue("");
   tauriMock.isAutostartEnabled.mockResolvedValue(false);

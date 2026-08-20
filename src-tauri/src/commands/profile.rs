@@ -286,6 +286,7 @@ pub async fn set_llm_provider_config(
     assistant_provider: Option<String>,
     assistant_provider_set: Option<bool>,
     openai_auth_mode: Option<crate::state::user_profile::OpenaiAuthMode>,
+    xai_auth_mode: Option<crate::state::user_profile::XaiAuthMode>,
 ) -> Result<(), String> {
     let active_uses_custom_endpoint = active == "custom"
         || state.with_profile(|profile| {
@@ -326,6 +327,9 @@ pub async fn set_llm_provider_config(
         }
         if let Some(mode) = openai_auth_mode {
             profile.llm_provider.openai_auth_mode = Some(mode);
+        }
+        if let Some(mode) = xai_auth_mode {
+            profile.llm_provider.xai_auth_mode = Some(mode);
         }
         // 自定义 provider → 同步到 custom_providers，不污染旧字段
         if let Some(cp) = profile

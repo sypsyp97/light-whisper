@@ -6,6 +6,7 @@ use serde_json::Value;
 use tauri::{Emitter, Manager};
 
 use crate::services::codex_oauth_service;
+use crate::services::grok_build_oauth_service;
 use crate::services::llm_provider;
 use crate::services::llm_provider::LlmEndpoint;
 use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
@@ -111,6 +112,10 @@ fn estimate_image_context_len(value: &Value) -> usize {
 fn uses_codex_chatgpt_backend(endpoint: &LlmEndpoint, api_key: &str) -> bool {
     endpoint.provider == "openai"
         && codex_oauth_service::decode_chatgpt_bearer_token(api_key).is_some()
+}
+
+fn uses_grok_build_oauth_backend(endpoint: &LlmEndpoint, api_key: &str) -> bool {
+    endpoint.provider == "xai" && grok_build_oauth_service::is_grok_build_oauth_origin_auth(api_key)
 }
 
 fn uses_openai_oauth_origin_auth(endpoint: &LlmEndpoint, api_key: &str) -> bool {
@@ -1184,6 +1189,13 @@ pub async fn send_llm_request(
     let endpoint = deepseek_responses_endpoint.as_ref().unwrap_or(endpoint);
     let mut headers = llm_provider::build_auth_headers(&endpoint.api_format, api_key)
         .map_err(|e| format!("构建请求头失败: {e}"))?;
+    if uses_grok_build_oauth_backend(endpoint, api_key) {
+        if let Some(token) = grok_build_oauth_service::decode_grok_build_oauth_access_token(api_key)
+        {
+            headers = grok_build_oauth_service::grok_cli_request_headers(&token)
+                .map_err(|e| format!("构建 Grok Build 请求头失败: {e}"))?;
+        }
+    }
     if uses_codex_chatgpt_backend(endpoint, api_key) {
         if let Some(session_id) = options.session_id {
             let header = session_id.to_string();
@@ -1220,6 +1232,8 @@ pub async fn send_llm_request(
     ) -> Result<reqwest::Response, String> {
         let request_url = if uses_codex_chatgpt_backend(endpoint, api_key) {
             codex_oauth_service::CHATGPT_CODEX_RESPONSES_URL
+        } else if uses_grok_build_oauth_backend(endpoint, api_key) {
+            grok_build_oauth_service::GROK_BUILD_RESPONSES_URL
         } else {
             endpoint.api_url.as_str()
         };

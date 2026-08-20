@@ -111,6 +111,21 @@ export interface OpenaiCodexOauthDeviceCodeChallenge {
   intervalSecs: number;
 }
 
+export interface GrokBuildOauthStatus {
+  loggedIn: boolean;
+  email?: string | null;
+  planType?: string | null;
+  accountId?: string | null;
+  expiresAtMs?: number | null;
+}
+
+export interface GrokBuildOauthDeviceCodeChallenge {
+  verificationUrl: string;
+  userCode: string;
+  deviceCode: string;
+  intervalSecs: number;
+}
+
 // 热词来源
 export type HotWordSource = "user" | "learned";
 
@@ -173,6 +188,9 @@ export interface CustomProvider {
 // OpenAI 认证方式（仅当 active / assistant provider 为 openai 时生效）
 export type OpenaiAuthMode = "api_key" | "oauth";
 
+// xAI 认证方式（仅当 active / assistant provider 为 xai 时生效）
+export type XaiAuthMode = "api_key" | "oauth";
+
 // LLM 后端配置
 export interface LlmProviderConfig {
   active: string;
@@ -197,6 +215,7 @@ export interface LlmProviderConfig {
   screen_vision_model?: string | null;
   openai_auth_mode?: OpenaiAuthMode | null;
   openai_fast_mode?: boolean;
+  xai_auth_mode?: XaiAuthMode | null;
 }
 
 // 用户画像

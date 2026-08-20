@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 
 use super::user_profile::{LlmProviderConfig, UserProfile};
 use crate::services::codex_oauth_service::OpenaiCodexOauthSession;
+use crate::services::grok_build_oauth_service::GrokBuildOauthSession;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -376,6 +377,7 @@ pub struct ProfileState {
     pub ai_polish_api_key: Arc<parking_lot::Mutex<String>>,
     pub assistant_api_key: Arc<parking_lot::Mutex<String>>,
     pub openai_codex_oauth_session: Arc<parking_lot::Mutex<Option<OpenaiCodexOauthSession>>>,
+    pub grok_build_oauth_session: Arc<parking_lot::Mutex<Option<GrokBuildOauthSession>>>,
     pub online_asr_api_key: Arc<parking_lot::Mutex<String>>,
     pub web_search_api_keys: Arc<parking_lot::Mutex<HashMap<String, String>>>,
     pub assistant_image_support_cache: Arc<parking_lot::Mutex<HashMap<String, bool>>>,
@@ -566,6 +568,14 @@ impl AppState {
 
     pub fn set_openai_codex_oauth_session(&self, session: Option<OpenaiCodexOauthSession>) {
         *self.profile.openai_codex_oauth_session.lock() = session;
+    }
+
+    pub fn read_grok_build_oauth_session(&self) -> Option<GrokBuildOauthSession> {
+        self.profile.grok_build_oauth_session.lock().clone()
+    }
+
+    pub fn set_grok_build_oauth_session(&self, session: Option<GrokBuildOauthSession>) {
+        *self.profile.grok_build_oauth_session.lock() = session;
     }
 
     pub fn read_online_asr_api_key(&self) -> String {

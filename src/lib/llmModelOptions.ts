@@ -19,6 +19,14 @@ export const llmProviderOptions: ReadonlyArray<LlmProviderOption> = [
     models: ["gpt-5.5", "gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"],
   },
   {
+    key: "xai",
+    label: "xAI Grok",
+    descKey: "settings.xaiDesc",
+    baseUrl: "https://api.x.ai",
+    defaultModel: "grok-4.6",
+    models: ["grok-4.6", "grok-4.5", "grok-build-0.1", "grok-composer-2.5-fast"],
+  },
+  {
     key: "deepseek",
     label: "DeepSeek",
     descKey: "settings.deepseekDesc",

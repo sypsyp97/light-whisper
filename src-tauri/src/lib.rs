@@ -169,6 +169,15 @@ pub fn run() {
                     log::info!("已从密钥环加载 OpenAI Codex OAuth 会话");
                     spawn_openai_codex_oauth_prewarm(app_handle.clone());
                 }
+                if services::grok_build_oauth_service::sync_runtime_session(
+                    &app_handle,
+                    state.inner(),
+                )
+                .is_some()
+                {
+                    log::info!("已从密钥环加载 Grok Build OAuth 会话");
+                    spawn_grok_build_oauth_prewarm(app_handle.clone());
+                }
             }
 
             spawn_funasr_startup(app_handle.clone());
@@ -226,6 +235,11 @@ pub fn run() {
             commands::codex_oauth::complete_openai_codex_oauth_device_code,
             commands::codex_oauth::logout_openai_codex_oauth,
             commands::codex_oauth::get_openai_codex_oauth_status,
+            commands::grok_build_oauth::login_grok_build_oauth,
+            commands::grok_build_oauth::start_grok_build_oauth_device_code,
+            commands::grok_build_oauth::complete_grok_build_oauth_device_code,
+            commands::grok_build_oauth::logout_grok_build_oauth,
+            commands::grok_build_oauth::get_grok_build_oauth_status,
             commands::window::hide_main_window,
             commands::window::show_subtitle_window,
             commands::window::hide_subtitle_window,
@@ -387,6 +401,18 @@ fn spawn_openai_codex_oauth_prewarm(app_handle: tauri::AppHandle) {
             services::codex_oauth_service::prewarm_runtime_session(&app_handle, state.inner()).await
         {
             log::warn!("OpenAI Codex OAuth 启动预热失败: {}", err);
+        }
+    });
+}
+
+fn spawn_grok_build_oauth_prewarm(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let state = app_handle.state::<AppState>();
+        if let Err(err) =
+            services::grok_build_oauth_service::prewarm_runtime_session(&app_handle, state.inner())
+                .await
+        {
+            log::warn!("Grok Build OAuth 启动预热失败: {}", err);
         }
     });
 }

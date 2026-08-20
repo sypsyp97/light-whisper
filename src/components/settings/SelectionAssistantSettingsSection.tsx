@@ -19,20 +19,32 @@ import {
   setSelectionApiKey,
   setSelectionAssistantConfig,
 } from "@/api/tauri";
-import type { AiModelInfo, LlmReasoningMode, OpenaiAuthMode, UserProfile } from "@/types";
+import {
+  shouldShowGrokBuildAuth,
+  shouldUseGrokBuildOauth,
+} from "@/lib/grokBuildAuth";
+import type { AiModelInfo, LlmReasoningMode, OpenaiAuthMode, UserProfile, XaiAuthMode } from "@/types";
 
 interface SelectionAssistantSettingsSectionProps {
   profile: UserProfile | null;
   openaiAuthMode: OpenaiAuthMode;
   openaiOauthLoggedIn: boolean;
+  xaiAuthMode?: XaiAuthMode;
+  grokOauthLoggedIn?: boolean;
   openaiControls: ReactNode;
+  grokAuthToggle?: ReactNode;
+  grokOauthBlock?: ReactNode;
 }
 
 export default function SelectionAssistantSettingsSection({
   profile,
   openaiAuthMode,
   openaiOauthLoggedIn,
+  xaiAuthMode = "api_key",
+  grokOauthLoggedIn = false,
   openaiControls,
+  grokAuthToggle = null,
+  grokOauthBlock = null,
 }: SelectionAssistantSettingsSectionProps) {
   const { t } = useTranslation();
   const picker = useExclusivePicker<
@@ -189,9 +201,15 @@ export default function SelectionAssistantSettingsSection({
       return;
     }
     setAvailableModels(currentProvider.models.map((id) => ({ id })));
-    const hasAuth = provider === "openai"
-      ? (openaiAuthMode === "oauth" ? openaiOauthLoggedIn : Boolean(apiKey.trim()))
-      : Boolean(apiKey.trim());
+    const hasAuth = shouldUseGrokBuildOauth({
+      provider,
+      authMode: xaiAuthMode,
+      loggedIn: grokOauthLoggedIn,
+    })
+      || (provider === "openai"
+        ? (openaiAuthMode === "oauth" ? openaiOauthLoggedIn : Boolean(apiKey.trim()))
+        : provider !== "xai" && Boolean(apiKey.trim()))
+      || (provider === "xai" && xaiAuthMode === "api_key" && Boolean(apiKey.trim()));
     if (!hasAuth) return;
 
     let disposed = false;
@@ -204,6 +222,7 @@ export default function SelectionAssistantSettingsSection({
         apiKey,
         modelRefreshToken > 0,
         provider === "openai" ? openaiAuthMode : undefined,
+        provider === "xai" ? xaiAuthMode : undefined,
       ).then((payload) => {
         if (!disposed) setAvailableModels(payload.models);
       }).catch((requestError) => {
@@ -218,7 +237,7 @@ export default function SelectionAssistantSettingsSection({
       disposed = true;
       window.clearTimeout(timer);
     };
-  }, [apiKey, currentProvider.baseUrl, currentProvider.isCustom, currentProvider.models, modelRefreshToken, openaiAuthMode, openaiOauthLoggedIn, provider, separate]);
+  }, [apiKey, currentProvider.baseUrl, currentProvider.isCustom, currentProvider.models, grokOauthLoggedIn, modelRefreshToken, openaiAuthMode, openaiOauthLoggedIn, provider, separate, xaiAuthMode]);
 
   return (
     <section className="settings-card" data-nav-id="selection-assistant">
@@ -354,6 +373,7 @@ export default function SelectionAssistantSettingsSection({
             </div>
 
             {provider === "openai" ? openaiControls : null}
+            {shouldShowGrokBuildAuth(provider) ? grokAuthToggle : null}
 
             <div className="settings-column" style={{ gap: 4 }}>
               <span className="settings-option-desc">{currentProvider.label} API Key</span>
@@ -369,6 +389,8 @@ export default function SelectionAssistantSettingsSection({
                 ariaLabelHide={t("settings.hideApiKey")}
               />
             </div>
+
+            {shouldShowGrokBuildAuth(provider) ? grokOauthBlock : null}
 
             <div className="settings-row">
               <span className="settings-option-desc">{t("settings.selectionModel")}</span>
@@ -457,7 +479,7 @@ export default function SelectionAssistantSettingsSection({
                       </button>
                     )) : (
                       <div className="picker-empty">
-                        {modelsLoading ? t("settings.fetchModelsFromApi") : modelsError || t("settings.fillApiKeyOrLogin")}
+                        {modelsLoading ? t("settings.fetchModelsFromApi") : modelsError || t(provider === "xai" ? "settings.fillApiKeyOrGrokLogin" : "settings.fillApiKeyOrLogin")}
                       </div>
                     )}
                   </div>
