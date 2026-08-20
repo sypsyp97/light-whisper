@@ -183,7 +183,7 @@ fn grok_build_status_and_device_code_challenge_use_camel_case_wire_shape() {
     assert_eq!(status_json["email"], "user@example.com");
     assert_eq!(status_json["planType"], "super");
     assert_eq!(status_json["accountId"], "acc-1");
-    assert_eq!(status_json["expiresAtMs"], 1_700_000_000_000);
+    assert_eq!(status_json["expiresAtMs"].as_u64(), Some(1_700_000_000_000));
 
     let challenge = GrokBuildOauthDeviceCodeChallenge {
         verification_url: "https://auth.x.ai/device".to_string(),

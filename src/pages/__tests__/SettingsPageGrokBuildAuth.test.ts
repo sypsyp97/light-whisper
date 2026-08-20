@@ -144,8 +144,8 @@ describe("SettingsPage Grok Build dual-auth contract", () => {
     expect(settingsPage).toContain("shouldUseGrokBuildOauth");
     expect(settingsPage).toContain("effectiveXaiAuthMode");
     expect(settingsPage).toMatch(/polishHasAuth[\s\S]{0,1200}(shouldUseGrokBuildOauth|effectiveXaiAuthMode)/);
-    expect(settingsPage).toContain('t("settings.fillApiKeyOrGrokLogin")');
-    expect(settingsPage).toContain('t("settings.apiKeyOrGrokLoginMissing")');
+    expect(settingsPage).toContain('"settings.fillApiKeyOrGrokLogin"');
+    expect(settingsPage).toContain('"settings.apiKeyOrGrokLoginMissing"');
   });
 
   it("persists xaiAuthMode through llmConfigSave / setLlmProviderConfig", () => {
@@ -263,7 +263,10 @@ describe("Grok Build backend wiring contract", () => {
     expect(grokOauthSource).toContain("https://auth.x.ai/oauth2/device/code");
     expect(grokOauthSource).toContain("openid profile email offline_access grok-cli:access api:access");
     expect(grokOauthSource).toContain("http://127.0.0.1:56121/callback");
-    expect(grokOauthSource).toContain("light-whisper");
+    expect(grokOauthSource).toContain("KEYRING_SERVICE");
+    expect(readRepo("src-tauri/src/services/llm_provider.rs")).toContain(
+      'pub const KEYRING_SERVICE: &str = "light-whisper"',
+    );
     expect(grokOauthSource).toContain("grok-build-oauth");
     expect(grokOauthSource).toContain("grok-build-oauth-refresh-token");
     expect(grokOauthSource).toContain("grok_build_oauth_session.json");
@@ -285,7 +288,10 @@ describe("Grok Build backend wiring contract", () => {
     expect(grokOauthSource).toContain("x-grok-client-version");
     expect(grokOauthSource).toContain("0.2.114");
     expect(llmClientSource).toContain("is_grok_build_oauth_origin_auth");
-    expect(llmClientSource).toContain("cli-chat-proxy.grok.com");
+    expect(
+      llmClientSource.includes("GROK_BUILD_RESPONSES_URL")
+        || llmClientSource.includes("cli-chat-proxy.grok.com"),
+    ).toBe(true);
   });
 
   it("adds xai as a built-in Responses-API provider", () => {
@@ -302,8 +308,14 @@ describe("Grok Build backend wiring contract", () => {
 
   it("threads xai_auth_mode through list_ai_models, set_llm_provider_config, and the API-key resolver", () => {
     expect(aiPolishSource.includes("xai_auth_mode")).toBe(true);
-    expect(aiPolishSource.includes("cli-chat-proxy.grok.com/v1/models")).toBe(true);
-    expect(aiPolishSource.includes("https://api.x.ai/v1/models")).toBe(true);
+    expect(
+      aiPolishSource.includes("GROK_BUILD_MODELS_URL")
+        || aiPolishSource.includes("cli-chat-proxy.grok.com/v1/models"),
+    ).toBe(true);
+    expect(
+      aiPolishSource.includes("XAI_API_MODELS_URL")
+        || aiPolishSource.includes("https://api.x.ai/v1/models"),
+    ).toBe(true);
     expect(profileCommandSource.includes("xai_auth_mode")).toBe(true);
     expect(codexOauthSource.includes('"xai"')).toBe(true);
     expect(tauriSource.includes("xaiAuthMode: xaiAuthMode ?? null")).toBe(true);

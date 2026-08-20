@@ -1406,7 +1406,7 @@ pub fn build_auth_headers(
             } else if let Some(token) =
                 grok_build_oauth_service::decode_grok_build_oauth_access_token(api_key)
             {
-                headers.insert("Authorization", parse(&format!("Bearer {token}"))?);
+                return grok_build_oauth_service::grok_cli_request_headers(&token);
             } else {
                 let bearer_api_key = codex_oauth_service::decode_oauth_api_key(api_key)
                     .unwrap_or_else(|| api_key.to_string());

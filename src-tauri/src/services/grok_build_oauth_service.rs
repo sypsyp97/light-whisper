@@ -926,7 +926,7 @@ pub fn grok_cli_request_headers(access_token: &str) -> Result<reqwest::header::H
         HeaderValue::from_static(GROK_CLI_CLIENT_IDENTIFIER),
     );
     headers.insert(
-        HeaderName::from_static("x-xai-token-auth"),
+        "X-XAI-Token-Auth",
         HeaderValue::from_static(GROK_CLI_TOKEN_AUTH),
     );
     headers.insert(
