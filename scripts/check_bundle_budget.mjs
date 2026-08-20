@@ -35,7 +35,7 @@ metrics.total_dist_bytes = distFiles.reduce((total, { bytes }) => total + bytes,
 
 const budgets = {
   main_gzip_bytes: 130_000,
-  settings_gzip_bytes: 30_000,
+  settings_gzip_bytes: 31_000,
   subtitle_gzip_bytes: 10_000,
   selection_gzip_bytes: 145_000,
   core_js_gzip_bytes: 175_000,

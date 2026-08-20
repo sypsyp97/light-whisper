@@ -32,6 +32,17 @@ function readUvProjectVersion(): string {
   return match[1];
 }
 
+function readCargoLockProjectVersion(): string {
+  const content = readRepoFile("src-tauri/Cargo.lock");
+  const match = content.match(
+    /\[\[package\]\]\r?\nname = "light-whisper"\r?\nversion = "([^"]+)"/,
+  );
+  if (!match) {
+    throw new Error("src-tauri/Cargo.lock is missing the light-whisper root package");
+  }
+  return match[1];
+}
+
 describe("release metadata", () => {
   it("keeps project versions aligned across release manifests", () => {
     const versions = {
@@ -39,6 +50,7 @@ describe("release metadata", () => {
       "src-tauri/Cargo.toml": readTomlString("src-tauri/Cargo.toml", "version"),
       "src-tauri/tauri.conf.json": readJsonVersion("src-tauri/tauri.conf.json"),
       "pyproject.toml": readTomlString("pyproject.toml", "version"),
+      "src-tauri/Cargo.lock": readCargoLockProjectVersion(),
       "uv.lock": readUvProjectVersion(),
     };
 
