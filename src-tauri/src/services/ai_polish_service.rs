@@ -6,8 +6,8 @@ use serde::Deserialize;
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions};
 use crate::services::{
-    codex_oauth_service, llm_client, llm_provider, profile_service, screen_capture_service,
-    screen_vision_service,
+    codex_oauth_service, grok_build_oauth_service, llm_client, llm_provider, profile_service,
+    screen_capture_service, screen_vision_service,
 };
 use crate::state::user_profile::{
     CorrectionSource, LlmReasoningMode, PolishStructureLevel, UserProfile,
@@ -736,13 +736,13 @@ pub async fn polish_text_with_overrides_detailed(
 
     if api_key.is_empty() {
         log::warn!(
-            "AI 润色已启用但未配置 API Key，也未完成 OpenAI Codex 登录，跳过润色 (auth{}ms)",
+            "AI 润色已启用但未配置 API Key，也未完成 OpenAI Codex / Grok Build 登录，跳过润色 (auth{}ms)",
             auth_elapsed_ms
         );
         return passthrough_unless_required(
             text,
             overrides.require_execution,
-            "未配置 AI 润色 API Key，且未完成 OpenAI Codex 登录",
+            "未配置 AI 润色 API Key，且未完成 OpenAI Codex 或 Grok Build 登录",
         )
         .map(PolishOutcome::passthrough);
     }
@@ -1108,7 +1108,21 @@ async fn build_polish_user_input(
     } else {
         None
     };
-    let effective_image_support = cached_image_support.or(probed_image_support);
+    let effective_image_support = grok_build_oauth_service::resolve_image_support_for_request(
+        api_key,
+        cached_image_support.or(probed_image_support),
+    );
+    if grok_build_oauth_service::is_grok_build_oauth_origin_auth(api_key)
+        && effective_image_support == Some(false)
+        && cached_image_support.is_none()
+        && probed_image_support.is_none()
+    {
+        log::info!(
+            "Grok Build OAuth 未确认图片输入能力，跳过屏幕截图以降低润色延迟: provider={}, model={}",
+            endpoint.provider,
+            endpoint.model
+        );
+    }
     let screen_vision_enabled = screen_vision_service::is_enabled(state);
 
     let foreground_still_matches = || {

@@ -318,6 +318,16 @@ pub fn is_grok_build_oauth_origin_auth(input: &str) -> bool {
     decode_grok_build_oauth_access_token(input).is_some()
 }
 
+/// Grok Build CLI proxy has not advertised image input metadata.
+/// Treat unknown support as text-only so polish/assistant do not attach
+/// full-screen screenshots that stall the request for tens of seconds.
+pub fn resolve_image_support_for_request(api_key: &str, observed: Option<bool>) -> Option<bool> {
+    if observed.is_none() && is_grok_build_oauth_origin_auth(api_key) {
+        return Some(false);
+    }
+    observed
+}
+
 pub fn effective_xai_auth_mode(stored_mode: Option<XaiAuthMode>, logged_in: bool) -> XaiAuthMode {
     stored_mode.unwrap_or(if logged_in {
         XaiAuthMode::Oauth

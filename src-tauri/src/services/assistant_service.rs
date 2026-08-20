@@ -7,8 +7,8 @@ use tauri::Emitter;
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
 use crate::services::{
-    codex_oauth_service, llm_client, llm_provider, screen_capture_service, screen_vision_service,
-    web_search_service,
+    codex_oauth_service, grok_build_oauth_service, llm_client, llm_provider, screen_capture_service,
+    screen_vision_service, web_search_service,
 };
 use crate::state::user_profile::{UserProfile, WebSearchConfig, WebSearchProvider};
 use crate::state::AppState;
@@ -957,7 +957,10 @@ async fn generate_content_inner(
     } else {
         None
     };
-    let effective_image_support = cached_image_support.or(probed_image_support);
+    let effective_image_support = grok_build_oauth_service::resolve_image_support_for_request(
+        &api_key,
+        cached_image_support.or(probed_image_support),
+    );
     let screen_vision_enabled = screen_vision_service::is_enabled(state);
 
     let foreground_still_matches = || {

@@ -3,9 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::grok_build_oauth_service::{
     decode_grok_build_oauth_access_token, effective_xai_auth_mode,
     encode_grok_build_oauth_access_token, is_grok_build_oauth_origin_auth,
-    should_prewarm_runtime_session, GrokBuildOauthDeviceCodeChallenge, GrokBuildOauthSession,
-    GrokBuildOauthStatus, GROK_BUILD_INFERENCE_BASE_URL, GROK_BUILD_OAUTH_PREFIX,
-    XAI_API_KEY_INFERENCE_BASE_URL,
+    resolve_image_support_for_request, should_prewarm_runtime_session,
+    GrokBuildOauthDeviceCodeChallenge, GrokBuildOauthSession, GrokBuildOauthStatus,
+    GROK_BUILD_INFERENCE_BASE_URL, GROK_BUILD_OAUTH_PREFIX, XAI_API_KEY_INFERENCE_BASE_URL,
 };
 use super::llm_provider::{self, build_auth_headers};
 use crate::state::user_profile::{ApiFormat, LlmProviderConfig, XaiAuthMode};
@@ -113,6 +113,21 @@ fn encode_then_decode_round_trips_a_runtime_access_token() {
     assert_eq!(
         decode_grok_build_oauth_access_token(&encoded).as_deref(),
         Some("runtime-token")
+    );
+}
+
+#[test]
+fn grok_build_oauth_treats_unknown_image_support_as_text_only() {
+    let wrapped =
+        encode_grok_build_oauth_access_token("access-token").expect("non-empty tokens encode");
+    assert_eq!(resolve_image_support_for_request(&wrapped, None), Some(false));
+    assert_eq!(
+        resolve_image_support_for_request(&wrapped, Some(true)),
+        Some(true)
+    );
+    assert_eq!(
+        resolve_image_support_for_request("xai-plain-api-key", None),
+        None
     );
 }
 
