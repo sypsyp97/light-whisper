@@ -120,7 +120,10 @@ fn encode_then_decode_round_trips_a_runtime_access_token() {
 fn grok_build_oauth_treats_unknown_image_support_as_text_only() {
     let wrapped =
         encode_grok_build_oauth_access_token("access-token").expect("non-empty tokens encode");
-    assert_eq!(resolve_image_support_for_request(&wrapped, None), Some(false));
+    assert_eq!(
+        resolve_image_support_for_request(&wrapped, None),
+        Some(false)
+    );
     assert_eq!(
         resolve_image_support_for_request(&wrapped, Some(true)),
         Some(true)
