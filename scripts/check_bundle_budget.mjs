@@ -33,22 +33,52 @@ metrics.largest_font_bytes = Math.max(0, ...fontFiles.map(({ bytes }) => bytes))
 metrics.total_font_bytes = fontFiles.reduce((total, { bytes }) => total + bytes, 0);
 metrics.total_dist_bytes = distFiles.reduce((total, { bytes }) => total + bytes, 0);
 
+// Guard user-visible entry points and meaningful aggregate regressions. The settings
+// page is lazy-loaded and preloaded after startup, so its size remains observable in
+// the metrics without an arbitrary per-page cap. Limits are rounded above the v1.5.8
+// baseline to leave room for routine feature work while still catching material growth.
 const budgets = {
-  main_gzip_bytes: 130_000,
-  settings_gzip_bytes: 31_000,
-  subtitle_gzip_bytes: 10_000,
-  selection_gzip_bytes: 145_000,
-  core_js_gzip_bytes: 175_000,
-  total_js_gzip_bytes: 310_000,
-  largest_font_bytes: 5_200_000,
-  total_font_bytes: 21_250_000,
-  total_dist_bytes: 22_500_000,
+  main_gzip_bytes: {
+    limit: 140_000,
+    rationale: "startup entry point",
+  },
+  subtitle_gzip_bytes: {
+    limit: 10_000,
+    rationale: "latency-sensitive subtitle window",
+  },
+  selection_gzip_bytes: {
+    limit: 150_000,
+    rationale: "latency-sensitive selection overlay",
+  },
+  core_js_gzip_bytes: {
+    limit: 190_000,
+    rationale: "all JavaScript except the selection overlay",
+  },
+  total_js_gzip_bytes: {
+    limit: 340_000,
+    rationale: "complete JavaScript payload",
+  },
+  largest_font_bytes: {
+    limit: 80_000,
+    rationale: "single font asset",
+  },
+  total_font_bytes: {
+    limit: 1_200_000,
+    rationale: "complete font payload",
+  },
+  total_dist_bytes: {
+    limit: 2_500_000,
+    rationale: "complete frontend distribution",
+  },
 };
 
 console.log(`LIGHT_WHISPER_BUNDLE_METRICS ${JSON.stringify(metrics)}`);
 const failures = Object.entries(budgets)
-  .filter(([key, budget]) => typeof metrics[key] !== "number" || metrics[key] > budget)
-  .map(([key, budget]) => `${key}: ${metrics[key] ?? "missing"} > ${budget}`);
+  .filter(([key, budget]) => typeof metrics[key] !== "number" || metrics[key] > budget.limit)
+  .map(
+    ([key, budget]) =>
+      `${key}: ${metrics[key] ?? "missing"} > ${budget.limit} (${budget.rationale})`,
+  );
 
 if (failures.length > 0) {
   throw new Error(`Bundle budget exceeded:\n${failures.join("\n")}`);
