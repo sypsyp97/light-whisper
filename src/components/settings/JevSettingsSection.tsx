@@ -199,7 +199,6 @@ export default function JevSettingsSection({ profile, onSaved }: JevSettingsSect
                 value={apiKey}
                 placeholder={t("settings.jevApiKey")}
                 ariaLabel={t("settings.jevApiKey")}
-                inputStyle={{ padding: "10px 36px 10px 12px" }}
                 onChange={(value) => {
                   if (configTransitionRef.current) return;
                   keyDraftRef.current = true;

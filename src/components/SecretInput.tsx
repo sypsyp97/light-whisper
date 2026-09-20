@@ -39,7 +39,7 @@ export default function SecretInput({
         aria-label={ariaLabel ?? placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        style={{ flex: 1, padding: "8px 36px 8px 10px", ...inputStyle }}
+        style={{ flex: 1, padding: "10px 36px 10px 12px", ...inputStyle }}
       />
       <button
         type="button"
