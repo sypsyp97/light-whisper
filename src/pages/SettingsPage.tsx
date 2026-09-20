@@ -2142,7 +2142,7 @@ export default function SettingsPage({
                     aria-haspopup="listbox"
                       aria-expanded={picker.isExpanded("engine")}
                     aria-label={t("settings.engine")}
-                    disabled={engineLoading}
+                    disabled={engineLoading || onlineAsrRegionLoading}
                     onClick={() => picker.toggle("engine")}
                   >
                     <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
@@ -2178,7 +2178,7 @@ export default function SettingsPage({
                               type="button"
                               className="picker-option"
                               data-active={selected}
-                              disabled={engineLoading}
+                              disabled={engineLoading || onlineAsrRegionLoading}
                               onClick={() => {
                                 picker.close();
                                 void handleEngineSwitch(key);
@@ -2219,7 +2219,7 @@ export default function SettingsPage({
                       <button
                         key={region}
                         type="button"
-                        disabled={onlineAsrRegionLoading}
+                        disabled={engineLoading || onlineAsrRegionLoading}
                         className={`theme-btn${onlineAsrRegion === region ? " active" : ""}`}
                         onClick={() => { void handleOnlineAsrRegionChange(region); }}
                         style={{ flex: 1 }}
@@ -2296,7 +2296,8 @@ export default function SettingsPage({
                     </div>
                   </div>
                 )}
-                <div className="settings-column" style={{ gap: 4 }}>
+                <fieldset disabled={engineLoading || onlineAsrRegionLoading}
+                  className="settings-column" style={{ gap: 4, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                   <span className="settings-option-desc">{t("settings.apiKey")}</span>
                   <SecretInput
                     value={onlineAsrApiKey}
@@ -2307,7 +2308,7 @@ export default function SettingsPage({
                     ariaLabelHide={t("settings.hideApiKey")}
                     onChange={handleOnlineAsrApiKeyChange}
                   />
-                </div>
+                </fieldset>
               </div>
             )}
             {/* Model Directory */}

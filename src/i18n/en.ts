@@ -180,6 +180,7 @@ const en: TranslationSchema = {
     aiPolishFailed: "AI polish failed: {{error}}",
     switchedToEngine: "Switched to {{label}} engine",
     switchEngineFailed: "Failed to switch engine",
+    onlineAsrConfigReadFailed: "Failed to load online ASR settings. Check the selected provider and API key.",
     onlineAsrKeySaveFailed: "Failed to save online ASR API key",
     onlineAsrRegionSwitchFailed: "Failed to switch online ASR region",
     hotkeySet: "{{label}} set to {{display}}",

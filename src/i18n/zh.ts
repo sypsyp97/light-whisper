@@ -178,6 +178,7 @@ const zh = {
     aiPolishFailed: "AI 润色失败: {{error}}",
     switchedToEngine: "已切换为 {{label}} 引擎",
     switchEngineFailed: "切换引擎失败",
+    onlineAsrConfigReadFailed: "读取在线语音识别配置失败，请检查当前服务商和 API Key",
     onlineAsrKeySaveFailed: "保存在线语音识别 API Key 失败",
     onlineAsrRegionSwitchFailed: "切换在线语音识别区域失败",
     hotkeySet: "{{label}}已设置为 {{display}}",

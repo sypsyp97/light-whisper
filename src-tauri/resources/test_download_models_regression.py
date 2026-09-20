@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -593,6 +594,79 @@ class ModelDownloadAtomicityTests(unittest.TestCase):
             self.assertFalse(os.path.exists(blob_incomplete))
             self.assertTrue(os.path.exists(snapshot_incomplete))
             self.assertTrue(os.path.exists(complete_file))
+
+
+    def test_bad_checksum_retry_downloads_again_and_healthy_cache_stays_local(self):
+        good = b"a" * 1_000_001
+        bad = b"b" * len(good)
+        config = {"name": "audit/model", "type": "asr", "revision": "pinned",
+                  "files": [{"rfilename": "model.gguf", "size": len(good),
+                             "sha256": hashlib.sha256(good).hexdigest()}]}
+        with (
+            tempfile.TemporaryDirectory() as root,
+            mock.patch.dict(os.environ, {"HF_HUB_CACHE": root}),
+            mock.patch.object(download_models, "_candidate_endpoints", return_value=["https://example.invalid"]),
+            mock.patch.object(download_models, "_emit"),
+            mock.patch.object(download_models.requests, "get", side_effect=[
+                FakeBodyResponse(200, bad, {"Content-Length": str(len(bad))}),
+                FakeBodyResponse(200, bad, {"Content-Length": str(len(bad))}),
+                FakeBodyResponse(200, good, {"Content-Length": str(len(good))}),
+            ]) as network,
+        ):
+            snapshot = os.path.join(root, "models--audit--model", "snapshots", "pinned")
+            os.makedirs(snapshot)
+            sentinel = os.path.join(snapshot, "unrelated.gguf")
+            with open(sentinel, "wb") as f:
+                f.write(b"preserve")
+            self.assertFalse(download_models.download_model(config)["success"])
+            quarantined = [os.path.join(snapshot, name) for name in os.listdir(snapshot)
+                           if name not in ("model.gguf", "unrelated.gguf")]
+            self.assertTrue(quarantined)
+            self.assertTrue(any(Path(path).read_bytes() == bad for path in quarantined))
+            self.assertEqual(Path(sentinel).read_bytes(), b"preserve")
+            self.assertFalse(os.path.exists(os.path.join(snapshot, "model.gguf")))
+            self.assertFalse(download_models.download_model(config)["success"])
+            self.assertFalse(os.path.exists(os.path.join(snapshot, "model.gguf")))
+            retained = [os.path.join(snapshot, name) for name in os.listdir(snapshot)
+                        if name not in ("model.gguf", "unrelated.gguf")]
+            self.assertEqual(len(retained), len(quarantined) + 1)
+            self.assertTrue(all(Path(path).read_bytes() == bad for path in retained))
+            self.assertTrue(download_models.download_model(config)["success"])
+            self.assertEqual(network.call_count, 3)
+            target = os.path.join(root, "models--audit--model", "snapshots", "pinned", "model.gguf")
+            with open(target, "rb") as f:
+                self.assertEqual(f.read(), good)
+            self.assertTrue(download_models.download_model(config)["success"])
+            self.assertEqual(network.call_count, 3)
+
+    def test_legacy_cache_must_match_pinned_revision_and_hash(self):
+        good = b"a" * 1_000_001
+        config = {"name": "audit/model", "type": "asr", "revision": "pinned",
+                  "files": [{"rfilename": "model.gguf", "size": len(good),
+                             "sha256": hashlib.sha256(good).hexdigest()}]}
+        for revision, content in [("old", b"c" * len(good)), ("pinned", b"b" * len(good)), ("pinned", b"short")]:
+            with (
+                self.subTest(revision=revision), tempfile.TemporaryDirectory() as root,
+                mock.patch.dict(os.environ, {"HF_HUB_CACHE": root}),
+                mock.patch.object(download_models, "_candidate_endpoints", return_value=["https://example.invalid"]),
+                mock.patch.object(download_models, "_emit"),
+                mock.patch.object(download_models.requests, "get", return_value=FakeBodyResponse(
+                    200, good, {"Content-Length": str(len(good))})) as network,
+            ):
+                target = os.path.join(root, "models--audit--model", "snapshots", revision, "model.gguf")
+                os.makedirs(os.path.dirname(target))
+                with open(target, "wb") as f:
+                    f.write(content)
+                self.assertTrue(download_models.download_model(config)["success"])
+                self.assertEqual(network.call_count, 1)
+                pinned = Path(root) / "models--audit--model" / "snapshots" / "pinned" / "model.gguf"
+                self.assertEqual(pinned.read_bytes(), good)
+                if revision == "old":
+                    with open(target, "rb") as f:
+                        self.assertEqual(f.read(), content)
+                else:
+                    siblings = [x for x in pinned.parent.iterdir() if x.name not in ("model.gguf", download_models.COMPLETE_MANIFEST_NAME)]
+                    self.assertTrue(any(x.read_bytes() == content for x in siblings))
 
     def test_qwen_download_is_pinned_to_one_q8_file(self):
         with (

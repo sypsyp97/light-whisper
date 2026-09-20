@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import {
@@ -24,6 +24,9 @@ export function useAsrEngineSettings({
   retryModel,
 }: UseAsrEngineSettingsOptions) {
   const { t } = useTranslation();
+  const configVersion = useRef(0);
+  const keyReadVersion = useRef(0);
+  const transitioning = useRef(false);
   const [engine, setEngineState] = useState("qwen3-asr-0.6b");
   const [engineLoading, setEngineLoading] = useState(true);
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
@@ -56,12 +59,19 @@ export function useAsrEngineSettings({
   );
 
   useEffect(() => {
+    const version = configVersion.current;
+    const keyVersion = keyReadVersion.current;
+    let disposed = false;
+    const current = () => !disposed && version === configVersion.current;
     getEngine().then((value) => {
       setEngineState(value);
       setEngineLoading(false);
     }).catch(() => setEngineLoading(false));
-    getOnlineAsrApiKey().then((key) => setOnlineAsrApiKeyState(key || "")).catch(() => {});
+    getOnlineAsrApiKey().then((key) => {
+      if (current() && keyVersion === keyReadVersion.current) setOnlineAsrApiKeyState(key || "");
+    }).catch(() => {});
     getOnlineAsrEndpoint().then((endpoint) => {
+      if (!current()) return;
       setOnlineAsrRegion(endpoint.region);
       setOnlineAsrUrl(endpoint.url);
     }).catch(() => {});
@@ -69,6 +79,7 @@ export function useAsrEngineSettings({
       setAlibabaAsrModelState(config.model);
       setAlibabaAsrModelsState(config.models);
     }).catch(() => {});
+    return () => { disposed = true; };
   }, []);
 
   const refreshAlibabaModels = useCallback(async () => {
@@ -93,7 +104,8 @@ export function useAsrEngineSettings({
   }, [alibabaHasKey, engine, onlineAsrRegion, refreshAlibabaModels]);
 
   const handleEngineSwitch = useCallback(async (newEngine: string) => {
-    if (engineLoading || newEngine === engine) return;
+    if (transitioning.current || engineLoading || newEngine === engine) return;
+    transitioning.current = true;
     setEngineLoading(true);
     // Flush the old engine's key before set_engine so the two writes keep their order.
     try {
@@ -103,6 +115,9 @@ export function useAsrEngineSettings({
         return;
       }
       await setEngine(newEngine);
+      configVersion.current += 1;
+      setOnlineAsrApiKeyState("");
+      setOnlineAsrUrl("");
       setEngineState(newEngine);
       toast.success(t("toast.switchedToEngine", { label: engineLabel(newEngine) }));
       // The backend reloads the keyring slot for the new online engine.
@@ -116,19 +131,21 @@ export function useAsrEngineSettings({
           setOnlineAsrRegion(endpoint.region);
           setOnlineAsrUrl(endpoint.url);
         } catch {
-          // Keep the current fields when secure storage is unavailable.
+          toast.error(t("toast.onlineAsrConfigReadFailed"));
         }
       }
       retryModel();
     } catch {
       toast.error(t("toast.switchEngineFailed"));
     } finally {
+      transitioning.current = false;
       setEngineLoading(false);
     }
   }, [engine, engineLabel, engineLoading, onlineAsrKeySave, retryModel, t]);
 
   const handleOnlineAsrRegionChange = useCallback(async (region: string) => {
-    if (onlineAsrRegionLoading || onlineAsrRegion === region) return;
+    if (transitioning.current || engineLoading || onlineAsrRegionLoading || onlineAsrRegion === region) return;
+    transitioning.current = true;
     setOnlineAsrRegionLoading(true);
     try {
       try {
@@ -137,6 +154,8 @@ export function useAsrEngineSettings({
         return;
       }
       const endpoint = await setOnlineAsrEndpoint(region);
+      configVersion.current += 1;
+      if (engine === "alibaba-asr") setOnlineAsrApiKeyState("");
       setOnlineAsrRegion(endpoint.region);
       setOnlineAsrUrl(endpoint.url);
       if (engine === "alibaba-asr") {
@@ -144,17 +163,20 @@ export function useAsrEngineSettings({
           const key = await getOnlineAsrApiKey();
           setOnlineAsrApiKeyState(key || "");
         } catch {
-          // Preserve the previous key display if secure storage is unavailable.
+          toast.error(t("toast.onlineAsrConfigReadFailed"));
         }
       }
     } catch {
       toast.error(t("toast.onlineAsrRegionSwitchFailed"));
     } finally {
+      transitioning.current = false;
       setOnlineAsrRegionLoading(false);
     }
-  }, [engine, onlineAsrKeySave, onlineAsrRegion, onlineAsrRegionLoading, t]);
+  }, [engine, engineLoading, onlineAsrKeySave, onlineAsrRegion, onlineAsrRegionLoading, t]);
 
   const handleOnlineAsrApiKeyChange = useCallback((value: string) => {
+    if (transitioning.current) return;
+    keyReadVersion.current += 1;
     setOnlineAsrApiKeyState(value);
     onlineAsrKeySave.schedule(
       value,

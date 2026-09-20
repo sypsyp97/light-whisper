@@ -10,6 +10,7 @@ import json
 import os
 import hashlib
 import re
+import uuid
 import requests
 
 from hf_cache_utils import (
@@ -17,7 +18,6 @@ from hf_cache_utils import (
     get_hf_cache_root,
     cleanup_incomplete_files,
     QWEN3_ASR_MODELS,
-    find_hf_snapshot_file,
 )
 
 DEFAULT_HF_ENDPOINT = "https://huggingface.co"
@@ -312,12 +312,14 @@ def _write_completion_manifest(snapshot_dir, repo_id, commit_hash, files):
             size = os.path.getsize(path)
         actual_size = os.path.getsize(path)
         if actual_size != size:
+            os.replace(path, path + ".invalid-" + uuid.uuid4().hex)
             raise RuntimeError(f"{filename} 文件大小校验失败: got={actual_size}, expected={size}")
         manifest_item = {"path": filename, "size": size}
         expected_sha256 = item.get("sha256")
         if expected_sha256:
             actual_sha256 = _sha256_file(path)
             if actual_sha256.lower() != expected_sha256.lower():
+                os.replace(path, path + ".invalid-" + uuid.uuid4().hex)
                 raise RuntimeError(
                     f"{filename} SHA256 校验失败: got={actual_sha256}, expected={expected_sha256}"
                 )
@@ -363,10 +365,23 @@ def download_model(model_config):
     _cleanup_locks(model_name)
 
     required_files = model_config.get("files")
-    files_ready = required_files and all(
-        find_hf_snapshot_file(model_name, item["rfilename"])
-        for item in required_files
-    )
+    files_ready = False
+    if required_files:
+        # Explicit download/retry verifies integrity; runtime cache lookup stays fast.
+        revision = model_config["revision"]
+        repo_dir = os.path.join(get_hf_cache_root(), "models--" + model_name.replace("/", "--"))
+        snapshot_dir = os.path.join(repo_dir, "snapshots", revision)
+        if all(os.path.isfile(os.path.join(snapshot_dir, item["rfilename"])) for item in required_files):
+            try:
+                _write_completion_manifest(snapshot_dir, model_name, revision, required_files)
+                refs_dir = os.path.join(repo_dir, "refs")
+                os.makedirs(refs_dir, exist_ok=True)
+                with open(os.path.join(refs_dir, "main"), "w") as f:
+                    f.write(revision)
+                files_ready = True
+            except (OSError, RuntimeError):
+                # Invalid bytes remain in unique quarantine siblings. Fetch anew.
+                pass
     if files_ready or (not required_files and is_hf_repo_ready(model_name)):
         _emit(model_type, "completed", 100,
               message=f"{model_name} 已缓存，跳过下载")
