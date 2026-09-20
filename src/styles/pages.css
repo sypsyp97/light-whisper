@@ -1377,6 +1377,10 @@
   gap: 10px;
 }
 
+.jev-settings .settings-input {
+  height: 40px;
+}
+
 /* Inline sub-config panel shown below a selected engine in a collapsible picker */
 .settings-inline-panel {
   padding: 10px 12px;

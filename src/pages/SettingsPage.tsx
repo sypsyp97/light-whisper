@@ -65,6 +65,7 @@ import SelectionAssistantSettingsSection from "@/components/settings/SelectionAs
 import AppProfileRulesSettingsSection from "@/components/settings/AppProfileRulesSettingsSection";
 import HistorySettingsSection from "@/components/settings/HistorySettingsSection";
 import PolishStructureControl from "@/components/settings/PolishStructureControl";
+import JevSettingsSection from "@/components/settings/JevSettingsSection";
 import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import { formatAsrEngineDescription, getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 import {
@@ -2658,6 +2659,11 @@ export default function SettingsPage({
                   <div className="toggle-knob" style={{ transform: aiPolishEnabled ? "translateX(20px)" : "translateX(0)" }} />
                 </button>
               </div>
+
+              <JevSettingsSection
+                profile={profile}
+                onSaved={() => { void refreshProfile(); }}
+              />
 
               <PolishStructureControl
                 level={polishStructureLevel}

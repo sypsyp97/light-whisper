@@ -4,10 +4,11 @@ use tauri::Emitter;
 
 use serde::Deserialize;
 
+use crate::services::jev_service::JevProvider;
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions};
 use crate::services::{
-    codex_oauth_service, grok_build_oauth_service, llm_client, llm_provider, profile_service,
-    screen_capture_service, screen_vision_service,
+    codex_oauth_service, grok_build_oauth_service, jev_service, llm_client, llm_provider,
+    profile_service, screen_capture_service, screen_vision_service,
 };
 use crate::state::user_profile::{
     CorrectionSource, LlmReasoningMode, PolishStructureLevel, UserProfile,
@@ -154,6 +155,34 @@ fn structure_policy(level: PolishStructureLevel) -> &'static str {
     }
 }
 
+fn remove_xml_section(source: &str, tag: &str) -> String {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let Some(start) = source.find(&open) else {
+        return source.to_string();
+    };
+    let Some(close_offset) = source[start..].find(&close) else {
+        return source.to_string();
+    };
+    let end = start + close_offset + close.len();
+    format!("{}{}", &source[..start], &source[end..])
+}
+
+/// Keep the classifier policy focused on the desired text content. These
+/// removals apply only to the built-in prompt before dynamic user content is
+/// appended, so custom prompts and learned terms are preserved byte-for-byte.
+fn compact_jev_base_prompt() -> String {
+    let without_role = remove_xml_section(BASE_SYSTEM_PROMPT, "role");
+    let without_output_references = without_role
+        .replace("4. 输出必须是一个符合 <output_format> 的 JSON 对象。\n", "")
+        .replace(
+            "两者都受 <invariants> 和 <output_format> 约束。",
+            "两者都受 <invariants> 约束。",
+        );
+    let without_output = remove_xml_section(&without_output_references, "output_format");
+    remove_xml_section(&without_output, "examples")
+}
+
 /// 构建动态 system prompt，注入用户画像中的热词和纠错模式
 fn build_system_prompt(
     state: &AppState,
@@ -161,8 +190,46 @@ fn build_system_prompt(
     translation_target_override: Option<Option<String>>,
     app_custom_prompt: Option<&str>,
 ) -> String {
-    let mut prompt = BASE_SYSTEM_PROMPT.to_string();
+    build_system_prompt_with_base(
+        state,
+        input_text,
+        translation_target_override,
+        app_custom_prompt,
+        BASE_SYSTEM_PROMPT.to_string(),
+        true,
+    )
+}
 
+fn build_jev_policy(
+    state: &AppState,
+    input_text: &str,
+    translation_target_override: Option<Option<String>>,
+    app_custom_prompt: Option<&str>,
+    app_context: Option<&str>,
+) -> String {
+    let mut policy = build_system_prompt_with_base(
+        state,
+        input_text,
+        translation_target_override,
+        app_custom_prompt,
+        compact_jev_base_prompt(),
+        false,
+    );
+    if let Some(app_context) = app_context.map(str::trim).filter(|value| !value.is_empty()) {
+        policy.push_str("\n\n");
+        policy.push_str(app_context);
+    }
+    policy
+}
+
+fn build_system_prompt_with_base(
+    state: &AppState,
+    input_text: &str,
+    translation_target_override: Option<Option<String>>,
+    app_custom_prompt: Option<&str>,
+    mut prompt: String,
+    include_output_contract: bool,
+) -> String {
     let (hot_words, corrections, profile_translation_target, custom_prompt, polish_structure_level) =
         state.with_profile(|p| {
             (
@@ -267,7 +334,9 @@ fn build_system_prompt(
         prompt.push_str("\n</app_preferences>");
     }
 
-    prompt.push_str("\n\n<final_instruction>\n按 <structure_policy> 校正并整理随后输入的 <asr_text>；依据不足的词保持原样，只输出指定 JSON 对象。\n</final_instruction>");
+    if include_output_contract {
+        prompt.push_str("\n\n<final_instruction>\n按 <structure_policy> 校正并整理随后输入的 <asr_text>；依据不足的词保持原样，只输出指定 JSON 对象。\n</final_instruction>");
+    }
 
     prompt
 }
@@ -608,6 +677,9 @@ async fn send_llm_request_with_fallback(
 #[derive(Debug, Clone)]
 pub struct PolishOverrides {
     pub ai_polish_enabled: Option<bool>,
+    /// The Jev gate is opt-in for ordinary dictation only. Other workflows
+    /// keep their existing polish behavior unless they explicitly opt in.
+    pub allow_jev_gate: bool,
     /// None = 使用全局设置；Some(None) = 禁用翻译；Some(Some(...)) = 指定目标语言。
     pub translation_target: Option<Option<String>>,
     pub custom_prompt: Option<String>,
@@ -627,6 +699,7 @@ impl Default for PolishOverrides {
     fn default() -> Self {
         Self {
             ai_polish_enabled: None,
+            allow_jev_gate: false,
             translation_target: None,
             custom_prompt: None,
             screen_context_enabled: None,
@@ -686,6 +759,62 @@ fn passthrough_unless_required(
     }
 }
 
+/// Run the optional Jev classifier before the normal provider authentication
+/// and screenshot preparation. `Some` is reserved for a confident pass and
+/// carries the exact original text; every other outcome falls through to the
+/// existing polish path.
+pub(crate) async fn evaluate_polish_gate(
+    state: &AppState,
+    text: &str,
+    overrides: &PolishOverrides,
+    provider: JevProvider,
+    api_key: &str,
+    endpoint_override: Option<String>,
+) -> Option<PolishOutcome> {
+    if !overrides.allow_jev_gate || overrides.require_execution || api_key.trim().is_empty() {
+        return None;
+    }
+
+    let (enabled, configured_provider, profile_translation_target) =
+        state.with_profile(|profile| {
+            (
+                profile.jev.enabled,
+                profile.jev.provider,
+                profile.translation_target.clone(),
+            )
+        });
+    if !enabled || configured_provider != provider {
+        return None;
+    }
+
+    let translation_enabled = match overrides.translation_target.as_ref() {
+        Some(Some(_)) => true,
+        Some(None) => false,
+        None => profile_translation_target.is_some(),
+    };
+    if translation_enabled {
+        return None;
+    }
+
+    let policy = build_jev_policy(
+        state,
+        text,
+        overrides.translation_target.clone(),
+        overrides.custom_prompt.as_deref(),
+        overrides.app_context.as_deref(),
+    );
+    jev_service::evaluate(
+        &state.http_client,
+        provider,
+        api_key,
+        text,
+        &policy,
+        endpoint_override,
+    )
+    .await
+    .then(|| PolishOutcome::passthrough(text.to_string()))
+}
+
 pub async fn polish_text_with_overrides_detailed(
     state: &AppState,
     text: &str,
@@ -707,6 +836,16 @@ pub async fn polish_text_with_overrides_detailed(
     }
 
     let start = std::time::Instant::now();
+    if overrides.allow_jev_gate && state.with_profile(|profile| profile.jev.enabled) {
+        let jev_provider = state.with_profile(|profile| profile.jev.provider);
+        let jev_api_key =
+            jev_service::load_api_key_for_provider(app_handle, jev_provider).unwrap_or_default();
+        if let Some(outcome) =
+            evaluate_polish_gate(state, text, &overrides, jev_provider, &jev_api_key, None).await
+        {
+            return Ok(outcome);
+        }
+    }
     if emit_status {
         emit_polish_status(app_handle, "auth", text, "", "", session_id);
     }

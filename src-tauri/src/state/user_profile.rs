@@ -57,6 +57,36 @@ pub struct VocabEntry {
     pub last_seen: u64,
 }
 
+/// Jev evaluation provider used by the optional ordinary-dictation gate.
+///
+/// The serde names are part of the persisted profile contract. Keep them
+/// lowercase so existing profiles and the frontend use the same values.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum JevProvider {
+    #[default]
+    TypeSafe,
+    OpenRouter,
+    Vercel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct JevConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub provider: JevProvider,
+}
+
+impl Default for JevConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: JevProvider::TypeSafe,
+        }
+    }
+}
+
 /// 用户画像
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserProfile {
@@ -68,6 +98,9 @@ pub struct UserProfile {
     pub last_updated: u64,
     /// LLM 后端配置
     pub llm_provider: LlmProviderConfig,
+    /// Optional Jev gate configuration; provider credentials remain in the system keyring.
+    #[serde(default)]
+    pub jev: JevConfig,
     /// 翻译目标语言（None = 关闭翻译，非空 = 开启并翻译为该语言）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_target: Option<String>,

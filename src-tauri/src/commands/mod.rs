@@ -7,6 +7,7 @@ pub mod funasr;
 pub mod grok_build_oauth;
 pub mod history;
 pub mod hotkey;
+pub mod jev;
 pub mod profile;
 pub mod selection;
 pub mod updater;

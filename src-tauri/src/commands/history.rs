@@ -210,6 +210,7 @@ async fn reprocess_stored_history(
             app_context,
             emit_status: false,
             learn_from_result: false,
+            allow_jev_gate: false,
             require_execution: kind == "polish",
         },
     )

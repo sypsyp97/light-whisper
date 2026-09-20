@@ -852,6 +852,7 @@ textarea,
 
 /* Toggle switch — autostart etc. */
 .toggle-switch {
+  flex: 0 0 44px;
   width: 44px;
   height: 24px;
   border-radius: 12px;

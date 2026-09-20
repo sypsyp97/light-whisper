@@ -155,6 +155,13 @@ export interface WebSearchConfig {
 
 // API 协议格式
 export type ApiFormat = "openai_compat" | "anthropic";
+export type JevProvider = "typesafe" | "openrouter" | "vercel";
+
+export interface JevConfig {
+  enabled: boolean;
+  provider: JevProvider;
+}
+
 export type LlmReasoningMode =
   | "provider_default"
   | "off"
@@ -219,6 +226,7 @@ export interface UserProfile {
   total_transcriptions: number;
   last_updated: number;
   llm_provider: LlmProviderConfig;
+  jev?: JevConfig;
   translation_target?: string | null;
   translation_hotkey?: string | null;
   custom_prompt?: string | null;

@@ -25,14 +25,27 @@
 
 ## 功能
 
-- **一键听写**：通过可配置全局热键录音，转写后自动输入到当前活动窗口。
-- **本地与云端 ASR**：本地运行 Qwen3-ASR Q8，也可使用 GLM-ASR / 阿里 DashScope，免本地模型。
-- **AI 润色**：等待 LLM 返回后只输入一次最终结果；四档结构化程度覆盖忠实清理到主动重组，结果卡片显示 ASR、AI 和总耗时。
-- **字幕悬浮窗**：透明浮窗显示听写、滚动识别、润色、联网搜索和助手状态；中间结果仍通过稳定前缀减少跳动，字幕正文统一使用高对比度颜色显示。
-- **语音助手**：独立热键唤起，可选读取选中文本、前台应用和全屏截图作为上下文。
-- **划词与语音编辑**：鼠标划词后可翻译、解释、优化、复制或搜索；优化结果可一键替换原选区。翻译目标支持预设和自定义语言，语音指令也可原地改写选中文字。
-- **模型与搜索配置**：内置 OpenAI、DeepSeek、Cerebras、SiliconFlow；支持自定义 OpenAI 兼容或 Anthropic 端点；助手支持模型内置搜索、Exa、Tavily。
-- **个人词库**：热词、结构化纠错学习，以及手动删除词条的黑名单。
+- **听写与翻译**：通过可配置热键输入到当前应用，支持按住说话、点击切换录音和指定翻译目标语言。
+- **本地或云端识别**：在本机运行 Qwen3-ASR，或使用无需本地模型的 GLM-ASR / 阿里 DashScope。
+- **AI 润色与 Jev**：提供四档结构化程度；可选 Jev 判断是否需要润色，无需修改时保留原文。结果卡片显示各阶段耗时。
+- **字幕悬浮窗**：显示本地实时识别文本和处理状态。
+- **语音助手与编辑**：提问或改写选中文字，可选加入应用、选区或截图上下文；鼠标划词还支持翻译、解释、润色、复制和搜索。
+- **模型与联网搜索**：支持内置服务商、自定义 OpenAI 兼容 / Anthropic 端点、受支持的 OpenAI Codex 和 Grok Build 账号登录，以及模型内置、Exa、Tavily 搜索。
+- **个性化**：热词、纠错学习、已删除词条屏蔽，以及按应用覆盖润色、翻译、截图和自定义指令。
+- **本地历史记录**：可选开启，支持保留期限、搜索、导出、删除和重新润色；额外保存音频后可重新识别。
+
+本文介绍当前源码中的功能；已发布安装包可能有所不同，请查看[版本说明](https://github.com/sypsyp97/light-whisper/releases)。
+
+## 快速开始
+
+1. 安装后打开设置，选择麦克风和识别引擎。使用本地 Qwen 时下载模型；使用云端引擎时填写 API Key 和区域。
+2. 将焦点放到需要输入文字的应用，按住 `F2` 说话，松开后输出文字。可在设置中更换热键或改用点击切换录音。
+3. 使用 AI 润色或语音助手时，选择服务商和模型，并填写 API Key 或使用受支持的账号登录。基础本地听写不需要 LLM 账号。
+4. 使用 Jev 时，打开 **AI 润色 → Jev 智能跳过润色**，选择 TypeSafe（官方）、OpenRouter 或 Vercel，填写该服务的独立 API Key，同时保持 AI 润色开启。Jev 默认关闭，出错或超时继续正常润色；翻译、助手/编辑和手动重新润色不经过该判断。
+
+## 数据使用
+
+本地 ASR 在电脑上处理音频，云端 ASR 会将音频发送给所选服务商。启用 AI 润色或 Jev 后，文本与处理要求会发送给对应服务；可选的选区、截图上下文和联网搜索也可能向配置的服务发送数据。Jev 密钥按服务商分别保存在系统凭据库中。历史记录和音频保存均为可选的本地设置。
 
 ## ASR 引擎
 
@@ -43,9 +56,7 @@
 | **GLM-ASR** | 在线 API | 免本地模型的云端 ASR | `glm-asr-2512` | API Key + 区域端点 |
 | **阿里 DashScope** | 在线 API | DashScope 上的 Qwen ASR / Omni | 默认 `qwen3-asr-flash`；模型列表可刷新 | API Key + 区域 + 模型 |
 
-在线 ASR 引擎只返回最终结果，并跳过本地 Python 引擎启动。本地引擎使用打包的 Python 引擎和缓存的 HuggingFace 模型。
-
-Qwen 权重会在首次使用时单独下载，并从模型缓存中复用。FireRedVAD 已随应用内置，不需要另外下载 VAD 模型。0.6B 更轻量，1.7B 模型更大；两者都支持个人热词，优先使用 CUDA，并可回退到 Vulkan/CPU。
+云端引擎只返回最终结果，不启动本地 Python。Qwen 模型下载后会缓存，FireRedVAD 已随应用内置；两种 Qwen 模型均支持热词，优先使用 CUDA，并可回退到 Vulkan/CPU。
 
 ## 安装
 
@@ -57,22 +68,24 @@ GPU 加速是可选项。NVIDIA 显卡配合较新的驱动可启用 CUDA；无 
 
 ### 从源码构建
 
-Windows 10/11 x64 环境要求：
+Windows 10/11 x64 构建工具（标注 CI 的版本与仓库配置一致）：
 
 | 工具 | 版本 | 用途 |
 |:--|:--|:--|
 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) | 2019+ | MSVC C++ 编译链 |
-| [Rust](https://www.rust-lang.org/tools/install) | >= 1.75 | Tauri 后端 |
-| [Node.js](https://nodejs.org/) | >= 18 | 前端构建 |
-| [pnpm](https://pnpm.io/) | >= 8 | 前端包管理 |
-| [uv](https://docs.astral.sh/uv/) | >= 0.4 | 本地 ASR 的 Python 环境 |
+| [Rust](https://www.rust-lang.org/tools/install) | 1.93.0 (CI) | Tauri 后端 |
+| [Node.js](https://nodejs.org/) | 22.14.0 (CI) | 前端构建 |
+| [pnpm](https://pnpm.io/) | 10.28.2 (CI) | 前端包管理 |
+| [uv](https://docs.astral.sh/uv/) | 0.11.30 (CI) | 本地 ASR 的 Python 环境 |
+
+`.python-version` 指定 Python 3.11，项目支持 Python 3.11–3.12，由 `uv` 管理环境。
 
 ```bash
 git clone https://github.com/sypsyp97/light-whisper.git
 cd light-whisper
 
-pnpm install
-uv sync
+pnpm install --frozen-lockfile
+uv sync --frozen
 pnpm tauri dev
 ```
 

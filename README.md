@@ -25,14 +25,27 @@
 
 ## Features
 
-- **One-key dictation**: record with a configurable global hotkey, then type the transcript into the active window.
-- **Local and cloud ASR**: run Qwen3-ASR Q8 locally, or use GLM-ASR / Alibaba DashScope without local models.
-- **AI polish**: wait for the LLM and type only the final polished result. Four structure levels range from faithful cleanup to stronger organization; result cards show ASR, AI, and total latency.
-- **Subtitle overlay**: a floating transparent window shows listening, rolling recognition, polishing, web search, and assistant states; interim text keeps stable-prefix smoothing while the subtitle body uses one consistent high-contrast color.
-- **Voice assistant**: ask from a separate hotkey, with optional selected text, foreground app, and full-screen screenshot context.
-- **Selection and voice editing**: select text with the mouse to translate, explain, improve, copy, or search it; improved text can replace the original selection with one click. Translation supports preset or custom target languages, and voice commands can rewrite selected text in place.
-- **Provider flexibility**: built-in OpenAI, DeepSeek, Cerebras, and SiliconFlow presets; custom OpenAI-compatible or Anthropic endpoints; model-native / Exa / Tavily web search for assistant tasks.
-- **Personal vocabulary**: hot words, correction learning, and a blacklist for terms you delete manually.
+- **Dictation and translation**: type into the active app with a configurable hotkey; choose hold-to-talk or toggle recording and an optional translation target.
+- **Local or cloud recognition**: Qwen3-ASR on your PC, or GLM-ASR / Alibaba DashScope without local models.
+- **AI polish and Jev**: four structure levels; optional Jev classification skips unnecessary polishing and preserves the original text. Result cards show processing times.
+- **Subtitles**: a floating window shows live local recognition and processing status.
+- **Voice assistant and editing**: ask questions or rewrite selected text; optionally include app, selection, or screenshot context. Mouse selection also offers translation, explanation, polishing, copying, and search.
+- **Models and web search**: built-in providers or custom OpenAI-compatible / Anthropic endpoints; supported OpenAI Codex and Grok Build login options; model-native, Exa, or Tavily search.
+- **Personalization**: hot words, learned corrections, deleted-term blocking, and per-app overrides for polishing, translation, screenshots, and custom instructions.
+- **Local history**: opt-in records with retention controls, search, export, deletion, and re-polishing. Save audio optionally to enable re-transcription.
+
+This README describes the current source; published installers may differ. Check the [release notes](https://github.com/sypsyp97/light-whisper/releases).
+
+## Quick Start
+
+1. Install the app, open Settings, and select a microphone and ASR engine. Download a local Qwen model or enter your cloud engine API key and region.
+2. Focus the app where you want text, hold `F2`, speak, then release. Change the hotkey or choose toggle recording in Settings.
+3. For AI polish or the assistant, select a provider and model, then configure its API key or supported account login. Basic local dictation does not require an LLM account.
+4. To use Jev, enable **AI Polish → Jev smart polish skip**, choose TypeSafe (official), OpenRouter, or Vercel, and enter that service's separate API key. AI polish must also be enabled. Jev is off by default; failures/timeouts continue normal polishing. Translation, assistant/editing, and manual re-polish bypass this gate.
+
+## Data Use
+
+Local ASR processes audio on your PC; cloud ASR sends it to the selected provider. Enabled AI polish and Jev send text and processing requirements to their providers. Optional selection/screenshot context and web search can also send data to the configured services. Jev API keys are stored separately in the system credential store. History and audio saving are optional local settings.
 
 ## ASR Engines
 
@@ -43,9 +56,7 @@
 | **GLM-ASR** | Online API | Cloud ASR without local models | `glm-asr-2512` | API key + region endpoint |
 | **Alibaba DashScope** | Online API | Qwen ASR / Omni on DashScope | Default `qwen3-asr-flash`; refreshable model list | API key + region + model |
 
-Online ASR engines return final results only and skip the local Python engine startup. Local engines use the bundled Python engine and cached HuggingFace models.
-
-Qwen weights are downloaded separately on first use and reused from the model cache. FireRedVAD ships inside the app and requires no separate model download. The 0.6B option is lighter, while 1.7B is larger; both support personal hot words and prefer CUDA with Vulkan/CPU fallback.
+Cloud engines return final results only and skip local Python startup. Local Qwen models download once and are cached; FireRedVAD is bundled. Both Qwen sizes support hot words and prefer CUDA, with Vulkan/CPU fallback.
 
 ## Installation
 
@@ -57,22 +68,24 @@ GPU acceleration is optional. An NVIDIA GPU with a current driver enables CUDA; 
 
 ### Build from Source
 
-Requirements for Windows 10/11 x64:
+Windows 10/11 x64 build tools (versions below match repository CI where specified):
 
 | Tool | Version | Purpose |
 |:--|:--|:--|
 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) | 2019+ | MSVC C++ toolchain |
-| [Rust](https://www.rust-lang.org/tools/install) | >= 1.75 | Tauri backend |
-| [Node.js](https://nodejs.org/) | >= 18 | Frontend build |
-| [pnpm](https://pnpm.io/) | >= 8 | Frontend packages |
-| [uv](https://docs.astral.sh/uv/) | >= 0.4 | Python environment for local ASR |
+| [Rust](https://www.rust-lang.org/tools/install) | 1.93.0 (CI) | Tauri backend |
+| [Node.js](https://nodejs.org/) | 22.14.0 (CI) | Frontend build |
+| [pnpm](https://pnpm.io/) | 10.28.2 (CI) | Frontend packages |
+| [uv](https://docs.astral.sh/uv/) | 0.11.30 (CI) | Python environment for local ASR |
+
+Python 3.11 is selected by `.python-version`; the project supports Python 3.11–3.12. `uv` manages this environment.
 
 ```bash
 git clone https://github.com/sypsyp97/light-whisper.git
 cd light-whisper
 
-pnpm install
-uv sync
+pnpm install --frozen-lockfile
+uv sync --frozen
 pnpm tauri dev
 ```
 

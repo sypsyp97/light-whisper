@@ -13,6 +13,7 @@ import type {
   FunASRStatus,
   HotkeyDiagnostic,
   InputDeviceListPayload,
+  JevProvider,
   LlmReasoningMode,
   LlmReasoningSupport,
   ModelCheckResult,
@@ -188,6 +189,18 @@ export function setAiPolishConfig(enabled: boolean, apiKey: string): Promise<voi
 
 export function getAiPolishApiKey(): Promise<string> {
   return invokeCommand<string>("get_ai_polish_api_key");
+}
+
+export function setJevConfig(enabled: boolean, provider: JevProvider): Promise<void> {
+  return invokeCommand<void>("set_jev_config", { enabled, provider });
+}
+
+export function getJevApiKey(provider: JevProvider): Promise<string> {
+  return invokeCommand<string>("get_jev_api_key", { provider });
+}
+
+export function setJevApiKey(provider: JevProvider, apiKey: string): Promise<void> {
+  return invokeCommand<void>("set_jev_api_key", { provider, apiKey });
 }
 
 export function setAiPolishScreenContextEnabled(enabled: boolean): Promise<void> {

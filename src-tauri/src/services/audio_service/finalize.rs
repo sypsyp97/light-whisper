@@ -693,6 +693,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             session_id,
             ai_polish_service::PolishOverrides {
                 ai_polish_enabled: Some(ai_polish_enabled),
+                allow_jev_gate: true,
                 translation_target: translation_override,
                 custom_prompt: app_profile.custom_prompt.clone(),
                 screen_context_enabled: Some(allow_screen_context),
