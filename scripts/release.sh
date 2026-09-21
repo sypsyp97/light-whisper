@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 在本机完成完整验证和打包，候选提交的 CI 通过后才创建 tag 和 GitHub Release。
 # 用法:
-#   bash scripts/release.sh 1.5.5 "本次发布说明。" [--rebuild-engine|--reuse-engine]
-#   bash scripts/release.sh 1.5.5 --generate-notes --reuse-engine
+#   bash scripts/release.sh 1.6.0 "Concise English release notes." [--rebuild-engine|--reuse-engine]
+#   bash scripts/release.sh 1.6.0 --generate-notes --reuse-engine
 
 set -euo pipefail
 

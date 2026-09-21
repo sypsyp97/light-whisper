@@ -163,6 +163,7 @@ python
 # PyInstaller 构建产物
 src-tauri/resources/python-dist/
 src-tauri/resources/engine.tar.xz
+src-tauri/resources/r2t2-native/
 
 .claude/
 

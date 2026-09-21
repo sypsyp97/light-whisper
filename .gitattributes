@@ -1,2 +1,7 @@
 # Shell scripts must keep LF endings
 *.sh text eol=lf
+# Native runtime manifests hash the reviewed patch byte for byte.
+# Unified-diff context lines contain a required leading space, even when blank.
+scripts/patches/*.patch text eol=lf whitespace=-blank-at-eol
+# Preserve the upstream license verbatim.
+src-tauri/resources/R2T2-MODEL-LICENSE.txt whitespace=-blank-at-eol

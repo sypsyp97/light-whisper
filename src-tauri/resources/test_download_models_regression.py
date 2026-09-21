@@ -668,6 +668,22 @@ class ModelDownloadAtomicityTests(unittest.TestCase):
                     siblings = [x for x in pinned.parent.iterdir() if x.name not in ("model.gguf", download_models.COMPLETE_MANIFEST_NAME)]
                     self.assertTrue(any(x.read_bytes() == content for x in siblings))
 
+    def test_r2t2_download_uses_verified_q8_artifact_only(self):
+        with (
+            mock.patch.object(download_models, "download_model", return_value={"success": True}) as download,
+            mock.patch.object(download_models, "_emit"),
+            mock.patch("builtins.print"),
+        ):
+            download_models.main(engine="confucius4-r2t2")
+        download.assert_called_once()
+        request = download.call_args.args[0]
+        self.assertEqual(request["name"], "davidxifeng/Confucius4-R2T2-gguf")
+        self.assertEqual(request["revision"], "a8e6b385d7df7eae9519363e07034a209004797a")
+        self.assertEqual(request["files"], [{
+            "rfilename": "r2t2-q8_0.gguf", "size": 2_477_512_064,
+            "sha256": "19f5ccd624484bcb5d44301437de41560b0ecc40c430e8850dfeefefbe82ccf5",
+        }])
+
     def test_qwen_download_is_pinned_to_one_q8_file(self):
         with (
             mock.patch.object(

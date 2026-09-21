@@ -89,7 +89,17 @@ impl Default for JevConfig {
 
 /// 用户画像
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct R2T2Config {
+    #[serde(default)]
+    pub context: String,
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserProfile {
+    #[serde(default)]
+    pub r2t2: R2T2Config,
     pub hot_words: Vec<HotWord>,
     pub correction_patterns: Vec<CorrectionPattern>,
     pub vocab_frequency: HashMap<String, VocabEntry>,

@@ -17,8 +17,31 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 #[derive(Debug, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ServerCommand {
+    StreamStart {
+        session_id: u64,
+        context: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hot_words: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
+    StreamFeed {
+        session_id: u64,
+        offset: usize,
+        audio_base64: String,
+        audio_format: String,
+        sample_rate: u32,
+    },
+    StreamFinish {
+        session_id: u64,
+    },
+    StreamCancel {
+        session_id: u64,
+    },
     /// 转写音频文件
     Transcribe {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        options: Option<crate::state::user_profile::R2T2Config>,
         /// 音频文件的路径
         #[serde(skip_serializing_if = "Option::is_none")]
         audio_path: Option<String>,
@@ -47,6 +70,11 @@ pub enum ServerCommand {
 /// `Option<T>` 表示字段可能存在也可能不存在。
 #[derive(Debug, Deserialize)]
 pub(super) struct ServerResponse {
+    pub(super) tentative_text: Option<String>,
+    pub(super) session_id: Option<u64>,
+    pub(super) sample_count: Option<usize>,
+    #[serde(rename = "final")]
+    pub(super) is_final: Option<bool>,
     /// 请求 ID；新协议用于丢弃取消/超时后迟到的旧响应
     pub(super) request_id: Option<u64>,
     /// 操作是否成功

@@ -34,7 +34,11 @@ use crate::utils::paths;
 use crate::utils::AppError;
 
 mod installation;
+pub(crate) mod native_stream;
 mod protocol;
+
+#[cfg(test)]
+mod native_stream_tests;
 
 #[cfg(test)]
 use installation::{engine_install_fingerprint_matches, replace_engine_dir};
@@ -107,8 +111,8 @@ pub struct ModelCheckResult {
 
 const QWEN3_ASR_06_REPO_ID: &str = "handy-computer/Qwen3-ASR-0.6B-gguf";
 const QWEN3_ASR_06_FILENAME: &str = "Qwen3-ASR-0.6B-Q8_0.gguf";
-const QWEN3_ASR_17_REPO_ID: &str = "handy-computer/Qwen3-ASR-1.7B-gguf";
-const QWEN3_ASR_17_FILENAME: &str = "Qwen3-ASR-1.7B-Q8_0.gguf";
+const R2T2_REPO_ID: &str = "davidxifeng/Confucius4-R2T2-gguf";
+const R2T2_FILENAME: &str = "r2t2-q8_0.gguf";
 const HF_COMPLETE_MANIFEST_NAME: &str = ".light_whisper_complete.json";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -343,6 +347,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         EngineRuntime::Development { python_path } => {
             log::info!("使用开发模式 Python: {}", python_path);
             let server_script = match ticket.engine.as_str() {
+                "confucius4-r2t2" => paths::get_r2t2_asr_server_path(app_handle),
                 engine if engine.starts_with("qwen3-asr-") => {
                     paths::get_qwen3_asr_server_path(app_handle)
                 }
@@ -545,6 +550,7 @@ pub async fn transcribe(
     audio_data: Vec<u8>,
     app_handle: &tauri::AppHandle,
 ) -> Result<TranscriptionResult, AppError> {
+    let _asr_guard = state.engine.native_asr_owner.lock().await;
     let hot_words = profile_hot_words(state);
     transcribe_wav_bytes_via_path(state, audio_data, hot_words, app_handle).await
 }
@@ -555,6 +561,7 @@ pub async fn transcribe_pcm16(
     sample_rate: u32,
     app_handle: &tauri::AppHandle,
 ) -> Result<TranscriptionResult, AppError> {
+    let _asr_guard = state.engine.native_asr_owner.lock().await;
     // 检查服务器是否就绪
     if !state.is_funasr_ready() {
         return Err(AppError::Asr(
@@ -567,7 +574,10 @@ pub async fn transcribe_pcm16(
     const MIN_IPC_DURATION_SEC: f64 = 0.5;
     let min_samples_for_ipc = (sample_rate as f64 * MIN_IPC_DURATION_SEC) as usize;
     let padded_storage: Vec<i16>;
-    let samples: &[i16] = if samples.len() < min_samples_for_ipc && !samples.is_empty() {
+    let samples: &[i16] = if paths::read_engine_config() != "confucius4-r2t2"
+        && samples.len() < min_samples_for_ipc
+        && !samples.is_empty()
+    {
         let mut v = Vec::with_capacity(min_samples_for_ipc);
         v.extend_from_slice(samples);
         v.resize(min_samples_for_ipc, 0);
@@ -593,6 +603,7 @@ pub async fn transcribe_pcm16(
     let response = send_command_to_server(
         state,
         &ServerCommand::Transcribe {
+            options: profile_r2t2_options(state),
             audio_path: None,
             audio_base64: Some(encode_pcm16_base64(samples)),
             audio_format: Some(INLINE_AUDIO_FORMAT_PCM_S16LE.to_string()),
@@ -621,6 +632,11 @@ pub async fn transcribe_pcm16(
 fn profile_hot_words(state: &AppState) -> Option<Vec<String>> {
     let words = state.with_profile(|p| p.get_hot_word_texts(100));
     (!words.is_empty()).then_some(words)
+}
+
+fn profile_r2t2_options(state: &AppState) -> Option<crate::state::user_profile::R2T2Config> {
+    (paths::read_engine_config() == "confucius4-r2t2")
+        .then(|| state.with_profile(|profile| profile.r2t2.clone()))
 }
 
 fn encode_pcm16_base64(samples: &[i16]) -> String {
@@ -727,6 +743,7 @@ async fn transcribe_wav_bytes_via_path(
     let response = send_command_to_server(
         state,
         &ServerCommand::Transcribe {
+            options: profile_r2t2_options(state),
             audio_path: Some(temp_file.to_string_lossy().to_string()),
             audio_base64: None,
             audio_format: None,
@@ -1227,17 +1244,13 @@ fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
     let cache_path = cache_root.to_string_lossy().to_string();
 
     // 旧版或损坏的本地引擎值统一迁移到默认的 Qwen3-ASR 0.6B。
-    let normalized_engine = if engine == "qwen3-asr-1.7b" {
-        "qwen3-asr-1.7b"
+    let normalized_engine = if matches!(engine, "confucius4-r2t2" | "qwen3-asr-1.7b") {
+        "confucius4-r2t2"
     } else {
         "qwen3-asr-0.6b"
     };
-    let (repo_id, filename, description) = if normalized_engine == "qwen3-asr-1.7b" {
-        (
-            QWEN3_ASR_17_REPO_ID,
-            QWEN3_ASR_17_FILENAME,
-            "Qwen3-ASR 1.7B Q8模型",
-        )
+    let (repo_id, filename, description) = if normalized_engine == "confucius4-r2t2" {
+        (R2T2_REPO_ID, R2T2_FILENAME, "Confucius4-R2T2 Q8 模型")
     } else {
         (
             QWEN3_ASR_06_REPO_ID,
@@ -1297,6 +1310,10 @@ mod tests {
     #[test]
     fn server_command_serializes_flat_optional_audio_fields() {
         let inline = serde_json::to_value(ServerCommand::Transcribe {
+            options: Some(crate::state::user_profile::R2T2Config {
+                context: "domain context".into(),
+                language: Some("de".into()),
+            }),
             audio_path: None,
             audio_base64: Some("AQI=".to_string()),
             audio_format: Some("pcm_s16le".to_string()),
@@ -1306,6 +1323,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(inline["action"], serde_json::json!("transcribe"));
+        assert_eq!(inline["options"]["context"], "domain context");
+        assert_eq!(inline["options"]["language"], "de");
         assert_eq!(inline["audio_base64"], serde_json::json!("AQI="));
         assert_eq!(inline["audio_format"], serde_json::json!("pcm_s16le"));
         assert_eq!(inline["sample_rate"], serde_json::json!(16_000));
@@ -1313,6 +1332,7 @@ mod tests {
         assert!(inline.get("audio_path").is_none());
 
         let path = serde_json::to_value(ServerCommand::Transcribe {
+            options: None,
             audio_path: Some("C:/tmp/clip.wav".to_string()),
             audio_base64: None,
             audio_format: None,
@@ -1322,6 +1342,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(path["action"], serde_json::json!("transcribe"));
+        assert!(path.get("options").is_none());
         assert_eq!(path["audio_path"], serde_json::json!("C:/tmp/clip.wav"));
         assert!(path.get("audio_base64").is_none());
         assert!(path.get("audio_format").is_none());

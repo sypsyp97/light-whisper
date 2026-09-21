@@ -162,7 +162,7 @@ const labels: Record<string, string> = {
   "settings.autoUseDefault": "Automatically use system default input device",
   "settings.canSelect": "Select this microphone",
   "settings.qwen3Asr06Desc": "Fast local speech recognition",
-  "settings.qwen3Asr17Desc": "Higher accuracy local speech recognition",
+  "settings.r2t2Desc": "Higher accuracy local speech recognition",
   "settings.restoreDefault": "Restore default",
   "settings.savedMicUnavailable": "Saved microphone is unavailable",
   "settings.selectMic": "Select Microphone",
@@ -326,7 +326,7 @@ describe("SettingsPage ASR and device settings", () => {
   it("loads the persisted engine, microphone, and model directory and applies a directory change", async () => {
     const defaultModelsDir = "C:\\light-whisper\\models";
     const customModelsDir = "D:\\light-whisper\\models";
-    tauriMock.getEngine.mockResolvedValue("qwen3-asr-1.7b");
+    tauriMock.getEngine.mockResolvedValue("confucius4-r2t2");
     tauriMock.getModelsDir
       .mockResolvedValueOnce({ path: defaultModelsDir, is_custom: false })
       .mockResolvedValueOnce({ path: customModelsDir, is_custom: true });
@@ -345,7 +345,7 @@ describe("SettingsPage ASR and device settings", () => {
     const engineSection = screen.getByRole("heading", { name: "ASR Engine" }).closest("section");
     expect(engineSection).not.toBeNull();
     const engineTrigger = within(engineSection!).getByRole("button", { name: "ASR Engine" });
-    await waitFor(() => expect(engineTrigger).toHaveTextContent("Qwen3-ASR 1.7B Q8"));
+    await waitFor(() => expect(engineTrigger).toHaveTextContent("Confucius4-R2T2 Q8"));
     const microphoneTrigger = screen.getByRole("button", { name: "Select Microphone" });
     await waitFor(() => expect(microphoneTrigger).toHaveTextContent("USB Microphone"));
     expect(screen.getByText(defaultModelsDir)).toBeInTheDocument();
@@ -403,10 +403,10 @@ describe("SettingsPage ASR and device settings", () => {
     await waitFor(() => expect(engineTrigger).not.toBeDisabled());
     fireEvent.click(engineTrigger);
     const engineList = screen.getByRole("listbox");
-    fireEvent.click(within(engineList).getByRole("option", { name: /Qwen3-ASR 1\.7B Q8/ }));
+    fireEvent.click(within(engineList).getByRole("option", { name: /Confucius4-R2T2 Q8/ }));
 
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Failed to switch engine"));
-    expect(tauriMock.setEngine).toHaveBeenCalledWith("qwen3-asr-1.7b");
+    expect(tauriMock.setEngine).toHaveBeenCalledWith("confucius4-r2t2");
     expect(engineTrigger).toHaveTextContent("Qwen3-ASR 0.6B Q8");
     expect(recordingContextMock.retryModel).not.toHaveBeenCalled();
   });

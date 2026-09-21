@@ -25,6 +25,16 @@ QWEN3_ASR_MODELS = {
     },
 }
 
+R2T2_MODEL = {
+    "repo_id": "davidxifeng/Confucius4-R2T2-gguf",
+    "filename": "r2t2-q8_0.gguf",
+    "revision": "a8e6b385d7df7eae9519363e07034a209004797a",
+    "size": 2_477_512_064,
+    "sha256": "19f5ccd624484bcb5d44301437de41560b0ecc40c430e8850dfeefefbe82ccf5",
+}
+
+LOCAL_ASR_MODELS = {**QWEN3_ASR_MODELS, "confucius4-r2t2": R2T2_MODEL}
+
 _WEIGHT_EXTS = (".pt", ".bin", ".safetensors", ".onnx", ".gguf")
 _MIN_WEIGHT_SIZE = 1_000_000  # 与 Rust 端阈值一致
 COMPLETE_MANIFEST_NAME = ".light_whisper_complete.json"

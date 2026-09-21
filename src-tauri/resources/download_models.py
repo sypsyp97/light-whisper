@@ -17,7 +17,7 @@ from hf_cache_utils import (
     is_hf_repo_ready,
     get_hf_cache_root,
     cleanup_incomplete_files,
-    QWEN3_ASR_MODELS,
+    LOCAL_ASR_MODELS,
 )
 
 DEFAULT_HF_ENDPOINT = "https://huggingface.co"
@@ -458,13 +458,13 @@ def main(engine=None):
         parser.add_argument(
             "--engine",
             default="qwen3-asr-0.6b",
-            choices=["qwen3-asr-0.6b", "qwen3-asr-1.7b"],
+            choices=["qwen3-asr-0.6b", "confucius4-r2t2"],
         )
         args = parser.parse_args()
         engine = args.engine
 
-    if engine in QWEN3_ASR_MODELS:
-        config = QWEN3_ASR_MODELS[engine]
+    if engine in LOCAL_ASR_MODELS:
+        config = LOCAL_ASR_MODELS[engine]
         models = [
             {
                 "name": config["repo_id"],

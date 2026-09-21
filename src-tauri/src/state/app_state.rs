@@ -145,6 +145,7 @@ pub struct RecordingSession {
     pub sample_rate: u32,
     pub audio_thread: Option<JoinHandle<()>>,
     pub interim_task: Option<tokio::task::JoinHandle<()>>,
+    pub native_recording: Option<crate::services::audio_service::NativeRecording>,
     pub interim_cache: Arc<parking_lot::Mutex<Option<InterimCache>>>,
     /// 录音热键触发时的前台应用快照。规则、历史元数据和截图授权都必须基于
     /// 同一个边界，避免收尾阶段切换窗口后套用错误的隐私策略。
@@ -245,6 +246,8 @@ impl Default for HotkeyDiagnosticState {
 
 /// ASR 引擎生命周期 + 下载 + 传输能力探测
 pub struct EngineState {
+    /// Serialize entire native utterances, including final flush and cancellation.
+    pub native_asr_owner: Arc<Mutex<()>>,
     pub funasr_process: Arc<Mutex<Option<FunasrProcess>>>,
     /// 已生成但尚未完成初始化的子进程。使用同步句柄以便取消/Drop 时立即 start_kill。
     pub funasr_starting_process: Arc<parking_lot::Mutex<Option<StartingFunasrProcess>>>,
@@ -268,6 +271,7 @@ pub struct EngineState {
 impl Default for EngineState {
     fn default() -> Self {
         Self {
+            native_asr_owner: Default::default(),
             funasr_process: Default::default(),
             funasr_starting_process: Default::default(),
             funasr_lifecycle_op: Default::default(),
@@ -710,6 +714,7 @@ mod recording_snapshot_tests {
             sample_rate: 16_000,
             audio_thread: None,
             interim_task: None,
+            native_recording: None,
             interim_cache: Arc::new(parking_lot::Mutex::new(None)),
             foreground_app: None,
             edit_grab: None,

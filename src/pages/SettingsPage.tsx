@@ -66,6 +66,7 @@ import AppProfileRulesSettingsSection from "@/components/settings/AppProfileRule
 import HistorySettingsSection from "@/components/settings/HistorySettingsSection";
 import PolishStructureControl from "@/components/settings/PolishStructureControl";
 import JevSettingsSection from "@/components/settings/JevSettingsSection";
+import R2T2SettingsSection from "@/components/settings/R2T2SettingsSection";
 import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import { formatAsrEngineDescription, getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 import {
@@ -107,7 +108,7 @@ const DEFAULT_SCREEN_VISION_MODEL = "gpt-4.1-mini";
 
 const engineOptions = [
   { key: "qwen3-asr-0.6b", icon: Zap, label: "Qwen3-ASR 0.6B Q8", labelKey: undefined, descKey: "settings.qwen3Asr06Desc" },
-  { key: "qwen3-asr-1.7b", icon: Sparkles, label: "Qwen3-ASR 1.7B Q8", labelKey: undefined, descKey: "settings.qwen3Asr17Desc" },
+  { key: "confucius4-r2t2", icon: Sparkles, label: "Confucius4-R2T2 Q8", labelKey: undefined, descKey: "settings.r2t2Desc" },
   { key: "glm-asr", icon: Globe, label: "GLM-ASR", labelKey: undefined, descKey: "settings.glmAsrDesc" },
   { key: "alibaba-asr", icon: Cloud, label: "Alibaba DashScope", labelKey: "settings.alibabaAsrLabel", descKey: "settings.alibabaAsrDesc" },
 ] as const;
@@ -2207,6 +2208,9 @@ export default function SettingsPage({
                 </div>
               );
             })()}
+            {engine === "confucius4-r2t2" && profile && (
+              <R2T2SettingsSection profile={profile} onSaved={() => { void refreshProfile(); }} />
+            )}
             {(engine === "glm-asr" || engine === "alibaba-asr") && (
               <div className="settings-inline-panel" style={{ marginTop: 8 }}>
                 <div className="settings-column" style={{ gap: 4 }}>

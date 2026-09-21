@@ -332,6 +332,13 @@ class BaseASRServer:
     ) -> dict:
         raise NotImplementedError
 
+    def handle_stream_command(self, command: dict) -> dict:
+        """Handle a stream command in subclasses that provide streaming."""
+        return {
+            "success": False,
+            "error": f"不支持流式命令: {command.get('action')}",
+        }
+
     # ------------------------------------------------------------------
     # Command dispatch loop
     # ------------------------------------------------------------------
@@ -406,6 +413,13 @@ class BaseASRServer:
                 elif action == "cleanup":
                     self._cleanup_memory()
                     result = {"success": True, "message": "内存清理完成"}
+                elif action in (
+                    "stream_start",
+                    "stream_feed",
+                    "stream_finish",
+                    "stream_cancel",
+                ):
+                    result = self.handle_stream_command(command)
                 elif action == "exit":
                     result = {"success": True, "message": "服务器退出"}
                     if request_id is not None and isinstance(result, dict):

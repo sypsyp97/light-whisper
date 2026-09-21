@@ -195,6 +195,10 @@ export function setJevConfig(enabled: boolean, provider: JevProvider): Promise<v
   return invokeCommand<void>("set_jev_config", { enabled, provider });
 }
 
+export function setR2T2Config(context: string, language: string | null): Promise<void> {
+  return invokeCommand<void>("set_r2t2_config", { context, language });
+}
+
 export function getJevApiKey(provider: JevProvider): Promise<string> {
   return invokeCommand<string>("get_jev_api_key", { provider });
 }

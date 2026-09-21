@@ -6,6 +6,51 @@ use crate::state::AppState;
 use crate::utils::{paths, AppError};
 
 #[tauri::command]
+pub async fn set_r2t2_config(
+    state: tauri::State<'_, AppState>,
+    context: String,
+    language: Option<String>,
+) -> Result<(), AppError> {
+    // ISO language identifiers from the pinned Confucius4-R2T2 model spec.
+    const LANGUAGES: &[&str] = &[
+        "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th", "vi", "ja",
+        "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro",
+    ];
+    let language = language
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty());
+    if language
+        .as_deref()
+        .is_some_and(|value| !LANGUAGES.contains(&value))
+    {
+        return Err(AppError::Other("R2T2 不支持所选语言".into()));
+    }
+    crate::services::profile_service::update_profile_and_schedule(state.inner(), |profile| {
+        profile.r2t2.context = context.trim().to_string();
+        profile.r2t2.language = language;
+    });
+    Ok(())
+}
+
+fn lock_idle_asr(state: &AppState) -> Result<tokio::sync::MutexGuard<'_, ()>, AppError> {
+    let recording = state.recording.recording.lock().is_some();
+    let processing = state
+        .recording
+        .snapshot()
+        .is_some_and(|snapshot| snapshot.phase == crate::state::RecordingPhase::Processing);
+    if recording || processing {
+        return Err(AppError::Other(
+            "录音或处理尚未结束，请稍后修改语音引擎".into(),
+        ));
+    }
+    state
+        .engine
+        .native_asr_owner
+        .try_lock()
+        .map_err(|_| AppError::Other("语音识别正在进行，请稍后修改语音引擎".into()))
+}
+
+#[tauri::command]
 pub async fn start_funasr(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -95,6 +140,7 @@ pub async fn restart_funasr(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, AppError> {
     let lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+    let asr_guard = lock_idle_asr(state.inner())?;
     let engine = paths::read_engine_config();
     if paths::is_online_engine(&engine) {
         // 在线引擎无需重启 Python，仅刷新就绪状态
@@ -111,6 +157,7 @@ pub async fn restart_funasr(
 
     log::info!("正在重启 FunASR 服务器...");
     funasr_service::stop_server(state.inner()).await?;
+    drop(asr_guard);
     drop(lifecycle_guard);
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     funasr_service::start_server(&app_handle, state.inner()).await?;
@@ -186,7 +233,12 @@ pub async fn set_engine(
     state: tauri::State<'_, AppState>,
     engine: String,
 ) -> Result<String, AppError> {
-    const VALID: &[&str] = &["qwen3-asr-0.6b", "qwen3-asr-1.7b", "glm-asr", "alibaba-asr"];
+    const VALID: &[&str] = &[
+        "qwen3-asr-0.6b",
+        "confucius4-r2t2",
+        "glm-asr",
+        "alibaba-asr",
+    ];
     if !VALID.contains(&engine.as_str()) {
         return Err(AppError::Other(format!(
             "不支持的引擎类型: {}，可选值: {}",
@@ -196,6 +248,7 @@ pub async fn set_engine(
     }
 
     let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+    let _asr_guard = lock_idle_asr(state.inner())?;
     if state.engine.download_task.lock().await.is_some() {
         return Err(AppError::Other(
             "模型正在下载，请等待完成或取消下载后再切换引擎".to_string(),
@@ -488,6 +541,7 @@ pub async fn set_models_dir(
     migrate: bool,
 ) -> Result<ModelsDirUpdateResult, AppError> {
     let lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+    let _asr_guard = lock_idle_asr(state.inner())?;
     if state.engine.download_task.lock().await.is_some() {
         return Err(AppError::Other(
             "模型正在下载，请等待完成或取消下载后再切换目录".to_string(),

@@ -92,6 +92,12 @@ mod capture;
 mod finalize;
 mod interim;
 mod monitor;
+mod native_capture;
+#[cfg(test)]
+mod native_capture_tests;
+#[cfg(test)]
+mod native_integration_tests;
+mod native_recording;
 mod resample;
 mod wav;
 #[cfg(target_os = "windows")]
@@ -108,4 +114,6 @@ pub use interim::spawn_interim_loop;
 pub use monitor::{
     start_microphone_level_monitor, stop_microphone_level_monitor, test_microphone_sync,
 };
+pub(crate) use native_recording::spawn_native_recording;
+pub use native_recording::NativeRecording;
 pub use wav::encode_wav;

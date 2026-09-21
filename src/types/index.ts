@@ -220,6 +220,7 @@ export interface LlmProviderConfig {
 
 // 用户画像
 export interface UserProfile {
+  r2t2?: { context: string; language: string | null };
   hot_words: HotWord[];
   correction_patterns: CorrectionPattern[];
   vocab_frequency: Record<string, { count: number; last_seen: number }>;

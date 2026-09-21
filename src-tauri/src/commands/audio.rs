@@ -83,6 +83,7 @@ pub(crate) async fn start_recording_inner(
     // 本函数如果在任何路径上提前失败，这个本地 Option 会自然 drop，JoinHandle 被 detach。
     mut edit_grab: Option<tokio::task::JoinHandle<Option<String>>>,
 ) -> Result<u64, AppError> {
+    let lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
     if !state.is_funasr_ready() {
         return Err(AppError::Audio(RECORDING_NOT_READY_ERROR.into()));
     }
@@ -132,6 +133,7 @@ pub(crate) async fn start_recording_inner(
             .expect("new recording session must own the latest snapshot");
         (session_id, show_gen, stop_flag, stop_notify, snapshot)
     };
+    drop(lifecycle_guard);
 
     emit_recording_state(&app_handle, &starting_snapshot, true, false, false, None);
 
@@ -188,6 +190,7 @@ pub(crate) async fn start_recording_inner(
                 sample_rate: actual_sample_rate,
                 audio_thread: Some(audio_thread),
                 interim_task: None,
+                native_recording: None,
                 interim_cache,
                 foreground_app: foreground_app.clone(),
                 edit_grab: edit_grab.take(),
@@ -254,15 +257,31 @@ pub(crate) async fn start_recording_inner(
         }
     };
 
-    let interim_task = audio_service::spawn_interim_loop(
-        app_handle.clone(),
-        session_id,
-        stop_flag.clone(),
-        stop_notify.clone(),
-        samples.clone(),
-        actual_sample_rate,
-        interim_cache.clone(),
-    );
+    let (interim_task, native_recording) =
+        if crate::utils::paths::read_engine_config() == "confucius4-r2t2" {
+            (
+                None,
+                Some(audio_service::spawn_native_recording(
+                    app_handle.clone(),
+                    session_id,
+                    samples.clone(),
+                    actual_sample_rate,
+                )),
+            )
+        } else {
+            (
+                Some(audio_service::spawn_interim_loop(
+                    app_handle.clone(),
+                    session_id,
+                    stop_flag.clone(),
+                    stop_notify.clone(),
+                    samples.clone(),
+                    actual_sample_rate,
+                    interim_cache.clone(),
+                )),
+                None,
+            )
+        };
 
     audio_service::spawn_waveform_emitter(
         app_handle.clone(),
@@ -281,7 +300,8 @@ pub(crate) async fn start_recording_inner(
         samples,
         sample_rate: actual_sample_rate,
         audio_thread: Some(audio_thread),
-        interim_task: Some(interim_task),
+        interim_task,
+        native_recording,
         interim_cache,
         foreground_app,
         edit_grab: edit_grab.take(),

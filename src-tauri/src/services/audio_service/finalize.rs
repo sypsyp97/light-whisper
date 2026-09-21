@@ -180,6 +180,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         sample_rate,
         audio_thread,
         interim_task,
+        native_recording,
         samples,
         interim_cache,
         foreground_app,
@@ -205,6 +206,17 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             abort_handle.abort();
         }
     }
+
+    // The capture thread is joined: Finish now includes its final samples and
+    // the resampler tail. A native result never falls back to whole-clip ASR.
+    let native_finish_start = Instant::now();
+    let native_result = match native_recording {
+        Some(recording) => Some(recording.finish().await.map_err(|error| error.to_string())),
+        None => None,
+    };
+    let native_finish_ms = native_result
+        .as_ref()
+        .map(|_| elapsed_ms(native_finish_start));
 
     // 选中文本保留在本地变量里，不写全局。两个 finalize 并发时也彼此隔离：
     // edit_grab 来自各自 session 的 RecordingSession，edit_context 只在本函数
@@ -264,7 +276,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let duration_sec = final_count as f64 / sample_rate as f64;
     let mode = trigger.mode();
 
-    if duration_sec < MIN_AUDIO_DURATION_SEC {
+    if duration_sec < MIN_AUDIO_DURATION_SEC && native_result.is_none() {
         log::info!("录音时间过短 ({:.2}s)，跳过转写", duration_sec);
         emit_terminal_outcome(
             &app_handle,
@@ -324,27 +336,35 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let max_interim_window_samples = (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
     let tail_gap_threshold_samples = (sample_rate as f64 * 0.25) as usize;
     let asr_start = Instant::now();
-    let (asr_text, detected_lang): (Result<String, String>, Option<String>) = match cached {
-        Some(ref c)
-            if final_count > 0
-                && final_count <= max_interim_window_samples
-                && c.sample_count <= final_count
-                && (final_count - c.sample_count) <= tail_gap_threshold_samples
-                && !c.text.trim().is_empty() =>
-        {
-            log::info!(
-                "复用 interim 缓存 (尾部间隙 {:.0}ms)",
-                (final_count - c.sample_count) as f64 * 1000.0 / sample_rate as f64
-            );
-            (Ok(c.text.clone()), c.language.clone())
-        }
-        _ => match do_final_asr(&app_handle, state.inner(), &samples, sample_rate).await {
-            Ok(r) => (Ok(r.text), r.language),
-            Err(e) => (Err(e), None),
-        },
-    };
+    let (asr_text, detected_lang): (Result<String, String>, Option<String>) =
+        if let Some(result) = native_result {
+            match result {
+                Ok(result) => (Ok(result.text), result.language),
+                Err(error) => (Err(error), None),
+            }
+        } else {
+            match cached {
+                Some(ref c)
+                    if final_count > 0
+                        && final_count <= max_interim_window_samples
+                        && c.sample_count <= final_count
+                        && (final_count - c.sample_count) <= tail_gap_threshold_samples
+                        && !c.text.trim().is_empty() =>
+                {
+                    log::info!(
+                        "复用 interim 缓存 (尾部间隙 {:.0}ms)",
+                        (final_count - c.sample_count) as f64 * 1000.0 / sample_rate as f64
+                    );
+                    (Ok(c.text.clone()), c.language.clone())
+                }
+                _ => match do_final_asr(&app_handle, state.inner(), &samples, sample_rate).await {
+                    Ok(r) => (Ok(r.text), r.language),
+                    Err(e) => (Err(e), None),
+                },
+            }
+        };
 
-    let asr_elapsed_ms = elapsed_ms(asr_start);
+    let asr_elapsed_ms = native_finish_ms.unwrap_or_else(|| elapsed_ms(asr_start));
     let text = match asr_text {
         Ok(t) => t.trim().to_string(),
         Err(e) => {
@@ -779,6 +799,11 @@ pub async fn discard_recording(session: RecordingSession) {
             .is_err()
         {
             abort_handle.abort();
+        }
+    }
+    if let Some(recording) = session.native_recording {
+        if let Err(error) = recording.cancel().await {
+            log::warn!("R2T2 录音取消失败: {error}");
         }
     }
     log::info!("已丢弃录音会话 (session {})", session.session_id);

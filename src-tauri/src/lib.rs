@@ -262,6 +262,7 @@ pub fn run() {
             commands::audio::stop_microphone_level_monitor,
             commands::audio::set_input_method,
             commands::audio::set_sound_enabled,
+            commands::funasr::set_r2t2_config,
             commands::ai_polish::set_ai_polish_config,
             commands::ai_polish::get_ai_polish_api_key,
             commands::ai_polish::set_ai_polish_screen_context_enabled,

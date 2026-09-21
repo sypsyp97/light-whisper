@@ -39,6 +39,19 @@ pub fn get_qwen3_asr_server_path(app: &tauri::AppHandle) -> PathBuf {
     get_resource_script_path(app, "qwen3_asr_server.py")
 }
 
+pub fn get_r2t2_asr_server_path(app: &tauri::AppHandle) -> PathBuf {
+    // Development DLLs are built beside this source script. Do not depend on
+    // the launch working directory or a copied script without its DLL folder.
+    #[cfg(debug_assertions)]
+    {
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/r2t2_asr_server.py");
+        if source.is_file() {
+            return source;
+        }
+    }
+    get_resource_script_path(app, "r2t2_asr_server.py")
+}
+
 pub fn get_download_script_path(app: &tauri::AppHandle) -> PathBuf {
     get_resource_script_path(app, "download_models.py")
 }
@@ -53,15 +66,16 @@ pub fn get_engine_config_path() -> PathBuf {
 }
 
 pub fn read_engine_config() -> String {
-    if let Some(engine) = read_engine_json().get("engine").and_then(|v| v.as_str()) {
-        match engine {
-            "qwen3-asr-0.6b" | "qwen3-asr-1.7b" | "glm-asr" | "alibaba-asr" => {
-                return engine.to_string()
-            }
-            _ => {}
-        }
+    configured_engine(read_engine_json().get("engine").and_then(|v| v.as_str())).to_string()
+}
+
+fn configured_engine(engine: Option<&str>) -> &str {
+    match engine {
+        // Retain old model caches; only the selected engine is migrated.
+        Some("qwen3-asr-1.7b") => "confucius4-r2t2",
+        Some(value @ ("qwen3-asr-0.6b" | "confucius4-r2t2" | "glm-asr" | "alibaba-asr")) => value,
+        _ => "qwen3-asr-0.6b",
     }
-    "qwen3-asr-0.6b".to_string()
 }
 
 pub fn is_online_engine(engine: &str) -> bool {
@@ -438,6 +452,24 @@ pub fn get_effective_models_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::engine_json_object_or_empty;
+
+    #[test]
+    fn engine_selection_migrates_17b_and_preserves_other_engines() {
+        assert_eq!(
+            super::configured_engine(Some("qwen3-asr-1.7b")),
+            "confucius4-r2t2"
+        );
+        for engine in [
+            "confucius4-r2t2",
+            "qwen3-asr-0.6b",
+            "glm-asr",
+            "alibaba-asr",
+        ] {
+            assert_eq!(super::configured_engine(Some(engine)), engine);
+        }
+        assert_eq!(super::configured_engine(None), "qwen3-asr-0.6b");
+        assert_eq!(super::configured_engine(Some("invalid")), "qwen3-asr-0.6b");
+    }
 
     #[test]
     fn engine_json_string_normalizes_to_empty_object() {

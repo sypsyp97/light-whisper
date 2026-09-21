@@ -1,0 +1,492 @@
+diff --git a/include/audiocpp.h b/include/audiocpp.h
+index 76cfe6b..82d7dfb 100644
+--- a/include/audiocpp.h
++++ b/include/audiocpp.h
+@@ -51,7 +51,7 @@ extern "C" {
+ /* ------------------------------------------------------------------ */
+ 
+ #define AUDIOCPP_ABI_VERSION_MAJOR 0
+-#define AUDIOCPP_ABI_VERSION_MINOR 2
++#define AUDIOCPP_ABI_VERSION_MINOR 3
+ #define AUDIOCPP_ABI_VERSION_PATCH 0
+ 
+ /* Packed as (major << 16) | (minor << 8) | patch. A caller built against a
+@@ -408,6 +408,10 @@ AUDIOCPP_API audiocpp_status audiocpp_result_text(const audiocpp_result * result
+                                                   const char ** out_text,
+                                                   const char ** out_language);
+ 
++/* Full revisable streaming hypothesis; owned by result. NOT_AVAILABLE before a decode. */
++AUDIOCPP_API audiocpp_status audiocpp_result_preview_text(const audiocpp_result * result,
++                                                          const char ** out_text);
++
+ AUDIOCPP_API size_t          audiocpp_result_segment_count(const audiocpp_result * result);
+ AUDIOCPP_API audiocpp_status audiocpp_result_segment(const audiocpp_result * result,
+                                                      size_t index,
+diff --git a/include/engine/community_models/confucius4_r2t2/session.h b/include/engine/community_models/confucius4_r2t2/session.h
+index 1e9d319..9ef4049 100644
+--- a/include/engine/community_models/confucius4_r2t2/session.h
++++ b/include/engine/community_models/confucius4_r2t2/session.h
+@@ -11,6 +11,7 @@
+ 
+ #include <chrono>
+ #include <cstdint>
++#include <deque>
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -30,6 +31,7 @@ struct R2T2ASRStreamConfig {
+     int64_t unfixed_token_num = 5;
+     bool rollback_punctuation = false;
+     int64_t max_new_tokens = 32;
++    bool rolling_window = false;
+ };
+ 
+ /// Confucius4-R2T2 streaming ASR session.
+@@ -70,9 +72,15 @@ public:
+     runtime::TaskResult finalize() override;
+ 
+ private:
++    struct RollingCommit {
++        size_t frame_end = 0;
++        std::string delta;
++    };
++
+     struct StreamOutcome {
+         std::string text;
+         std::string fixed_text;
++        std::string preview_text;
+     };
+ 
+     R2T2ASRRequest make_request(const runtime::TaskRequest & request) const;
+@@ -80,8 +88,11 @@ private:
+     std::string generate_text(const R2T2ASRPrompt & prompt, const R2T2ASRAudioEmbeddings & embeddings);
+ 
+     StreamOutcome decode_stream_chunk(bool final_flush);
++    StreamOutcome decode_rolling_stream_chunk(bool final_flush);
+     std::string build_stream_prefix(bool final_flush) const;
++    std::string build_rolling_prefix() const;
+     std::string decode_rollback_prefix(const std::vector<int32_t> & ids, int64_t rollback) const;
++    void trim_rolling_window();
+     void publish_stream_delta(const std::string & fixed_text, runtime::StreamEvent & event);
+ 
+     runtime::TaskSpec task_;
+@@ -113,6 +124,12 @@ private:
+     int64_t chunk_size_samples_ = 0;
+     int64_t chunk_id_ = 0;
+     size_t published_codepoints_ = 0;
++    size_t startup_preview_attempts_ = 0;
++    std::deque<RollingCommit> rolling_commits_;
++    size_t total_decoded_frames_ = 0;
++    size_t window_start_frame_ = 0;
++    std::string global_committed_text_;
++    std::string rolling_metadata_prefix_;
+     int stream_sample_rate_ = 0;
+     int stream_channels_ = 1;
+     runtime::StreamEventCallback stream_event_sink_;
+diff --git a/include/engine/community_models/confucius4_r2t2/text_postprocess.h b/include/engine/community_models/confucius4_r2t2/text_postprocess.h
+index dc0f525..e920924 100644
+--- a/include/engine/community_models/confucius4_r2t2/text_postprocess.h
++++ b/include/engine/community_models/confucius4_r2t2/text_postprocess.h
+@@ -56,6 +56,9 @@ R2T2ParsedOutput parse_asr_output(const std::string & raw, const std::string & u
+ /// text.split("|")[0]
+ std::string truncate_at_pipe(const std::string & text);
+ 
++/// Python str.strip() semantics for comparing rolling transcript prefixes.
++std::string strip_transcript_whitespace(const std::string & text);
++
+ bool contains_asr_text_tag(const std::string & text);
+ 
+ /// Part before the <asr_text> tag (empty when the tag is absent).
+diff --git a/include/engine/framework/runtime/session.h b/include/engine/framework/runtime/session.h
+index bdc03f2..3a8011c 100644
+--- a/include/engine/framework/runtime/session.h
++++ b/include/engine/framework/runtime/session.h
+@@ -81,6 +81,8 @@ struct AudioChunk {
+ struct Transcript {
+     std::string text;
+     std::string language;
++    // Optional full, revisable hypothesis; text retains its existing semantics.
++    std::string preview_text;
+ };
+ 
+ struct TimeSpan {
+diff --git a/model_specs/confucius4_r2t2.json b/model_specs/confucius4_r2t2.json
+index fdf8b33..42dacda 100644
+--- a/model_specs/confucius4_r2t2.json
++++ b/model_specs/confucius4_r2t2.json
+@@ -231,6 +231,13 @@
+         "default": 32,
+         "description": "Greedy decode budget per streaming chunk and for the final flush (session-scoped; distinct from the offline request max_tokens)."
+       },
++      {
++        "name": "rolling_window",
++        "type": "bool",
++        "required": false,
++        "default": false,
++        "description": "Use a bounded 16-second rolling audio window with append-only committed transcript state."
++      },
+       {
+         "name": "audio_encoder_weight_type",
+         "type": "enum",
+diff --git a/src/capi/audiocpp.cpp b/src/capi/audiocpp.cpp
+index 1582084..9c3860e 100644
+--- a/src/capi/audiocpp.cpp
++++ b/src/capi/audiocpp.cpp
+@@ -900,6 +900,18 @@ audiocpp_status audiocpp_result_text(const audiocpp_result * result,
+     return AUDIOCPP_OK;
+ }
+ 
++audiocpp_status audiocpp_result_preview_text(const audiocpp_result * result,
++                                             const char ** out_text) {
++    if (result == nullptr) {
++        return fail(AUDIOCPP_ERR_INVALID_ARGUMENT, "result must be non-null");
++    }
++    if (!result->result.text_output.has_value()) {
++        return fail(AUDIOCPP_ERR_NOT_AVAILABLE, "result carries no text output");
++    }
++    assign_out(out_text, result->result.text_output->preview_text);
++    return AUDIOCPP_OK;
++}
++
+ size_t audiocpp_result_segment_count(const audiocpp_result * result) {
+     return result != nullptr ? result->result.speech_segments.size() : 0;
+ }
+diff --git a/src/community_models/confucius4_r2t2/session.cpp b/src/community_models/confucius4_r2t2/session.cpp
+index 68853c0..4399bf3 100644
+--- a/src/community_models/confucius4_r2t2/session.cpp
++++ b/src/community_models/confucius4_r2t2/session.cpp
+@@ -125,6 +125,9 @@ R2T2ASRSession::R2T2ASRSession(
+     if (const auto value = runtime::parse_int_option(options.options, {"confucius4_r2t2.max_tokens"})) {
+         stream_config_.max_new_tokens = *value;
+     }
++    if (const auto value = runtime::find_option(options.options, {"confucius4_r2t2.rolling_window"})) {
++        stream_config_.rolling_window = runtime::parse_bool_option(*value, "confucius4_r2t2.rolling_window");
++    }
+     if (stream_config_.chunk_seconds <= 0.0) {
+         throw std::runtime_error("confucius4_r2t2.chunk_size_ms must be positive");
+     }
+@@ -148,7 +151,8 @@ R2T2ASRSession::R2T2ASRSession(
+             key != "confucius4_r2t2.unfixed_chunk_num" &&
+             key != "confucius4_r2t2.unfixed_token_num" &&
+             key != "confucius4_r2t2.rollback_punctuation" &&
+-            key != "confucius4_r2t2.max_tokens") {
++            key != "confucius4_r2t2.max_tokens" &&
++            key != "confucius4_r2t2.rolling_window") {
+             throw std::runtime_error("unknown R2T2 ASR session option: " + key);
+         }
+     }
+@@ -307,6 +311,10 @@ std::string R2T2ASRSession::build_stream_prefix(bool final_flush) const {
+     }
+     const std::string raw_truncated = truncate_at_pipe(raw_decoded_);
+     const auto ids = tokenizer_.encode(raw_truncated);
++    // Silence can leave no tokens; final flush must not slice past ids.end().
++    if (ids.empty()) {
++        return {};
++    }
+     if (final_flush) {
+         // finish_streaming_transcribe uses a fixed rollback without the
+         // replacement-character loop and never rolls back past the first token.
+@@ -320,7 +328,70 @@ std::string R2T2ASRSession::build_stream_prefix(bool final_flush) const {
+     return truncate_at_pipe(decode_rollback_prefix(ids, k));
+ }
+ 
++std::string R2T2ASRSession::build_rolling_prefix() const {
++    std::string body;
++    for (const auto & record : rolling_commits_) {
++        body += record.delta;
++    }
++    body = truncate_at_pipe(body);
++    if (force_language_.empty() && !language_.empty()) {
++        return std::string(kLanguagePrefix) + language_ + kAsrTextTag + body;
++    }
++    if (force_language_.empty() && !rolling_metadata_prefix_.empty()) {
++        // The model may produce a transcript with no detected language. Keep
++        // its actual metadata/tag so committed text is not fed back as metadata.
++        return rolling_metadata_prefix_ + body;
++    }
++    return body;
++}
++
++void R2T2ASRSession::trim_rolling_window() {
++    if (!stream_config_.rolling_window || stream_sample_rate_ <= 0) {
++        return;
++    }
++    const size_t sample_rate = static_cast<size_t>(stream_sample_rate_);
++    const size_t max_frames = sample_rate * 16;
++    const size_t trim_target = sample_rate * 8;
++    if (total_decoded_frames_ < window_start_frame_ ||
++        total_decoded_frames_ - window_start_frame_ <= max_frames) {
++        return;
++    }
++
++    const size_t target_frame = window_start_frame_ + trim_target;
++    size_t boundary = window_start_frame_;
++    for (const auto & record : rolling_commits_) {
++        if (record.frame_end > target_frame) {
++            break;
++        }
++        boundary = record.frame_end;
++    }
++    if (boundary == window_start_frame_ && !rolling_commits_.empty()) {
++        // The normal option range is below the 8-second trim interval. Keep
++        // the first complete decode as the boundary for defensive handling of
++        // an externally supplied larger chunk size.
++        boundary = rolling_commits_.front().frame_end;
++    }
++    if (boundary <= window_start_frame_) {
++        return;
++    }
++
++    const size_t frame_count = boundary - window_start_frame_;
++    const size_t channel_stride = static_cast<size_t>(std::max(stream_channels_, 1));
++    if (frame_count > audio_accum_.size() / channel_stride) {
++        throw std::runtime_error("R2T2 rolling stream frame accounting mismatch");
++    }
++    const size_t value_count = frame_count * channel_stride;
++    audio_accum_.erase(audio_accum_.begin(), audio_accum_.begin() + static_cast<std::ptrdiff_t>(value_count));
++    window_start_frame_ = boundary;
++    while (!rolling_commits_.empty() && rolling_commits_.front().frame_end <= boundary) {
++        rolling_commits_.pop_front();
++    }
++}
++
+ R2T2ASRSession::StreamOutcome R2T2ASRSession::decode_stream_chunk(bool final_flush) {
++    if (stream_config_.rolling_window) {
++        return decode_rolling_stream_chunk(final_flush);
++    }
+     StreamOutcome outcome;
+     const std::string prefix = build_stream_prefix(final_flush);
+ 
+@@ -389,6 +460,7 @@ R2T2ASRSession::StreamOutcome R2T2ASRSession::decode_stream_chunk(bool final_flu
+     text_ = truncate_at_pipe(parsed.text);
+     ++chunk_id_;
+     outcome.text = text_;
++    outcome.preview_text = text_;
+     outcome.fixed_text = fixed_text;
+     debug::trace_log_scalar("confucius4_r2t2.stream.final_flush", final_flush ? 1 : 0);
+     debug::trace_log_scalar("confucius4_r2t2.stream.chunk_id", chunk_id_);
+@@ -398,6 +470,160 @@ R2T2ASRSession::StreamOutcome R2T2ASRSession::decode_stream_chunk(bool final_flu
+     return outcome;
+ }
+ 
++R2T2ASRSession::StreamOutcome R2T2ASRSession::decode_rolling_stream_chunk(bool final_flush) {
++    StreamOutcome outcome;
++    trim_rolling_window();
++
++    const std::string window_prefix = build_rolling_prefix();
++    std::string window_body;
++    for (const auto & record : rolling_commits_) {
++        window_body += record.delta;
++    }
++    window_body = strip_transcript_whitespace(truncate_at_pipe(window_body));
++
++    runtime::AudioBuffer accum;
++    accum.sample_rate = stream_sample_rate_ > 0 ? stream_sample_rate_ : assets_->config.sample_rate;
++    accum.channels = stream_channels_;
++    accum.samples = audio_accum_;
++    const auto features = frontend_.extract(accum);
++    const auto prompt = tokenizer_.build_raw_audio_prompt(prompt_raw_ + window_prefix, features.encoder_tokens);
++    const auto embeddings = audio_encoder_.encode(features, /*reuse_graph=*/true);
++    std::string generated = generate_text(prompt, embeddings);
++    generated = normalize_punct_by_context(generated);
++    generated = sanitize_utf8_lossy(generated);
++    for (size_t pos = 0; (pos = generated.find(kReplacementChar, pos)) != std::string::npos;) {
++        generated.erase(pos, std::char_traits<char>::length(kReplacementChar));
++    }
++
++    raw_decoded_ = window_prefix + generated;
++    std::string detected;
++    if (force_language_.empty()) {
++        detected = parse_language_output(raw_decoded_, std::string()).language;
++    }
++    if (force_language_ == "Chinese" || detected == "Chinese") {
++        raw_decoded_ = remove_spaces_between_chinese(raw_decoded_);
++    }
++    const auto parsed = parse_asr_output(raw_decoded_, force_language_);
++    const bool has_text_tag = contains_asr_text_tag(raw_decoded_);
++    if (has_text_tag) {
++        rolling_metadata_prefix_ = text_before_asr_tag(raw_decoded_) + kAsrTextTag;
++        raw_decoded_ = text_before_asr_tag(raw_decoded_) + kAsrTextTag + parsed.text;
++    } else {
++        raw_decoded_ = parsed.text;
++    }
++    raw_decoded_ = truncate_at_pipe(raw_decoded_);
++
++    std::string parsed_window_text = truncate_at_pipe(parsed.text);
++    std::string fixed_window_text;
++    if (has_text_tag || !force_language_.empty()) {
++        if (final_flush) {
++            // The final rolling decode commits the complete parsed window.
++            fixed_window_text = parsed_window_text;
++        } else {
++            const auto current_ids = tokenizer_.encode(raw_decoded_);
++            int64_t rollback = stream_config_.unfixed_token_num;
++            if (stream_config_.rollback_punctuation && ends_with_rollback_punctuation(raw_decoded_)) {
++                rollback = 0;
++            }
++            if (has_text_tag && text_after_asr_tag(raw_decoded_).empty()) {
++                rollback = 0;
++            }
++            fixed_window_text = decode_rollback_prefix(current_ids, rollback);
++            if (contains_asr_text_tag(fixed_window_text)) {
++                fixed_window_text = text_after_asr_tag(fixed_window_text);
++            } else if (force_language_.empty()) {
++                fixed_window_text.clear();
++            }
++            fixed_window_text = truncate_at_pipe(fixed_window_text);
++        }
++    } else if (force_language_.empty()) {
++        // Automatic-language metadata is not a transcript. Keep this decode
++        // in the frame-aligned history without exposing it as text.
++        parsed_window_text.clear();
++    }
++
++    // Detection can be absent on a later metadata/silence decode. Keep the
++    // last non-empty language so the rolling prompt and result stay stable.
++    if (!parsed.language.empty()) {
++        language_ = parsed.language;
++    }
++
++    // parse_asr_output strips window whitespace. After a roll, the retained
++    // delta may start with a space belonging to already committed global text.
++    // Mirror the reference's prefix_text.strip()/fixed_text.strip() comparison
++    // while leaving the global transcript and inter-word suffixes untouched.
++    fixed_window_text = strip_transcript_whitespace(fixed_window_text);
++    parsed_window_text = strip_transcript_whitespace(parsed_window_text);
++    const std::string global_before = global_committed_text_;
++    const bool fixed_has_prefix = fixed_window_text.size() >= window_body.size() &&
++        fixed_window_text.compare(0, window_body.size(), window_body) == 0;
++    if (!fixed_has_prefix && final_flush) {
++        throw std::runtime_error("R2T2 rolling stream final window prefix mismatch");
++    }
++
++    std::string delta;
++    if (fixed_has_prefix) {
++        // Both strings are valid UTF-8 decoder output; the byte prefix ends at
++        // an existing code-point boundary and therefore is safe to slice.
++        delta = fixed_window_text.substr(window_body.size());
++    }
++
++    const bool parsed_has_prefix = parsed_window_text.size() >= window_body.size() &&
++        parsed_window_text.compare(0, window_body.size(), window_body) == 0;
++    std::string uncommitted_tail;
++    if (parsed_has_prefix) {
++        uncommitted_tail = parsed_window_text.substr(window_body.size());
++    }
++
++    global_committed_text_ += delta;
++    rolling_commits_.push_back(RollingCommit{total_decoded_frames_, delta});
++    text_ = global_before + uncommitted_tail;
++    outcome.preview_text = text_;
++    // Avoid extra decoding/graph warmup while too little real speech is available.
++    // Two reference 320 ms chunks retained the measured first-word benefit.
++    constexpr double startup_min_audio_seconds = 0.64;
++    constexpr size_t startup_preview_max_attempts = 3;
++    if (!text_.empty()) startup_preview_attempts_ = startup_preview_max_attempts;
++    if (!final_flush && total_decoded_frames_ >= accum.sample_rate * startup_min_audio_seconds &&
++        execution_context().backend_type() == core::BackendType::Cuda &&
++        startup_preview_attempts_ < startup_preview_max_attempts &&
++        window_start_frame_ == 0 && text_.empty() && global_committed_text_.empty()) {
++        ++startup_preview_attempts_;
++        // One reference streaming chunk of right context can expose the first
++        // word before the unpadded decoder does. This is preview-only: never
++        // feed padded audio/text into rolling commits, metadata or language.
++        constexpr double startup_context_seconds = 0.32;
++        accum.samples.resize(accum.samples.size() +
++            static_cast<size_t>(accum.sample_rate * startup_context_seconds) * accum.channels, 0.0f);
++        const auto preview_features = frontend_.extract(accum);
++        const auto preview_prompt = tokenizer_.build_raw_audio_prompt(
++            prompt_raw_ + window_prefix, preview_features.encoder_tokens);
++        const auto preview_embeddings = audio_encoder_.encode(preview_features, /*reuse_graph=*/true);
++        auto preview_raw = sanitize_utf8_lossy(normalize_punct_by_context(
++            window_prefix + generate_text(preview_prompt, preview_embeddings)));
++        for (size_t pos = 0; (pos = preview_raw.find(kReplacementChar, pos)) != std::string::npos;) {
++            preview_raw.erase(pos, std::char_traits<char>::length(kReplacementChar));
++        }
++        const auto preview_parsed = parse_asr_output(preview_raw, force_language_);
++        if (!force_language_.empty() || contains_asr_text_tag(preview_raw)) {
++            outcome.preview_text = strip_transcript_whitespace(truncate_at_pipe(preview_parsed.text));
++            if (force_language_ == "Chinese" || preview_parsed.language == "Chinese") {
++                outcome.preview_text = remove_spaces_between_chinese(outcome.preview_text);
++            }
++        }
++    }
++    outcome.text = text_;
++    outcome.fixed_text = global_committed_text_;
++    ++chunk_id_;
++
++    debug::trace_log_scalar("confucius4_r2t2.stream.final_flush", final_flush ? 1 : 0);
++    debug::trace_log_scalar("confucius4_r2t2.stream.chunk_id", chunk_id_);
++    debug::trace_log_scalar("confucius4_r2t2.stream.raw_decoded", raw_decoded_);
++    debug::trace_log_scalar("confucius4_r2t2.stream.fixed_text", global_committed_text_);
++    debug::trace_log_scalar("confucius4_r2t2.stream.text", text_);
++    return outcome;
++}
++
+ void R2T2ASRSession::publish_stream_delta(const std::string & fixed_text, runtime::StreamEvent & event) {
+     // fixed_text contains transcript text only; metadata must never advance
+     // this code-point offset. Stable transcript prefixes may still shrink
+@@ -469,6 +695,12 @@ void R2T2ASRSession::reset() {
+     chunk_size_samples_ = 0;
+     chunk_id_ = 0;
+     published_codepoints_ = 0;
++    startup_preview_attempts_ = 0;
++    rolling_commits_.clear();
++    total_decoded_frames_ = 0;
++    window_start_frame_ = 0;
++    global_committed_text_.clear();
++    rolling_metadata_prefix_.clear();
+     stream_sample_rate_ = 0;
+     stream_channels_ = 1;
+     stream_started_ = false;
+@@ -508,10 +740,21 @@ runtime::StreamEvent R2T2ASRSession::process_audio_chunk(const runtime::AudioChu
+         const size_t take_values = static_cast<size_t>(chunk_size_samples_) * channel_stride;
+         audio_accum_.insert(audio_accum_.end(), buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(take_values));
+         buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(take_values));
++        if (stream_config_.rolling_window) {
++            total_decoded_frames_ += static_cast<size_t>(chunk_size_samples_);
++        }
+         const auto outcome = decode_stream_chunk(/*final_flush=*/false);
+         if (!outcome.fixed_text.empty()) {
+             publish_stream_delta(outcome.fixed_text, event);
+         }
++        if (!event.partial_text.has_value()) {
++            event.partial_text = runtime::Transcript{};
++        }
++        event.partial_text->language = language_;
++        // Preserve stable text even if an intermediate hypothesis conflicts.
++        event.partial_text->preview_text =
++            outcome.preview_text.compare(0, outcome.fixed_text.size(), outcome.fixed_text) == 0
++                ? outcome.preview_text : outcome.fixed_text;
+         if (!streaming_result_.text_output.has_value()) {
+             streaming_result_.text_output = runtime::Transcript{outcome.text, language_};
+         } else {
+@@ -546,6 +789,13 @@ runtime::TaskResult R2T2ASRSession::finalize() {
+         throw std::runtime_error("R2T2 ASR finalize() requires start_stream");
+     }
+     if (!buffer_.empty()) {
++        if (stream_config_.rolling_window) {
++            const size_t channel_stride = static_cast<size_t>(std::max(stream_channels_, 1));
++            if (buffer_.size() % channel_stride != 0) {
++                throw std::runtime_error("R2T2 rolling stream tail frame accounting mismatch");
++            }
++            total_decoded_frames_ += buffer_.size() / channel_stride;
++        }
+         audio_accum_.insert(audio_accum_.end(), buffer_.begin(), buffer_.end());
+         buffer_.clear();
+         const auto outcome = decode_stream_chunk(/*final_flush=*/true);
+diff --git a/src/community_models/confucius4_r2t2/text_postprocess.cpp b/src/community_models/confucius4_r2t2/text_postprocess.cpp
+index 0b3474f..82c8689 100644
+--- a/src/community_models/confucius4_r2t2/text_postprocess.cpp
++++ b/src/community_models/confucius4_r2t2/text_postprocess.cpp
+@@ -357,6 +357,10 @@ R2T2ParsedOutput parse_tagged_output(const std::string & raw, const std::string
+ 
+ }  // namespace
+ 
++std::string strip_transcript_whitespace(const std::string & text) {
++    return strip_python(text);
++}
++
+ std::string sanitize_utf8_lossy(const std::string & text) {
+     std::string out;
+     out.reserve(text.size() + 16);

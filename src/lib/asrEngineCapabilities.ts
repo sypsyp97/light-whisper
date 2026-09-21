@@ -1,6 +1,6 @@
 export type AsrEngineKey =
   | "qwen3-asr-0.6b"
-  | "qwen3-asr-1.7b"
+  | "confucius4-r2t2"
   | "glm-asr"
   | "alibaba-asr";
 
@@ -16,7 +16,7 @@ export type AsrEngineCapability = AsrEngineCapabilityBase & (
 
 export const ASR_ENGINE_CAPABILITIES: Record<AsrEngineKey, AsrEngineCapability> = {
   "qwen3-asr-0.6b": { execution: "local", final: true, interim: true, downloadSize: "850 MB" },
-  "qwen3-asr-1.7b": { execution: "local", final: true, interim: true, downloadSize: "2.19 GB" },
+  "confucius4-r2t2": { execution: "local", final: true, interim: true, downloadSize: "2.48 GB" },
   "glm-asr": { execution: "cloud", final: true, interim: false, downloadSize: null },
   "alibaba-asr": { execution: "cloud", final: true, interim: false, downloadSize: null },
 };
