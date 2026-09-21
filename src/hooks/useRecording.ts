@@ -11,6 +11,7 @@ import type {
 } from "@/types";
 
 interface UseRecordingReturn {
+  polishAuditWarning: boolean;
   isStarting: boolean;
   isRecording: boolean;
   isProcessing: boolean;
@@ -93,11 +94,31 @@ export function useRecording(): UseRecordingReturn {
   const latestSessionIdRef = useRef(0);
   const latestRecordingStateRevisionRef = useRef(-1);
   const latestDisplayedFinalSessionIdRef = useRef(0);
+  const lastAuditWarningSessionRef = useRef(0);
+  const lastAuditToastSessionRef = useRef(0);
+  const [auditWarningSession, setAuditWarningSession] = useState<number | null>(null);
+
+  useTauriEvent<{ sessionId: number; status: string }>("jev-polish-audit", (payload) => {
+    if (payload.status !== "possible_change" || !Number.isSafeInteger(payload.sessionId)
+      || payload.sessionId <= 0 || payload.sessionId < latestSessionIdRef.current
+      || payload.sessionId <= lastAuditWarningSessionRef.current) return;
+    lastAuditWarningSessionRef.current = payload.sessionId;
+    setAuditWarningSession(payload.sessionId);
+  });
+
+  useEffect(() => {
+    if (auditWarningSession === null || auditWarningSession !== latestDisplayedFinalSessionIdRef.current
+      || auditWarningSession < latestSessionIdRef.current
+      || auditWarningSession <= lastAuditToastSessionRef.current) return;
+    lastAuditToastSessionRef.current = auditWarningSession;
+    toast.warning(i18n.t("settings.jevAuditWarning"), { duration: 8000 });
+  }, [auditWarningSession, history]);
 
   useTauriEvent<RecordingStatePayload>("recording-state", (payload) => {
     const sessionId = Number(payload.sessionId || 0);
     if (sessionId < latestSessionIdRef.current) return;
     if (sessionId > latestSessionIdRef.current) {
+      setAuditWarningSession(null);
       latestSessionIdRef.current = sessionId;
       latestRecordingStateRevisionRef.current = -1;
     }
@@ -194,6 +215,7 @@ export function useRecording(): UseRecordingReturn {
   }, [isRecording, isStarting]);
 
   return {
+    polishAuditWarning: auditWarningSession !== null && auditWarningSession === latestDisplayedFinalSessionIdRef.current,
     isStarting, isRecording, isProcessing, startRecording, stopRecording,
     error, transcriptionResult, setTranscriptionResult,
     originalAsrText, editBaselineText, setEditBaselineText,

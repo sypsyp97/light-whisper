@@ -789,23 +789,11 @@ pub async fn import_user_profile(
     Ok(())
 }
 
-/// LLM 审核核心逻辑，供命令和定期任务共用
+/// Correction review shared by the manual command and periodic task.
 pub async fn run_correction_validation(
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<u32, String> {
-    let config = state.llm_provider_config();
-    let endpoint = if config.validation_use_separate_model {
-        llm_provider::validation_endpoint_for_config(&config)
-    } else {
-        llm_provider::endpoint_for_config(&config)
-    };
-
-    let api_key = llm_provider::load_api_key_for_provider(app_handle, &endpoint.provider);
-    if api_key.is_empty() {
-        return Err("未配置 API Key，无法审核纠错规则".into());
-    }
-
     let ai_corrections: Vec<(String, String)> = state.with_profile(|p| {
         p.correction_patterns
             .iter()
@@ -817,6 +805,40 @@ pub async fn run_correction_validation(
     if ai_corrections.is_empty() {
         update_validation_timestamp(state);
         return Ok(0);
+    }
+
+    let jev = state.with_profile(|profile| profile.jev.clone());
+    if jev.correction_review {
+        let key = crate::services::jev_service::load_api_key_for_provider(app_handle, jev.provider)
+            .unwrap_or_default();
+        if let Some(invalid) = crate::services::jev_review::review_corrections(
+            &state.http_client,
+            jev.provider,
+            &key,
+            &ai_corrections,
+            None,
+        )
+        .await
+        {
+            let removed = profile_service::update_profile_and_schedule(state, |profile| {
+                crate::services::jev_review::remove_invalid_ai_rules(profile, &invalid)
+            });
+            update_validation_timestamp(state);
+            log::info!("Jev correction review completed: removed={}", removed);
+            return Ok(removed);
+        }
+        log::debug!("Jev correction review unavailable; using configured LLM reviewer");
+    }
+
+    let config = state.llm_provider_config();
+    let endpoint = if config.validation_use_separate_model {
+        llm_provider::validation_endpoint_for_config(&config)
+    } else {
+        llm_provider::endpoint_for_config(&config)
+    };
+    let api_key = llm_provider::load_api_key_for_provider(app_handle, &endpoint.provider);
+    if api_key.is_empty() {
+        return Err("未配置 API Key，无法审核纠错规则".into());
     }
 
     let mut all_invalid: std::collections::HashSet<(String, String)> =

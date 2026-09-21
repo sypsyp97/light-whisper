@@ -160,7 +160,14 @@ export type JevProvider = "typesafe" | "openrouter" | "vercel";
 export interface JevConfig {
   enabled: boolean;
   provider: JevProvider;
+  screen_routing?: boolean;
+  correction_review?: boolean;
+  search_routing?: boolean;
+  polish_audit?: boolean;
 }
+
+export type ContextMode = "off" | "on" | "auto";
+export interface JevFeatures { correction_review: boolean; polish_audit: boolean }
 
 export type LlmReasoningMode =
   | "provider_default"

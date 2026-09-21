@@ -7,6 +7,7 @@ import {
 } from "@tauri-apps/plugin-autostart";
 import type {
   ApiFormat,
+  ContextMode,
   AppProfileRule,
   AppUpdateInfo,
   AiModelListPayload,
@@ -14,6 +15,7 @@ import type {
   HotkeyDiagnostic,
   InputDeviceListPayload,
   JevProvider,
+  JevFeatures,
   LlmReasoningMode,
   LlmReasoningSupport,
   ModelCheckResult,
@@ -193,6 +195,32 @@ export function getAiPolishApiKey(): Promise<string> {
 
 export function setJevConfig(enabled: boolean, provider: JevProvider): Promise<void> {
   return invokeCommand<void>("set_jev_config", { enabled, provider });
+}
+
+export function saveAiPolishApiKey(apiKey: string): Promise<void> {
+  return invokeCommand<void>("set_ai_polish_api_key", { apiKey });
+}
+
+export function setJevProvider(provider: JevProvider): Promise<void> {
+  return invokeCommand<void>("set_jev_provider", { provider });
+}
+
+export function setJevFeatures(features: JevFeatures): Promise<void> {
+  return invokeCommand<void>("set_jev_features", {
+    correctionReview: features.correction_review, polishAudit: features.polish_audit,
+  });
+}
+
+export function setScreenContextMode(mode: ContextMode): Promise<void> {
+  return invokeCommand<void>("set_screen_context_mode", { mode });
+}
+
+export function setPolishMode(mode: ContextMode): Promise<void> {
+  return invokeCommand<void>("set_polish_mode", { mode });
+}
+
+export function setWebSearchMode(mode: ContextMode): Promise<void> {
+  return invokeCommand<void>("set_web_search_mode", { mode });
 }
 
 export function setR2T2Config(context: string, language: string | null): Promise<void> {

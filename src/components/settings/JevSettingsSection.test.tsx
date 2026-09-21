@@ -5,7 +5,8 @@ import type { UserProfile } from "@/types";
 const tauriMock = vi.hoisted(() => ({
   getJevApiKey: vi.fn(),
   setJevApiKey: vi.fn(),
-  setJevConfig: vi.fn(),
+  setJevProvider: vi.fn(),
+  setJevFeatures: vi.fn(),
 }));
 
 const toastMock = vi.hoisted(() => ({
@@ -21,6 +22,10 @@ const labels: Record<string, string> = {
   "settings.jevProvider": "Jev provider",
   "settings.jevApiKey": "Jev API key",
   "settings.jevSaveFailed": "Jev settings save failed",
+  "settings.jevScreenRouting": "Use screen context only when needed",
+  "settings.jevCorrectionReview": "Review learned corrections",
+  "settings.jevSearchRouting": "Decide when to search",
+  "settings.jevPolishAudit": "Check for changed meaning",
   "settings.showApiKey": "Show API Key",
   "settings.hideApiKey": "Hide API Key",
 };
@@ -92,7 +97,7 @@ function renderSection(profile: JevProfile, onSaved = vi.fn()) {
 }
 
 function getToggle() {
-  return screen.getByRole("switch", { name: /jev/i });
+  return screen.getByRole("switch", { name: "Review learned corrections" });
 }
 
 function getProviderSelect() {
@@ -108,8 +113,10 @@ beforeEach(() => {
   tauriMock.getJevApiKey.mockResolvedValue("");
   tauriMock.setJevApiKey.mockReset();
   tauriMock.setJevApiKey.mockResolvedValue(undefined);
-  tauriMock.setJevConfig.mockReset();
-  tauriMock.setJevConfig.mockResolvedValue(undefined);
+  tauriMock.setJevProvider.mockReset();
+  tauriMock.setJevProvider.mockResolvedValue(undefined);
+  tauriMock.setJevFeatures.mockReset();
+  tauriMock.setJevFeatures.mockResolvedValue(undefined);
   toastMock.error.mockReset();
 });
 
@@ -127,7 +134,7 @@ describe("JevSettingsSection", () => {
     fireEvent.click(getToggle());
 
     await waitFor(() => {
-      expect(tauriMock.setJevConfig).toHaveBeenCalledWith(true, "typesafe");
+      expect(tauriMock.setJevFeatures).toHaveBeenCalledWith({ correction_review: true, polish_audit: false });
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
 
@@ -154,7 +161,7 @@ describe("JevSettingsSection", () => {
     fireEvent.change(getProviderSelect(), { target: { value: "openrouter" } });
 
     await waitFor(() => {
-      expect(tauriMock.setJevConfig).toHaveBeenCalledWith(true, "openrouter");
+      expect(tauriMock.setJevProvider).toHaveBeenCalledWith("openrouter");
       expect(tauriMock.getJevApiKey).toHaveBeenCalledWith("openrouter");
     });
     await waitFor(() => expect(getApiKeyInput()).toHaveValue(""));
@@ -232,7 +239,7 @@ describe("JevSettingsSection", () => {
 
   it("shows a visible save error and does not report success when config saving fails", async () => {
     const onSaved = vi.fn();
-    tauriMock.setJevConfig.mockRejectedValueOnce(new Error("settings unavailable"));
+    tauriMock.setJevFeatures.mockRejectedValueOnce(new Error("settings unavailable"));
     renderSection({ ...baseProfile, jev: undefined }, onSaved);
 
     fireEvent.click(getToggle());

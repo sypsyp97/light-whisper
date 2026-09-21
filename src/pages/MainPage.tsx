@@ -21,7 +21,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
   const { t } = useTranslation();
   const {
     isStarting, isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, originalAsrText, editBaselineText, setEditBaselineText, setTranscriptionResult,
+    recordingError, transcriptionResult, originalAsrText, editBaselineText, setEditBaselineText, setTranscriptionResult, polishAuditWarning,
     durationSec, charCount, detectedLanguage, editGrabStatus, timing, history, recordingMode, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError, hotkeyDisplay,
@@ -179,6 +179,12 @@ export default function MainPage({ onNavigate, animClass = "" }: {
 
         {/* Results */}
         <div className="results-area" style={{ padding: `12px ${PADDING}px 12px` }}>
+          {polishAuditWarning && (
+            <div className="polish-audit-notice" role="status">
+              <p>{t("settings.jevAuditWarning")}</p>
+              {originalAsrText && <details><summary>{t("settings.jevAuditOriginal")}</summary><p>{originalAsrText}</p></details>}
+            </div>
+          )}
           <TranscriptionResult
             text={transcriptionResult}
             originalText={editBaselineText}

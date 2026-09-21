@@ -78,7 +78,7 @@ pub fn save_or_delete_api_key(
     }
 }
 
-fn route_questions() -> Value {
+pub fn route_questions() -> Value {
     json!({
         "route": {
             "type": "choice",
@@ -106,30 +106,25 @@ fn endpoint_for(provider: JevProvider, endpoint_override: Option<&str>) -> Strin
     }
 }
 
-/// Build the immutable Jev classifier request.
+/// Build a Jev request for an arbitrary immutable state/questions payload.
 ///
-/// `text` and `polishing_policy` are inserted as JSON values rather than into
-/// a prompt string, so untrusted ASR content cannot change the request shape.
-pub fn build_request(
+/// Provider-specific model selection, endpoint paths, and headers stay here so
+/// all Jev tasks use the same transport contract without duplicating key
+/// handling or provider metadata.
+pub fn build_evaluation_request(
     client: &reqwest::Client,
     provider: JevProvider,
     api_key: &str,
-    text: &str,
-    polishing_policy: &str,
+    state: Value,
+    questions: Value,
     endpoint_override: Option<&str>,
 ) -> Result<reqwest::Request, String> {
     let mut body = serde_json::Map::new();
     if let Some(model) = provider.model() {
         body.insert("model".to_string(), json!(model));
     }
-    body.insert(
-        "state".to_string(),
-        json!({
-            "text": text,
-            "polishing_policy": polishing_policy,
-        }),
-    );
-    body.insert("questions".to_string(), route_questions());
+    body.insert("state".to_string(), state);
+    body.insert("questions".to_string(), questions);
 
     let mut headers = HeaderMap::new();
     let bearer = format!("Bearer {}", api_key.trim());
@@ -160,6 +155,31 @@ pub fn build_request(
         .json(&Value::Object(body))
         .build()
         .map_err(|_| "Jev request could not be constructed".to_string())
+}
+
+/// Build the immutable Jev classifier request.
+///
+/// `text` and `polishing_policy` are inserted as JSON values rather than into
+/// a prompt string, so untrusted ASR content cannot change the request shape.
+pub fn build_request(
+    client: &reqwest::Client,
+    provider: JevProvider,
+    api_key: &str,
+    text: &str,
+    polishing_policy: &str,
+    endpoint_override: Option<&str>,
+) -> Result<reqwest::Request, String> {
+    build_evaluation_request(
+        client,
+        provider,
+        api_key,
+        json!({
+            "text": text,
+            "polishing_policy": polishing_policy,
+        }),
+        route_questions(),
+        endpoint_override,
+    )
 }
 
 fn probability(value: Option<&Value>) -> Option<f64> {

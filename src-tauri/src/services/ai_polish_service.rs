@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
 use tauri::Emitter;
 
 use serde::Deserialize;
+use serde_json::{json, Map, Value};
 
 use crate::services::jev_service::JevProvider;
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions};
@@ -220,6 +221,22 @@ fn build_jev_policy(
         policy.push_str(app_context);
     }
     policy
+}
+
+pub(crate) fn build_jev_audit_policy(
+    state: &AppState,
+    input_text: &str,
+    translation_target_override: Option<Option<String>>,
+    app_custom_prompt: Option<&str>,
+    app_context: Option<&str>,
+) -> String {
+    build_jev_policy(
+        state,
+        input_text,
+        translation_target_override,
+        app_custom_prompt,
+        app_context,
+    )
 }
 
 fn build_system_prompt_with_base(
@@ -684,6 +701,7 @@ pub struct PolishOverrides {
     pub translation_target: Option<Option<String>>,
     pub custom_prompt: Option<String>,
     pub screen_context_enabled: Option<bool>,
+    pub screen_context_explicit: bool,
     /// 录音开始时的目标窗口。设置后，真正截图前后都必须仍是同一窗口，
     /// 否则丢弃截图，避免异步等待期间切换到其他应用造成隐私泄露。
     pub screen_context_foreground: Option<ForegroundApp>,
@@ -703,6 +721,7 @@ impl Default for PolishOverrides {
             translation_target: None,
             custom_prompt: None,
             screen_context_enabled: None,
+            screen_context_explicit: false,
             screen_context_foreground: None,
             app_context: None,
             emit_status: true,
@@ -815,6 +834,138 @@ pub(crate) async fn evaluate_polish_gate(
     .then(|| PolishOutcome::passthrough(text.to_string()))
 }
 
+struct JevPolishDecision {
+    skip_polish: bool,
+    screen_allowed: Option<bool>,
+}
+
+/// Evaluate the opt-in route and screen questions together so ordinary
+/// dictation performs at most one Jev request before screenshot preparation.
+#[allow(clippy::too_many_arguments)]
+async fn evaluate_polish_expansion(
+    state: &AppState,
+    text: &str,
+    overrides: &PolishOverrides,
+    provider: JevProvider,
+    api_key: &str,
+    endpoint_override: Option<&str>,
+) -> Option<JevPolishDecision> {
+    if !overrides.allow_jev_gate || overrides.require_execution || api_key.trim().is_empty() {
+        return None;
+    }
+
+    let (route_enabled, screen_routing, configured_provider, profile_translation_target) = state
+        .with_profile(|profile| {
+            (
+                profile.jev.enabled,
+                profile.jev.screen_routing,
+                profile.jev.provider,
+                profile.translation_target.clone(),
+            )
+        });
+    if configured_provider != provider {
+        return None;
+    }
+
+    let translation_enabled = match overrides.translation_target.as_ref() {
+        Some(Some(_)) => true,
+        Some(None) => false,
+        None => profile_translation_target.is_some(),
+    };
+    let route_enabled_for_request = route_enabled && !translation_enabled;
+    let requested_screen = overrides
+        .screen_context_enabled
+        .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
+    let explicit_screen = overrides.screen_context_explicit
+        || crate::services::jev_tasks::contains_explicit_screen_request(text);
+    let screen_question_enabled = screen_routing && requested_screen;
+    if !route_enabled_for_request && !screen_question_enabled {
+        return None;
+    }
+
+    let policy = build_jev_policy(
+        state,
+        text,
+        overrides.translation_target.clone(),
+        overrides.custom_prompt.as_deref(),
+        overrides.app_context.as_deref(),
+    );
+    let mut questions = Map::new();
+    if route_enabled_for_request {
+        if let Some(route) = jev_service::route_questions()
+            .as_object()
+            .and_then(|questions| questions.get("route"))
+        {
+            questions.insert("route".to_string(), route.clone());
+        }
+    }
+    if screen_question_enabled {
+        if let Some(screen) = crate::services::jev_tasks::screen_questions()
+            .as_object()
+            .and_then(|questions| questions.get("screen"))
+        {
+            questions.insert("screen".to_string(), screen.clone());
+        }
+    }
+    let state_payload = json!({
+        "text": text,
+        "polishing_policy": policy,
+        "app_context": overrides.app_context.as_deref(),
+        "screen_requested": requested_screen,
+    });
+    let payload = crate::services::jev_tasks::evaluate(
+        &state.http_client,
+        provider,
+        api_key,
+        state_payload,
+        Value::Object(questions),
+        std::time::Duration::from_secs(1),
+        endpoint_override,
+    )
+    .await;
+
+    let route = route_enabled_for_request.then(|| {
+        payload.as_ref().and_then(|payload| {
+            crate::services::jev_tasks::confident_choice(
+                payload,
+                "route",
+                &["pass", "polish", "uncertain"],
+                0.90,
+            )
+        })
+    });
+    let screen_decision = screen_question_enabled.then(|| {
+        payload.as_ref().and_then(|payload| {
+            crate::services::jev_tasks::confident_choice(
+                payload,
+                "screen",
+                &["needed", "unneeded", "uncertain"],
+                0.90,
+            )
+        })
+    });
+    let screen_choice = screen_decision
+        .as_ref()
+        .and_then(|decision| decision.as_deref());
+    let screen_allowed = screen_choice.map(|decision| {
+        crate::services::jev_tasks::screen_allowed(
+            requested_screen,
+            explicit_screen,
+            Some(decision),
+        )
+    });
+    let screen_allows_skip = if screen_question_enabled {
+        screen_choice == Some("unneeded") && !explicit_screen
+    } else {
+        true
+    };
+
+    Some(JevPolishDecision {
+        skip_polish: route.flatten().as_deref() == Some("pass") && screen_allows_skip,
+        screen_allowed,
+    })
+}
+
 pub async fn polish_text_with_overrides_detailed(
     state: &AppState,
     text: &str,
@@ -822,6 +973,7 @@ pub async fn polish_text_with_overrides_detailed(
     session_id: u64,
     overrides: PolishOverrides,
 ) -> Result<PolishOutcome, String> {
+    let mut overrides = overrides;
     let emit_status = overrides.emit_status;
     let polish_enabled = overrides
         .ai_polish_enabled
@@ -836,7 +988,27 @@ pub async fn polish_text_with_overrides_detailed(
     }
 
     let start = std::time::Instant::now();
-    if overrides.allow_jev_gate && state.with_profile(|profile| profile.jev.enabled) {
+    let (jev_enabled, screen_routing) =
+        state.with_profile(|profile| (profile.jev.enabled, profile.jev.screen_routing));
+    let mut expansion_applied = false;
+    if overrides.allow_jev_gate && screen_routing {
+        let jev_provider = state.with_profile(|profile| profile.jev.provider);
+        let jev_api_key =
+            jev_service::load_api_key_for_provider(app_handle, jev_provider).unwrap_or_default();
+        if let Some(decision) =
+            evaluate_polish_expansion(state, text, &overrides, jev_provider, &jev_api_key, None)
+                .await
+        {
+            expansion_applied = true;
+            if let Some(screen_allowed) = decision.screen_allowed {
+                overrides.screen_context_enabled = Some(screen_allowed);
+            }
+            if decision.skip_polish {
+                return Ok(PolishOutcome::passthrough(text.to_string()));
+            }
+        }
+    }
+    if overrides.allow_jev_gate && jev_enabled && !expansion_applied {
         let jev_provider = state.with_profile(|profile| profile.jev.provider);
         let jev_api_key =
             jev_service::load_api_key_for_provider(app_handle, jev_provider).unwrap_or_default();
@@ -1695,3 +1867,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "jev_polish_routing_tests.rs"]
+mod jev_routing_tests;

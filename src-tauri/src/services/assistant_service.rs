@@ -3,12 +3,14 @@ use std::time::Instant;
 
 use chrono::{DateTime, FixedOffset, Local, SecondsFormat};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tauri::Emitter;
 
+use crate::services::jev_service::JevProvider;
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
 use crate::services::{
-    codex_oauth_service, grok_build_oauth_service, llm_client, llm_provider,
-    screen_capture_service, screen_vision_service, web_search_service,
+    codex_oauth_service, grok_build_oauth_service, jev_service, jev_tasks, llm_client,
+    llm_provider, screen_capture_service, screen_vision_service, web_search_service,
 };
 use crate::state::user_profile::{UserProfile, WebSearchConfig, WebSearchProvider};
 use crate::state::AppState;
@@ -31,6 +33,7 @@ pub struct AssistantConversationTurn {
 #[derive(Debug, Clone, Default)]
 pub struct AssistantRequestContext {
     screen_context_enabled: Option<bool>,
+    screen_context_explicit: bool,
     recording_foreground: Option<ForegroundApp>,
     app_context: Option<String>,
     screen_context_description: Option<String>,
@@ -52,6 +55,7 @@ impl AssistantRequestContext {
     ) -> Self {
         Self {
             screen_context_enabled: Some(screen_context_enabled),
+            screen_context_explicit: false,
             recording_foreground,
             app_context,
             screen_context_description: None,
@@ -63,6 +67,11 @@ impl AssistantRequestContext {
         self.screen_context_description = description
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
+        self
+    }
+
+    pub fn with_explicit_screen_context(mut self, explicit: bool) -> Self {
+        self.screen_context_explicit = explicit;
         self
     }
 
@@ -565,6 +574,38 @@ fn decide_assistant_web_search(
     }
 }
 
+fn assistant_search_for_mode(
+    enabled: bool,
+    automatic: bool,
+    routing: Option<bool>,
+    request: &str,
+    selected_text: Option<&str>,
+) -> AssistantWebSearchDecision {
+    if !enabled {
+        return AssistantWebSearchDecision {
+            should_search: false,
+            reason: "web_search_disabled",
+        };
+    }
+
+    let baseline = decide_assistant_web_search(request, selected_text);
+    if matches!(baseline.reason, "explicit_search" | "explicit_no_search") {
+        return baseline;
+    }
+    if !automatic {
+        return AssistantWebSearchDecision {
+            should_search: true,
+            reason: "fixed_on",
+        };
+    }
+    routing
+        .map(|should_search| AssistantWebSearchDecision {
+            should_search,
+            reason: "jev_routing",
+        })
+        .unwrap_or(baseline)
+}
+
 fn is_generation_or_editing_request(query: &str, has_selection: bool) -> bool {
     contains_any(
         query,
@@ -766,6 +807,91 @@ struct ConversationContext<'a> {
     history: &'a [AssistantConversationTurn],
 }
 
+#[derive(Default)]
+struct AssistantJevRouting {
+    screen_allowed: Option<bool>,
+    search_allowed: Option<bool>,
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn evaluate_assistant_jev_routing(
+    state: &AppState,
+    asr_text: &str,
+    selected_text: Option<&str>,
+    conversation: Option<ConversationContext<'_>>,
+    app_handle: &tauri::AppHandle,
+    request_context: &AssistantRequestContext,
+    screen_requested: bool,
+    screen_routing: bool,
+    search_enabled: bool,
+    search_routing: bool,
+    provider: JevProvider,
+) -> AssistantJevRouting {
+    let include_screen = screen_routing && screen_requested;
+    let include_search = search_routing && search_enabled;
+    if !include_screen && !include_search {
+        return AssistantJevRouting::default();
+    }
+
+    let questions = jev_tasks::routing_questions(include_screen, include_search);
+
+    let conversation = conversation.map(|conversation| {
+        json!({
+            "initial_request": conversation.initial_request,
+            "initial_response": conversation.initial_response,
+            "history": conversation.history,
+        })
+    });
+    let state_payload = json!({
+        "request": asr_text,
+        "selected_text": selected_text,
+        "conversation": conversation,
+        "app_context": request_context.app_context.as_deref(),
+        "screen_requested": screen_requested,
+    });
+    let jev_key = jev_service::load_api_key_for_provider(app_handle, provider).unwrap_or_default();
+    let payload = jev_tasks::evaluate(
+        &state.http_client,
+        provider,
+        &jev_key,
+        state_payload,
+        questions,
+        std::time::Duration::from_secs(1),
+        None,
+    )
+    .await;
+
+    let baseline_search = if search_enabled {
+        decide_assistant_web_search(asr_text, selected_text)
+    } else {
+        AssistantWebSearchDecision {
+            should_search: false,
+            reason: "web_search_disabled",
+        }
+    };
+    let search_explicit = matches!(
+        baseline_search.reason,
+        "explicit_search" | "explicit_no_search"
+    )
+    .then_some(baseline_search.should_search);
+    let routing = jev_tasks::resolve_routing(
+        payload.as_ref(),
+        screen_requested,
+        request_context.screen_context_explicit
+            || crate::services::jev_tasks::contains_explicit_screen_request(asr_text),
+        search_enabled,
+        search_explicit,
+        baseline_search.should_search,
+        include_screen,
+        include_search,
+    );
+
+    AssistantJevRouting {
+        screen_allowed: routing.screen_allowed,
+        search_allowed: routing.search_allowed,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn generate_content_inner(
     state: &AppState,
@@ -827,6 +953,34 @@ async fn generate_content_inner(
             ws.clone()
         };
 
+    let screen_context_requested = request_context
+        .screen_context_enabled
+        .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
+    let (screen_routing, search_routing, jev_provider) = state.with_profile(|profile| {
+        (
+            profile.jev.screen_routing,
+            profile.jev.search_routing,
+            profile.jev.provider,
+        )
+    });
+    let jev_routing = evaluate_assistant_jev_routing(
+        state,
+        asr_text,
+        selected_text,
+        conversation,
+        app_handle,
+        &request_context,
+        screen_context_requested,
+        screen_routing,
+        effective_ws.enabled,
+        search_routing,
+        jev_provider,
+    )
+    .await;
+    let screen_context_enabled = jev_routing
+        .screen_allowed
+        .unwrap_or(screen_context_requested);
+
     let _ = app_handle.emit(
         stream_event,
         serde_json::json!({
@@ -846,14 +1000,13 @@ async fn generate_content_inner(
     // 先用本地意图判断避免无关搜索；实时/事实/显式查询再进入搜索路径。
     // 原生模式：注入 tool，模型在需要时调用；不支持的模型会在下方 retry 时去掉 web_search。
     // 第三方模式：先搜索，再将不可信结果作为用户侧上下文交给模型。
-    let web_search_decision = if effective_ws.enabled {
-        decide_assistant_web_search(asr_text, selected_text)
-    } else {
-        AssistantWebSearchDecision {
-            should_search: false,
-            reason: "web_search_disabled",
-        }
-    };
+    let web_search_decision = assistant_search_for_mode(
+        effective_ws.enabled,
+        search_routing,
+        jev_routing.search_allowed,
+        asr_text,
+        selected_text,
+    );
     let use_native_search = effective_ws.enabled
         && effective_ws.provider == WebSearchProvider::ModelNative
         && web_search_decision.should_search;
@@ -929,9 +1082,6 @@ async fn generate_content_inner(
         );
     }
 
-    let screen_context_enabled = request_context
-        .screen_context_enabled
-        .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
     let reusable_screen_description =
         request_context.reusable_screen_context_description(screen_context_enabled);
     let needs_screen_capture = screen_context_enabled && reusable_screen_description.is_none();
@@ -1204,6 +1354,7 @@ async fn generate_content_inner(
 
 #[cfg(test)]
 mod tests {
+    use super::assistant_search_for_mode;
     use super::{
         build_assistant_request_options, build_conversation_user_content, contextual_search_query,
         decide_assistant_web_search, normalized_search_query, render_assistant_system_prompt_at,
@@ -1213,6 +1364,36 @@ mod tests {
     use crate::state::user_profile::LlmReasoningMode;
     use crate::state::user_profile::UserProfile;
     use crate::utils::foreground::ForegroundApp;
+
+    #[test]
+    fn search_modes_keep_fixed_on_separate_from_auto_and_respect_explicit_choices() {
+        let request = "帮我写一封简短的感谢信";
+        assert!(!assistant_search_for_mode(false, false, Some(true), request, None).should_search);
+        assert!(assistant_search_for_mode(true, false, None, request, None).should_search);
+        assert!(assistant_search_for_mode(true, false, Some(false), request, None).should_search);
+        assert!(!assistant_search_for_mode(true, true, None, request, None).should_search);
+        assert!(assistant_search_for_mode(true, true, Some(true), request, None).should_search);
+        assert!(
+            !assistant_search_for_mode(true, true, Some(false), "今天维也纳天气如何", None)
+                .should_search
+        );
+        for automatic in [false, true] {
+            assert!(
+                !assistant_search_for_mode(
+                    true,
+                    automatic,
+                    Some(true),
+                    "不要搜索，解释这段代码",
+                    None
+                )
+                .should_search
+            );
+            assert!(
+                assistant_search_for_mode(true, automatic, Some(false), "查一下今天的天气", None)
+                    .should_search
+            );
+        }
+    }
 
     #[test]
     fn recording_screen_context_requires_the_recording_foreground() {

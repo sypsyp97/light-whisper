@@ -39,7 +39,9 @@
 3. Focus your target app, hold `F2`, speak, then release. Change the hotkey or recording mode in Settings.
 4. Optionally configure AI polish or the assistant with a provider/model and API key or supported account login. Basic local dictation needs no LLM account.
 
-For **AI Polish → Jev smart polish skip**, also choose TypeSafe (official), OpenRouter or Vercel and enter its separate API key. Jev is off by default; errors and timeouts fall back to normal polishing. Translation, assistant/editing and manual re-polish bypass it.
+AI polish, screen context and assistant web search each offer **Off / On / Auto**. Only Auto uses Jev to decide whether the work is needed. Configure TypeSafe (official), OpenRouter or Vercel once under **Automatic decisions → Jev**. Missing credentials, timeouts and uncertain answers fall back to the usual processing path. Translation and explicit edits still run.
+
+Optional Jev checks review AI-learned correction rules and flag possible meaning changes after polishing. Meaning checks run in the background and never replace or delay your output. User-confirmed corrections are preserved.
 
 ## Recognition engines
 

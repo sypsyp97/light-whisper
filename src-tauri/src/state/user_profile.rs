@@ -76,6 +76,14 @@ pub struct JevConfig {
     pub enabled: bool,
     #[serde(default)]
     pub provider: JevProvider,
+    #[serde(default)]
+    pub screen_routing: bool,
+    #[serde(default)]
+    pub correction_review: bool,
+    #[serde(default)]
+    pub search_routing: bool,
+    #[serde(default)]
+    pub polish_audit: bool,
 }
 
 impl Default for JevConfig {
@@ -83,6 +91,10 @@ impl Default for JevConfig {
         Self {
             enabled: false,
             provider: JevProvider::TypeSafe,
+            screen_routing: false,
+            correction_review: false,
+            search_routing: false,
+            polish_audit: false,
         }
     }
 }

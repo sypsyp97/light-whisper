@@ -38,6 +38,12 @@ pub async fn set_ai_polish_config(
         .ai_polish_enabled
         .store(enabled, Ordering::Release);
 
+    update_ai_polish_api_key(&app_handle, state.inner(), api_key);
+    log::info!("AI polish enabled state updated: {}", enabled);
+    Ok(())
+}
+
+fn update_ai_polish_api_key(app_handle: &tauri::AppHandle, state: &AppState, api_key: String) {
     let provider = state.active_llm_provider();
     let keyring_user = llm_provider::keyring_user_for_provider(&provider);
 
@@ -49,13 +55,17 @@ pub async fn set_ai_polish_config(
         state.set_assistant_api_key(api_key.clone());
     }
 
-    llm_provider::save_or_delete_api_key(&app_handle, &keyring_user, &api_key);
+    llm_provider::save_or_delete_api_key(app_handle, &keyring_user, &api_key);
+}
 
-    log::info!(
-        "AI 润色配置已更新: enabled={}, provider={}",
-        enabled,
-        provider
-    );
+/// Saving a credential must not overwrite a concurrently selected processing mode.
+#[tauri::command]
+pub async fn set_ai_polish_api_key(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    api_key: String,
+) -> Result<(), String> {
+    update_ai_polish_api_key(&app_handle, state.inner(), api_key);
     Ok(())
 }
 

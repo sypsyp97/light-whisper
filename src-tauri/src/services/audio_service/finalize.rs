@@ -534,6 +534,14 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         let requested_polish_screen_context = app_profile
             .screen_context_enabled
             .unwrap_or_else(|| state.with_profile(|profile| profile.screen_context_enabled()));
+        let screen_context_explicit = app_profile.screen_context_enabled.is_some();
+        let screen_routing_enabled = state.with_profile(|profile| profile.jev.screen_routing);
+        let requested_polish_screen_context = if screen_routing_enabled && !screen_context_explicit
+        {
+            false
+        } else {
+            requested_polish_screen_context
+        };
         let assistant_screen_context = app_profile
             .screen_context_enabled
             .unwrap_or_else(|| state.with_profile(|profile| profile.screen_context_enabled()));
@@ -541,7 +549,8 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             assistant_screen_context,
             foreground_app.clone(),
             app_context.clone(),
-        );
+        )
+        .with_explicit_screen_context(screen_context_explicit);
         let (assistant_generation, cancel_rx) =
             crate::commands::assistant::begin_assistant_chat_task(state.inner());
         let assistant_pipeline = async {
@@ -557,6 +566,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     translation_target: Some(None),
                     custom_prompt: app_profile.custom_prompt.clone(),
                     screen_context_enabled: Some(requested_polish_screen_context),
+                    screen_context_explicit,
                     screen_context_foreground: foreground_app.clone(),
                     app_context: app_context.clone(),
                     ..Default::default()
@@ -688,6 +698,25 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 DictationOutputMode::Original => Some(None),
                 DictationOutputMode::Translated => None,
             });
+        let (profile_translation_target, polish_audit_enabled) = state
+            .with_profile(|profile| (profile.translation_target.clone(), profile.jev.polish_audit));
+        let effective_translation_target = translation_override
+            .clone()
+            .unwrap_or(profile_translation_target);
+        let audit_policy = if ai_polish_enabled
+            && polish_audit_enabled
+            && effective_translation_target.is_none()
+        {
+            Some(ai_polish_service::build_jev_audit_policy(
+                state.inner(),
+                &original,
+                translation_override.clone(),
+                app_profile.custom_prompt.as_deref(),
+                app_context.as_deref(),
+            ))
+        } else {
+            None
+        };
         let requested_screen_context = app_profile
             .screen_context_enabled
             .unwrap_or_else(|| state.with_profile(|profile| profile.screen_context_enabled()));
@@ -717,6 +746,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 translation_target: translation_override,
                 custom_prompt: app_profile.custom_prompt.clone(),
                 screen_context_enabled: Some(allow_screen_context),
+                screen_context_explicit: app_profile.screen_context_enabled.is_some(),
                 screen_context_foreground: foreground_app.clone(),
                 app_context: app_context.clone(),
                 ..Default::default()
@@ -735,6 +765,18 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             }
         };
         let polished = text != original;
+        if polished {
+            if let Some(policy) = audit_policy {
+                crate::services::jev_review::schedule_polish_audit(
+                    &app_handle,
+                    state.inner(),
+                    session_id,
+                    &original,
+                    &text,
+                    policy,
+                );
+            }
+        }
         let timing = TranscriptionTiming {
             asr_ms: Some(asr_elapsed_ms),
             polish_ms: polish_elapsed_ms,

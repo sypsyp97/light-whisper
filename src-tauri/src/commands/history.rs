@@ -206,6 +206,7 @@ async fn reprocess_stored_history(
             translation_target: resolved.translation_target.clone(),
             custom_prompt: resolved.custom_prompt.clone(),
             screen_context_enabled: Some(false),
+            screen_context_explicit: false,
             screen_context_foreground: None,
             app_context,
             emit_status: false,

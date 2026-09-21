@@ -8,7 +8,9 @@ pub mod funasr_service;
 pub mod glm_asr_service;
 pub mod grok_build_oauth_service;
 pub mod history_service;
+pub mod jev_review;
 pub mod jev_service;
+pub mod jev_tasks;
 pub mod llm_client;
 pub mod llm_provider;
 pub mod profile_service;
@@ -28,6 +30,8 @@ mod deepseek_native_web_search_tests;
 mod grok_build_oauth_tests;
 #[cfg(test)]
 mod jev_service_tests;
+#[cfg(test)]
+mod jev_tasks_tests;
 #[cfg(test)]
 mod llm_reasoning_negotiation_tests;
 #[cfg(test)]

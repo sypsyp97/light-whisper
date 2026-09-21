@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Mic, Monitor, Eye, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Mic, Eye, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
@@ -13,7 +13,10 @@ import { useMicrophoneSettings } from "@/hooks/useMicrophoneSettings";
 import {
   setInputMethodCommand,
   setAiPolishConfig,
-  setScreenContextEnabled,
+  saveAiPolishApiKey,
+  setScreenContextMode,
+  setWebSearchMode,
+  setPolishMode,
   getAiPolishApiKey,
   getGrokBuildOauthStatus,
   getOpenaiCodexOauthStatus,
@@ -53,7 +56,7 @@ import {
   getWebSearchApiKey,
   hideMainWindow,
 } from "@/api/tauri";
-import type { CustomProvider, UserProfile, ApiFormat, GrokBuildOauthDeviceCodeChallenge, GrokBuildOauthStatus, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, PolishStructureLevel, WebSearchProvider, XaiAuthMode } from "@/types";
+import type { ContextMode, CustomProvider, UserProfile, ApiFormat, GrokBuildOauthDeviceCodeChallenge, GrokBuildOauthStatus, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, PolishStructureLevel, WebSearchProvider, XaiAuthMode } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
@@ -65,6 +68,7 @@ import SelectionAssistantSettingsSection from "@/components/settings/SelectionAs
 import AppProfileRulesSettingsSection from "@/components/settings/AppProfileRulesSettingsSection";
 import HistorySettingsSection from "@/components/settings/HistorySettingsSection";
 import PolishStructureControl from "@/components/settings/PolishStructureControl";
+import ProcessingModeControl from "@/components/settings/ProcessingModeControl";
 import JevSettingsSection from "@/components/settings/JevSettingsSection";
 import R2T2SettingsSection from "@/components/settings/R2T2SettingsSection";
 import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
@@ -231,6 +235,7 @@ export default function SettingsPage({
     { id: "microphone", labelKey: "settings.microphone" },
     { id: "input", labelKey: "settings.inputMethod" },
     { id: "ai-polish", labelKey: "settings.aiPolish" },
+    { id: "jev", labelKey: "settings.jevNav" },
     { id: "assistant", labelKey: "settings.assistant" },
     { id: "selection-assistant", labelKey: "settings.selectionAssistant" },
     { id: "translation", labelKey: "settings.translation" },
@@ -475,6 +480,8 @@ export default function SettingsPage({
   const [polishStructureLevel, setPolishStructureLevelState] = useState<PolishStructureLevel>("off");
   const polishStructureSaveIdRef = useRef(0);
   const [assistantPromptState, setAssistantPromptState] = useState<string>("");
+  const [modeSaving, setModeSaving] = useState(false);
+  const modeSavingRef = useRef(false);
   const [screenContextEnabled, setScreenContextEnabledState] = useState(false);
   const [screenVisionEnabled, setScreenVisionEnabled] = useState(false);
   const [screenVisionProvider, setScreenVisionProvider] = useState(DEFAULT_SCREEN_VISION_PROVIDER);
@@ -500,8 +507,8 @@ export default function SettingsPage({
   const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
   const correctionManageButtonRef = useRef<HTMLButtonElement>(null);
 
-  const aiPolishKeySave = useDebouncedCallback((value: string, enabled: boolean) => {
-    setAiPolishConfig(enabled, value).catch(() => {});
+  const aiPolishKeySave = useDebouncedCallback((value: string) => {
+    return saveAiPolishApiKey(value).catch(() => {});
   }, 600, { onUnmount: "flush" });
 
   const assistantKeySave = useDebouncedCallback((value: string) => {
@@ -523,7 +530,7 @@ export default function SettingsPage({
     provider: WebSearchProvider,
     maxResults: number,
   ) => {
-    setWebSearchConfig(enabled, provider, maxResults).catch(() => {});
+    return setWebSearchConfig(enabled, provider, maxResults).catch(() => {});
   }, 400, { onUnmount: "flush" });
 
   const llmConfigSave = useDebouncedCallback((
@@ -595,18 +602,17 @@ export default function SettingsPage({
     };
   }, [providerDrafts, customProviders]);
 
-  const refreshAiPolishKey = useCallback(async (enabled = aiPolishEnabled) => {
+  const refreshAiPolishKey = useCallback(async () => {
     try {
       const key = (await getAiPolishApiKey()) || "";
       setAiPolishApiKey(key);
-      await setAiPolishConfig(enabled, key).catch(() => {});
+      await saveAiPolishApiKey(key).catch(() => {});
       return key;
     } catch {
       setAiPolishApiKey("");
-      await setAiPolishConfig(enabled, "").catch(() => {});
       return "";
     }
-  }, [aiPolishEnabled]);
+  }, []);
 
   const refreshAssistantKey = useCallback(async () => {
     try {
@@ -681,7 +687,7 @@ export default function SettingsPage({
 
   // 从系统密钥环加载 API Key，并同步 enabled 状态到后端
   useEffect(() => {
-    void refreshAiPolishKey(readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
+    void refreshAiPolishKey();
   }, [refreshAiPolishKey]);
 
   // 加载用户画像
@@ -1533,7 +1539,7 @@ export default function SettingsPage({
     updateProviderDraft(llmProvider, customBaseUrl, customModel);
     aiPolishKeySave.cancel();
     llmConfigSave.cancel();
-    await setAiPolishConfig(aiPolishEnabled, aiPolishApiKey).catch(() => {});
+    await saveAiPolishApiKey(aiPolishApiKey).catch(() => {});
 
     const nextDraft = resolveProviderDraft(nextProvider);
     const nextAssistantModel = resolveAssistantModelForPolishProviderChange({
@@ -1960,13 +1966,38 @@ export default function SettingsPage({
     setRecordingMode(mode === "toggle").catch(() => {});
   }, []);
 
-  const handleScreenContextToggle = useCallback((enabled: boolean) => {
-    setScreenContextEnabledState(enabled);
-    setScreenContextEnabled(enabled).catch(() => {
-      setScreenContextEnabledState(!enabled);
-      toast.error(t("toast.screenContextFailed"));
-    });
-  }, [t]);
+  const configureJev = () => {
+    const section = document.getElementById("jev-settings");
+    section?.scrollIntoView({ block: "center", behavior: "instant" });
+    section?.focus({ preventScroll: true });
+  };
+
+  const handleProcessingMode = async (kind: "polish" | "screen" | "search", mode: ContextMode) => {
+    if (modeSavingRef.current) return;
+    modeSavingRef.current = true;
+    setModeSaving(true);
+    try {
+      if (kind === "polish") {
+        await aiPolishKeySave.flush();
+        await setPolishMode(mode);
+        setAiPolishEnabled(mode !== "off");
+        writeLocalStorage(AI_POLISH_ENABLED_KEY, String(mode !== "off"));
+      } else if (kind === "screen") {
+        await setScreenContextMode(mode);
+        setScreenContextEnabledState(mode !== "off");
+      } else {
+        await webSearchConfigSave.flush();
+        await setWebSearchMode(mode);
+        setWebSearchEnabledState(mode !== "off");
+      }
+      await refreshProfile();
+    } catch {
+      toast.error(t("settings.processingModeSaveFailed"));
+    } finally {
+      modeSavingRef.current = false;
+      setModeSaving(false);
+    }
+  };
 
   const handleScreenVisionToggle = useCallback((enabled: boolean) => {
     const previous = screenVisionEnabled;
@@ -2033,11 +2064,6 @@ export default function SettingsPage({
       toast.error(t("toast.polishStructureSaveFailed"));
     });
   }, [polishStructureLevel, t]);
-
-  const handleWebSearchToggle = useCallback((enabled: boolean) => {
-    setWebSearchEnabledState(enabled);
-    webSearchConfigSave.schedule(enabled, webSearchProvider, webSearchMaxResults);
-  }, [webSearchProvider, webSearchMaxResults, webSearchConfigSave]);
 
   const handleWebSearchProviderChange = useCallback((provider: WebSearchProvider) => {
     setWebSearchProviderState(provider);
@@ -2643,71 +2669,20 @@ export default function SettingsPage({
               <h2 className="settings-section-title">{t("settings.aiPolish")}</h2>
             </div>
             <div className="settings-column" style={{ gap: 10 }}>
-              <div className="settings-row">
-                <span className="permission-label">{t("settings.enableAiPolish")}</span>
-                <button
-                  role="switch"
-                  aria-checked={aiPolishEnabled}
-                  aria-label={t("settings.enableAiPolish")}
-                  onClick={() => {
-                    const next = !aiPolishEnabled;
-                    aiPolishKeySave.cancel();
-                    setAiPolishEnabled(next);
-                    writeLocalStorage(AI_POLISH_ENABLED_KEY, String(next));
-                    setAiPolishConfig(next, aiPolishApiKey).catch(() => {});
-                  }}
-                  className="toggle-switch"
-                  style={{
-                    background: aiPolishEnabled ? "var(--color-accent)" : "var(--color-bg-tertiary)",
-                  }}
-                >
-                  <div className="toggle-knob" style={{ transform: aiPolishEnabled ? "translateX(20px)" : "translateX(0)" }} />
-                </button>
-              </div>
-
-              <JevSettingsSection
-                profile={profile}
-                onSaved={() => { void refreshProfile(); }}
-              />
+              <ProcessingModeControl label={t("settings.aiPolish")}
+                value={!aiPolishEnabled ? "off" : profile?.jev?.enabled ? "auto" : "on"}
+                hint={t("settings.polishModeHint")} disabled={modeSaving || !profile}
+                onChange={(mode) => { void handleProcessingMode("polish", mode); }} onConfigure={configureJev} />
 
               <PolishStructureControl
                 level={polishStructureLevel}
                 onChange={handlePolishStructureLevelChange}
               />
 
-              <div className="settings-row">
-                <div className="permission-item" style={{ gap: 8 }}>
-                  <Monitor size={14} className="icon-tertiary" />
-                  <div className="settings-column" style={{ gap: 2 }}>
-                    <span className="permission-label">{t("settings.screenContext")}</span>
-                    <span className="settings-hint" style={{ margin: 0 }}>
-                      {t("settings.screenContextPolishHint")}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  role="switch"
-                  aria-checked={screenContextEnabled}
-                  aria-label={t("settings.screenContext")}
-                  onClick={() => handleScreenContextToggle(!screenContextEnabled)}
-                  className="toggle-switch"
-                  style={{
-                    background: screenContextEnabled
-                      ? "var(--color-accent)"
-                      : "var(--color-bg-tertiary)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <div
-                    className="toggle-knob"
-                    style={{
-                      transform: screenContextEnabled
-                        ? "translateX(20px)"
-                        : "translateX(0)",
-                    }}
-                  />
-                </button>
-              </div>
+              <ProcessingModeControl label={t("settings.screenContext")}
+                value={!screenContextEnabled ? "off" : profile?.jev?.screen_routing ? "auto" : "on"}
+                hint={t("settings.screenModeHint")} disabled={modeSaving || !profile}
+                onChange={(mode) => { void handleProcessingMode("screen", mode); }} onConfigure={configureJev} />
 
               <div className="settings-row">
                 <div className="permission-item" style={{ gap: 8 }}>
@@ -2970,7 +2945,7 @@ export default function SettingsPage({
                     ariaLabelHide={t("settings.hideApiKey")}
                     onChange={(value) => {
                       setAiPolishApiKey(value);
-                      aiPolishKeySave.schedule(value, aiPolishEnabled);
+                      aiPolishKeySave.schedule(value);
                     }}
                   />
                 </div>
@@ -3181,6 +3156,10 @@ export default function SettingsPage({
                 {t("settings.aiPolishLearnHint")}
               </p>
             </div>
+          </section>
+
+          <section className="settings-card" data-nav-id="jev">
+            <JevSettingsSection profile={profile} polishEnabled={aiPolishEnabled} onSaved={() => { void refreshProfile(); }} />
           </section>
 
           <section
@@ -3547,30 +3526,10 @@ export default function SettingsPage({
 
               {/* 联网搜索 */}
 
-              <div className="settings-row">
-                <span className="permission-label">{t("settings.webSearchDesc")}</span>
-                <button
-                  role="switch"
-                  aria-checked={webSearchEnabled}
-                  aria-label={t("settings.webSearch")}
-                  onClick={() => handleWebSearchToggle(!webSearchEnabled)}
-                  className="toggle-switch"
-                  style={{
-                    background: webSearchEnabled
-                      ? "var(--color-accent)"
-                      : "var(--color-bg-tertiary)",
-                  }}
-                >
-                  <div
-                    className="toggle-knob"
-                    style={{
-                      transform: webSearchEnabled
-                        ? "translateX(20px)"
-                        : "translateX(0)",
-                    }}
-                  />
-                </button>
-              </div>
+              <ProcessingModeControl label={t("settings.webSearch")}
+                value={!webSearchEnabled ? "off" : profile?.jev?.search_routing ? "auto" : "on"}
+                hint={t("settings.searchModeHint")} disabled={modeSaving || !profile}
+                onChange={(mode) => { void handleProcessingMode("search", mode); }} onConfigure={configureJev} />
               <p className="settings-hint" style={{ margin: 0 }}>
                 {assistantUsesOpenaiOauth
                   ? t("settings.webSearchOauthHint")

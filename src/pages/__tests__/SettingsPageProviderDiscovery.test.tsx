@@ -41,6 +41,7 @@ const tauriMock = vi.hoisted(() => ({
   removeCustomProvider: vi.fn(),
   removeHotWord: vi.fn(),
   setAiPolishConfig: vi.fn(),
+  saveAiPolishApiKey: vi.fn(),
   setAiPolishScreenContextEnabled: vi.fn(),
   setScreenContextEnabled: vi.fn(),
   setAlibabaAsrModel: vi.fn(),
@@ -236,6 +237,7 @@ function resetMocks(profile: UserProfile = baseProfile) {
     url: "https://api.zhipuai.cn",
   });
   tauriMock.setAiPolishConfig.mockResolvedValue(undefined);
+  tauriMock.saveAiPolishApiKey.mockResolvedValue(undefined);
   tauriMock.setLlmProviderConfig.mockResolvedValue(undefined);
   tauriMock.addCustomProvider.mockResolvedValue("custom-provider");
   appMock.getVersion.mockReset();
