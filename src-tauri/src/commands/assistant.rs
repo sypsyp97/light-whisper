@@ -289,10 +289,11 @@ fn validate_assistant_source_url(value: &str) -> Result<reqwest::Url, AppError> 
 /// 需要独立凭据的搜索供应商在系统密钥环中的用户名。
 pub fn web_search_keyring_user(provider: &WebSearchProvider) -> Option<&'static str> {
     match provider {
+        WebSearchProvider::Exa => Some("web-search-exa-key"),
         WebSearchProvider::Tavily => Some("web-search-tavily-key"),
         WebSearchProvider::Google => Some("web-search-google-key"),
-        // Exa MCP 免费无需 Key，ModelNative 使用 LLM provider 自己的 Key。
-        WebSearchProvider::Exa | WebSearchProvider::ModelNative => None,
+        // Bing is keyless; ModelNative uses the LLM provider credential.
+        WebSearchProvider::Bing | WebSearchProvider::ModelNative => None,
     }
 }
 
@@ -300,6 +301,7 @@ pub fn web_search_provider_cache_key(provider: &WebSearchProvider) -> &'static s
     match provider {
         WebSearchProvider::ModelNative => "model_native",
         WebSearchProvider::Exa => "exa",
+        WebSearchProvider::Bing => "bing",
         WebSearchProvider::Tavily => "tavily",
         WebSearchProvider::Google => "google",
     }
@@ -396,7 +398,11 @@ mod tests {
             web_search_keyring_user(&WebSearchProvider::Google),
             Some("web-search-google-key")
         );
-        assert_eq!(web_search_keyring_user(&WebSearchProvider::Exa), None);
+        assert_eq!(
+            web_search_keyring_user(&WebSearchProvider::Exa),
+            Some("web-search-exa-key")
+        );
+        assert_eq!(web_search_keyring_user(&WebSearchProvider::Bing), None);
         assert_eq!(
             web_search_keyring_user(&WebSearchProvider::ModelNative),
             None

@@ -678,8 +678,22 @@ async fn run_third_party_search(
 ) -> Result<ThirdPartySearchOutput, String> {
     let max = ws.max_results;
     match ws.provider {
+        WebSearchProvider::Bing => {
+            let results =
+                super::bing_search_service::search(&state.http_client, query, max).await?;
+            Ok(ThirdPartySearchOutput {
+                results,
+                google_search_entry_point: None,
+            })
+        }
         WebSearchProvider::Exa => {
-            let results = web_search_service::exa_search(&state.http_client, query, max).await?;
+            let results = web_search_service::exa_search(
+                &state.http_client,
+                &state.read_web_search_api_key("exa"),
+                query,
+                max,
+            )
+            .await?;
             Ok(ThirdPartySearchOutput {
                 results,
                 google_search_entry_point: None,
@@ -688,7 +702,7 @@ async fn run_third_party_search(
         WebSearchProvider::Tavily => {
             let api_key = state.read_web_search_api_key("tavily");
             if api_key.trim().is_empty() {
-                return Err("Tavily 搜索需要配置 API Key".to_string());
+                return Err("SEARCH_AUTH_REQUIRED: Tavily".to_string());
             }
             let results =
                 web_search_service::tavily_search(&state.http_client, &api_key, query, max).await?;
@@ -700,7 +714,7 @@ async fn run_third_party_search(
         WebSearchProvider::Google => {
             let api_key = state.read_web_search_api_key("google");
             if api_key.trim().is_empty() {
-                return Err("Google 搜索需要配置 Google AI API Key".to_string());
+                return Err("SEARCH_AUTH_REQUIRED: Google".to_string());
             }
             let grounded = web_search_service::google_grounded_search(
                 &state.http_client,

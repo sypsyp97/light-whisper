@@ -41,6 +41,8 @@
 
 AI polish, screen context and assistant web search each offer **Off / On / Auto**. Only Auto uses Jev to decide whether the work is needed. Configure TypeSafe (official), OpenRouter or Vercel once under **Automatic decisions → Jev**. Missing credentials, timeouts and uncertain answers fall back to the usual processing path. Translation and explicit edits still run.
 
+Web search includes keyless Bing snippets and Exa MCP with a rate-limited free tier or your own optional API key. Free providers may block requests or require browser verification; the app reports these failures and continues without web sources.
+
 Optional Jev checks review AI-learned correction rules and flag possible meaning changes after polishing. Meaning checks run in the background and never replace or delay your output. User-confirmed corrections are preserved.
 
 ## Recognition engines

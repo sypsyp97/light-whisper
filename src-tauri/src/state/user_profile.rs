@@ -381,7 +381,9 @@ pub enum WebSearchProvider {
     /// 使用模型厂商内置搜索能力（OpenAI web_search / Anthropic web_search）
     #[default]
     ModelNative,
-    /// Exa MCP（免费，无需 API Key）
+    /// Bing public web search (no API key).
+    Bing,
+    /// Exa MCP (rate-limited free tier; optional API key).
     Exa,
     /// Tavily Search API（需要 API Key）
     Tavily,

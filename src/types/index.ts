@@ -144,7 +144,7 @@ export interface CorrectionPattern {
 }
 
 // 联网搜索方式
-export type WebSearchProvider = "model_native" | "exa" | "tavily" | "google";
+export type WebSearchProvider = "model_native" | "exa" | "tavily" | "google" | "bing";
 
 // 联网搜索配置
 export interface WebSearchConfig {

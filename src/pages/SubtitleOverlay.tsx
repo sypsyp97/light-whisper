@@ -11,6 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { Copy, ExternalLink, MessageCircle, Send, Sparkles, X } from "lucide-react";
+import { searchNoticeKey } from "@/lib/searchNotice";
 import GoogleSearchEntryPoint from "@/features/assistant/GoogleSearchEntryPoint";
 import {
   cancelAssistantConversation,
@@ -80,7 +81,7 @@ interface AssistantStreamEvent {
   sources?: AssistantSource[];
   googleSearchEntryPoint?: string | null;
   query?: string;
-  searchProvider?: "model_native" | "exa" | "tavily" | "google";
+  searchProvider?: "model_native" | "exa" | "tavily" | "google" | "bing";
   elapsedMs?: number;
   searchElapsedMs?: number | null;
   webSearchEnabled?: boolean;
@@ -176,7 +177,7 @@ export default function SubtitleOverlay() {
   const [assistantRequest, setAssistantRequest] = useState("");
   const [assistantSources, setAssistantSources] = useState<AssistantSource[]>([]);
   const [assistantGoogleSearchEntryPoint, setAssistantGoogleSearchEntryPoint] = useState("");
-  const [assistantSearchError, setAssistantSearchError] = useState(false);
+  const [assistantSearchError, setAssistantSearchError] = useState<string | null>(null);
   const [assistantSearchQuery, setAssistantSearchQuery] = useState("");
   const [assistantSearchProvider, setAssistantSearchProvider] = useState<string | null>(null);
   const [assistantSearchElapsedMs, setAssistantSearchElapsedMs] = useState<number | null>(null);
@@ -234,7 +235,7 @@ export default function SubtitleOverlay() {
     setAssistantRequest("");
     setAssistantSources([]);
     setAssistantGoogleSearchEntryPoint("");
-    setAssistantSearchError(false);
+    setAssistantSearchError(null);
     setAssistantSearchQuery("");
     setAssistantSearchProvider(null);
     setAssistantSearchElapsedMs(null);
@@ -605,7 +606,7 @@ export default function SubtitleOverlay() {
         unlisten = await listen<AssistantStreamEvent>("assistant-stream", (event) => {
           const {
             sessionId, chunk, status, request, source, sources, query,
-            searchProvider, elapsedMs, searchElapsedMs, googleSearchEntryPoint,
+            searchProvider, elapsedMs, searchElapsedMs, googleSearchEntryPoint, message,
           } = event.payload;
           if (sessionId === terminalSessionIdRef.current) return;
           if (typeof sessionId === "number") {
@@ -622,7 +623,7 @@ export default function SubtitleOverlay() {
             setInterimSegments(null);
             setOutcome(null);
             setAssistantCopied(false);
-            setAssistantSearchError(false);
+            setAssistantSearchError(null);
             setAssistantGoogleSearchEntryPoint("");
             setAssistantSearchQuery("");
             setAssistantSearchElapsedMs(null);
@@ -648,7 +649,7 @@ export default function SubtitleOverlay() {
             if (typeof googleSearchEntryPoint === "string") {
               setAssistantGoogleSearchEntryPoint(googleSearchEntryPoint);
             }
-            setAssistantSearchError(false);
+            setAssistantSearchError(sources.length === 0 ? t("subtitle.conversation.searchNoResults") : null);
             if (query?.trim()) setAssistantSearchQuery(query.trim());
             if (searchProvider) setAssistantSearchProvider(searchProvider);
             if (typeof elapsedMs === "number") setAssistantSearchElapsedMs(elapsedMs);
@@ -661,7 +662,7 @@ export default function SubtitleOverlay() {
           }
 
           if (status === "search_error") {
-            setAssistantSearchError(true);
+            setAssistantSearchError(t(searchNoticeKey(message)));
             if (query?.trim()) setAssistantSearchQuery(query.trim());
             if (searchProvider) setAssistantSearchProvider(searchProvider);
             if (typeof elapsedMs === "number") setAssistantSearchElapsedMs(elapsedMs);
@@ -725,6 +726,7 @@ export default function SubtitleOverlay() {
           }
 
           if (status === "search_complete" && Array.isArray(sources)) {
+            setConversationError(sources.length === 0 ? t("subtitle.conversation.searchNoResults") : null);
             conversationTurnSourcesRef.current = mergeAssistantSources(
               conversationTurnSourcesRef.current,
               sources,
@@ -744,7 +746,7 @@ export default function SubtitleOverlay() {
           }
 
           if (status === "search_error") {
-            setConversationError(t("subtitle.conversation.searchFailed"));
+            setConversationError(t(searchNoticeKey(message)));
             return;
           }
 
@@ -1015,7 +1017,7 @@ export default function SubtitleOverlay() {
         googleSearchEntryPoint: assistantGoogleSearchEntryPoint || undefined,
       }]);
     }
-    setConversationError(assistantSearchError ? t("subtitle.conversation.searchFailed") : null);
+    setConversationError(assistantSearchError);
     conversationOpenRef.current = true;
     setConversationOpen(true);
   }, [
@@ -1134,7 +1136,7 @@ export default function SubtitleOverlay() {
     if (!request || !isValidSessionId(sessionId) || assistantRetryBusy) return;
 
     setAssistantRetryBusy(true);
-    setAssistantSearchError(false);
+    setAssistantSearchError(null);
     setAssistantSources([]);
     setAssistantSearchQuery("");
     setAssistantSearchElapsedMs(null);
@@ -1148,12 +1150,12 @@ export default function SubtitleOverlay() {
       conversationInitialResponseRef.current = finalText;
       updatePhase(finalText ? "result" : "outcome");
     } catch {
-      setAssistantSearchError(true);
+      setAssistantSearchError(t("subtitle.conversation.searchFailed"));
       updatePhase("result");
     } finally {
       setAssistantRetryBusy(false);
     }
-  }, [assistantRequest, assistantRetryBusy, updatePhase]);
+  }, [assistantRequest, assistantRetryBusy, updatePhase, t]);
 
   const assistantOverlayDismissible = interactiveAssistantResult || conversationOpen;
 
@@ -1386,7 +1388,7 @@ export default function SubtitleOverlay() {
             )}
             {assistantSearchError && isAssistant && phase === "result" && (
               <div className="subtitle-search-warning" role="status">
-                <span>{t("subtitle.conversation.searchFailed")}</span>
+                <span>{assistantSearchError}</span>
                 <button
                   type="button"
                   onClick={handleRetryAssistant}

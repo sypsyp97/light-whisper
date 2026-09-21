@@ -144,6 +144,7 @@ pub fn run() {
                 }
                 // 加载需要密钥的联网搜索提供商（密钥始终保存在系统密钥环）。
                 for search_provider in [
+                    crate::state::user_profile::WebSearchProvider::Exa,
                     crate::state::user_profile::WebSearchProvider::Tavily,
                     crate::state::user_profile::WebSearchProvider::Google,
                 ] {

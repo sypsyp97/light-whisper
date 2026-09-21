@@ -36,3 +36,5 @@ mod jev_tasks_tests;
 mod llm_reasoning_negotiation_tests;
 #[cfg(test)]
 mod openai_fast_mode_oauth_tests;
+
+pub mod bing_search_service;

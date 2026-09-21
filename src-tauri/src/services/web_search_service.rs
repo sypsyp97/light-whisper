@@ -27,18 +27,58 @@ const MAX_SEARCH_CONTEXT_RESULTS: usize = 10;
 const MAX_SEARCH_CONTEXT_BYTES: usize = 14_000;
 const MAX_SEARCH_RESULT_CONTENT_BYTES: usize = 1_000;
 
-// ── Exa MCP（免费，无需 Key）────────────────────────────────────────
+pub fn search_http_error(status: reqwest::StatusCode) -> &'static str {
+    match status {
+        reqwest::StatusCode::PAYMENT_REQUIRED | reqwest::StatusCode::TOO_MANY_REQUESTS => {
+            "SEARCH_RATE_LIMITED"
+        }
+        reqwest::StatusCode::UNAUTHORIZED => "SEARCH_AUTH_REQUIRED",
+        reqwest::StatusCode::FORBIDDEN => "SEARCH_ACCESS_DENIED",
+        _ => "SEARCH_PROVIDER_ERROR",
+    }
+}
+
+pub fn search_request_error(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "SEARCH_TIMEOUT"
+    } else {
+        "SEARCH_PROVIDER_ERROR"
+    }
+}
+
+fn search_response_error(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "SEARCH_TIMEOUT"
+    } else {
+        "SEARCH_INVALID_RESPONSE"
+    }
+}
+
+fn redact_search_secret(text: &str, secret: &str) -> String {
+    let secret = secret.trim();
+    if secret.is_empty() {
+        text.to_string()
+    } else {
+        text.replace(secret, "[redacted]")
+    }
+}
+
+// ── Exa MCP ─────────────────────────────────────────────────────────
 
 /// JSON-RPC 2.0 响应
 #[derive(Deserialize)]
 struct JsonRpcResponse {
     result: Option<McpResult>,
+    error: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
 struct McpResult {
-    #[serde(default)]
-    content: Vec<McpContent>,
+    content: Option<Vec<McpContent>>,
+    #[serde(rename = "_meta")]
+    meta: Option<serde_json::Value>,
+    #[serde(rename = "isError", default)]
+    is_error: bool,
 }
 
 #[derive(Deserialize)]
@@ -49,6 +89,7 @@ struct McpContent {
 
 pub async fn exa_search(
     http_client: &reqwest::Client,
+    api_key: &str,
     query: &str,
     max_results: u8,
 ) -> Result<Vec<SearchResult>, String> {
@@ -66,22 +107,27 @@ pub async fn exa_search(
         }
     });
 
-    let resp = http_client
+    let trimmed_api_key = api_key.trim();
+    let mut request = http_client
         .post("https://mcp.exa.ai/mcp")
         .header("Content-Type", "application/json")
         .header("Accept", "application/json, text/event-stream")
-        .timeout(SEARCH_TIMEOUT)
+        .timeout(SEARCH_TIMEOUT);
+    if !trimmed_api_key.is_empty() {
+        request = request.header("x-api-key", trimmed_api_key);
+    }
+
+    let resp = request
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Exa 搜索请求失败: {e}"))?;
+        .map_err(|error| format!("{}: Exa 搜索请求失败", search_request_error(&error)))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
         return Err(format!(
-            "Exa MCP 返回 HTTP {status}: {}",
-            truncate_str(&text, 200)
+            "{}: Exa MCP 返回 HTTP {status}",
+            search_http_error(status)
         ));
     }
 
@@ -89,28 +135,9 @@ pub async fn exa_search(
     let raw = resp
         .text()
         .await
-        .map_err(|e| format!("Exa 响应读取失败: {e}"))?;
+        .map_err(|error| format!("{}: Exa 响应读取失败", search_request_error(&error)))?;
 
-    let json_str = extract_final_json_data_line(&raw).unwrap_or_else(|| raw.trim());
-
-    let rpc: JsonRpcResponse =
-        serde_json::from_str(json_str).map_err(|e| format!("Exa 响应解析失败: {e}"))?;
-
-    let content_blocks = rpc.result.map(|r| r.content).unwrap_or_default();
-
-    // Exa MCP 返回的 text 是带标签的纯文本块。单条结果的 Highlights/Text
-    // 内部也可能有空行，所以只能在新的 Title: 行处切分结果。
-    let mut results = Vec::new();
-    for block in &content_blocks {
-        for entry in split_exa_result_blocks(&block.text) {
-            let parsed = parse_exa_text_block(entry);
-            if !parsed.title.is_empty() || !parsed.url.is_empty() {
-                results.push(parsed);
-            }
-        }
-    }
-
-    Ok(results)
+    parse_exa_response(&raw)
 }
 
 fn split_exa_result_blocks(text: &str) -> Vec<&str> {
@@ -267,21 +294,20 @@ pub async fn tavily_search(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Tavily 搜索请求失败: {e}"))?;
+        .map_err(|error| format!("{}: Tavily 搜索请求失败", search_request_error(&error)))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
         return Err(format!(
-            "Tavily API 返回 HTTP {status}: {}",
-            truncate_str(&text, 200)
+            "{}: Tavily API 返回 HTTP {status}",
+            search_http_error(status)
         ));
     }
 
     let parsed: TavilyResponse = resp
         .json()
         .await
-        .map_err(|e| format!("Tavily 响应解析失败: {e}"))?;
+        .map_err(|error| format!("{}: Tavily 响应解析失败", search_response_error(&error)))?;
 
     Ok(parsed
         .results
@@ -681,17 +707,29 @@ pub async fn google_grounded_search(
         .json(&google_grounding_request(query))
         .send()
         .await
-        .map_err(|error| format!("Google Search Grounding 请求失败: {error}"))?;
+        .map_err(|error| {
+            format!(
+                "{}: Google Search Grounding 请求失败 (model={GOOGLE_GROUNDING_MODEL}, API=v1beta/interactions)",
+                search_request_error(&error)
+            )
+        })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp.text().await.map_err(|error| {
+            format!(
+                "{}: Google Search Grounding 响应读取失败",
+                search_request_error(&error)
+            )
+        })?;
         let detail = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
             .and_then(|value| google_error_payload_description(&value))
-            .unwrap_or_else(|| truncate_str(&body, 240).to_string());
+            .unwrap_or_else(|| format!("response_body_bytes={}", body.len()));
+        let detail = redact_search_secret(&detail, api_key);
         return Err(format!(
-            "Google Search Grounding 返回 HTTP {status} ({}ms, model={GOOGLE_GROUNDING_MODEL}, API=v1beta/interactions): {}",
+            "{}: Google Search Grounding 返回 HTTP {status} ({}ms, model={GOOGLE_GROUNDING_MODEL}, API=v1beta/interactions): {}",
+            search_http_error(status),
             started.elapsed().as_millis(),
             truncate_str(&detail, 400)
         ));
@@ -700,7 +738,12 @@ pub async fn google_grounded_search(
     let value: serde_json::Value = resp
         .json()
         .await
-        .map_err(|error| format!("Google Search Grounding 响应解析失败: {error}"))?;
+        .map_err(|error| {
+            format!(
+                "{}: Google Search Grounding 响应解析失败 (model={GOOGLE_GROUNDING_MODEL}, API=v1beta/interactions)",
+                search_response_error(&error)
+            )
+        })?;
     let diagnostics = google_grounding_response_diagnostics(&value);
     parse_google_grounding_response(&value, max_results).map_err(|error| {
         format!(
@@ -992,9 +1035,15 @@ mod tests {
             "HTTP failure diagnostics must retain both status and bounded response body"
         );
         assert!(
-            !failure_branch.contains("api_key"),
-            "HTTP failure diagnostics must never expose the Google API key"
+            failure_branch.contains("redact_search_secret"),
+            "HTTP diagnostics must redact credentials before formatting"
         );
+        let diagnostic = redact_search_secret(
+            "Invalid key synthetic-google-key; key=synthetic-google-key",
+            "synthetic-google-key",
+        );
+        assert!(!diagnostic.contains("synthetic-google-key"));
+        assert!(diagnostic.contains("Invalid key"));
     }
 
     #[test]
@@ -1124,3 +1173,93 @@ mod tests {
         );
     }
 }
+
+fn is_exa_no_search_results(text: &str) -> bool {
+    let words = text
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>();
+    let words = words.split_whitespace().collect::<Vec<_>>();
+
+    matches!(
+        words.as_slice(),
+        ["no", "search", "results"]
+            | ["no", "search", "results", "found"]
+            | ["no", "results"]
+            | ["no", "results", "found"]
+            | ["no", "relevant", "results"]
+            | ["no", "relevant", "search", "results"]
+    )
+}
+
+pub(super) fn parse_exa_response(raw: &str) -> Result<Vec<SearchResult>, String> {
+    let json_str = extract_final_json_data_line(raw).unwrap_or_else(|| raw.trim());
+    if json_str.is_empty() {
+        return Err("SEARCH_INVALID_RESPONSE: Exa response was empty".to_string());
+    }
+
+    let rpc: JsonRpcResponse = serde_json::from_str(json_str)
+        .map_err(|_| "SEARCH_INVALID_RESPONSE: Exa response was not valid JSON".to_string())?;
+    if rpc.error.is_some() {
+        return Err("SEARCH_PROVIDER_ERROR: Exa returned a JSON-RPC error".to_string());
+    }
+
+    let Some(result) = rpc.result else {
+        return Err("SEARCH_INVALID_RESPONSE: Exa response was missing result".to_string());
+    };
+    if result
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get("ai.exa/rateLimited"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        return Err("SEARCH_RATE_LIMITED: Exa rate limit reached".to_string());
+    }
+    if result.is_error {
+        return Err("SEARCH_PROVIDER_ERROR: Exa returned a provider error".to_string());
+    }
+
+    let Some(content_blocks) = result.content else {
+        return Err("SEARCH_INVALID_RESPONSE: Exa response was missing content".to_string());
+    };
+
+    // Exa MCP returns text blocks with labels. A block may contain blank lines
+    // inside Highlights/Text, so split only at the next result title.
+    let mut results = Vec::new();
+    for block in content_blocks {
+        let text = block.text.trim();
+        if text.is_empty() || is_exa_no_search_results(text) {
+            continue;
+        }
+
+        let entries = split_exa_result_blocks(text);
+        let mut parsed_result = false;
+        for entry in entries {
+            let parsed = parse_exa_text_block(entry);
+            if !parsed.title.is_empty() || !parsed.url.is_empty() {
+                parsed_result = true;
+                results.push(parsed);
+            }
+        }
+        if !parsed_result {
+            return Err(
+                "SEARCH_INVALID_RESPONSE: Exa response contained unrecognized text".to_string(),
+            );
+        }
+    }
+
+    Ok(results)
+}
+
+#[cfg(test)]
+#[path = "exa_response_tests.rs"]
+mod exa_response_tests;

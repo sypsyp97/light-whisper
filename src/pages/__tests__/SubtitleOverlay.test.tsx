@@ -1087,6 +1087,7 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
       tauriEvents.emit("assistant-stream", {
         sessionId: 106,
         status: "search_error",
+        message: "SEARCH_RATE_LIMITED",
         query: "OpenAI 最新价格",
         searchProvider: "exa",
         elapsedMs: 420,
@@ -1110,6 +1111,7 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     expect(screen.getByText("subtitle.conversation.searchProvider")).toBeInTheDocument();
     expect(screen.getByText("subtitle.conversation.searchTiming")).toBeInTheDocument();
     expect(screen.getByText("subtitle.conversation.totalTiming")).toBeInTheDocument();
+    expect(screen.getByText("subtitle.conversation.searchRateLimited")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
     await act(async () => {

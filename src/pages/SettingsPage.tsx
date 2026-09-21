@@ -156,13 +156,14 @@ const webSearchProviderOptions: Array<{
   descKey: string;
 }> = [
   { key: "model_native", labelKey: "settings.webSearchModelNative", descKey: "settings.webSearchModelNativeDesc" },
+  { key: "bing", labelKey: "settings.webSearchBing", descKey: "settings.webSearchBingDesc" },
   { key: "exa", labelKey: "settings.webSearchExa", descKey: "settings.webSearchExaDesc" },
   { key: "tavily", labelKey: "settings.webSearchTavily", descKey: "settings.webSearchTavilyDesc" },
   { key: "google", labelKey: "settings.webSearchGoogle", descKey: "settings.webSearchGoogleDesc" },
 ];
 
-function webSearchProviderNeedsKey(provider: WebSearchProvider): provider is "tavily" | "google" {
-  return provider === "tavily" || provider === "google";
+function webSearchProviderNeedsKey(provider: WebSearchProvider): provider is "tavily" | "google" | "exa" {
+  return provider === "tavily" || provider === "google" || provider === "exa";
 }
 
 const sourceLabels: Record<string, string> = {
@@ -522,7 +523,7 @@ export default function SettingsPage({
   }, 600, { onUnmount: "flush" });
 
   const webSearchKeySave = useDebouncedCallback((provider: WebSearchProvider, value: string) => {
-    setWebSearchApiKey(provider, value).catch(() => {});
+    return setWebSearchApiKey(provider, value).catch(() => { toast.error(t("settings.webSearchKeySaveFailed")); });
   }, 600, { onUnmount: "flush" });
 
   const webSearchConfigSave = useDebouncedCallback((
@@ -648,6 +649,7 @@ export default function SettingsPage({
       return "";
     }
     try {
+      await webSearchKeySave.flush();
       const key = (await getWebSearchApiKey(provider)) || "";
       if (requestId === webSearchKeyRequestIdRef.current) {
         setWebSearchApiKeyState(key);
@@ -659,7 +661,7 @@ export default function SettingsPage({
       }
       return "";
     }
-  }, []);
+  }, [webSearchKeySave]);
 
   const refreshOpenaiCodexOauthStatus = useCallback(async () => {
     try {
@@ -2066,12 +2068,13 @@ export default function SettingsPage({
   }, [polishStructureLevel, t]);
 
   const handleWebSearchProviderChange = useCallback((provider: WebSearchProvider) => {
+    void webSearchKeySave.flush();
     setWebSearchProviderState(provider);
     setWebSearchApiKeyState("");
     void refreshWebSearchKey(provider);
     picker.close();
     webSearchConfigSave.schedule(webSearchEnabled, provider, webSearchMaxResults);
-  }, [webSearchEnabled, webSearchMaxResults, webSearchConfigSave, picker, refreshWebSearchKey]);
+  }, [webSearchEnabled, webSearchMaxResults, webSearchConfigSave, webSearchKeySave, picker, refreshWebSearchKey]);
 
   const handleWebSearchMaxResultsChange = useCallback((value: number) => {
     setWebSearchMaxResultsState(value);
@@ -3611,19 +3614,23 @@ export default function SettingsPage({
                       <span className="settings-option-desc">
                         {t(selectedWebSearchProviderOption.key === "google"
                           ? "settings.webSearchGoogleApiKeyLabel"
+                          : selectedWebSearchProviderOption.key === "exa" ? "settings.webSearchExaApiKeyLabel"
                           : "settings.webSearchTavilyApiKeyLabel")}
                       </span>
                       <SecretInput
                         value={webSearchApiKey}
                         onChange={(val) => {
+                          webSearchKeyRequestIdRef.current += 1;
                           setWebSearchApiKeyState(val);
                           webSearchKeySave.schedule(selectedWebSearchProviderOption.key, val);
                         }}
                         placeholder={t(selectedWebSearchProviderOption.key === "google"
                           ? "settings.webSearchGoogleKeyPlaceholder"
+                          : selectedWebSearchProviderOption.key === "exa" ? "settings.webSearchExaKeyPlaceholder"
                           : "settings.webSearchTavilyKeyPlaceholder")}
                         aria-label={t(selectedWebSearchProviderOption.key === "google"
                           ? "settings.webSearchGoogleApiKeyLabel"
+                          : selectedWebSearchProviderOption.key === "exa" ? "settings.webSearchExaApiKeyLabel"
                           : "settings.webSearchTavilyApiKeyLabel")}
                       />
                     </div>
