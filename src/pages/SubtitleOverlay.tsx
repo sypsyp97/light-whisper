@@ -190,7 +190,8 @@ export default function SubtitleOverlay() {
   const [conversationError, setConversationError] = useState<string | null>(null);
   // Native stable/tentative spans render immediately. Do not animate an unused
   // copy of their text and rerender the entire overlay on every animation frame.
-  const smoothText = useSmoothText(text, { enabled: !interimSegments });
+  // Completed results must be fully readable before their hide timer starts.
+  const smoothText = useSmoothText(text, { enabled: !interimSegments && phase !== "result" });
   const latestSessionIdRef = useRef(0);
   const latestRevisionRef = useRef(-1);
   const pairedOutcomeRevisionRef = useRef<{ sessionId: number; revision: number } | null>(null);

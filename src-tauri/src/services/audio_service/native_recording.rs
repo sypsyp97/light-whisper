@@ -42,6 +42,25 @@ pub struct NativeRecording {
     task: tokio::task::JoinHandle<Result<Option<TranscriptionResult>, AppError>>,
 }
 
+fn finished_caption_update(
+    result: &TranscriptionResult,
+    recording_id: u64,
+) -> Option<serde_json::Value> {
+    if !result.success || result.text.trim().is_empty() {
+        return None;
+    }
+    // ASR has finished, but polishing/history work is still pending. Publish
+    // the flushed tail now without starting the overlay's final-result timer.
+    Some(serde_json::json!({
+        "sessionId": recording_id,
+        "text": result.text,
+        "stableText": result.text,
+        "tentativeText": "",
+        "interim": true,
+        "language": result.language,
+    }))
+}
+
 impl NativeRecording {
     pub(crate) async fn finish(mut self) -> Result<TranscriptionResult, AppError> {
         if let Some(control) = self.control.take() {
@@ -140,14 +159,22 @@ pub(crate) fn spawn_native_recording(
             client,
         };
         let previous_caption = parking_lot::Mutex::new(None);
-        run_capture(sink, samples, sample_rate, control, move |update| {
+        let caption_app = app.clone();
+        let result = run_capture(sink, samples, sample_rate, control, move |update| {
             if let Some(payload) =
                 next_caption_update(&mut previous_caption.lock(), &update, recording_id)
             {
-                let _ = app.emit("transcription-result", payload);
+                let _ = caption_app.emit("transcription-result", payload);
             }
         })
-        .await
+        .await?;
+        if let Some(payload) = result
+            .as_ref()
+            .and_then(|result| finished_caption_update(result, recording_id))
+        {
+            let _ = app.emit("transcription-result", payload);
+        }
+        Ok(result)
     });
     NativeRecording {
         control: Some(sender),
@@ -158,6 +185,38 @@ pub(crate) fn spawn_native_recording(
 #[cfg(test)]
 mod preview_tests {
     use super::*;
+
+    #[test]
+    fn finished_asr_publishes_full_tail_without_ending_caption_session() {
+        let result = TranscriptionResult {
+            text: "明天去上海开会".into(),
+            duration: Some(2.0),
+            success: true,
+            error: None,
+            language: Some("Chinese".into()),
+        };
+        let payload = finished_caption_update(&result, 7).unwrap();
+        assert_eq!(payload["text"], result.text);
+        assert_eq!(payload["stableText"], result.text);
+        assert_eq!(payload["tentativeText"], "");
+        assert_eq!(payload["sessionId"], 7);
+        assert_eq!(payload["language"], "Chinese");
+        assert_eq!(payload["interim"], true);
+    }
+
+    #[test]
+    fn finished_asr_does_not_replace_caption_with_empty_or_failed_output() {
+        for (text, success) in [("", true), ("  \n", true), ("partial", false)] {
+            let result = TranscriptionResult {
+                text: text.into(),
+                duration: None,
+                success,
+                error: None,
+                language: None,
+            };
+            assert!(finished_caption_update(&result, 7).is_none());
+        }
+    }
 
     #[test]
     fn captions_publish_tentative_revisions_shrink_and_clear() {

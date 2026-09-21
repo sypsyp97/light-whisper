@@ -1381,6 +1381,74 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
     expect(readSubtitleText(container)).toBe("e\u0301clair");
   });
 
+  it("keeps the flushed ASR tail visible while polishing, then shows the final text without animation", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 208,
+        revision: 1,
+        isStarting: false,
+        isRecording: true,
+        isProcessing: false,
+        mode: "dictation",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 208,
+        text: "明天去",
+        stableText: "明天",
+        tentativeText: "去",
+        interim: true,
+      });
+    });
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 208,
+        revision: 2,
+        isStarting: false,
+        isRecording: false,
+        isProcessing: true,
+        mode: "dictation",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 208,
+        text: "明天去上海开会",
+        stableText: "明天去上海开会",
+        tentativeText: "",
+        interim: true,
+      });
+    });
+    expect(readSubtitleText(container)).toBe("明天去上海开会");
+    expect(useSmoothText).toHaveBeenLastCalledWith("明天去上海开会", { enabled: false });
+    await advance(5000);
+    expect(readSubtitleText(container)).toBe("明天去上海开会");
+    expect(container.querySelector(".subtitle-fade-out")).toBeNull();
+
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 208,
+        revision: 3,
+        isStarting: false,
+        isRecording: false,
+        isProcessing: false,
+        mode: "dictation",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 208,
+        text: "明天去上海开会。",
+        interim: false,
+        polished: true,
+      });
+    });
+    expect(readSubtitleText(container)).toBe("明天去上海开会。");
+    expect(useSmoothText).toHaveBeenLastCalledWith("明天去上海开会。", { enabled: false });
+    await advance(1000);
+    expect(readSubtitleText(container)).toBe("明天去上海开会。");
+    expect(container.querySelector(".subtitle-fade-out")).toBeNull();
+    await advance(4000);
+    expect(readSubtitleText(container)).toBe("");
+  });
+
   it("clears stability layers for final results, new sessions, and invalid fragments", async () => {
     const { container } = render(<SubtitleOverlay />);
     await flushAsyncListeners();
@@ -1408,6 +1476,7 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
     expect(container.querySelector(".subtitle-interim-stable")).toBeNull();
     expect(container.querySelector(".subtitle-interim-tentative")).toBeNull();
     expect(readSubtitleText(container)).toBe("最终结果");
+    expect(useSmoothText).toHaveBeenLastCalledWith("最终结果", { enabled: false });
 
     await act(async () => {
       tauriEvents.emit("transcription-result", {
