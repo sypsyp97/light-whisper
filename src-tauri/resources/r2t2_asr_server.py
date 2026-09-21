@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -41,6 +42,31 @@ class R2T2ASRServer(BaseASRServer):
 
     def _detect_device(self):
         return "cuda" if _has_nvidia_gpu() else "cpu"
+
+    def _get_gpu_device_info(self):
+        info = {"device": self.device, "gpu_name": None}
+        if getattr(self, "backend", self.device) != "cuda":
+            return info
+        cached = getattr(self, "_gpu_device_info_cache", None)
+        if cached is not None:
+            return dict(cached)
+        try:
+            query = subprocess.run(
+                ["nvidia-smi", "--id=0", "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=1,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if query.returncode == 0 and query.stdout.strip():
+                info["gpu_name"] = query.stdout.strip().splitlines()[0].strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        # Hardware metadata is stable for this loaded runtime. A missing probe
+        # must neither break recognition nor run again on every status poll.
+        self._gpu_device_info_cache = dict(info)
+        return info
 
     def _get_model_repos(self):
         return []
@@ -85,6 +111,7 @@ class R2T2ASRServer(BaseASRServer):
                 pass
 
     def _load_runtime(self, model_path):
+        self._gpu_device_info_cache = None
         runtime_root = Path(__file__).resolve().with_name("r2t2-native")
         preferred = ["cuda", "cpu"]
         self.native = None
@@ -135,6 +162,7 @@ class R2T2ASRServer(BaseASRServer):
                 "message": "模型已初始化",
                 "engine": self.engine,
                 "backend": self.backend,
+                **self._get_gpu_device_info(),
             }
 
         if getattr(self, "native", None) is not None:
@@ -172,7 +200,7 @@ class R2T2ASRServer(BaseASRServer):
                 "model_loaded": True,
                 "engine": self.engine,
                 "backend": self.backend,
-                "device": self.device,
+                **self._get_gpu_device_info(),
             }
         except Exception:
             self._close_runtime()
@@ -463,7 +491,7 @@ class R2T2ASRServer(BaseASRServer):
             "initialized": initialized,
             "engine": self.engine,
             "backend": getattr(self, "backend", "unknown"),
-            "device": self.device,
+            **self._get_gpu_device_info(),
             "model_loaded": initialized and native_loaded,
             "native_streaming": initialized and native_loaded and getattr(self, "stream", None) is not None,
             "inline_audio": initialized and native_loaded,
