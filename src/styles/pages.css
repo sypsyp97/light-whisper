@@ -1393,16 +1393,37 @@
 }
 
 .processing-mode-options {
-  display: inline-flex;
+  position: relative;
+  isolation: isolate;
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(56px, 1fr));
   flex-shrink: 0;
-  gap: 3px;
   padding: 3px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-bg-secondary);
 }
 
+.processing-mode-options::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 3);
+  border-radius: 7px;
+  background: var(--color-accent);
+  transform: translateX(0);
+  transition: transform 240ms var(--ease-out-expo);
+  pointer-events: none;
+}
+.processing-mode-options[data-mode="on"]::before { transform: translateX(100%); }
+.processing-mode-options[data-mode="auto"]::before { transform: translateX(200%); }
+
 .processing-mode-options button {
+  position: relative;
+  transition: color 160ms ease-out, background-color 160ms ease-out;
   min-height: 32px;
   min-width: 56px;
   padding: 4px 12px;
@@ -1416,7 +1437,6 @@
 }
 
 .processing-mode-options button[aria-pressed="true"] {
-  background: var(--color-accent);
   color: var(--color-bg-primary);
   font-weight: 600;
 }
@@ -1429,6 +1449,25 @@
 .processing-mode-options button:disabled { opacity: .55; cursor: wait; }
 .processing-mode-options button:focus-visible,
 .processing-mode-auto button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+.processing-mode-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  margin-top: -8px;
+  transition: grid-template-rows 200ms var(--ease-out-expo),
+              opacity 160ms ease-out, margin-top 200ms var(--ease-out-expo),
+              visibility 200ms;
+}
+.processing-mode-reveal[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  margin-top: 0;
+}
+.processing-mode-reveal-body { min-height: 0; overflow: hidden; }
+.processing-mode-reveal-body > .processing-mode-auto { padding: 3px; }
 
 .processing-mode-auto {
   display: flex;
@@ -2229,17 +2268,19 @@
 
 /* Input method list — vertical selectable rows */
 .input-method-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
 .input-method-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
-  padding: 10px 14px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-bg-secondary);
@@ -2283,4 +2324,25 @@
 /* Tertiary icon color */
 .icon-tertiary {
   color: var(--color-text-tertiary);
+}
+
+/* Keep infrequent prompt editing inline without exposing the full form. */
+.settings-disclosure > summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  padding: 8px 0;
+}
+.settings-disclosure > summary:hover { color: var(--color-text-primary); }
+.settings-disclosure[open] > summary { margin-bottom: 8px; }
+.settings-disclosure[open] > .settings-column {
+  animation: settings-disclosure-enter 180ms var(--ease-out-expo);
+}
+@keyframes settings-disclosure-enter {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-nav-indicator { transition: none; }
+  .settings-disclosure[open] > .settings-column { animation: none; }
 }

@@ -18,7 +18,7 @@ export default function ProcessingModeControl({ label, value, hint, disabled, on
     <div className="processing-mode">
       <div className="processing-mode-heading">
         <span className="permission-label" id={`${id}-label`}>{label}</span>
-        <div className="processing-mode-options" role="group" aria-labelledby={`${id}-label`}>
+        <div className="processing-mode-options" data-mode={value} role="group" aria-labelledby={`${id}-label`}>
           {(["off", "on", "auto"] as const).map((mode) => (
             <button key={mode} type="button" aria-pressed={value === mode}
               disabled={disabled} onClick={() => onChange(mode)}>
@@ -28,12 +28,15 @@ export default function ProcessingModeControl({ label, value, hint, disabled, on
         </div>
       </div>
       <p className="settings-hint settings-hint-flush">{hint}</p>
-      {value === "auto" && (
-        <div className="processing-mode-auto">
-          <span>{t("settings.jevAutoHint")}</span>
-          <button type="button" onClick={onConfigure}>{t("settings.jevConfigure")}</button>
+      <div className="processing-mode-reveal" data-open={value === "auto"}
+        aria-hidden={value !== "auto"} inert={value !== "auto"}>
+        <div className="processing-mode-reveal-body">
+          <div className="processing-mode-auto">
+            <span>{t("settings.jevAutoHint")}</span>
+            <button type="button" onClick={onConfigure}>{t("settings.jevConfigure")}</button>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

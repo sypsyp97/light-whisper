@@ -236,6 +236,7 @@ export default function SettingsPage({
     { id: "microphone", labelKey: "settings.microphone" },
     { id: "input", labelKey: "settings.inputMethod" },
     { id: "ai-polish", labelKey: "settings.aiPolish" },
+    { id: "context", labelKey: "settings.contextAndSearch" },
     { id: "jev", labelKey: "settings.jevNav" },
     { id: "assistant", labelKey: "settings.assistant" },
     { id: "selection-assistant", labelKey: "settings.selectionAssistant" },
@@ -305,12 +306,17 @@ export default function SettingsPage({
   useEffect(() => {
     const navEl = navScrollRef.current;
     if (!navEl || !active) return;
-    const activeBtn = navEl.querySelector(`[data-nav-tab="${activeNavSection}"]`) as HTMLElement | null;
-    if (!activeBtn) return;
-    const left = activeBtn.offsetLeft - navEl.offsetWidth / 2 + activeBtn.offsetWidth / 2;
-    navEl.scrollTo({ left, behavior: "smooth" });
-    setNavIndicatorStyle({ left: activeBtn.offsetLeft, width: activeBtn.offsetWidth });
-  }, [activeNavSection, active]);
+    const updateIndicator = () => {
+      const activeBtn = navEl.querySelector(`[data-nav-tab="${activeNavSection}"]`) as HTMLElement | null;
+      if (!activeBtn) return;
+      const left = activeBtn.offsetLeft - navEl.offsetWidth / 2 + activeBtn.offsetWidth / 2;
+      navEl.scrollTo({ left, behavior: "smooth" });
+      setNavIndicatorStyle({ left: activeBtn.offsetLeft, width: activeBtn.offsetWidth });
+    };
+    updateIndicator();
+    window.addEventListener("resize", updateIndicator);
+    return () => window.removeEventListener("resize", updateIndicator);
+  }, [activeNavSection, active, t]);
 
   // --- Picker group (mutually exclusive dropdowns) ---
   type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider" | "language" | "alibabaModel" | "engine";
@@ -2682,77 +2688,6 @@ export default function SettingsPage({
                 onChange={handlePolishStructureLevelChange}
               />
 
-              <ProcessingModeControl label={t("settings.screenContext")}
-                value={!screenContextEnabled ? "off" : profile?.jev?.screen_routing ? "auto" : "on"}
-                hint={t("settings.screenModeHint")} disabled={modeSaving || !profile}
-                onChange={(mode) => { void handleProcessingMode("screen", mode); }} onConfigure={configureJev} />
-
-              <div className="settings-row">
-                <div className="permission-item" style={{ gap: 8 }}>
-                  <Eye size={14} className="icon-tertiary" />
-                  <div className="settings-column" style={{ gap: 2 }}>
-                    <span className="permission-label">{t("settings.screenVision")}</span>
-                    <span className="settings-hint" style={{ margin: 0 }}>
-                      {t("settings.screenVisionHint")}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  role="switch"
-                  aria-checked={screenVisionEnabled}
-                  aria-label={t("settings.screenVision")}
-                  onClick={() => handleScreenVisionToggle(!screenVisionEnabled)}
-                  className="toggle-switch"
-                  style={{
-                    background: screenVisionEnabled
-                      ? "var(--color-accent)"
-                      : "var(--color-bg-tertiary)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <div
-                    className="toggle-knob"
-                    style={{
-                      transform: screenVisionEnabled
-                        ? "translateX(20px)"
-                        : "translateX(0)",
-                    }}
-                  />
-                </button>
-              </div>
-
-              {screenVisionEnabled && (
-                <Suspense fallback={null}>
-                  <ScreenVisionModelPicker
-                    model={screenVisionModel}
-                    provider={screenVisionProvider}
-                    baseUrl={screenVisionBaseUrl}
-                    apiKey={screenVisionApiKey}
-                    loggedIn={openaiCodexOauthStatus.loggedIn}
-                    authIdentity={oauthModelIdentity}
-                    openaiAuthMode={screenVisionProvider === "openai"
-                      ? effectiveOpenaiAuthMode
-                      : undefined}
-                    xaiAuthMode={screenVisionProvider === "xai"
-                      ? effectiveXaiAuthModeValue
-                      : undefined}
-                    grokLoggedIn={grokBuildOauthStatus.loggedIn}
-                    providerOptions={allProviderOptions.filter(
-                      (option) => option.key !== "deepseek",
-                    )}
-                    onProviderChange={handleScreenVisionProviderChange}
-                    onApiKeyChange={(value) => {
-                      setScreenVisionApiKeyState(value);
-                      screenVisionKeySave.schedule(screenVisionProvider, value);
-                    }}
-                    onChange={setScreenVisionModel}
-                    onBlur={handleScreenVisionModelBlur}
-                    onSelect={handleScreenVisionModelSelect}
-                  />
-                </Suspense>
-              )}
-
-
               <div className="settings-column" style={{ gap: 10 }}>
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">{t("settings.provider")}</span>
@@ -3139,25 +3074,221 @@ export default function SettingsPage({
               </div>
 
 
-              <div className="settings-column" style={{ gap: 6 }}>
-                <span className="settings-option-desc">{t("settings.customPrompt")}</span>
-                <textarea
-                  className="settings-input"
-                  placeholder={t("settings.customPromptPlaceholder")}
-                  aria-label={t("settings.customPromptLabel")}
-                  value={customPromptState}
-                  onChange={(e) => handleCustomPromptChange(e.target.value)}
-                  rows={3}
-                  style={{ resize: "vertical", minHeight: 60, fontFamily: "inherit" }}
-                />
-                <p className="settings-hint" style={{ margin: 0 }}>
-                  {t("settings.customPromptHint")}
-                </p>
-              </div>
+              <details className="settings-disclosure">
+                <summary>{t("settings.customPrompt")}</summary>
+                <div className="settings-column" style={{ gap: 6 }}>
+                  <textarea
+                    className="settings-input"
+                    placeholder={t("settings.customPromptPlaceholder")}
+                    aria-label={t("settings.customPromptLabel")}
+                    value={customPromptState}
+                    onChange={(e) => handleCustomPromptChange(e.target.value)}
+                    rows={3}
+                    style={{ resize: "vertical", minHeight: 60, fontFamily: "inherit" }}
+                  />
+                  <p className="settings-hint" style={{ margin: 0 }}>
+                    {t("settings.customPromptHint")}
+                  </p>
+                </div>
+              </details>
 
               <p className="settings-hint">
                 {t("settings.aiPolishLearnHint")}
               </p>
+            </div>
+          </section>
+
+          <section className="settings-card" data-nav-id="context"
+            style={{ position: "relative", zIndex: picker.isOpen("webSearchProvider") ? 8 : "auto" }}>
+            <div className="settings-section-header">
+              <Eye size={15} className="icon-accent" />
+              <h2 className="settings-section-title">{t("settings.contextAndSearch")}</h2>
+            </div>
+            <div className="settings-column" style={{ gap: 16 }}>
+              <ProcessingModeControl label={t("settings.screenContext")}
+                value={!screenContextEnabled ? "off" : profile?.jev?.screen_routing ? "auto" : "on"}
+                hint={t("settings.screenModeHint")} disabled={modeSaving || !profile}
+                onChange={(mode) => { void handleProcessingMode("screen", mode); }} onConfigure={configureJev} />
+
+              {screenContextEnabled && (
+                <div className="settings-column">
+                  <div className="settings-row">
+                    <div className="permission-item" style={{ gap: 8 }}>
+                      <Eye size={14} className="icon-tertiary" />
+                      <div className="settings-column" style={{ gap: 2 }}>
+                        <span className="permission-label">{t("settings.screenVision")}</span>
+                        <span className="settings-hint" style={{ margin: 0 }}>
+                          {t("settings.screenVisionHint")}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      role="switch"
+                      aria-checked={screenVisionEnabled}
+                      aria-label={t("settings.screenVision")}
+                      onClick={() => handleScreenVisionToggle(!screenVisionEnabled)}
+                      className="toggle-switch"
+                      style={{
+                        background: screenVisionEnabled
+                          ? "var(--color-accent)"
+                          : "var(--color-bg-tertiary)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <div
+                        className="toggle-knob"
+                        style={{
+                          transform: screenVisionEnabled
+                            ? "translateX(20px)"
+                            : "translateX(0)",
+                        }}
+                      />
+                    </button>
+                  </div>
+
+                  {screenVisionEnabled && (
+                    <Suspense fallback={null}>
+                      <ScreenVisionModelPicker
+                        model={screenVisionModel}
+                        provider={screenVisionProvider}
+                        baseUrl={screenVisionBaseUrl}
+                        apiKey={screenVisionApiKey}
+                        loggedIn={openaiCodexOauthStatus.loggedIn}
+                        authIdentity={oauthModelIdentity}
+                        openaiAuthMode={screenVisionProvider === "openai"
+                          ? effectiveOpenaiAuthMode
+                          : undefined}
+                        xaiAuthMode={screenVisionProvider === "xai"
+                          ? effectiveXaiAuthModeValue
+                          : undefined}
+                        grokLoggedIn={grokBuildOauthStatus.loggedIn}
+                        providerOptions={allProviderOptions.filter(
+                          (option) => option.key !== "deepseek",
+                        )}
+                        onProviderChange={handleScreenVisionProviderChange}
+                        onApiKeyChange={(value) => {
+                          setScreenVisionApiKeyState(value);
+                          screenVisionKeySave.schedule(screenVisionProvider, value);
+                        }}
+                        onChange={setScreenVisionModel}
+                        onBlur={handleScreenVisionModelBlur}
+                        onSelect={handleScreenVisionModelSelect}
+                      />
+                    </Suspense>
+                  )}
+                </div>
+              )}
+
+              {/* 联网搜索 */}
+
+              <ProcessingModeControl label={t("settings.webSearch")}
+                value={!webSearchEnabled ? "off" : profile?.jev?.search_routing ? "auto" : "on"}
+                hint={t("settings.searchModeHint")} disabled={modeSaving || !profile}
+                onChange={(mode) => { void handleProcessingMode("search", mode); }} onConfigure={configureJev} />
+              <p className="settings-hint" style={{ margin: 0 }}>
+                {assistantUsesOpenaiOauth
+                  ? t("settings.webSearchOauthHint")
+                  : t("settings.webSearchHint")}
+              </p>
+              {assistantAuthSourceHint ? (
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  {t("settings.assistantAuthSourceLabel", { source: assistantAuthSourceHint })}
+                </p>
+              ) : null}
+
+              {webSearchEnabled && (
+                <div className="settings-column" style={{ gap: 10 }}>
+                  {/* 搜索方式（下拉列表） */}
+                  <div className="settings-column" style={{ gap: 6 }}>
+                    <span className="settings-option-desc">{t("settings.webSearchProvider")}</span>
+                    <div ref={picker.setRef("webSearchProvider")} style={{ position: "relative" }}>
+                      <button
+                        type="button"
+                        className="picker-trigger"
+                        data-open={picker.isOpen("webSearchProvider")}
+                        aria-haspopup="listbox"
+                        aria-expanded={picker.isExpanded("webSearchProvider")}
+                        aria-label={t("settings.webSearchProvider")}
+                        onClick={() => picker.toggle("webSearchProvider")}
+                      >
+                        <span className="picker-trigger-copy">
+                          <strong>{t(selectedWebSearchProviderOption.labelKey)}</strong>
+                          <span>{t(selectedWebSearchProviderOption.descKey)}</span>
+                        </span>
+                        <ChevronsUpDown size={14} className="icon-tertiary" />
+                      </button>
+                      {picker.isOpen("webSearchProvider") && (
+                        <div className={picker.popoverClass("webSearchProvider")}>
+                          <div className="picker-list" role="listbox">
+                            {availableWebSearchProviderOptions.map((option) => (
+                              <button
+                                key={option.key}
+                                type="button"
+                                className="picker-option"
+                                data-active={webSearchProvider === option.key}
+                                onClick={() => handleWebSearchProviderChange(option.key)}
+                              >
+                                <span className="picker-option-copy">
+                                  <strong>{t(option.labelKey)}</strong>
+                                  <span>{t(option.descKey)}</span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 搜索结果条数（Exa / Tavily / Google） */}
+                  {selectedWebSearchProviderOption.key !== "model_native" && (
+                    <div className="settings-column" style={{ gap: 6 }}>
+                      <div className="settings-row">
+                        <span className="settings-option-desc">{t("settings.webSearchMaxResults")}</span>
+                        <span style={{ fontSize: 12, opacity: 0.7, minWidth: 16, textAlign: "right" }}>{webSearchMaxResults}</span>
+                      </div>
+                      <input
+                        type="range"
+                        aria-label={t("settings.webSearchMaxResults")}
+                        min={1}
+                        max={10}
+                        step={1}
+                        value={webSearchMaxResults}
+                        onChange={(e) => handleWebSearchMaxResultsChange(Number(e.target.value))}
+                        style={{ width: "100%" }}
+                      />
+                    </div>
+                  )}
+
+                  {/* 第三方搜索 API Key */}
+                  {webSearchProviderNeedsKey(selectedWebSearchProviderOption.key) && (
+                    <div className="settings-column" style={{ gap: 6 }}>
+                      <span className="settings-option-desc">
+                        {t(selectedWebSearchProviderOption.key === "google"
+                          ? "settings.webSearchGoogleApiKeyLabel"
+                          : selectedWebSearchProviderOption.key === "exa" ? "settings.webSearchExaApiKeyLabel"
+                          : "settings.webSearchTavilyApiKeyLabel")}
+                      </span>
+                      <SecretInput
+                        value={webSearchApiKey}
+                        onChange={(val) => {
+                          webSearchKeyRequestIdRef.current += 1;
+                          setWebSearchApiKeyState(val);
+                          webSearchKeySave.schedule(selectedWebSearchProviderOption.key, val);
+                        }}
+                        placeholder={t(selectedWebSearchProviderOption.key === "google"
+                          ? "settings.webSearchGoogleKeyPlaceholder"
+                          : selectedWebSearchProviderOption.key === "exa" ? "settings.webSearchExaKeyPlaceholder"
+                          : "settings.webSearchTavilyKeyPlaceholder")}
+                        aria-label={t(selectedWebSearchProviderOption.key === "google"
+                          ? "settings.webSearchGoogleApiKeyLabel"
+                          : selectedWebSearchProviderOption.key === "exa" ? "settings.webSearchExaApiKeyLabel"
+                          : "settings.webSearchTavilyApiKeyLabel")}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </section>
 
@@ -3170,7 +3301,7 @@ export default function SettingsPage({
             data-nav-id="assistant"
             style={{
               position: "relative",
-              zIndex: picker.isOpen("assistantModel") || picker.isOpen("assistantReasoning") || picker.isOpen("webSearchProvider") ? 8 : "auto",
+              zIndex: picker.isOpen("assistantModel") || picker.isOpen("assistantReasoning") ? 8 : "auto",
             }}
           >
             <div className="settings-section-header">
@@ -3511,132 +3642,25 @@ export default function SettingsPage({
               </div>
 
 
-              <div className="settings-column" style={{ gap: 6 }}>
-                <span className="settings-option-desc">{t("settings.customAssistantPrompt")}</span>
-                <textarea
-                  className="settings-input"
-                  placeholder={t("settings.assistantPromptPlaceholder")}
-                  aria-label={t("settings.assistantPromptLabel")}
-                  value={assistantPromptState}
-                  onChange={(e) => handleAssistantPromptChange(e.target.value)}
-                  rows={4}
-                  style={{ resize: "vertical", minHeight: 84, fontFamily: "inherit" }}
-                />
-                <p className="settings-hint" style={{ margin: 0 }}>
-                  {t("settings.assistantPromptHint")}
-                </p>
-              </div>
-
-              {/* 联网搜索 */}
-
-              <ProcessingModeControl label={t("settings.webSearch")}
-                value={!webSearchEnabled ? "off" : profile?.jev?.search_routing ? "auto" : "on"}
-                hint={t("settings.searchModeHint")} disabled={modeSaving || !profile}
-                onChange={(mode) => { void handleProcessingMode("search", mode); }} onConfigure={configureJev} />
-              <p className="settings-hint" style={{ margin: 0 }}>
-                {assistantUsesOpenaiOauth
-                  ? t("settings.webSearchOauthHint")
-                  : t("settings.webSearchHint")}
-              </p>
-              {assistantAuthSourceHint ? (
-                <p className="settings-hint" style={{ margin: 0 }}>
-                  {t("settings.assistantAuthSourceLabel", { source: assistantAuthSourceHint })}
-                </p>
-              ) : null}
-
-              {webSearchEnabled && (
-                <div className="settings-column" style={{ gap: 10 }}>
-                  {/* 搜索方式（下拉列表） */}
-                  <div className="settings-column" style={{ gap: 6 }}>
-                    <span className="settings-option-desc">{t("settings.webSearchProvider")}</span>
-                    <div ref={picker.setRef("webSearchProvider")} style={{ position: "relative" }}>
-                      <button
-                        type="button"
-                        className="picker-trigger"
-                        data-open={picker.isOpen("webSearchProvider")}
-                        aria-haspopup="listbox"
-                        aria-expanded={picker.isExpanded("webSearchProvider")}
-                        aria-label={t("settings.webSearchProvider")}
-                        onClick={() => picker.toggle("webSearchProvider")}
-                      >
-                        <span className="picker-trigger-copy">
-                          <strong>{t(selectedWebSearchProviderOption.labelKey)}</strong>
-                          <span>{t(selectedWebSearchProviderOption.descKey)}</span>
-                        </span>
-                        <ChevronsUpDown size={14} className="icon-tertiary" />
-                      </button>
-                      {picker.isOpen("webSearchProvider") && (
-                        <div className={picker.popoverClass("webSearchProvider")}>
-                          <div className="picker-list" role="listbox">
-                            {availableWebSearchProviderOptions.map((option) => (
-                              <button
-                                key={option.key}
-                                type="button"
-                                className="picker-option"
-                                data-active={webSearchProvider === option.key}
-                                onClick={() => handleWebSearchProviderChange(option.key)}
-                              >
-                                <span className="picker-option-copy">
-                                  <strong>{t(option.labelKey)}</strong>
-                                  <span>{t(option.descKey)}</span>
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 搜索结果条数（Exa / Tavily / Google） */}
-                  {selectedWebSearchProviderOption.key !== "model_native" && (
-                    <div className="settings-column" style={{ gap: 6 }}>
-                      <div className="settings-row">
-                        <span className="settings-option-desc">{t("settings.webSearchMaxResults")}</span>
-                        <span style={{ fontSize: 12, opacity: 0.7, minWidth: 16, textAlign: "right" }}>{webSearchMaxResults}</span>
-                      </div>
-                      <input
-                        type="range"
-                        aria-label={t("settings.webSearchMaxResults")}
-                        min={1}
-                        max={10}
-                        step={1}
-                        value={webSearchMaxResults}
-                        onChange={(e) => handleWebSearchMaxResultsChange(Number(e.target.value))}
-                        style={{ width: "100%" }}
-                      />
-                    </div>
-                  )}
-
-                  {/* 第三方搜索 API Key */}
-                  {webSearchProviderNeedsKey(selectedWebSearchProviderOption.key) && (
-                    <div className="settings-column" style={{ gap: 6 }}>
-                      <span className="settings-option-desc">
-                        {t(selectedWebSearchProviderOption.key === "google"
-                          ? "settings.webSearchGoogleApiKeyLabel"
-                          : selectedWebSearchProviderOption.key === "exa" ? "settings.webSearchExaApiKeyLabel"
-                          : "settings.webSearchTavilyApiKeyLabel")}
-                      </span>
-                      <SecretInput
-                        value={webSearchApiKey}
-                        onChange={(val) => {
-                          webSearchKeyRequestIdRef.current += 1;
-                          setWebSearchApiKeyState(val);
-                          webSearchKeySave.schedule(selectedWebSearchProviderOption.key, val);
-                        }}
-                        placeholder={t(selectedWebSearchProviderOption.key === "google"
-                          ? "settings.webSearchGoogleKeyPlaceholder"
-                          : selectedWebSearchProviderOption.key === "exa" ? "settings.webSearchExaKeyPlaceholder"
-                          : "settings.webSearchTavilyKeyPlaceholder")}
-                        aria-label={t(selectedWebSearchProviderOption.key === "google"
-                          ? "settings.webSearchGoogleApiKeyLabel"
-                          : selectedWebSearchProviderOption.key === "exa" ? "settings.webSearchExaApiKeyLabel"
-                          : "settings.webSearchTavilyApiKeyLabel")}
-                      />
-                    </div>
-                  )}
+              <details className="settings-disclosure">
+                <summary>{t("settings.customAssistantPrompt")}</summary>
+                <div className="settings-column" style={{ gap: 6 }}>
+                  <textarea
+                    className="settings-input"
+                    placeholder={t("settings.assistantPromptPlaceholder")}
+                    aria-label={t("settings.assistantPromptLabel")}
+                    value={assistantPromptState}
+                    onChange={(e) => handleAssistantPromptChange(e.target.value)}
+                    rows={4}
+                    style={{ resize: "vertical", minHeight: 84, fontFamily: "inherit" }}
+                  />
+                  <p className="settings-hint" style={{ margin: 0 }}>
+                    {t("settings.assistantPromptHint")}
+                  </p>
                 </div>
-              )}
+              </details>
+
+
             </div>
           </section>
 
