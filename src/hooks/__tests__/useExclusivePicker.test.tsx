@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 
@@ -57,6 +57,36 @@ function PickerWithInputHarness() {
 }
 
 describe("useExclusivePicker accessibility", () => {
+  it("does not run queued opening focus after an outside click closes the picker", () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      frames.delete(id);
+    });
+    const { unmount } = render(<PickerHarness />);
+    try {
+      const trigger = screen.getByRole("button", { name: "Engine" });
+      fireEvent.click(trigger);
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      const outside = screen.getByRole("button", { name: "Outside" });
+      fireEvent.pointerDown(outside);
+      outside.focus();
+      act(() => {
+        for (const callback of frames.values()) callback(0);
+        frames.clear();
+      });
+      expect(outside).toHaveFocus();
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("adds option semantics and supports arrow, Home, End, typeahead and Escape", async () => {
     const user = userEvent.setup();
     render(<PickerHarness />);

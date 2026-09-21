@@ -77,8 +77,11 @@ CI measures the skipped timing-sensitive hotword benchmark separately as advisor
 **Log locations**:
 
 - App log: `%LOCALAPPDATA%\com.light-whisper.desktop\logs\app.log`
-- Qwen3-ASR log: `%TEMP%\light_whisper_logs\qwen3_asr_server.log`
+- ASR logs: `%APPDATA%\com.light-whisper.app\logs\{qwen3_asr_server,r2t2_asr_server}.log`
 - Python stderr fallback: `%APPDATA%\com.light-whisper.app\funasr_stderr.log`
+
+`LIGHT_WHISPER_DATA_DIR` overrides the ASR data directory. Standalone Python
+servers use `%TEMP%\light_whisper_logs\` when it is unset.
 
 
 ## Repository map

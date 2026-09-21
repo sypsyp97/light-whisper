@@ -195,14 +195,18 @@ export function useExclusivePicker<T extends string>() {
     };
 
     container.addEventListener("keydown", onKeyDown);
+    let openingFocusFrame: number | undefined;
     if (!container.querySelector("input, textarea")) {
-      window.requestAnimationFrame(() => {
+      openingFocusFrame = window.requestAnimationFrame(() => {
         const selectedIndex = options.findIndex((option) => option.dataset.active === "true");
         focusOption(selectedIndex >= 0 ? selectedIndex : 0);
       });
     }
 
     return () => {
+      if (openingFocusFrame !== undefined) {
+        window.cancelAnimationFrame(openingFocusFrame);
+      }
       container.removeEventListener("keydown", onKeyDown);
       trigger.removeAttribute("aria-controls");
     };
