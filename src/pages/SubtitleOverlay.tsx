@@ -188,9 +188,9 @@ export default function SubtitleOverlay() {
   const [conversationBusy, setConversationBusy] = useState(false);
   const [conversationDraft, setConversationDraft] = useState("");
   const [conversationError, setConversationError] = useState<string | null>(null);
-  // Smoothly drain the streaming source so chunks never snap in.
-  // Works for both assistant streaming (polishing phase) and interim dictation.
-  const smoothText = useSmoothText(text);
+  // Native stable/tentative spans render immediately. Do not animate an unused
+  // copy of their text and rerender the entire overlay on every animation frame.
+  const smoothText = useSmoothText(text, { enabled: !interimSegments });
   const latestSessionIdRef = useRef(0);
   const latestRevisionRef = useRef(-1);
   const pairedOutcomeRevisionRef = useRef<{ sessionId: number; revision: number } | null>(null);

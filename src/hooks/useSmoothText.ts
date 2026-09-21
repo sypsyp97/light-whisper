@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { prefersReducedMotion } from "@/lib/motion";
 
 interface SmoothTextOptions {
+  /** Bypass animation while keeping the latest text ready for re-enabling. */
+  enabled?: boolean;
   /** Graphemes advanced per 16.67ms baseline frame. */
   charsPerFrame?: number;
   /** Snap instantly when more than this many graphemes behind. */
@@ -11,6 +13,7 @@ interface SmoothTextOptions {
 }
 
 const DEFAULTS: Required<SmoothTextOptions> = {
+  enabled: true,
   charsPerFrame: 2.5,
   snapThreshold: 240,
   maxCatchup: 5,
@@ -57,7 +60,7 @@ export function segmentGraphemes(text: string): string[] {
  * - Catches up faster as the backlog grows, so latency stays bounded.
  */
 export function useSmoothText(source: string, options: SmoothTextOptions = {}): string {
-  const { charsPerFrame, snapThreshold, maxCatchup } = { ...DEFAULTS, ...options };
+  const { enabled, charsPerFrame, snapThreshold, maxCatchup } = { ...DEFAULTS, ...options };
 
   const [display, setDisplay] = useState(source);
   const displayRef = useRef(source);
@@ -74,8 +77,9 @@ export function useSmoothText(source: string, options: SmoothTextOptions = {}): 
   useEffect(() => {
     const cur = displayRef.current;
 
-    // Source cleared or diverged from the current prefix → snap.
-    if (!source.startsWith(cur) || source.length < cur.length) {
+    // Bypass animation or snap on a cleared/diverged source. Keep the state
+    // synchronized so re-enabling never replays already-visible native text.
+    if (!enabled || !source.startsWith(cur) || source.length < cur.length) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
       lastTimeRef.current = null;
@@ -165,7 +169,7 @@ export function useSmoothText(source: string, options: SmoothTextOptions = {}): 
     };
 
     rafRef.current = requestAnimationFrame(tick);
-  }, [source, charsPerFrame, snapThreshold, maxCatchup]);
+  }, [source, enabled, charsPerFrame, snapThreshold, maxCatchup]);
 
   useEffect(() => {
     return () => {
@@ -173,5 +177,5 @@ export function useSmoothText(source: string, options: SmoothTextOptions = {}): 
     };
   }, []);
 
-  return display;
+  return enabled ? display : source;
 }

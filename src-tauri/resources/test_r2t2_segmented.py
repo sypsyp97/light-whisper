@@ -59,6 +59,27 @@ class MarkerVad:
 
 
 class SegmentedR2T2Tests(unittest.TestCase):
+    def test_vad_runs_only_when_it_can_start_or_end_a_segment(self):
+        native = RecordingNative(
+            feed_results=[("speech", "en")] * 4,
+            finish_results=[("speech", "en")],
+        )
+        vad = MarkerVad()
+        session = self._session(native, vad, min_segment_samples=16, pause_samples=4)
+        session.start()
+        session.feed(self._audio([1, 1, 1, 1]))
+        session.feed(self._audio([0] * 8))
+        self.assertEqual(len(vad.inputs), 1)
+        self.assertEqual(native.finish_calls, 0)
+        session.feed(self._audio([0] * 4))
+        self.assertEqual(len(vad.inputs), 2)
+        self.assert_audio(vad.inputs[-1], [0] * 6)
+        self.assertEqual(native.finish_calls, 1)
+        np.testing.assert_array_equal(
+            np.concatenate(native.feed_inputs), self._audio([1] * 4 + [0] * 12)
+        )
+        self.assertEqual(session.finish(), ("speech", "en"))
+
     @staticmethod
     def _session(native, vad, **overrides):
         options = {

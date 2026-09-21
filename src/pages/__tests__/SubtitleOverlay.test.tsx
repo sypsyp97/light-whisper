@@ -95,7 +95,7 @@ vi.mock("@/i18n", () => ({
 // immediately under fake timers. We're testing cleanup/fade lifecycle, not
 // streaming animation, so this is safe.
 vi.mock("@/hooks/useSmoothText", () => ({
-  useSmoothText: (source: string) => source,
+  useSmoothText: vi.fn((source: string) => source),
   segmentGraphemes: (text: string) => {
     if (!text) return [] as string[];
     const Segmenter = (Intl as typeof Intl & {
@@ -109,6 +109,7 @@ vi.mock("@/hooks/useSmoothText", () => ({
 }));
 
 import SubtitleOverlay from "@/pages/SubtitleOverlay";
+import { useSmoothText } from "@/hooks/useSmoothText";
 
 beforeEach(() => {
   tauriEvents.reset();
@@ -1357,6 +1358,8 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
 
     expect(container.querySelector(".subtitle-interim-tentative")).toBe(firstTentativeNode);
     expect(firstTentativeNode?.textContent).toBe("班");
+    // These spans render directly; an unused animation must not keep rerendering them.
+    expect(useSmoothText).toHaveBeenLastCalledWith("我们明天去上班", { enabled: false });
   });
 
   it("does not split a combining grapheme across the stability layers", async () => {

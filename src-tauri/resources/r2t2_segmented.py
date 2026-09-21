@@ -184,7 +184,13 @@ class SegmentedR2T2:
         self._refresh_preview()
 
     def _process_block(self, block):
-        observed, regions, trailing_silence = self._observe(block)
+        if self._native_active and self._segment_samples + block.size < self.min_segment_samples:
+            # No pause can end this segment yet. Preserve the exact VAD window
+            # for the first eligible boundary without recomputing its features.
+            self._vad_tail = self._vad_window(block)
+            observed, regions, trailing_silence = self._vad_tail, [], 0
+        else:
+            observed, regions, trailing_silence = self._observe(block)
         if not self._native_active:
             if not regions:
                 return

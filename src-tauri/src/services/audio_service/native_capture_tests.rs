@@ -11,6 +11,9 @@ use crate::services::funasr_service::native_stream::NativeStreamUpdate;
 use crate::services::funasr_service::TranscriptionResult;
 use crate::utils::AppError;
 
+const NATIVE_160MS_SAMPLES: usize = 2560;
+const CAPTURE_POLL_INTERVAL: Duration = Duration::from_millis(40);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Event {
     Feed(Vec<i16>),
@@ -47,6 +50,11 @@ async fn wait_for_feed_start(state: &FakeState) {
     tokio::time::timeout(Duration::from_secs(5), state.feed_started.notified())
         .await
         .expect("capture task did not reach the feed barrier within 5 seconds");
+}
+
+async fn settle_paused_capture() {
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 }
 
 struct FakeSink {
@@ -183,7 +191,7 @@ fn expected_resampled(input: &[i16], sample_rate: u32) -> Vec<i16> {
 }
 
 #[tokio::test]
-async fn finish_before_first_tick_drains_all_samples_in_bounded_chunks() {
+async fn finish_before_first_tick_drains_all_samples_in_160ms_chunks() {
     let input = samples(5121);
     let captured = Arc::new(Mutex::new(input.clone()));
     let state = FakeState::new();
@@ -199,8 +207,16 @@ async fn finish_before_first_tick_drains_all_samples_in_bounded_chunks() {
 
     let log = state.log.lock();
     assert_eq!(
+        log.feed_inputs.iter().map(Vec::len).collect::<Vec<_>>(),
+        vec![2560, 2560, 1]
+    );
+    assert_eq!(
         log.feed_inputs,
-        vec![input[..5120].to_vec(), input[5120..].to_vec()]
+        vec![
+            input[..NATIVE_160MS_SAMPLES].to_vec(),
+            input[NATIVE_160MS_SAMPLES..NATIVE_160MS_SAMPLES * 2].to_vec(),
+            input[NATIVE_160MS_SAMPLES * 2..].to_vec(),
+        ]
     );
     assert_eq!(log.finish_count, 1);
     assert_eq!(log.cancel_count, 0);
@@ -213,14 +229,14 @@ async fn finish_before_first_tick_drains_all_samples_in_bounded_chunks() {
             .iter()
             .map(|update| update.sample_count)
             .collect::<Vec<_>>(),
-        vec![5120, 5121]
+        vec![2560, 5120, 5121]
     );
     assert!(updates.iter().all(|update| !update.is_final));
     assert!(updates.iter().all(|update| update.language.is_none()));
     assert!(updates.iter().all(|update| update.text.starts_with("fed-")));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn finish_flushes_persistent_resampler_tail_once() {
     let first = samples(480);
     let tail = [17_i16, -23, 41, -59, 73, -101, 127];
@@ -228,7 +244,7 @@ async fn finish_flushes_persistent_resampler_tail_once() {
     complete_input.extend_from_slice(&tail);
     let captured = Arc::new(Mutex::new(first));
     let state = FakeState::new();
-    let sink = FakeSink::new(state.clone(), true, false);
+    let sink = FakeSink::new(state.clone(), false, false);
     let (control_tx, control_rx) = oneshot::channel();
     let (updates, on_update) = update_collector();
 
@@ -239,10 +255,13 @@ async fn finish_flushes_persistent_resampler_tail_once() {
         control_rx,
         on_update,
     ));
-    wait_for_feed_start(&state).await;
+    settle_paused_capture().await;
+    assert!(
+        state.log.lock().feed_inputs.is_empty(),
+        "resampled partial output must remain buffered before finish"
+    );
     captured.lock().extend_from_slice(&tail);
     let _ = control_tx.send(NativeCaptureControl::Finish);
-    state.release_feed.notify_one();
 
     let result = task
         .await
@@ -253,11 +272,16 @@ async fn finish_flushes_persistent_resampler_tail_once() {
 
     let expected = expected_resampled(&complete_input, 48_000);
     let log = state.log.lock();
+    assert_eq!(
+        log.feed_inputs.iter().map(Vec::len).collect::<Vec<_>>(),
+        vec![expected.len()]
+    );
     let mut actual = Vec::new();
     for input in &log.feed_inputs {
         actual.extend_from_slice(input);
     }
     assert_eq!(actual, expected);
+    assert_eq!(log.feed_inputs, vec![expected]);
     assert!(!actual.is_empty());
     assert_eq!(log.finish_count, 1);
     assert!(matches!(log.events.last(), Some(Event::Finish)));
@@ -296,14 +320,25 @@ async fn finish_waits_for_inflight_feed_then_drains_appended_tail_once() {
     assert_eq!(result.text, "finished");
 
     let log = state.log.lock();
-    assert_eq!(log.feed_inputs, vec![initial, tail]);
+    assert_eq!(
+        log.feed_inputs.iter().map(Vec::len).collect::<Vec<_>>(),
+        vec![2560, 2560, 4]
+    );
+    assert_eq!(
+        log.feed_inputs,
+        vec![
+            initial[..NATIVE_160MS_SAMPLES].to_vec(),
+            initial[NATIVE_160MS_SAMPLES..].to_vec(),
+            tail,
+        ]
+    );
     assert_eq!(log.finish_count, 1);
     assert_eq!(log.cancel_count, 0);
     assert!(matches!(log.events.last(), Some(Event::Finish)));
 
     let updates = updates.lock();
     let counts: Vec<_> = updates.iter().map(|update| update.sample_count).collect();
-    assert_eq!(counts, vec![5120, 5124]);
+    assert_eq!(counts, vec![2560, 5120, 5124]);
     assert!(counts.windows(2).all(|window| window[0] < window[1]));
 }
 
@@ -335,7 +370,14 @@ async fn cancel_waits_for_inflight_feed_and_dropped_control_cancels_without_fini
 
     {
         let log = state.log.lock();
-        assert_eq!(log.feed_inputs, vec![initial[..5120].to_vec()]);
+        assert_eq!(
+            log.feed_inputs.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![NATIVE_160MS_SAMPLES]
+        );
+        assert_eq!(
+            log.feed_inputs,
+            vec![initial[..NATIVE_160MS_SAMPLES].to_vec()]
+        );
         assert_eq!(log.finish_count, 0);
         assert_eq!(log.cancel_count, 1);
         assert!(matches!(log.events.last(), Some(Event::Cancel)));
@@ -382,7 +424,14 @@ async fn feed_error_propagates_without_retry_or_finish() {
 
     {
         let log = state.log.lock();
-        assert_eq!(log.feed_inputs, vec![input[..5120].to_vec()]);
+        assert_eq!(
+            log.feed_inputs.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![NATIVE_160MS_SAMPLES]
+        );
+        assert_eq!(
+            log.feed_inputs,
+            vec![input[..NATIVE_160MS_SAMPLES].to_vec()]
+        );
         assert_eq!(log.finish_count, 0);
         assert!(updates.lock().is_empty());
     }
@@ -401,4 +450,122 @@ async fn feed_error_propagates_without_retry_or_finish() {
     assert!(zero_log.feed_inputs.is_empty());
     assert_eq!(zero_log.finish_count, 0);
     assert_eq!(zero_log.cancel_count, 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn partial_capture_waits_for_full_160ms_chunk_across_40ms_polls() {
+    let initial = samples(NATIVE_160MS_SAMPLES - 20);
+    let tail = vec![
+        7001_i16, 7002, 7003, 7004, 7005, 7006, 7007, 7008, 7009, 7010, 7011, 7012, 7013, 7014,
+        7015, 7016, 7017, 7018, 7019, 7020,
+    ];
+    let mut expected = initial.clone();
+    expected.extend_from_slice(&tail);
+    let captured = Arc::new(Mutex::new(initial));
+    let state = FakeState::new();
+    let sink = FakeSink::new(state.clone(), false, false);
+    let (control_tx, control_rx) = oneshot::channel();
+    let (_, on_update) = update_collector();
+
+    let task = tokio::spawn(run_capture(
+        sink,
+        captured.clone(),
+        16_000,
+        control_rx,
+        on_update,
+    ));
+    settle_paused_capture().await;
+    assert!(
+        state.log.lock().feed_inputs.is_empty(),
+        "partial capture must not be sent before a full 160 ms chunk is available"
+    );
+
+    tokio::time::advance(CAPTURE_POLL_INTERVAL).await;
+    settle_paused_capture().await;
+    assert!(state.log.lock().feed_inputs.is_empty());
+
+    captured.lock().extend_from_slice(&tail);
+    tokio::time::advance(CAPTURE_POLL_INTERVAL).await;
+    settle_paused_capture().await;
+
+    {
+        let log = state.log.lock();
+        assert_eq!(log.feed_inputs, vec![expected]);
+        assert_eq!(log.feed_inputs[0].len(), NATIVE_160MS_SAMPLES);
+    }
+
+    let _ = control_tx.send(NativeCaptureControl::Cancel);
+    let result = task
+        .await
+        .expect("capture task should not panic")
+        .expect("cancel should complete");
+    assert!(result.is_none());
+    assert_eq!(state.log.lock().cancel_count, 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn finish_combines_pending_partial_with_new_samples_into_one_full_chunk() {
+    let initial = samples(NATIVE_160MS_SAMPLES - 20);
+    let tail = vec![
+        7101_i16, 7102, 7103, 7104, 7105, 7106, 7107, 7108, 7109, 7110, 7111, 7112, 7113, 7114,
+        7115, 7116, 7117, 7118, 7119, 7120,
+    ];
+    let mut expected = initial.clone();
+    expected.extend_from_slice(&tail);
+    let captured = Arc::new(Mutex::new(initial));
+    let state = FakeState::new();
+    let sink = FakeSink::new(state.clone(), false, false);
+    let (control_tx, control_rx) = oneshot::channel();
+    let (updates, on_update) = update_collector();
+
+    let task = tokio::spawn(run_capture(
+        sink,
+        captured.clone(),
+        16_000,
+        control_rx,
+        on_update,
+    ));
+    settle_paused_capture().await;
+    assert!(state.log.lock().feed_inputs.is_empty());
+
+    captured.lock().extend_from_slice(&tail);
+    let _ = control_tx.send(NativeCaptureControl::Finish);
+    let result = task
+        .await
+        .expect("capture task should not panic")
+        .expect("finish should succeed")
+        .expect("finish should return the native result");
+    assert_eq!(result.text, "finished");
+
+    let log = state.log.lock();
+    assert_eq!(log.feed_inputs, vec![expected]);
+    assert_eq!(log.feed_inputs[0].len(), NATIVE_160MS_SAMPLES);
+    assert_eq!(log.finish_count, 1);
+    assert_eq!(log.cancel_count, 0);
+    assert_eq!(updates.lock().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancel_discards_pending_partial_without_feed() {
+    let captured = Arc::new(Mutex::new(samples(NATIVE_160MS_SAMPLES - 20)));
+    let state = FakeState::new();
+    let sink = FakeSink::new(state.clone(), false, false);
+    let (control_tx, control_rx) = oneshot::channel();
+    let (_, on_update) = update_collector();
+
+    let task = tokio::spawn(run_capture(sink, captured, 16_000, control_rx, on_update));
+    settle_paused_capture().await;
+    assert!(state.log.lock().feed_inputs.is_empty());
+
+    let _ = control_tx.send(NativeCaptureControl::Cancel);
+    let result = task
+        .await
+        .expect("capture task should not panic")
+        .expect("cancel should complete");
+    assert!(result.is_none());
+
+    let log = state.log.lock();
+    assert!(log.feed_inputs.is_empty());
+    assert_eq!(log.finish_count, 0);
+    assert_eq!(log.cancel_count, 1);
 }
