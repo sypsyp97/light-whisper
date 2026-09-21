@@ -16,6 +16,7 @@ in [R2T2-MODEL-LICENSE.txt](../src-tauri/resources/R2T2-MODEL-LICENSE.txt).
 ## Streaming
 
 - Capture resamples once and polls every 160 ms. CUDA decodes 160-ms chunks; CPU uses 320 ms. Finish flushes all real samples and the resampler tail; cancellation resets the session.
+- CUDA initialization decodes one silent chunk and resets the session before reporting ready. With native ABI 0.4+, the first aligned VAD prefix (at most one second) is decoded once instead of replaying each chunk. Later audio keeps normal chunk boundaries; ABI 0.3 and CPU retain chunk-by-chunk feeds.
 - A 16-second rolling window advances by 8 seconds. Committed text is append-only; the visible preview can change. There is no fixed 30-second recording reset.
 - The encoder recomputes the current window. This is not an incremental encoder/KV-cache implementation.
 - On CUDA, startup previews can add 320 ms of zero-valued right context after 640 ms of real audio. There are at most three attempts, ending when normal decoding produces text. Padded results never enter commits, language state, continuation prompts or final output.
@@ -33,14 +34,16 @@ The engine builder validates both manifests and shares byte-identical CUDA/CRT D
 
 Q8 was tested on an RTX 4070 SUPER 12 GB. Checks covered five public clips, five short truncations, silence, a 126.6-second recording, exact final audio accounting, cancellation and restart. The packaged R2T2 process passed 31 requests; packaged Qwen CUDA and R2T2 CPU also passed smoke tests. This is limited regression coverage, not a broad accuracy benchmark or AMD validation.
 
-Paired paced server playback for build `light-whisper-r2t2-4` measured:
+Paired paced server playback for build `light-whisper-r2t2-5` measured:
 
-| First caption | Previous 160-ms runtime | Startup preview |
+| First caption after model readiness | Runtime 4 | Runtime 5 |
 |:--|--:|--:|
-| Chinese, warm | 1.32 s | 1.04 s |
-| English, warm | 1.17 s | 0.87 s |
+| Chinese, first recording | 1.17 s | 0.92 s |
+| English, first recording | 1.02 s | 0.90 s |
+| Chinese, later recordings | 1.01 s | 0.91 s |
+| English, later recordings | 0.87 s | 0.87 s |
 
-The first Chinese run took 1.26 s. Final transcripts and update counts matched the baseline. These are two audio fixtures, not microphone-to-screen latency guarantees. Startup previews add bounded work; they do not reduce total model computation. The former Qwen 1.7B repeated-recognition strategy still produced its first caption sooner on these clips.
+Each version ran three repetitions in separate Chinese-first and English-first processes. Later-recording values are medians. Warmup itself took about 0.19 seconds before readiness; total initialization varied from 4.8 to 5.5 seconds across these runs. First-prefix coalescing removes repeated decoding of queued audio. Committed traces and final transcripts matched on the regression clips. These are two latency fixtures, not microphone-to-screen guarantees or a broad accuracy benchmark. The former Qwen 1.7B repeated-recognition strategy still produced its first caption sooner on these clips.
 
 ## Reproduce checks
 

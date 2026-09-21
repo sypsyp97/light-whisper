@@ -15,7 +15,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_URL = "https://github.com/0xShug0/audio.cpp.git"
 SOURCE_REVISION = "6c70f32d0d90a29a9863e556bd9712ce622f868b"
-BUILD_ID = "light-whisper-r2t2-4"
+BUILD_ID = "light-whisper-r2t2-5"
 PATCH = ROOT / "scripts/patches/audio-cpp-r2t2-windows-streaming.patch"
 
 

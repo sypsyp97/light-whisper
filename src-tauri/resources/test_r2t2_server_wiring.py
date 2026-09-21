@@ -10,6 +10,7 @@ class StreamWiringTests(unittest.TestCase):
     def test_cuda_uses_measured_160ms_chunks_and_shared_dll_directory(self):
         server = R2T2ASRServer.__new__(R2T2ASRServer)
         with patch('r2t2_asr_server.NativeRuntime') as runtime:
+            runtime.return_value.chunk_samples = 2560
             server._load_runtime('verified-model')
         self.assertEqual(runtime.call_args.kwargs.get('chunk_ms'), 160)
         from pathlib import Path

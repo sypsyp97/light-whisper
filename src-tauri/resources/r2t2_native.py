@@ -28,6 +28,7 @@ class NativeRuntime:
             raise ValueError('Unsupported R2T2 backend')
         if not isinstance(rolling, bool):
             raise ValueError('rolling must be a boolean')
+        self.backend = backend
         self.rolling = rolling
         if not isinstance(chunk_ms, int) or isinstance(chunk_ms, bool) or not 80 <= chunk_ms <= 2000:
             raise ValueError('chunk_ms must be an integer from 80 to 2000')
@@ -81,6 +82,11 @@ class NativeRuntime:
         abi = version()
         if abi >> 16 != 0 or (abi >> 8) & 0xff < 3:
             raise RuntimeError(f'Unsupported audio.cpp ABI {abi:#x}; preview requires 0.3 or newer')
+        self._batch_initial_audio = (
+            self.backend == 'cuda'
+            and self.rolling
+            and (abi >> 8) & 0xff >= 4
+        )
         signatures = {
             'abi_version': (ct.c_uint32, []),
             'last_error': (S, []),
@@ -150,10 +156,22 @@ class NativeRuntime:
             raise RuntimeError('No active R2T2 stream')
         if not isinstance(pcm, np.ndarray) or pcm.dtype != np.float32 or pcm.ndim != 1 or not np.isfinite(pcm).all():
             raise ValueError('Expected finite 1-D float32 PCM')
-        # Never let a C ABI push consume several internal chunks: the current
-        # upstream event container otherwise retains only the last delta.
-        for start in range(0, len(pcm), self.chunk_samples):
-            chunk = np.ascontiguousarray(pcm[start:start + self.chunk_samples])
+
+        push_size = self.chunk_samples
+        # ABI 0.4 decodes the bounded initial VAD prefix once on CUDA.
+        if (
+            self._offset == 0
+            and getattr(self, '_batch_initial_audio', False)
+            and len(pcm) > self.chunk_samples
+            and len(pcm) <= self.SAMPLE_RATE
+            and len(pcm) % self.chunk_samples == 0
+        ):
+            push_size = len(pcm)
+
+        # All other pushes must decode at most one internal chunk: the C ABI
+        # event container otherwise retains only the last delta.
+        for start in range(0, len(pcm), push_size):
+            chunk = np.ascontiguousarray(pcm[start:start + push_size])
             event = ct.c_void_p()
             try:
                 self._call('stream_push', self.session, chunk.ctypes.data_as(ct.POINTER(ct.c_float)),

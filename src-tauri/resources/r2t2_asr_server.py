@@ -104,6 +104,16 @@ class R2T2ASRServer(BaseASRServer):
                     # at _internal; standalone native builds keep local copies.
                     dll_directories=(runtime_root.parent,),
                 )
+                if backend == "cuda":
+                    # Pay the first CUDA setup cost before reporting ready.
+                    # Reset even on failure; warmup must not enter a recording.
+                    try:
+                        candidate.start()
+                        candidate.feed(
+                            np.zeros(candidate.chunk_samples, dtype=np.float32)
+                        )
+                    finally:
+                        candidate.reset()
                 self.native = candidate
                 self.backend = backend
                 self.device = backend

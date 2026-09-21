@@ -1,5 +1,5 @@
 diff --git a/include/audiocpp.h b/include/audiocpp.h
-index 76cfe6b..82d7dfb 100644
+index 76cfe6b..b3bd786 100644
 --- a/include/audiocpp.h
 +++ b/include/audiocpp.h
 @@ -51,7 +51,7 @@ extern "C" {
@@ -7,7 +7,7 @@ index 76cfe6b..82d7dfb 100644
  
  #define AUDIOCPP_ABI_VERSION_MAJOR 0
 -#define AUDIOCPP_ABI_VERSION_MINOR 2
-+#define AUDIOCPP_ABI_VERSION_MINOR 3
++#define AUDIOCPP_ABI_VERSION_MINOR 4
  #define AUDIOCPP_ABI_VERSION_PATCH 0
  
  /* Packed as (major << 16) | (minor << 8) | patch. A caller built against a
@@ -152,7 +152,7 @@ index 1582084..9c3860e 100644
      return result != nullptr ? result->result.speech_segments.size() : 0;
  }
 diff --git a/src/community_models/confucius4_r2t2/session.cpp b/src/community_models/confucius4_r2t2/session.cpp
-index 68853c0..4399bf3 100644
+index 68853c0..adc4f4e 100644
 --- a/src/community_models/confucius4_r2t2/session.cpp
 +++ b/src/community_models/confucius4_r2t2/session.cpp
 @@ -125,6 +125,9 @@ R2T2ASRSession::R2T2ASRSession(
@@ -439,12 +439,25 @@ index 68853c0..4399bf3 100644
      stream_sample_rate_ = 0;
      stream_channels_ = 1;
      stream_started_ = false;
-@@ -508,10 +740,21 @@ runtime::StreamEvent R2T2ASRSession::process_audio_chunk(const runtime::AudioChu
-         const size_t take_values = static_cast<size_t>(chunk_size_samples_) * channel_stride;
+@@ -505,13 +737,33 @@ runtime::StreamEvent R2T2ASRSession::process_audio_chunk(const runtime::AudioChu
+     event.is_final = false;
+     const size_t channel_stride = static_cast<size_t>(chunk.channels);
+     while (buffer_.size() >= static_cast<size_t>(chunk_size_samples_) * channel_stride) {
+-        const size_t take_values = static_cast<size_t>(chunk_size_samples_) * channel_stride;
++        size_t take_frames = static_cast<size_t>(chunk_size_samples_);
++        // Decode VAD pre-roll once on the first push. The application limits
++        // that prefix to one second and sends aligned frames; later pushes
++        // retain normal chunk boundaries and append-only delta delivery.
++        if (stream_config_.rolling_window && chunk_id_ == 0 &&
++            execution_context().backend_type() == core::BackendType::Cuda &&
++            buffer_.size() <= static_cast<size_t>(chunk.sample_rate) * channel_stride) {
++            take_frames = buffer_.size() / channel_stride / take_frames * take_frames;
++        }
++        const size_t take_values = take_frames * channel_stride;
          audio_accum_.insert(audio_accum_.end(), buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(take_values));
          buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(take_values));
 +        if (stream_config_.rolling_window) {
-+            total_decoded_frames_ += static_cast<size_t>(chunk_size_samples_);
++            total_decoded_frames_ += take_frames;
 +        }
          const auto outcome = decode_stream_chunk(/*final_flush=*/false);
          if (!outcome.fixed_text.empty()) {
@@ -461,7 +474,7 @@ index 68853c0..4399bf3 100644
          if (!streaming_result_.text_output.has_value()) {
              streaming_result_.text_output = runtime::Transcript{outcome.text, language_};
          } else {
-@@ -546,6 +789,13 @@ runtime::TaskResult R2T2ASRSession::finalize() {
+@@ -546,6 +798,13 @@ runtime::TaskResult R2T2ASRSession::finalize() {
          throw std::runtime_error("R2T2 ASR finalize() requires start_stream");
      }
      if (!buffer_.empty()) {
