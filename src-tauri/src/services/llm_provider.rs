@@ -797,6 +797,7 @@ fn openai_reasoning_efforts(model: &str) -> Option<&'static [&'static str]> {
         "gpt-5.6" => Some(GPT5_6_EFFORTS),
         _ if tail.starts_with("gpt-5.6-") => Some(GPT5_6_EFFORTS),
         "gpt-6-astra" => Some(GPT5_6_EFFORTS),
+        "gpt-6-sol" | "gpt-6-luna" => Some(GPT5_6_EFFORTS),
         "gpt-5" => Some(GPT5_EFFORTS),
         _ if tail.starts_with("gpt-5-") => Some(GPT5_EFFORTS),
         _ => None,
@@ -2269,6 +2270,23 @@ mod tests {
             reasoning_support(&endpoint, true).strategy.as_deref(),
             Some("openai_reasoning_effort")
         );
+    }
+
+    #[test]
+    fn openai_gpt6_sol_and_luna_match_codex_effort_mapping() {
+        for model in ["gpt-6-sol", "gpt-6-luna"] {
+            let endpoint = endpoint_for_preview(OPENAI, None, Some(model), ApiFormat::OpenaiCompat);
+
+            assert_eq!(
+                reasoning_efforts_for_modes(&endpoint),
+                strings(&["low", "medium", "high", "xhigh"]),
+                "unexpected reasoning mapping for {model}"
+            );
+            assert_eq!(
+                reasoning_support(&endpoint, true).strategy.as_deref(),
+                Some("openai_reasoning_effort")
+            );
+        }
     }
 
     #[test]

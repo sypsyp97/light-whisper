@@ -157,7 +157,7 @@ const CODEX_MODELS_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 
 // This value describes the Codex catalog wire contract implemented here. It
 // advances only after the corresponding model metadata behavior is reviewed.
-const CODEX_MODELS_CLIENT_VERSION: &str = "0.154.0";
+const CODEX_MODELS_CLIENT_VERSION: &str = "0.155.0";
 
 fn codex_models_cache() -> &'static Mutex<HashMap<String, CachedCodexModels>> {
     CODEX_MODELS_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -572,6 +572,7 @@ mod tests {
     fn codex_catalog_keeps_visible_api_models_in_server_priority_order() {
         let payload = serde_json::json!({
             "models": [
+                {"slug": "future-compatible-model", "visibility": "list", "supported_in_api": true, "priority": 0},
                 {"slug": "gpt-5.6-terra", "visibility": "list", "supported_in_api": true, "priority": 2},
                 {"slug": "internal-review", "visibility": "hide", "supported_in_api": true, "priority": 0},
                 {"slug": "gpt-5.6-sol", "visibility": "list", "supported_in_api": true, "priority": 1},
@@ -587,14 +588,24 @@ mod tests {
             .map(|model| model.id)
             .collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]);
+        assert_eq!(
+            ids,
+            vec![
+                "future-compatible-model",
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna"
+            ]
+        );
     }
 
     #[test]
-    fn codex_v0154_catalog_keeps_gpt6_astra_visible_and_uses_reviewed_contract() {
+    fn codex_v0155_catalog_keeps_visible_gpt6_models_in_server_order() {
         let payload = serde_json::json!({
             "models": [
                 {"slug": "gpt-6-astra", "visibility": "list", "supported_in_api": true, "priority": 1},
+                {"slug": "gpt-6-sol", "visibility": "list", "supported_in_api": true, "priority": 2},
+                {"slug": "gpt-6-luna", "visibility": "list", "supported_in_api": true, "priority": 3},
                 {"slug": "gpt-6-internal", "visibility": "hide", "supported_in_api": true, "priority": 0}
             ]
         });
@@ -605,17 +616,17 @@ mod tests {
             .map(|model| model.id)
             .collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["gpt-6-astra"]);
+        assert_eq!(ids, vec!["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]);
         let chatgpt_ids = parse_models_payload(&payload, ModelListFormat::CodexChatgpt)
             .expect("ChatGPT Codex payload should parse")
             .into_iter()
             .map(|model| model.id)
             .collect::<Vec<_>>();
-        assert_eq!(chatgpt_ids, vec!["gpt-6-astra"]);
+        assert_eq!(chatgpt_ids, vec!["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]);
         assert_eq!(
             codex_models_source_url(),
             format!(
-                "{}?client_version=0.154.0",
+                "{}?client_version=0.155.0",
                 codex_oauth_service::CHATGPT_CODEX_MODELS_URL
             )
         );
@@ -625,7 +636,7 @@ mod tests {
             account_id: Some("gpt6-account".to_string()),
         })
         .expect("valid token should produce catalog headers");
-        assert_eq!(headers["version"], "0.154.0");
+        assert_eq!(headers["version"], "0.155.0");
     }
 
     #[test]

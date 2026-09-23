@@ -690,6 +690,29 @@ mod tests {
     }
 
     #[test]
+    fn chatgpt_backend_responses_gpt6_sol_off_uses_catalog_supported_low() {
+        let mut endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        endpoint.model = "gpt-6-sol".to_string();
+        let body = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions {
+                reasoning_mode: LlmReasoningMode::Off,
+                ..LlmRequestOptions::default()
+            },
+        );
+
+        let adapted = adapt_body_for_backend(&endpoint, &chatgpt_codex_api_key(), &body, false);
+        assert_eq!(adapted["reasoning"]["effort"], serde_json::json!("low"));
+        assert_eq!(adapted["stream"], serde_json::json!(true));
+        assert_eq!(adapted["store"], serde_json::json!(false));
+        assert!(adapted.get("reasoning_effort").is_none());
+        assert!(adapted.get("temperature").is_none());
+        assert!(adapted.get("top_p").is_none());
+    }
+
+    #[test]
     fn recognizes_output_token_limit_unsupported_errors() {
         assert!(looks_like_output_token_limit_unsupported_error(
             "Unknown parameter: max_output_tokens"
