@@ -82,6 +82,16 @@ pub(crate) fn request_url_for_backend<'a>(endpoint: &'a LlmEndpoint, api_key: &s
     }
 }
 
+async fn read_error_body(
+    response: reqwest::Response,
+    deadline: tokio::time::Instant,
+) -> Result<String, String> {
+    tokio::time::timeout_at(deadline, response.text())
+        .await
+        .map_err(|_| "响应读取超时".to_string())?
+        .map_err(|error| format!("响应读取失败: {error}"))
+}
+
 pub async fn send_llm_request(
     http_client: &reqwest::Client,
     endpoint: &LlmEndpoint,
@@ -127,6 +137,7 @@ pub async fn send_llm_request(
         &request_body,
         options.web_search,
     );
+    let deadline = tokio::time::Instant::now() + timeout;
     let transport_stream = request_body
         .get("stream")
         .and_then(Value::as_bool)
@@ -140,13 +151,13 @@ pub async fn send_llm_request(
         api_key: &str,
         headers: reqwest::header::HeaderMap,
         body: &Value,
-        timeout: Duration,
+        deadline: tokio::time::Instant,
     ) -> Result<reqwest::Response, String> {
         let request_url = request_url_for_backend(endpoint, api_key);
         let request = http_client.post(request_url).headers(headers);
-        tokio::time::timeout(timeout, request.json(body).send())
+        tokio::time::timeout_at(deadline, request.json(body).send())
             .await
-            .map_err(|_| format!("请求超时（{} 秒）", timeout.as_secs()))?
+            .map_err(|_| "请求超时".to_string())?
             .map_err(|e| format!("请求失败: {}", e))
     }
 
@@ -155,7 +166,7 @@ pub async fn send_llm_request(
         endpoint: &'a LlmEndpoint,
         api_key: &'a str,
         headers: &'a reqwest::header::HeaderMap,
-        timeout: Duration,
+        deadline: tokio::time::Instant,
         mode: LlmReasoningMode,
     }
 
@@ -196,7 +207,7 @@ pub async fn send_llm_request(
                 ctx.api_key,
                 ctx.headers.clone(),
                 &fallback_body,
-                ctx.timeout,
+                ctx.deadline,
             )
             .await?;
             if retry_response.status().is_success() {
@@ -210,7 +221,7 @@ pub async fn send_llm_request(
             }
 
             let mut status = retry_response.status();
-            let mut body_text = retry_response.text().await.unwrap_or_default();
+            let mut body_text = read_error_body(retry_response, ctx.deadline).await?;
             error_message = extract_api_error_message(endpoint, &body_text);
             if looks_like_output_token_limit_unsupported_error(&error_message)
                 && has_output_token_limit(&fallback_body)
@@ -229,7 +240,7 @@ pub async fn send_llm_request(
                     ctx.api_key,
                     ctx.headers.clone(),
                     &fallback_body,
-                    ctx.timeout,
+                    ctx.deadline,
                 )
                 .await?;
                 if retry_response.status().is_success() {
@@ -244,7 +255,7 @@ pub async fn send_llm_request(
                 }
 
                 status = retry_response.status();
-                body_text = retry_response.text().await.unwrap_or_default();
+                body_text = read_error_body(retry_response, ctx.deadline).await?;
                 error_message = extract_api_error_message(endpoint, &body_text);
             }
             if !llm_provider::looks_like_reasoning_unsupported_error(&error_message) {
@@ -269,12 +280,12 @@ pub async fn send_llm_request(
             ctx.api_key,
             ctx.headers.clone(),
             &fallback_body,
-            ctx.timeout,
+            ctx.deadline,
         )
         .await?;
         if !retry_response.status().is_success() {
             let mut status = retry_response.status();
-            let mut body_text = retry_response.text().await.unwrap_or_default();
+            let mut body_text = read_error_body(retry_response, ctx.deadline).await?;
             let mut error_message = extract_api_error_message(endpoint, &body_text);
             if looks_like_output_token_limit_unsupported_error(&error_message)
                 && has_output_token_limit(&fallback_body)
@@ -292,7 +303,7 @@ pub async fn send_llm_request(
                     ctx.api_key,
                     ctx.headers.clone(),
                     &fallback_body,
-                    ctx.timeout,
+                    ctx.deadline,
                 )
                 .await?;
                 if retry_response.status().is_success() {
@@ -308,7 +319,7 @@ pub async fn send_llm_request(
                     return Ok(retry_response);
                 }
                 status = retry_response.status();
-                body_text = retry_response.text().await.unwrap_or_default();
+                body_text = read_error_body(retry_response, ctx.deadline).await?;
                 error_message = extract_api_error_message(endpoint, &body_text);
             }
             return Err(format!("API 返回错误 {}: {}", status, error_message));
@@ -333,13 +344,13 @@ pub async fn send_llm_request(
         api_key,
         headers.clone(),
         &request_body,
-        timeout,
+        deadline,
     )
     .await?;
 
     if !response.status().is_success() {
         let mut status = response.status();
-        let mut body_text = response.text().await.unwrap_or_default();
+        let mut body_text = read_error_body(response, deadline).await?;
         let mut error_message = extract_api_error_message(endpoint, &body_text);
         let mut successful_retry: Option<reqwest::Response> = None;
         let reasoning_retry_context = ReasoningRetryContext {
@@ -347,7 +358,7 @@ pub async fn send_llm_request(
             endpoint,
             api_key,
             headers: &headers,
-            timeout,
+            deadline,
             mode: options.reasoning_mode,
         };
 
@@ -360,14 +371,19 @@ pub async fn send_llm_request(
                     endpoint.model,
                     error_message
                 );
-                tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
+                tokio::time::timeout_at(
+                    deadline,
+                    tokio::time::sleep(Duration::from_millis(*delay_ms)),
+                )
+                .await
+                .map_err(|_| "请求超时".to_string())?;
                 let retry_response = dispatch_request(
                     http_client,
                     endpoint,
                     api_key,
                     headers.clone(),
                     &request_body,
-                    timeout,
+                    deadline,
                 )
                 .await?;
                 if retry_response.status().is_success() {
@@ -375,7 +391,7 @@ pub async fn send_llm_request(
                     break;
                 }
                 status = retry_response.status();
-                let retry_body_text = retry_response.text().await.unwrap_or_default();
+                let retry_body_text = read_error_body(retry_response, deadline).await?;
                 error_message = extract_api_error_message(endpoint, &retry_body_text);
                 if !is_retryable_overload_error(status, &error_message) {
                     break;
@@ -402,12 +418,12 @@ pub async fn send_llm_request(
                 api_key,
                 headers.clone(),
                 &fallback_body,
-                timeout,
+                deadline,
             )
             .await?;
             if !response.status().is_success() {
                 status = response.status();
-                body_text = response.text().await.unwrap_or_default();
+                body_text = read_error_body(response, deadline).await?;
                 error_message = extract_api_error_message(endpoint, &body_text);
                 if options.reasoning_mode != LlmReasoningMode::ProviderDefault
                     && llm_provider::looks_like_reasoning_unsupported_error(&error_message)
@@ -508,9 +524,9 @@ pub async fn send_llm_request(
             }
         }
     } else {
-        let json: Value = response
-            .json()
+        let json: Value = tokio::time::timeout_at(deadline, response.json())
             .await
+            .map_err(|_| "响应读取超时".to_string())?
             .map_err(|e| format!("响应解析失败: {}", e))?;
         ensure_non_empty_llm_content(
             extract_content(endpoint, &json).unwrap_or_default(),

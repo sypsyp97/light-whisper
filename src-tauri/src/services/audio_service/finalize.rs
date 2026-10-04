@@ -24,6 +24,18 @@ use crate::utils::paths;
 
 const ASSISTANT_PIPELINE_TIMEOUT_SECS: u64 = 180;
 
+fn can_reuse_interim(
+    cache: &crate::state::InterimCache,
+    final_count: usize,
+    sample_rate: u32,
+) -> bool {
+    let max_window_samples = (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
+    final_count > 0
+        && final_count <= max_window_samples
+        && cache.sample_count == final_count
+        && !cache.text.trim().is_empty()
+}
+
 // ---------- 最终转写 + 粘贴 ----------
 
 #[derive(Clone, Copy)]
@@ -329,12 +341,9 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     //   1. 录音必须完整落在 interim 窗口内 (final_count <= 12s * sample_rate)。
     //      interim 缓存的是"最后 12 秒"的转写，用它顶替更长的 final 会直接丢
     //      录音开头那段的文本（比率 >0.9 也一样丢，只是用户感知为"前几个字没了"）。
-    //   2. 尾部间隙 <= 250ms。以前是 "覆盖率 >=90%"，在短录音 / 快语速下可能把
-    //      250ms~500ms 的尾部音节丢掉。250ms 绝对阈值比百分比更保守，在长录音上
-    //      也不会放宽门槛；最差只会丢掉一次 interim 间隔内的静音/换气。
+    //   2. 缓存必须覆盖每一个最终样本，任何尾部间隙都需要重新识别。
+    //      未处理的尾部可能包含语音，不能仅凭间隙时长判定为静音。
     //   3. interim 确实返回了非空文本。
-    let max_interim_window_samples = (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
-    let tail_gap_threshold_samples = (sample_rate as f64 * 0.25) as usize;
     let asr_start = Instant::now();
     let (asr_text, detected_lang): (Result<String, String>, Option<String>) =
         if let Some(result) = native_result {
@@ -344,13 +353,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             }
         } else {
             match cached {
-                Some(ref c)
-                    if final_count > 0
-                        && final_count <= max_interim_window_samples
-                        && c.sample_count <= final_count
-                        && (final_count - c.sample_count) <= tail_gap_threshold_samples
-                        && !c.text.trim().is_empty() =>
-                {
+                Some(ref c) if can_reuse_interim(c, final_count, sample_rate) => {
                     log::info!(
                         "复用 interim 缓存 (尾部间隙 {:.0}ms)",
                         (final_count - c.sample_count) as f64 * 1000.0 / sample_rate as f64
@@ -1152,6 +1155,29 @@ async fn do_paste(app: &tauri::AppHandle, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interim_reuse_requires_every_final_sample() {
+        let mut cache = crate::state::InterimCache {
+            text: "unfinished sentence".into(),
+            sample_count: 28_800,
+            language: Some("zh".into()),
+        };
+        assert!(!can_reuse_interim(&cache, 32_000, 16_000));
+        cache.sample_count = 31_999;
+        assert!(!can_reuse_interim(&cache, 32_000, 16_000));
+        cache.sample_count = 32_000;
+        assert!(can_reuse_interim(&cache, 32_000, 16_000));
+        cache.sample_count = 32_001;
+        assert!(!can_reuse_interim(&cache, 32_000, 16_000));
+        cache.sample_count = 192_001;
+        assert!(!can_reuse_interim(&cache, 192_001, 16_000));
+        cache.sample_count = 0;
+        assert!(!can_reuse_interim(&cache, 0, 16_000));
+        cache.sample_count = 32_000;
+        cache.text = " \n".into();
+        assert!(!can_reuse_interim(&cache, 32_000, 16_000));
+    }
 
     fn foreground(process_name: &str, window_title: &str) -> ForegroundApp {
         ForegroundApp {

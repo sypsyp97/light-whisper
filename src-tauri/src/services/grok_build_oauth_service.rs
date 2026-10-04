@@ -6,7 +6,7 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri_plugin_keyring::KeyringExt;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
 use crate::services::llm_provider::KEYRING_SERVICE;
@@ -521,76 +521,83 @@ async fn wait_for_callback(
     listener: TcpListener,
     expected_state: String,
 ) -> Result<OAuthCallback, String> {
-    let (mut stream, _) =
-        tokio::time::timeout(Duration::from_secs(OAUTH_TIMEOUT_SECS), listener.accept())
-            .await
-            .map_err(|_| "等待 Grok Build OAuth 回调超时，请重试。".to_string())?
-            .map_err(|err| format!("接受 Grok Build OAuth 回调失败: {err}"))?;
+    wait_for_callback_with_timeout(
+        listener,
+        expected_state,
+        Duration::from_secs(OAUTH_TIMEOUT_SECS),
+    )
+    .await
+}
 
-    let mut reader = BufReader::new(&mut stream);
-    let mut request_line = String::new();
-    reader
-        .read_line(&mut request_line)
-        .await
-        .map_err(|err| format!("读取 OAuth 回调失败: {err}"))?;
+async fn wait_for_callback_with_timeout(
+    listener: TcpListener,
+    expected_state: String,
+    timeout: Duration,
+) -> Result<OAuthCallback, String> {
+    tokio::time::timeout(timeout, async {
+        loop {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .map_err(|err| format!("接受 Grok Build OAuth 回调失败: {err}"))?;
+            let Some(url) = super::oauth_callback::read_callback_url(&mut stream).await else {
+                continue;
+            };
 
-    let path = request_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or_else(|| "OAuth 回调请求格式不正确".to_string())?;
-    let url = reqwest::Url::parse(&format!("http://localhost{path}"))
-        .map_err(|err| format!("解析 OAuth 回调 URL 失败: {err}"))?;
+            if url.path() != CALLBACK_PATH {
+                let html = callback_html("Invalid Callback", "Unexpected callback path.", false);
+                let _ = respond_with_html(&mut stream, "404 Not Found", &html).await;
+                continue;
+            }
 
-    if url.path() != CALLBACK_PATH {
-        let html = callback_html("Invalid Callback", "Unexpected callback path.", false);
-        let _ = respond_with_html(&mut stream, "404 Not Found", &html).await;
-        return Err("OAuth 回调路径不正确".to_string());
-    }
+            let query = url
+                .query_pairs()
+                .into_owned()
+                .collect::<std::collections::HashMap<_, _>>();
+            let state = query.get("state").map(String::as_str).unwrap_or_default();
+            if state != expected_state {
+                let html = callback_html(
+                    "State Mismatch",
+                    "Login state does not match the original request.",
+                    false,
+                );
+                let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
+                continue;
+            }
 
-    let query = url
-        .query_pairs()
-        .into_owned()
-        .collect::<std::collections::HashMap<_, _>>();
-    let state = query.get("state").map(String::as_str).unwrap_or_default();
-    if state != expected_state {
-        let html = callback_html(
-            "State Mismatch",
-            "Login state does not match the original request.",
-            false,
-        );
-        let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
-        return Err("Grok Build OAuth state 校验失败，请重试。".to_string());
-    }
+            if let Some(error_code) = query.get("error") {
+                let description = query
+                    .get("error_description")
+                    .map(String::as_str)
+                    .filter(|value| !value.trim().is_empty());
+                let message = match description {
+                    Some(description) => format!("Grok Build OAuth 登录失败: {description}"),
+                    None => format!("Grok Build OAuth 登录失败: {error_code}"),
+                };
+                let html = callback_html("Authorization Failed", &message, false);
+                let _ = respond_with_html(&mut stream, "200 OK", &html).await;
+                return Err(message);
+            }
 
-    if let Some(error_code) = query.get("error") {
-        let description = query
-            .get("error_description")
-            .map(String::as_str)
-            .filter(|value| !value.trim().is_empty());
-        let message = match description {
-            Some(description) => format!("Grok Build OAuth 登录失败: {description}"),
-            None => format!("Grok Build OAuth 登录失败: {error_code}"),
-        };
-        let html = callback_html("Authorization Failed", &message, false);
-        let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-        return Err(message);
-    }
+            let Some(code) = query
+                .get("code")
+                .cloned()
+                .filter(|value| !value.trim().is_empty())
+            else {
+                let html = callback_html(
+                    "Missing Code",
+                    "Authorization code was not returned.",
+                    false,
+                );
+                let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
+                continue;
+            };
 
-    let Some(code) = query
-        .get("code")
-        .cloned()
-        .filter(|value| !value.trim().is_empty())
-    else {
-        let html = callback_html(
-            "Missing Code",
-            "Authorization code was not returned.",
-            false,
-        );
-        let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
-        return Err("OAuth 回调缺少 authorization code".to_string());
-    };
-
-    Ok(OAuthCallback { code, stream })
+            return Ok(OAuthCallback { code, stream });
+        }
+    })
+    .await
+    .map_err(|_| "等待 Grok Build OAuth 回调超时，请重试。".to_string())?
 }
 
 fn build_authorize_url(code_challenge: &str, state: &str) -> Result<String, String> {
@@ -1124,6 +1131,51 @@ pub async fn resolve_oauth_origin_api_key(
 #[cfg(test)]
 mod storage_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn callback_total_deadline_includes_a_stalled_request_line() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let mut stalled = tokio::net::TcpStream::connect(address).await.unwrap();
+        stalled.write_all(b"GET /unfinished").await.unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_millis(600),
+            wait_for_callback_with_timeout(listener, "expected".into(), Duration::from_millis(200)),
+        )
+        .await;
+        let Err(error) = result.expect("whole callback deadline must include accepted connections")
+        else {
+            panic!("partial line must not authorize login");
+        };
+        assert!(error.contains("回调超时"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn callback_ignores_unrelated_and_incomplete_requests() {
+        use tokio::net::TcpStream;
+        for request in [
+            "GET /favicon.ico HTTP/1.1\r\n".to_string(),
+            "GET /callback?state=wrong&code=bad HTTP/1.1\r\n".to_string(),
+            "G".repeat(9_000),
+            "GET /unfinished".to_string(),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let callback = tokio::spawn(wait_for_callback(listener, "expected".into()));
+            let mut unrelated = TcpStream::connect(address).await.unwrap();
+            unrelated.write_all(request.as_bytes()).await.unwrap();
+            let mut valid = TcpStream::connect(address).await.unwrap();
+            let _ = valid
+                .write_all(b"GET /callback?state=expected&code=good HTTP/1.1\r\n\r\n")
+                .await;
+            let result = tokio::time::timeout(Duration::from_secs(4), callback)
+                .await
+                .expect("unrelated connection must not block a valid callback")
+                .unwrap();
+            assert_eq!(result.map(|callback| callback.code).unwrap(), "good");
+        }
+    }
 
     #[test]
     fn device_challenge_binding_uses_server_device_id_and_user_code() {

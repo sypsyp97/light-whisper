@@ -6,7 +6,7 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri_plugin_keyring::KeyringExt;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
 use crate::services::grok_build_oauth_service;
@@ -630,7 +630,7 @@ async fn bind_callback_listeners() -> Result<CallbackListeners, String> {
 }
 
 async fn accept_callback_connection(
-    listeners: CallbackListeners,
+    listeners: &CallbackListeners,
 ) -> Result<(tokio::net::TcpStream, std::net::SocketAddr), String> {
     let CallbackListeners { ipv4, ipv6, .. } = listeners;
     if let Some(ipv6) = ipv6 {
@@ -649,73 +649,76 @@ async fn wait_for_callback(
     listeners: CallbackListeners,
     expected_state: String,
 ) -> Result<OAuthCallback, String> {
-    let (mut stream, _) = tokio::time::timeout(
+    wait_for_callback_with_timeout(
+        listeners,
+        expected_state,
         Duration::from_secs(OAUTH_TIMEOUT_SECS),
-        accept_callback_connection(listeners),
     )
     .await
-    .map_err(|_| "等待 OpenAI OAuth 回调超时，请重试。".to_string())??;
+}
 
-    let mut reader = BufReader::new(&mut stream);
-    let mut request_line = String::new();
-    reader
-        .read_line(&mut request_line)
-        .await
-        .map_err(|err| format!("读取 OAuth 回调失败: {err}"))?;
+async fn wait_for_callback_with_timeout(
+    listeners: CallbackListeners,
+    expected_state: String,
+    timeout: Duration,
+) -> Result<OAuthCallback, String> {
+    tokio::time::timeout(timeout, async {
+        loop {
+            let (mut stream, _) = accept_callback_connection(&listeners).await?;
+            let Some(url) = super::oauth_callback::read_callback_url(&mut stream).await else {
+                continue;
+            };
 
-    let path = request_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or_else(|| "OAuth 回调请求格式不正确".to_string())?;
-    let url = reqwest::Url::parse(&format!("http://localhost{path}"))
-        .map_err(|err| format!("解析 OAuth 回调 URL 失败: {err}"))?;
+            if url.path() != CALLBACK_PATH {
+                let html = callback_html("Invalid Callback", "Unexpected callback path.", false);
+                let _ = respond_with_html(&mut stream, "404 Not Found", &html).await;
+                continue;
+            }
 
-    if url.path() != CALLBACK_PATH {
-        let html = callback_html("Invalid Callback", "Unexpected callback path.", false);
-        let _ = respond_with_html(&mut stream, "404 Not Found", &html).await;
-        return Err("OAuth 回调路径不正确".to_string());
-    }
+            let query = url
+                .query_pairs()
+                .into_owned()
+                .collect::<std::collections::HashMap<_, _>>();
+            let state = query.get("state").map(String::as_str).unwrap_or_default();
+            if state != expected_state {
+                let html = callback_html(
+                    "State Mismatch",
+                    "Login state does not match the original request.",
+                    false,
+                );
+                let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
+                continue;
+            }
 
-    let query = url
-        .query_pairs()
-        .into_owned()
-        .collect::<std::collections::HashMap<_, _>>();
-    let state = query.get("state").map(String::as_str).unwrap_or_default();
-    if state != expected_state {
-        let html = callback_html(
-            "State Mismatch",
-            "Login state does not match the original request.",
-            false,
-        );
-        let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
-        return Err("OpenAI OAuth state 校验失败，请重试。".to_string());
-    }
+            if let Some(error_code) = query.get("error") {
+                let message = oauth_error_message(
+                    error_code,
+                    query.get("error_description").map(String::as_str),
+                );
+                let html = callback_html("Authorization Failed", &message, false);
+                let _ = respond_with_html(&mut stream, "200 OK", &html).await;
+                return Err(message);
+            }
 
-    if let Some(error_code) = query.get("error") {
-        let message = oauth_error_message(
-            error_code,
-            query.get("error_description").map(String::as_str),
-        );
-        let html = callback_html("Authorization Failed", &message, false);
-        let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-        return Err(message);
-    }
+            let Some(code) = query
+                .get("code")
+                .cloned()
+                .filter(|value| !value.trim().is_empty())
+            else {
+                let html = callback_html(
+                    "Missing Code",
+                    "Authorization code was not returned.",
+                    false,
+                );
+                let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
+                continue;
+            };
 
-    let Some(code) = query
-        .get("code")
-        .cloned()
-        .filter(|value| !value.trim().is_empty())
-    else {
-        let html = callback_html(
-            "Missing Code",
-            "Authorization code was not returned.",
-            false,
-        );
-        let _ = respond_with_html(&mut stream, "400 Bad Request", &html).await;
-        return Err("OAuth 回调缺少 authorization code".to_string());
-    };
-
-    Ok(OAuthCallback { code, stream })
+            return Ok(OAuthCallback { code, stream });
+        }
+    })
+    .await
+    .map_err(|_| "等待 OpenAI OAuth 回调超时，请重试。".to_string())?
 }
 
 async fn exchange_code_for_tokens(
@@ -1405,6 +1408,66 @@ pub async fn resolve_provider_auth_with_auth_mode(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn callback_total_deadline_includes_a_stalled_request_line() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let listeners = CallbackListeners {
+            ipv4: listener,
+            ipv6: None,
+            port,
+        };
+        let mut stalled = tokio::net::TcpStream::connect(address).await.unwrap();
+        stalled.write_all(b"GET /unfinished").await.unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_millis(600),
+            wait_for_callback_with_timeout(
+                listeners,
+                "expected".into(),
+                Duration::from_millis(200),
+            ),
+        )
+        .await;
+        let Err(error) = result.expect("whole callback deadline must include accepted connections")
+        else {
+            panic!("partial line must not authorize login");
+        };
+        assert!(error.contains("回调超时"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn callback_ignores_unrelated_and_incomplete_requests() {
+        use tokio::net::TcpStream;
+        for request in [
+            "GET /favicon.ico HTTP/1.1\r\n".to_string(),
+            "GET /auth/callback?state=wrong&code=bad HTTP/1.1\r\n".to_string(),
+            "G".repeat(9_000),
+            "GET /unfinished".to_string(),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let listeners = CallbackListeners {
+                ipv4: listener,
+                ipv6: None,
+                port,
+            };
+            let callback = tokio::spawn(wait_for_callback(listeners, "expected".into()));
+            let mut unrelated = TcpStream::connect(address).await.unwrap();
+            unrelated.write_all(request.as_bytes()).await.unwrap();
+            let mut valid = TcpStream::connect(address).await.unwrap();
+            let _ = valid
+                .write_all(b"GET /auth/callback?state=expected&code=good HTTP/1.1\r\n\r\n")
+                .await;
+            let result = tokio::time::timeout(Duration::from_secs(4), callback)
+                .await
+                .expect("unrelated connection must not block a valid callback")
+                .unwrap();
+            assert_eq!(result.map(|callback| callback.code).unwrap(), "good");
+        }
+    }
 
     #[test]
     fn resolved_oauth_api_key_and_catalog_token_come_from_one_session() {

@@ -1,4 +1,5 @@
 mod commands;
+mod ipc_policy;
 mod services;
 mod state;
 mod tray_icon;
@@ -227,7 +228,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(ipc_policy::restrict_app_commands(tauri::generate_handler![
             commands::funasr::start_funasr,
             commands::funasr::transcribe_audio,
             commands::funasr::check_funasr_status,
@@ -351,7 +352,7 @@ pub fn run() {
             commands::history::delete_transcription_history,
             commands::history::export_transcription_history,
             commands::history::reprocess_transcription_history,
-        ])
+        ]))
         .run(tauri::generate_context!())
         .expect("启动轻语 Whisper 时发生错误");
 }

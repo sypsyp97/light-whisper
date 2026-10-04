@@ -489,8 +489,10 @@ impl Default for AppState {
             ui: Default::default(),
             http_client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(3))
+                // Provider redirects must not forward API keys or private request bodies.
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
-                .unwrap_or_default(),
+                .expect("failed to create the application HTTP client"),
         }
     }
 }

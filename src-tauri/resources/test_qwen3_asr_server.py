@@ -1,5 +1,6 @@
 import base64
 import os
+import subprocess
 import sys
 import types
 import unittest
@@ -71,7 +72,47 @@ class Qwen3ASRServerTests(unittest.TestCase):
             },
         )
         gpu_info_patcher.start()
+        self.gpu_info_patcher = gpu_info_patcher
         self.addCleanup(gpu_info_patcher.stop)
+
+    def test_gpu_metadata_failure_does_not_discard_loaded_runtime(self):
+        self.gpu_info_patcher.stop()
+        for error in (FileNotFoundError("nvidia-smi"), subprocess.TimeoutExpired("nvidia-smi", 3)):
+            with (
+                self.subTest(error=type(error).__name__),
+                mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_detect_device", return_value="cuda"),
+                mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_resolve_model_path", return_value="model.gguf"),
+                mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_warmup_inference"),
+                mock.patch.object(qwen3_asr_server, "FireRedVad", return_value=FakeVad([])),
+                mock.patch.dict(sys.modules, {"transcribe_cpp": types.SimpleNamespace(Model=FakeModel)}),
+                mock.patch.object(qwen3_asr_server.subprocess, "run", side_effect=error) as query,
+            ):
+                server = qwen3_asr_server.Qwen3ASRServer(engine="qwen3-asr-0.6b")
+                self.assertTrue(server.initialize()["success"])
+                self.assertTrue(server.initialized)
+                self.assertIsNotNone(server.model)
+                self.assertIsNotNone(server.session)
+                self.assertGreater(query.call_args.kwargs["timeout"], 0)
+                self.assertLessEqual(query.call_args.kwargs["timeout"], 3)
+
+    def test_failed_initialization_resets_state_and_can_retry(self):
+        with (
+            mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_detect_device", return_value="cuda"),
+            mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_resolve_model_path", return_value="model.gguf"),
+            mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_warmup_inference"),
+            mock.patch.object(qwen3_asr_server, "FireRedVad", return_value=FakeVad([])),
+            mock.patch.dict(sys.modules, {"transcribe_cpp": types.SimpleNamespace(Model=FakeModel)}),
+        ):
+            server = qwen3_asr_server.Qwen3ASRServer(engine="qwen3-asr-0.6b")
+            with mock.patch.object(server, "_get_gpu_device_info", side_effect=RuntimeError("metadata failure")):
+                self.assertFalse(server.initialize()["success"])
+            self.assertFalse(server.initialized)
+            self.assertIsNone(server.model)
+            self.assertIsNone(server.session)
+            self.assertIsNone(server.vad_model)
+            self.assertTrue(server.initialize()["success"])
+            self.assertIsNotNone(server.model)
+            self.assertIsNotNone(server.session)
 
     def test_reuses_one_model_and_session_for_inline_pcm_requests(self):
         fake_module = types.SimpleNamespace(Model=FakeModel)

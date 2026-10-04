@@ -22,6 +22,150 @@ fn reasoning_options(mode: LlmReasoningMode) -> LlmRequestOptions<'static> {
     }
 }
 
+#[tokio::test]
+async fn non_streaming_body_reads_share_the_request_deadline() {
+    for status in ["200 OK", "400 Bad Request"] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!(
+            "http://{}/v1/chat/completions",
+            listener.local_addr().unwrap()
+        );
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            read_json_request(&mut socket).await;
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+            socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: 128\r\n\r\n{{").as_bytes()).await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let mut endpoint = unknown_openai_compat_endpoint("body-deadline", &url, "model");
+        endpoint.timeout_secs = 1;
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(1500),
+            llm_client::send_llm_request(
+                &reqwest::Client::new(),
+                &endpoint,
+                "test-key",
+                &json!({"stream": false}),
+                0,
+                None,
+                LlmRequestOptions::default(),
+            ),
+        )
+        .await;
+        server.abort();
+        let error = result
+            .expect("response body must finish within the original request budget")
+            .unwrap_err();
+        assert!(error.contains("超时"), "{status}: {error}");
+    }
+}
+
+#[tokio::test]
+async fn non_streaming_retry_body_uses_the_remaining_request_budget() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!(
+        "http://{}/v1/chat/completions",
+        listener.local_addr().unwrap()
+    );
+    let server = tokio::spawn(async move {
+        let (mut first, _) = listener.accept().await.unwrap();
+        read_json_request(&mut first).await;
+        write_json_response(
+            &mut first,
+            "429 Too Many Requests",
+            br#"{"error":{"message":"queue_exceeded"}}"#,
+        )
+        .await;
+        let (mut retry, _) = listener.accept().await.unwrap();
+        read_json_request(&mut retry).await;
+        retry.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 128\r\n\r\n{").await.unwrap();
+        std::future::pending::<()>().await;
+    });
+    let mut endpoint = unknown_openai_compat_endpoint("retry-body-deadline", &url, "model");
+    endpoint.timeout_secs = 1;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(1500),
+        llm_client::send_llm_request(
+            &reqwest::Client::new(),
+            &endpoint,
+            "test-key",
+            &json!({"stream": false}),
+            0,
+            None,
+            LlmRequestOptions::default(),
+        ),
+    )
+    .await;
+    server.abort();
+    assert!(result
+        .expect("retry must not restart the request budget")
+        .unwrap_err()
+        .contains("超时"));
+}
+
+#[tokio::test]
+async fn shared_client_does_not_forward_custom_keys_or_bodies_on_redirects() {
+    for status in [301, 302, 303, 307, 308] {
+        let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin_url = format!("http://{}", origin.local_addr().unwrap());
+        let target_url = format!("http://{}", target.local_addr().unwrap());
+        let origin_server = tokio::spawn(async move {
+            let (mut socket, _) = origin.accept().await.unwrap();
+            read_json_request(&mut socket).await;
+            socket.write_all(format!("HTTP/1.1 {status} Redirect\r\nLocation: {target_url}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        });
+        let target_server = tokio::spawn(async move {
+            match tokio::time::timeout(std::time::Duration::from_millis(500), target.accept()).await
+            {
+                Ok(Ok((mut socket, _))) => {
+                    let mut request = Vec::new();
+                    let mut chunk = [0_u8; 1024];
+                    loop {
+                        let count = socket.read(&mut chunk).await.unwrap();
+                        assert!(count > 0);
+                        request.extend_from_slice(&chunk[..count]);
+                        if let Some(end) = find_subsequence(&request, b"\r\n\r\n") {
+                            let headers = std::str::from_utf8(&request[..end]).unwrap();
+                            let length = parse_header_value(headers, "Content-Length")
+                                .map(|value| value.parse::<usize>().unwrap())
+                                .unwrap_or(0);
+                            if request.len() >= end + 4 + length {
+                                break;
+                            }
+                        }
+                    }
+                    socket
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .await
+                        .unwrap();
+                    true
+                }
+                _ => false,
+            }
+        });
+        let state = crate::state::AppState::default();
+        let response = state
+            .http_client
+            .post(&origin_url)
+            .header("x-api-key", "test-anthropic-exa-key")
+            .header("x-goog-api-key", "test-google-key")
+            .json(&json!({"private": "test payload"}))
+            .send()
+            .await
+            .unwrap();
+        let contacted_target = target_server.await.unwrap();
+        origin_server.await.unwrap();
+        assert!(
+            !contacted_target,
+            "redirect {status} contacted another origin"
+        );
+        assert_eq!(response.status().as_u16(), status);
+    }
+}
+
 fn assert_no_openai_reasoning_keys(body: &Value) {
     assert!(
         body.get("reasoning").is_none(),

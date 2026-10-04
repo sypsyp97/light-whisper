@@ -65,22 +65,23 @@ class Qwen3ASRServer(BaseASRServer):
         info = {"device": self.device}
         if self.backend != "cuda":
             return info
-        query = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
         try:
+            query = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=3,  # Optional metadata must not block model initialization.
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
             name, memory_mb = [part.strip() for part in query.stdout.splitlines()[0].split(",", 1)]
             info["gpu_name"] = name
             info["gpu_memory_total"] = round(float(memory_mb) / 1024, 1)
-        except (IndexError, ValueError):
+        except (OSError, subprocess.TimeoutExpired, IndexError, ValueError):
             pass
         return info
 
@@ -107,13 +108,13 @@ class Qwen3ASRServer(BaseASRServer):
             return False
         vad = self.vad_model
         self._close_runtime()
-        self.initialized = False
         self._gpu_suspended = True
         self.vad_model = vad
         self.logger.info("Qwen3-ASR 空闲超时，已卸载 GPU 模型；FireRedVAD 仍留在 CPU")
         return True
 
     def _close_runtime(self):
+        self.initialized = False
         if self.session is not None:
             try:
                 self.session.close()
