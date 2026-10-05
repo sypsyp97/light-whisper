@@ -55,6 +55,12 @@ For China mainland downloads, set `HF_ENDPOINT=https://hf-mirror.com` before pre
 
 Run from the repository root:
 
+`pnpm check` starts with Git's whitespace check of staged and unstaged changes
+against `HEAD`. Stage new files before running it so Git includes their added
+lines. Editors that support EditorConfig apply the repository's whitespace rules;
+Markdown line breaks, reviewed patches and the upstream license retain their
+intentional whitespace. CI checks the committed range before installing dependencies.
+
 ```powershell
 pnpm check
 pnpm audit --prod --audit-level high

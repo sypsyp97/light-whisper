@@ -82,6 +82,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Check changed lines
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if (-not $env:BASE_SHA -or $env:BASE_SHA -match '^0+$') {
+            git show --check --format= $env:HEAD_SHA
+          } else {
+            git diff --check "$env:BASE_SHA...$env:HEAD_SHA"
+          }
+
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -102,17 +113,6 @@ jobs:
 
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high
-
-      - name: Check changed lines
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          if (-not $env:BASE_SHA -or $env:BASE_SHA -match '^0+$') {
-            git show --check --format= $env:HEAD_SHA
-          } else {
-            git diff --check "$env:BASE_SHA...$env:HEAD_SHA"
-          }
 
       - name: Verify tracked files are unchanged
         run: git diff --exit-code

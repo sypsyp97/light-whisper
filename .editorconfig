@@ -1,0 +1,18 @@
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Markdown uses trailing spaces for explicit line breaks.
+[*.md]
+trim_trailing_whitespace = false
+
+# Preserve reviewed patches and upstream license bytes.
+[scripts/patches/*.patch]
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+
+[src-tauri/resources/R2T2-MODEL-LICENSE.txt]
+insert_final_newline = unset
+trim_trailing_whitespace = unset
