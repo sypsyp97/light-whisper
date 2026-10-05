@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useState,
   useEffect,
   useRef,
@@ -31,6 +33,8 @@ import { useSmoothText, segmentGraphemes } from "@/hooks/useSmoothText";
 import "@/i18n";
 import "../styles/theme.css";
 import "../styles/subtitle.css";
+
+const MarkdownContent = lazy(() => import("@/components/MarkdownContent"));
 
 interface RecordingState {
   sessionId?: number;
@@ -992,7 +996,7 @@ export default function SubtitleOverlay() {
     void openAssistantSource(source.url).catch(() => undefined);
   }, []);
 
-  const handleOpenGoogleSearchUrl = useCallback((url: string) => {
+  const handleOpenAssistantUrl = useCallback((url: string) => {
     void openAssistantSource(url).catch(() => undefined);
   }, []);
 
@@ -1160,6 +1164,12 @@ export default function SubtitleOverlay() {
 
   const assistantOverlayDismissible = interactiveAssistantResult || conversationOpen;
 
+  const renderAssistantContent = (content: string) => (
+    <Suspense fallback={content}>
+      <MarkdownContent content={content} onOpenLink={handleOpenAssistantUrl} />
+    </Suspense>
+  );
+
   const renderSources = (sources: AssistantSource[] | undefined) => {
     if (!sources?.length) return null;
     return (
@@ -1237,14 +1247,16 @@ export default function SubtitleOverlay() {
                         <MessageCircle size={12} />
                       </span>
                     )}
-                    <div className="subtitle-conversation-bubble">{message.content}</div>
+                    <div className="subtitle-conversation-bubble">
+                      {message.role === "assistant" ? renderAssistantContent(message.content) : message.content}
+                    </div>
                   </div>
                   {message.role === "assistant" && renderSources(message.sources)}
                   {message.role === "assistant" && message.googleSearchEntryPoint && (
                     <GoogleSearchEntryPoint
                       html={message.googleSearchEntryPoint}
                       label="Google Search"
-                      onOpen={handleOpenGoogleSearchUrl}
+                      onOpen={handleOpenAssistantUrl}
                     />
                   )}
                 </article>
@@ -1256,7 +1268,7 @@ export default function SubtitleOverlay() {
                       <MessageCircle size={12} />
                     </span>
                     <div className="subtitle-conversation-bubble">
-                      {conversationDraft || t("subtitle.conversation.thinking")}
+                      {conversationDraft ? renderAssistantContent(conversationDraft) : t("subtitle.conversation.thinking")}
                     </div>
                   </div>
                 </article>
@@ -1354,7 +1366,8 @@ export default function SubtitleOverlay() {
                       {interimSegments.tentativeText}
                     </span>
                   </>
-                ) : phase === "result" ? text : segmentGraphemes(smoothText).map((g, i) => (
+                ) : assistantPanelActive ? renderAssistantContent(phase === "result" ? text : smoothText)
+                  : phase === "result" ? text : segmentGraphemes(smoothText).map((g, i) => (
                   <span key={i} className="stream-char">{g}</span>
                 ))}
               </div>
@@ -1364,7 +1377,7 @@ export default function SubtitleOverlay() {
               <GoogleSearchEntryPoint
                 html={assistantGoogleSearchEntryPoint}
                 label="Google Search"
-                onOpen={handleOpenGoogleSearchUrl}
+                onOpen={handleOpenAssistantUrl}
               />
             )}
             {isAssistant && phase === "result" && (assistantSearchQuery || assistantElapsedMs !== null) && (

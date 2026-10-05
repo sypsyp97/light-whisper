@@ -24,9 +24,13 @@ for (const file of jsFiles) {
   if (name.startsWith("SettingsPage-")) metrics.settings_gzip_bytes = gzipBytes;
   if (name.startsWith("SubtitleOverlay-")) metrics.subtitle_gzip_bytes = gzipBytes;
   if (name.startsWith("SelectionOverlay-")) metrics.selection_gzip_bytes = gzipBytes;
+  if (name.startsWith("MarkdownContent-")) metrics.markdown_gzip_bytes = gzipBytes;
 }
 metrics.total_js_gzip_bytes = totalGzipBytes;
-metrics.core_js_gzip_bytes = totalGzipBytes - (metrics.selection_gzip_bytes ?? 0);
+// Rich text is shared by the overlays and loaded only when needed.
+metrics.core_js_gzip_bytes = totalGzipBytes
+  - (metrics.selection_gzip_bytes ?? 0)
+  - (metrics.markdown_gzip_bytes ?? 0);
 const distFiles = listFiles(distDir);
 const fontFiles = distFiles.filter(({ path }) => /\.(?:woff2?|ttf|otf|ttc)$/i.test(path));
 metrics.largest_font_bytes = Math.max(0, ...fontFiles.map(({ bytes }) => bytes));
@@ -50,9 +54,13 @@ const budgets = {
     limit: 150_000,
     rationale: "latency-sensitive selection overlay",
   },
+  markdown_gzip_bytes: {
+    limit: 150_000,
+    rationale: "shared Markdown and math renderer",
+  },
   core_js_gzip_bytes: {
     limit: 190_000,
-    rationale: "all JavaScript except the selection overlay",
+    rationale: "all JavaScript except the selection overlay and lazy rich text",
   },
   total_js_gzip_bytes: {
     limit: 340_000,

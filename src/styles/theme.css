@@ -725,6 +725,57 @@ textarea,
    Shared UI Components
    ============================================================ */
 
+/* Notifications share one surface; only the icon carries status color. */
+[data-sonner-toaster].app-toaster {
+  font-family: var(--font-sans);
+  z-index: var(--z-toast);
+  transition-duration: var(--dur-3);
+  transition-timing-function: var(--ease-out-expo);
+}
+
+[data-sonner-toast].app-toast {
+  padding: 12px var(--space-md);
+  gap: var(--space-sm);
+  align-items: flex-start;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-body);
+  transition-duration: var(--dur-3);
+  transition-timing-function: var(--ease-out-expo);
+}
+
+.app-toast [data-title] {
+  font-weight: 500;
+  line-height: var(--leading-normal);
+}
+
+.app-toast [data-description] {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.app-toast [data-content] { min-width: 0; }
+
+.app-toast [data-icon] {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  justify-content: center;
+  color: var(--color-accent);
+}
+
+.app-toast [data-icon] svg { margin: 0; }
+.app-toast[data-type="success"] [data-icon] { color: var(--color-success); }
+.app-toast[data-type="error"] [data-icon] { color: var(--color-error); }
+.app-toast[data-type="info"] [data-icon] { color: var(--color-info); }
+.app-toast[data-type="warning"] [data-icon] { color: var(--color-warning); }
+
 /* Icon button — transparent, used in title bar and toolbars */
 .icon-btn {
   padding: var(--space-sm);

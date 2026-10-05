@@ -171,6 +171,10 @@ body,
   pointer-events: auto;
 }
 
+.subtitle-capsule-assistant .markdown-content {
+  --markdown-link-color: var(--color-assistant);
+}
+
 /* Status hint text */
 .subtitle-hint {
   font-family: var(--font-sans);
@@ -503,6 +507,7 @@ body,
 }
 
 .subtitle-conversation-bubble {
+  min-width: 0;
   max-width: 100%;
   padding: 8px 12px;
   border-radius: 12px;

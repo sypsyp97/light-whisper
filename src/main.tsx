@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useState, useRef, useCallback, useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
+import { CircleCheck, CircleAlert, Info, TriangleAlert, LoaderCircle } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { RecordingProvider } from "./contexts/RecordingContext";
 import { prefersReducedMotion } from "./lib/motion";
@@ -125,11 +126,19 @@ export function App() {
         </div>
       </div>
       <Toaster
+        className="app-toaster"
         position="bottom-right"
         offset={14}
-        richColors
+        mobileOffset={14}
+        icons={{
+          success: <CircleCheck size={18} aria-hidden="true" />,
+          error: <CircleAlert size={18} aria-hidden="true" />,
+          info: <Info size={18} aria-hidden="true" />,
+          warning: <TriangleAlert size={18} aria-hidden="true" />,
+          loading: <LoaderCircle size={18} className="animate-spin" aria-hidden="true" />,
+        }}
         toastOptions={{
-          className: "font-sans",
+          className: "app-toast",
           duration: 1800,
         }}
       />

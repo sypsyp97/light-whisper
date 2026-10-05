@@ -54,6 +54,7 @@ const tauriEvents = vi.hoisted(() => {
 const tauriApiMocks = vi.hoisted(() => ({
   cancelAssistantConversation: vi.fn(),
   continueAssistantConversation: vi.fn(),
+  copyToClipboard: vi.fn(),
   getRecordingSnapshot: vi.fn(),
   openAssistantSource: vi.fn(),
   retryAssistantRequest: vi.fn(),
@@ -66,7 +67,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@/api/tauri", () => ({
   cancelAssistantConversation: tauriApiMocks.cancelAssistantConversation,
   continueAssistantConversation: tauriApiMocks.continueAssistantConversation,
-  copyToClipboard: vi.fn(async () => undefined),
+  copyToClipboard: tauriApiMocks.copyToClipboard,
   getRecordingSnapshot: tauriApiMocks.getRecordingSnapshot,
   hideSubtitleWindow: vi.fn(async () => undefined),
   openAssistantSource: tauriApiMocks.openAssistantSource,
@@ -74,8 +75,9 @@ vi.mock("@/api/tauri", () => ({
 }));
 
 vi.mock("react-i18next", () => {
+  const translate = (key: string) => key;
   const useTranslation = () => ({
-    t: (key: string) => key,
+    t: translate,
     i18n: { changeLanguage: vi.fn() },
   });
   return {
@@ -119,6 +121,8 @@ beforeEach(() => {
   tauriApiMocks.cancelAssistantConversation.mockResolvedValue(false);
   tauriApiMocks.continueAssistantConversation.mockReset();
   tauriApiMocks.continueAssistantConversation.mockResolvedValue("follow-up response");
+  tauriApiMocks.copyToClipboard.mockReset();
+  tauriApiMocks.copyToClipboard.mockResolvedValue(undefined);
   tauriApiMocks.openAssistantSource.mockReset();
   tauriApiMocks.openAssistantSource.mockResolvedValue("opened");
   tauriApiMocks.retryAssistantRequest.mockReset();
@@ -1599,5 +1603,174 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
     expect(container.querySelector(".subtitle-interim-tentative")).toBeNull();
     expect(container.querySelectorAll(".stream-char")).toHaveLength(Array.from("旧引擎中间结果").length);
     expect(readSubtitleText(container)).toBe("旧引擎中间结果");
+  });
+});
+
+describe("SubtitleOverlay assistant rich text", () => {
+  async function showAssistantResult(content: string) {
+    await act(async () => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 301,
+        isRecording: false,
+        isProcessing: true,
+        mode: "assistant",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 301,
+        status: "started",
+        request: "解释这个公式",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 301,
+        text: content,
+        interim: false,
+        mode: "assistant",
+      });
+    });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+  }
+
+  it("renders initial Markdown and math while copying the original response", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    const response = [
+      "## 公式说明",
+      "",
+      "**质量**与能量：$E = mc^2$",
+      "",
+      "- 第一项",
+      "- 第二项",
+      "",
+      "| 变量 | 意义 |",
+      "| --- | --- |",
+      "| m | 质量 |",
+      "",
+      "```python",
+      "energy = mass * c ** 2",
+      "```",
+      "",
+      "\\[\\int_0^1 x^2 dx\\]",
+    ].join("\n");
+    await showAssistantResult(response);
+
+    expect(screen.getByRole("heading", { name: "公式说明", level: 2 })).toBeVisible();
+    expect(screen.getByText("质量", { selector: "strong" })).toBeVisible();
+    expect(container.querySelectorAll("li")).toHaveLength(2);
+    expect(screen.getByRole("table")).toBeVisible();
+    expect(container.querySelector("pre code")).toHaveTextContent("energy = mass * c ** 2");
+    expect(container.querySelectorAll(".katex")).toHaveLength(2);
+    expect(container.querySelector(".katex-display")).not.toBeNull();
+    expect(container.querySelector(".stream-char")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "common.copy" }));
+    });
+    expect(tauriApiMocks.copyToClipboard).toHaveBeenCalledWith(response);
+  });
+
+  it("renders streamed assistant text and completes a partial formula without an error", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    await act(async () => {
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 301,
+        status: "started",
+        request: "解释这个公式",
+      });
+      tauriEvents.emit("assistant-stream", {
+        sessionId: 301,
+        chunk: "## 流式回答\n\n**能量** $E = mc^2",
+      });
+    });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(screen.getByRole("heading", { name: "流式回答" })).toBeVisible();
+    expect(screen.getByText("能量", { selector: "strong" })).toBeVisible();
+    expect(container.querySelector(".katex")).toBeNull();
+
+    await act(async () => {
+      tauriEvents.emit("assistant-stream", { sessionId: 301, chunk: "$" });
+    });
+    expect(container.querySelector(".katex")).not.toBeNull();
+    expect(container.querySelector(".katex-error")).toBeNull();
+    expect(container.querySelector(".subtitle-status-indicator")).not.toBeNull();
+  });
+
+  it("renders conversation history and streamed replies while preserving raw context and user text", async () => {
+    let finishReply!: (value: string) => void;
+    tauriApiMocks.continueAssistantConversation.mockReturnValue(new Promise<string>((resolve) => {
+      finishReply = resolve;
+    }));
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    const initialResponse = "## 初始回答\n\n$E=mc^2$";
+    await showAssistantResult(initialResponse);
+    fireEvent.click(screen.getByRole("button", { name: "subtitle.conversation.open" }));
+    expect(screen.getByRole("heading", { name: "初始回答" })).toBeVisible();
+
+    const message = "**保留我的原话** $x$";
+    const input = screen.getByLabelText("subtitle.conversation.placeholder");
+    fireEvent.change(input, { target: { value: message } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+    expect(screen.getByText(message)).toBeVisible();
+    expect(tauriApiMocks.continueAssistantConversation).toHaveBeenCalledWith({
+      sessionId: 301,
+      initialRequest: "解释这个公式",
+      initialResponse,
+      history: [],
+      message,
+    });
+
+    const followUp = "### 后续解释\n\n\\(x^2\\)";
+    await act(async () => {
+      tauriEvents.emit("assistant-chat-stream", { sessionId: 301, status: "started" });
+      tauriEvents.emit("assistant-chat-stream", { sessionId: 301, chunk: followUp });
+    });
+    expect(screen.getByRole("heading", { name: "后续解释", level: 3 })).toBeVisible();
+    expect(container.querySelectorAll(".katex")).toHaveLength(2);
+
+    await act(async () => finishReply(followUp));
+    expect(screen.getAllByRole("heading", { name: "后续解释" })).toHaveLength(1);
+    expect(container.querySelector(".is-streaming")).toBeNull();
+  });
+
+  it("opens Markdown links through the existing source command and skips unsafe HTML and URLs", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    await showAssistantResult([
+      "[文档](https://example.com/docs)",
+      "",
+      "[危险链接](javascript:alert%281%29)",
+      "",
+      '<img src=x onerror="alert(1)">',
+    ].join("\n"));
+    fireEvent.click(screen.getByRole("link", { name: "文档" }));
+    expect(tauriApiMocks.openAssistantSource).toHaveBeenCalledWith("https://example.com/docs");
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector('[href^="javascript:"]')).toBeNull();
+    const unsafeLink = screen.getByText("危险链接");
+    fireEvent.click(unsafeLink);
+    expect(tauriApiMocks.openAssistantSource).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "common.copy" })).toBeVisible();
+  });
+
+  it("keeps dictation output as literal text", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    const response = "## 原话\n\n**不要排版** $E=mc^2$";
+    await act(async () => {
+      tauriEvents.emit("transcription-result", {
+        sessionId: 302,
+        text: response,
+        interim: false,
+        mode: "dictation",
+      });
+    });
+    expect(readSubtitleText(container)).toBe(response);
+    expect(container.querySelector("h2, strong, .katex")).toBeNull();
   });
 });

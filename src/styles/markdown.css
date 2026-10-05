@@ -1,0 +1,121 @@
+.markdown-content {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  margin: 1em 0 0.45em;
+  color: var(--color-text-primary);
+  font-size: 1em;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+.markdown-content h1 { font-size: 1.24em; font-weight: 700; letter-spacing: var(--tracking-display); }
+.markdown-content h2 { font-size: 1.14em; font-weight: 600; letter-spacing: var(--tracking-heading); }
+.markdown-content h3 { font-weight: 500; letter-spacing: var(--tracking-label); }
+.markdown-content h4 { font-weight: 400; letter-spacing: var(--tracking-body); }
+
+.markdown-content p,
+.markdown-content ul,
+.markdown-content ol,
+.markdown-content blockquote,
+.markdown-content pre,
+.markdown-content .markdown-table {
+  margin: 0 0 0.8em;
+}
+
+.markdown-content p { white-space: pre-wrap; }
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 1.5em;
+}
+
+.markdown-content li + li { margin-top: 0.24em; }
+
+.markdown-content a {
+  color: var(--markdown-link-color, var(--color-accent));
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--markdown-link-color, var(--color-accent)) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.markdown-content a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.markdown-content blockquote {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+}
+
+.markdown-content code {
+  padding: 0.12em 0.34em;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.markdown-content pre {
+  overflow: auto;
+  max-width: 100%;
+  white-space: pre;
+  padding: 10px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  user-select: text;
+}
+
+.markdown-content .markdown-table { overflow-x: auto; }
+
+.markdown-content pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.markdown-content table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.94em;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-content th {
+  background: var(--color-bg-secondary);
+  font-weight: 600;
+}
+
+.markdown-content hr {
+  height: 1px;
+  margin: 1em 0;
+  border: 0;
+  background: var(--color-border-subtle);
+}
+
+.markdown-content .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+}
+
