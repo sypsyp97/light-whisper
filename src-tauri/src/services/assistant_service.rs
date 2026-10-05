@@ -394,6 +394,7 @@ fn build_assistant_request_options(
     };
 
     LlmRequestOptions {
+        auth_context: None,
         stream: true,
         json_output: false,
         reasoning_mode,
@@ -1215,6 +1216,7 @@ async fn generate_content_inner(
     let has_image_context = !user_input.images.is_empty();
 
     let request_options = LlmRequestOptions {
+        auth_context: Some((app_handle, state)),
         openai_fast_mode: config.openai_fast_mode,
         ..build_assistant_request_options(
             config.assistant_reasoning_mode(),

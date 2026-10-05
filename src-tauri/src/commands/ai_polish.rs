@@ -16,6 +16,8 @@ use crate::state::AppState;
 #[serde(rename_all = "camelCase")]
 pub struct AiModelInfo {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub owned_by: Option<String>,
 }
 
@@ -120,6 +122,7 @@ fn anthropic_models() -> Vec<AiModelInfo> {
     .into_iter()
     .map(|id| AiModelInfo {
         id: id.to_string(),
+        display_name: None,
         owned_by: Some("anthropic".to_string()),
     })
     .collect()
@@ -128,22 +131,27 @@ fn anthropic_models() -> Vec<AiModelInfo> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ModelListFormat {
     Openai,
+    ChatgptPlan,
     CodexApi,
     CodexChatgpt,
 }
 
 impl ModelListFormat {
     fn is_codex(self) -> bool {
-        matches!(self, Self::CodexApi | Self::CodexChatgpt)
+        matches!(
+            self,
+            Self::CodexApi | Self::CodexChatgpt | Self::ChatgptPlan
+        )
     }
 
     fn includes_codex_only_models(self) -> bool {
-        self == Self::CodexChatgpt
+        matches!(self, Self::CodexChatgpt | Self::ChatgptPlan)
     }
 
     fn cache_partition(self) -> &'static str {
         match self {
             Self::Openai => "openai",
+            Self::ChatgptPlan => "chatgpt-plan",
             Self::CodexApi => "codex-api",
             Self::CodexChatgpt => "codex-chatgpt",
         }
@@ -226,13 +234,20 @@ fn remove_cached_codex_models_for_identity(identity: &str) {
         "{}:{identity}",
         ModelListFormat::CodexChatgpt.cache_partition()
     ));
+    cache.remove(&format!("chatgpt-plan:{identity}"));
 }
 
-fn codex_models_source_url() -> String {
+fn oauth_models_source_url(format: ModelListFormat) -> String {
+    let base_url = if format == ModelListFormat::ChatgptPlan {
+        "https://api.openai.com/v1/models"
+    } else {
+        codex_oauth_service::CHATGPT_CODEX_MODELS_URL
+    };
+    // Match upstream ModelsClient::request_url for both public and Codex catalogs.
+    // https://github.com/openai/codex/blob/main/codex-rs/codex-api/src/endpoint/models.rs
     format!(
         "{}?client_version={}",
-        codex_oauth_service::CHATGPT_CODEX_MODELS_URL,
-        CODEX_MODELS_CLIENT_VERSION
+        base_url, CODEX_MODELS_CLIENT_VERSION
     )
 }
 
@@ -296,6 +311,7 @@ fn parse_models_payload(
                     }
                     Some(AiModelInfo {
                         id: id.to_string(),
+                        display_name: None,
                         owned_by: item["owned_by"].as_str().map(|value| value.to_string()),
                     })
                 })
@@ -304,7 +320,9 @@ fn parse_models_payload(
             models.dedup_by(|a, b| a.id == b.id);
             Ok(models)
         }
-        ModelListFormat::CodexApi | ModelListFormat::CodexChatgpt => {
+        ModelListFormat::CodexApi
+        | ModelListFormat::CodexChatgpt
+        | ModelListFormat::ChatgptPlan => {
             let mut models = payload["models"]
                 .as_array()
                 .ok_or_else(|| "Codex 模型目录格式不正确：缺少 models 数组".to_string())?
@@ -329,16 +347,23 @@ fn parse_models_payload(
                         item["priority"].as_i64().unwrap_or(i64::MAX),
                         AiModelInfo {
                             id: id.to_string(),
+                            display_name: item["display_name"]
+                                .as_str()
+                                .map(str::trim)
+                                .filter(|name| !name.is_empty())
+                                .map(str::to_string),
                             owned_by: Some("openai".to_string()),
                         },
                     ))
                 })
                 .collect::<Vec<_>>();
-            models.sort_by(|(priority_a, model_a), (priority_b, model_b)| {
-                priority_a
-                    .cmp(priority_b)
-                    .then_with(|| model_a.id.to_lowercase().cmp(&model_b.id.to_lowercase()))
-            });
+            if format != ModelListFormat::ChatgptPlan {
+                models.sort_by(|(priority_a, model_a), (priority_b, model_b)| {
+                    priority_a
+                        .cmp(priority_b)
+                        .then_with(|| model_a.id.to_lowercase().cmp(&model_b.id.to_lowercase()))
+                });
+            }
             let mut seen = HashSet::new();
             models.retain(|(_, model)| seen.insert(model.id.clone()));
             Ok(models.into_iter().map(|(_, model)| model).collect())
@@ -352,6 +377,14 @@ fn model_list_http_error(
     format: ModelListFormat,
 ) -> String {
     if format.is_codex() {
+        if format == ModelListFormat::ChatgptPlan {
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                return "ChatGPT 登录或套餐授权已失效，请重新登录后再获取模型列表。".into();
+            }
+            if status == reqwest::StatusCode::FORBIDDEN {
+                return "当前 ChatGPT 账户、工作区或地区未获准使用套餐模型目录。".into();
+            }
+        }
         if status == reqwest::StatusCode::UNAUTHORIZED {
             return "Codex 登录已过期，请重新登录后再拉取模型列表".to_string();
         }
@@ -434,7 +467,9 @@ pub async fn list_ai_models(
         .is_some_and(|p| p.api_format == ApiFormat::Anthropic);
 
     let grok_oauth_token = grok_build_oauth_service::decode_grok_build_oauth_access_token(&api_key);
-    let model_list_format = if chatgpt_token.is_some() && inference_uses_chatgpt_backend {
+    let model_list_format = if codex_oauth_service::is_chatgpt_plan_auth(&api_key) {
+        ModelListFormat::ChatgptPlan
+    } else if chatgpt_token.is_some() && inference_uses_chatgpt_backend {
         ModelListFormat::CodexChatgpt
     } else if chatgpt_token.is_some() {
         ModelListFormat::CodexApi
@@ -442,7 +477,7 @@ pub async fn list_ai_models(
         ModelListFormat::Openai
     };
     let source_url = if model_list_format.is_codex() {
-        codex_models_source_url()
+        oauth_models_source_url(model_list_format)
     } else if grok_oauth_token.is_some() {
         grok_build_oauth_service::GROK_BUILD_MODELS_URL.to_string()
     } else if provider == "xai" {
@@ -484,7 +519,11 @@ pub async fn list_ai_models(
             if model_list_format.is_codex() { 5 } else { 12 },
         ));
     if let Some(token) = chatgpt_token {
-        req = req.headers(codex_models_headers(&token)?);
+        req = req.headers(if model_list_format == ModelListFormat::ChatgptPlan {
+            llm_provider::build_auth_headers(&ApiFormat::OpenaiCompat, &api_key)?
+        } else {
+            codex_models_headers(&token)?
+        });
     } else if let Some(token) = grok_oauth_token {
         req = req.headers(grok_build_oauth_service::grok_cli_request_headers(&token)?);
     } else if is_anthropic {
@@ -499,7 +538,43 @@ pub async fn list_ai_models(
     }
     req = req.header("Content-Type", "application/json");
 
-    let response = match req.send().await {
+    let retry_request = req.try_clone();
+    let mut result = req.send().await;
+    if result
+        .as_ref()
+        .is_ok_and(|r| r.status() == reqwest::StatusCode::UNAUTHORIZED)
+    {
+        if let Some(refreshed) = codex_oauth_service::recover_rejected_auth(
+            &app_handle,
+            state.inner(),
+            &provider,
+            &api_key,
+        )
+        .await?
+        {
+            if let Some(retry) = retry_request {
+                let headers = if model_list_format.is_codex()
+                    && model_list_format != ModelListFormat::ChatgptPlan
+                {
+                    let token = codex_oauth_service::decode_chatgpt_bearer_token(&refreshed)
+                        .or_else(|| {
+                            state.read_openai_codex_oauth_session().map(|s| {
+                                codex_oauth_service::ChatgptBearerToken {
+                                    access_token: s.access_token,
+                                    account_id: s.account_id,
+                                }
+                            })
+                        })
+                        .ok_or("ChatGPT 登录已失效，请重新登录。")?;
+                    codex_models_headers(&token)?
+                } else {
+                    llm_provider::build_auth_headers(&ApiFormat::OpenaiCompat, &refreshed)?
+                };
+                result = retry.headers(headers).send().await;
+            }
+        }
+    }
+    let response = match result {
         Ok(r) if r.status().is_success() => r,
         _ if is_anthropic => {
             // Anthropic API 查询失败（代理不支持等），回退硬编码
@@ -575,6 +650,27 @@ pub async fn list_ai_models(
             return Err(error);
         }
     };
+    if model_list_format.is_codex() {
+        // Only catalog metadata: no account identifiers, tokens or response bodies.
+        let entries = payload["models"].as_array();
+        log::info!(
+            "模型目录 source={} received={} selectable={} entries={:?}",
+            source_url,
+            entries.map_or(0, Vec::len),
+            models.len(),
+            entries
+                .map(|entries| entries
+                    .iter()
+                    .filter_map(|entry| {
+                        Some((
+                            entry["slug"].as_str()?,
+                            entry["visibility"].as_str().unwrap_or("unspecified"),
+                        ))
+                    })
+                    .collect::<Vec<_>>())
+                .unwrap_or_default(),
+        );
+    }
     if let Some(cache_key) = codex_cache_key.as_deref() {
         store_codex_models(cache_key, &models);
     }
@@ -585,6 +681,26 @@ pub async fn list_ai_models(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chatgpt_plan_catalog_preserves_server_order_without_api_allowlist() {
+        let payload = serde_json::json!({"models":[
+            {"slug":"future-model-z","visibility":"list","priority":99},
+            {"slug":"hidden","visibility":"hidden"},
+            {"slug":"future-model-a","visibility":"list","supported_in_api":false,"priority":0},
+            {"slug":"gpt-6.1-sol","display_name":"GPT-6.1 Sol","visibility":"list","supported_in_api":false},
+            {"slug":"future-model-z","visibility":"list"}
+        ]});
+        let models = parse_models_payload(&payload, ModelListFormat::ChatgptPlan).unwrap();
+        assert_eq!(
+            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            ["future-model-z", "future-model-a", "gpt-6.1-sol"]
+        );
+        assert_eq!(
+            serde_json::to_value(&models[2]).unwrap()["displayName"],
+            "GPT-6.1 Sol"
+        );
+    }
 
     #[test]
     fn codex_catalog_keeps_visible_api_models_in_server_priority_order() {
@@ -644,7 +760,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(chatgpt_ids, expected);
         assert_eq!(
-            codex_models_source_url(),
+            oauth_models_source_url(ModelListFormat::CodexChatgpt),
             format!(
                 "{}?client_version=0.159.2",
                 codex_oauth_service::CHATGPT_CODEX_MODELS_URL
@@ -722,12 +838,30 @@ mod tests {
     #[test]
     fn codex_models_url_identifies_the_calling_client() {
         assert_eq!(
-            codex_models_source_url(),
+            oauth_models_source_url(ModelListFormat::CodexChatgpt),
             format!(
                 "{}?client_version={}",
                 codex_oauth_service::CHATGPT_CODEX_MODELS_URL,
                 CODEX_MODELS_CLIENT_VERSION
             )
+        );
+    }
+
+    #[test]
+    fn chatgpt_plan_catalog_identifies_client_on_public_api() {
+        let request = reqwest::Client::new()
+            .get(oauth_models_source_url(ModelListFormat::ChatgptPlan))
+            .build()
+            .unwrap();
+        assert_eq!(request.url().host_str(), Some("api.openai.com"));
+        assert_eq!(request.url().path(), "/v1/models");
+        assert_eq!(
+            request
+                .url()
+                .query_pairs()
+                .find(|(key, _)| key == "client_version")
+                .map(|(_, value)| value.into_owned()),
+            Some(CODEX_MODELS_CLIENT_VERSION.to_string())
         );
     }
 
@@ -787,6 +921,7 @@ mod tests {
         let chatgpt_key = codex_models_cache_key(&token, ModelListFormat::CodexChatgpt);
         let models = vec![AiModelInfo {
             id: "gpt-5.6-sol".to_string(),
+            display_name: None,
             owned_by: Some("openai".to_string()),
         }];
 
@@ -824,6 +959,7 @@ mod tests {
                     fetched_at,
                     models: vec![AiModelInfo {
                         id: "stale-model".to_string(),
+                        display_name: None,
                         owned_by: Some("openai".to_string()),
                     }],
                 },

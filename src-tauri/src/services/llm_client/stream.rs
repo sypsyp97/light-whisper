@@ -6,7 +6,8 @@ use crate::services::llm_provider::LlmEndpoint;
 
 use super::events::{emit_stream_citations, emit_stream_error_event, emit_stream_event};
 use super::protocol::{
-    ensure_non_empty_llm_content, extract_content, finalize_responses_sse_accumulated,
+    ensure_non_empty_llm_content, extract_content, extract_openai_compat_error_message,
+    finalize_responses_sse_accumulated,
 };
 use super::request::LlmRequestOptions;
 
@@ -193,6 +194,7 @@ pub async fn read_sse_stream(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn read_openai_responses_sse_stream(
     response: reqwest::Response,
     endpoint: &LlmEndpoint,
@@ -201,6 +203,7 @@ pub async fn read_openai_responses_sse_stream(
     session_id: Option<u64>,
     progress_timeout: Option<Duration>,
     total_timeout: Duration,
+    require_completed: bool,
 ) -> Result<String, String> {
     use eventsource_stream::Eventsource;
     use tokio_stream::StreamExt;
@@ -212,6 +215,12 @@ pub async fn read_openai_responses_sse_stream(
     let started_at = tokio::time::Instant::now();
     let mut last_progress_at = started_at;
     let mut stream = response.bytes_stream().eventsource();
+    let incomplete_error = || {
+        let message =
+            "CHATGPT_PLAN_ERROR: Responses 响应未完成，未收到 response.completed。".to_string();
+        emit_stream_error_event(app_handle, event_name, session_id, &message);
+        message
+    };
 
     loop {
         let read_budget = match stream_read_budget(
@@ -234,6 +243,9 @@ pub async fn read_openai_responses_sse_stream(
                     continue;
                 }
                 if data == "[DONE]" {
+                    if require_completed {
+                        return Err(incomplete_error());
+                    }
                     return finalize_responses_sse_accumulated(
                         accumulated,
                         fallback_content,
@@ -290,6 +302,11 @@ pub async fn read_openai_responses_sse_stream(
                         }
                     }
                     Some("response.completed") => {
+                        if require_completed
+                            && json["response"]["status"].as_str() != Some("completed")
+                        {
+                            return Err(incomplete_error());
+                        }
                         if accumulated.is_empty() {
                             accumulated = extract_content(endpoint, &json["response"])
                                 .or_else(|| fallback_content.clone())
@@ -301,13 +318,20 @@ pub async fn read_openai_responses_sse_stream(
                             "openai_responses_sse_completed",
                         );
                     }
-                    Some("response.failed") | Some("error") => {
-                        let message = json["response"]["error"]["message"]
-                            .as_str()
-                            .or_else(|| json["error"]["message"].as_str())
-                            .or_else(|| json["message"].as_str())
-                            .unwrap_or(data);
-                        let message = format!("Responses 流式错误: {}", message);
+                    Some("response.failed") | Some("error") | Some("response.incomplete") => {
+                        let response_error =
+                            extract_openai_compat_error_message(&json["response"].to_string())
+                                .or_else(|| extract_openai_compat_error_message(data));
+                        let message = response_error.unwrap_or_else(|| {
+                            let reason = json["response"]["incomplete_details"]["reason"].as_str();
+                            reason.map_or_else(|| data.to_string(), |r| format!("响应未完成: {r}"))
+                        });
+                        let prefix = if require_completed {
+                            "CHATGPT_PLAN_ERROR: "
+                        } else {
+                            ""
+                        };
+                        let message = format!("{prefix}Responses 流式错误: {message}");
                         emit_stream_error_event(app_handle, event_name, session_id, &message);
                         return Err(message);
                     }
@@ -320,6 +344,9 @@ pub async fn read_openai_responses_sse_stream(
                 return Err(message);
             }
             Ok(None) => {
+                if require_completed {
+                    return Err(incomplete_error());
+                }
                 return finalize_responses_sse_accumulated(
                     accumulated,
                     fallback_content,

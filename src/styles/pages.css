@@ -1769,13 +1769,56 @@
               transform var(--dur-3) var(--ease-out-expo);
 }
 
-.picker-trigger:hover:not([data-open="true"]) {
+.picker-trigger:hover:not(:disabled):not([data-open="true"]) {
   border-color: var(--color-border);
 }
 
 .picker-trigger:active {
   transform: scale(0.97);
   transition: transform var(--dur-1) var(--ease-micro);
+}
+
+.picker-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.chatgpt-account-picker strong {
+  overflow-wrap: anywhere;
+}
+
+.chatgpt-account-picker .picker-trigger > svg {
+  flex-shrink: 0;
+}
+
+.chatgpt-account-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.chatgpt-account-select {
+  min-width: 0;
+}
+
+.chatgpt-account-more {
+  width: 32px;
+  min-height: 32px;
+  padding: 4px;
+}
+
+.chatgpt-account-actions {
+  grid-column: 1 / -1;
+  padding: 4px 8px 8px;
+}
+
+.chatgpt-account-actions .settings-hint {
+  margin: 0 0 8px;
+}
+
+.chatgpt-account-remove {
+  color: var(--color-error);
 }
 
 .picker-trigger[data-open="true"] {
@@ -2396,6 +2439,7 @@
               margin-top var(--reveal-duration) cubic-bezier(0.2, 0.8, 0.2, 1),
               opacity 180ms var(--ease-out-expo);
 }
+
 .settings-reveal[data-open="true"] { grid-template-rows: 1fr; opacity: 1; margin-top: 0; }
 .settings-reveal-content { min-height: 0; overflow: hidden; }
 /* Pickers must be free to extend beyond the expanded form. */

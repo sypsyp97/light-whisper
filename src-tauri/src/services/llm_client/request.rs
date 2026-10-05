@@ -6,8 +6,9 @@ use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
 
 use super::protocol::{chat_output_token_limit_key, request_uses_responses_api};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct LlmRequestOptions<'a> {
+    pub auth_context: Option<(&'a tauri::AppHandle, &'a crate::state::AppState)>,
     pub stream: bool,
     pub json_output: bool,
     pub reasoning_mode: LlmReasoningMode,
@@ -29,6 +30,7 @@ pub struct LlmRequestOptions<'a> {
 impl Default for LlmRequestOptions<'_> {
     fn default() -> Self {
         Self {
+            auth_context: None,
             stream: false,
             json_output: false,
             reasoning_mode: LlmReasoningMode::ProviderDefault,

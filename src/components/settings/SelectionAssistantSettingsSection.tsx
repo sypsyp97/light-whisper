@@ -11,6 +11,7 @@ import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 import {
   findLlmPreset,
+  resolveModelId,
   llmProviderOptions,
   reasoningModeOptions,
 } from "@/lib/llmModelOptions";
@@ -158,7 +159,9 @@ export default function SelectionAssistantSettingsSection({
     : currentProvider.models.map((id) => ({ id }));
   const filteredModels = effectiveModels.filter((item) => {
     const keyword = modelSearch.trim().toLowerCase();
-    return !keyword || item.id.toLowerCase().includes(keyword) || (item.ownedBy ?? "").toLowerCase().includes(keyword);
+    return !keyword || item.id.toLowerCase().includes(keyword)
+      || (item.displayName ?? "").toLowerCase().includes(keyword)
+      || (item.ownedBy ?? "").toLowerCase().includes(keyword);
   });
   const selectedReasoning = reasoningModeOptions.find((item) => item.key === reasoning)
     ?? reasoningModeOptions[0];
@@ -447,7 +450,7 @@ export default function SelectionAssistantSettingsSection({
                       type="button"
                       className="picker-option picker-option-action"
                       onClick={() => {
-                        setModel(modelSearch.trim());
+                        setModel(resolveModelId(modelSearch, effectiveModels));
                         setModelSearch("");
                         picker.close();
                         scheduleSelectionConfigSave();
@@ -474,7 +477,7 @@ export default function SelectionAssistantSettingsSection({
                         }}
                       >
                         <span className="picker-option-copy">
-                          <strong>{item.id}</strong>
+                          <strong>{item.displayName || item.id}</strong>
                           <span>{item.ownedBy || currentProvider.label}</span>
                         </span>
                       </button>

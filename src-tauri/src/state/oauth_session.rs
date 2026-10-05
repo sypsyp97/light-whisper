@@ -69,6 +69,13 @@ impl<T: Clone> OAuthSessionState<T> {
         }
     }
 
+    pub async fn begin_login_after_refresh(&self) -> OAuthLoginOperation<'_, T> {
+        // Preserve a refresh-token rotation before a failed account switch can
+        // leave the previous session active. Pending logins block later refreshes.
+        let _guard = self.lock_refresh().await;
+        self.begin_login()
+    }
+
     pub fn snapshot_for_refresh(&self) -> Option<(OAuthOperation, T)> {
         let inner = self.inner.lock();
         if inner.login_pending || inner.pending_challenge.is_some() {
@@ -169,6 +176,42 @@ impl<T: Clone> OAuthSessionState<T> {
             return;
         }
         inner.generation = next_generation(inner.generation);
+    }
+
+    /// Retain an issued registration before token exchange without publishing
+    /// credentials. Cancellation/removal and progress use the same lock/epoch.
+    pub fn record_login_progress(
+        &self,
+        operation: OAuthOperation,
+        persist: impl FnOnce() -> Result<(), String>,
+    ) -> Result<bool, String> {
+        let inner = self.inner.lock();
+        if inner.generation != operation.0
+            || !inner.login_pending
+            || inner.login_owner != Some(operation)
+        {
+            return Ok(false);
+        }
+        persist()?;
+        Ok(true)
+    }
+
+    /// Update account records atomically with login publication. Invalidate a
+    /// matching session, preserve other accounts, and cancel pending logins.
+    pub fn invalidate_matching(
+        &self,
+        matches: impl FnOnce(&T) -> bool,
+        update: impl FnOnce(bool) -> Result<(), String>,
+    ) -> Result<Option<T>, String> {
+        let mut inner = self.inner.lock();
+        let matched = inner.session.as_ref().is_some_and(matches);
+        let removed = if matched { inner.session.take() } else { None };
+        inner.generation = next_generation(inner.generation);
+        inner.login_pending = false;
+        inner.login_owner = None;
+        inner.pending_challenge = None;
+        update(matched)?;
+        Ok(removed)
     }
 }
 

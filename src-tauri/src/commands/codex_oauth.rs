@@ -5,8 +5,25 @@ use crate::state::AppState;
 pub async fn login_openai_codex_oauth(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    client_id: Option<String>,
+    new_account: Option<bool>,
 ) -> Result<codex_oauth_service::OpenaiCodexOauthStatus, String> {
-    codex_oauth_service::login(&app_handle, state.inner()).await
+    codex_oauth_service::login(
+        &app_handle,
+        state.inner(),
+        client_id.as_deref(),
+        new_account.unwrap_or(false),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remove_chatgpt_account(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    client_id: String,
+) -> Result<codex_oauth_service::OpenaiCodexOauthStatus, String> {
+    codex_oauth_service::remove_account(&app_handle, state.inner(), &client_id).await
 }
 
 #[tauri::command]
@@ -30,7 +47,7 @@ pub async fn logout_openai_codex_oauth(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    codex_oauth_service::logout(&app_handle, state.inner())
+    codex_oauth_service::logout(&app_handle, state.inner()).await
 }
 
 #[tauri::command]

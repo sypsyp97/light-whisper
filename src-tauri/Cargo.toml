@@ -42,6 +42,8 @@ base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
 webbrowser = "1"
+# Existing TLS crypto dependency; verifies OpenAI's RS256 ID tokens.
+ring = "0.17"
 pinyin = { version = "0.11", default-features = false, features = ["plain"] }
 
 # 原生音频捕获

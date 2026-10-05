@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Mic, Eye, Keyboard, ClipboardPaste, AudioLines, AudioWaveform, Zap, Sparkles, BookOpen, Plus, X, Minus, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Mic, Eye, Keyboard, ClipboardPaste, AudioLines, AudioWaveform, Zap, Sparkles, BookOpen, Plus, X, Minus, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle, Ellipsis } from "lucide-react";
 import { toast } from "sonner";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
@@ -20,6 +20,7 @@ import {
   getAiPolishApiKey,
   getGrokBuildOauthStatus,
   getOpenaiCodexOauthStatus,
+  removeChatgptAccount,
   getUserProfile,
   addHotWord,
   listAiModels,
@@ -98,6 +99,7 @@ import {
 } from "@/lib/llmReasoningProbe";
 import {
   findLlmPreset,
+  resolveModelId,
   findReasoningModeOption,
   isFixedPresetProvider,
   llmProviderOptions,
@@ -348,7 +350,7 @@ export default function SettingsPage({
   }, [activeNavSection, active, t]);
 
   // --- Picker group (mutually exclusive dropdowns) ---
-  type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider" | "language" | "alibabaModel" | "engine";
+  type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider" | "language" | "alibabaModel" | "engine" | "chatgptAccount" | "assistantChatgptAccount" | "selectionChatgptAccount";
   const picker = useExclusivePicker<PickerId>();
   const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
   const modelSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -388,6 +390,10 @@ export default function SettingsPage({
   const [aiPolishApiKey, setAiPolishApiKey] = useState("");
   const [openaiCodexOauthStatus, setOpenaiCodexOauthStatus] = useState<OpenaiCodexOauthStatus>({ loggedIn: false });
   const [openaiCodexOauthLoading, setOpenaiCodexOauthLoading] = useState(false);
+  const [chatgptSelectedClientId, setChatgptSelectedClientId] = useState<string | null>(null);
+  const savedChatgptAccounts = openaiCodexOauthStatus.savedAccounts ?? [];
+  const chatgptLoginClientId = chatgptSelectedClientId ?? openaiCodexOauthStatus.clientId ?? savedChatgptAccounts[savedChatgptAccounts.length - 1]?.clientId;
+  const [chatgptAccountAction, setChatgptAccountAction] = useState<{ pickerId: string; clientId: string } | null>(null);
   const [openaiCodexOauthDeviceCode, setOpenaiCodexOauthDeviceCode] = useState<OpenaiCodexOauthDeviceCodeChallenge | null>(null);
   const [grokBuildOauthStatus, setGrokBuildOauthStatus] = useState<GrokBuildOauthStatus>({ loggedIn: false });
   const [grokBuildOauthLoading, setGrokBuildOauthLoading] = useState(false);
@@ -450,6 +456,8 @@ export default function SettingsPage({
   // 的默认推断逻辑完全对齐，避免 UI 显示和实际请求走向不一致。
   const effectiveOpenaiAuthMode: OpenaiAuthMode =
     openaiAuthMode ?? (openaiCodexOauthStatus.loggedIn ? "oauth" : "api_key");
+  const openaiPlanReady = openaiCodexOauthStatus.loggedIn
+    && openaiCodexOauthStatus.planUsageEnabled !== false;
   const effectiveXaiAuthModeValue: XaiAuthMode = effectiveXaiAuthMode({
     storedMode: xaiAuthMode,
     loggedIn: grokBuildOauthStatus.loggedIn,
@@ -457,14 +465,14 @@ export default function SettingsPage({
   const assistantUsesOpenaiOauth =
     effectiveAssistantProvider === "openai"
     && effectiveOpenaiAuthMode === "oauth"
-    && openaiCodexOauthStatus.loggedIn;
+    && openaiPlanReady;
   const polishHasAuth = shouldUseGrokBuildOauth({
     provider: llmProvider,
     authMode: effectiveXaiAuthModeValue,
     loggedIn: grokBuildOauthStatus.loggedIn,
   })
     || (llmProvider === "openai"
-      ? (effectiveOpenaiAuthMode === "oauth" ? openaiCodexOauthStatus.loggedIn : !!polishManualApiKey)
+      ? (effectiveOpenaiAuthMode === "oauth" ? openaiPlanReady : !!polishManualApiKey)
       : llmProvider !== "xai" && !!polishManualApiKey)
     || (llmProvider === "xai" && effectiveXaiAuthModeValue === "api_key" && !!polishManualApiKey);
   const assistantHasAuth = shouldUseGrokBuildOauth({
@@ -473,12 +481,14 @@ export default function SettingsPage({
     loggedIn: grokBuildOauthStatus.loggedIn,
   })
     || (effectiveAssistantProvider === "openai"
-      ? (effectiveOpenaiAuthMode === "oauth" ? openaiCodexOauthStatus.loggedIn : !!assistantManualApiKey)
+      ? (effectiveOpenaiAuthMode === "oauth" ? openaiPlanReady : !!assistantManualApiKey)
       : effectiveAssistantProvider !== "xai" && !!assistantManualApiKey)
     || (effectiveAssistantProvider === "xai" && effectiveXaiAuthModeValue === "api_key" && !!assistantManualApiKey);
   const oauthModelIdentity = [
     openaiCodexOauthStatus.loggedIn ? "connected" : "disconnected",
     openaiCodexOauthStatus.accountId ?? "",
+    openaiCodexOauthStatus.clientId ?? "",
+    openaiCodexOauthStatus.planUsageEnabled === false ? "plan-denied" : "plan-ready",
     openaiCodexOauthStatus.email ?? "",
   ].join(":");
   const grokOauthModelIdentity = [
@@ -1024,14 +1034,15 @@ export default function SettingsPage({
     assistantUseSeparateModel && effectiveAssistantProvider !== llmProvider;
   const finalizeOpenaiCodexOauthLogin = useCallback(async (loginStatus: OpenaiCodexOauthStatus) => {
     setOpenaiCodexOauthStatus(loginStatus);
+    setChatgptSelectedClientId(loginStatus.clientId ?? null);
     const refreshedStatus = await refreshOpenaiCodexOauthStatus();
     if (refreshedStatus.loggedIn) {
       setOpenaiCodexOauthStatus(refreshedStatus);
     }
-    if (llmProvider === "openai") {
+    if (llmProvider === "openai" && loginStatus.planUsageEnabled !== false) {
       void refreshAiModels(true);
     }
-    if (effectiveAssistantProvider === "openai") {
+    if (effectiveAssistantProvider === "openai" && loginStatus.planUsageEnabled !== false) {
       void refreshAssistantModels(true);
     }
     setOpenaiCodexOauthDeviceCode(null);
@@ -1107,15 +1118,45 @@ export default function SettingsPage({
   }, [effectiveAssistantProvider, invalidateModels, llmProvider, t]);
   const handleOpenaiCodexOauthLogin = useCallback(async () => {
     setOpenaiCodexOauthLoading(true);
+    const knownIds = new Set(openaiCodexOauthStatus.savedAccounts?.map((account) => account.clientId));
     try {
-      const loginStatus = await loginOpenaiCodexOauth();
+      const loginStatus = await loginOpenaiCodexOauth(chatgptLoginClientId || undefined, chatgptLoginClientId === "");
       await finalizeOpenaiCodexOauthLogin(loginStatus);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("toast.codexOauthLoginFailed"));
+      const status = await refreshOpenaiCodexOauthStatus();
+      const issued = status.savedAccounts?.find((account) => !knownIds.has(account.clientId));
+      if (issued) setChatgptSelectedClientId(issued.clientId);
     } finally {
       setOpenaiCodexOauthLoading(false);
     }
-  }, [finalizeOpenaiCodexOauthLogin, t]);
+  }, [chatgptLoginClientId, finalizeOpenaiCodexOauthLogin, openaiCodexOauthStatus.savedAccounts, refreshOpenaiCodexOauthStatus, t]);
+
+  const handleRemoveChatgptAccount = useCallback(async (clientId: string, accountPickerId: string) => {
+    setOpenaiCodexOauthLoading(true);
+    try {
+      const status = await removeChatgptAccount(clientId);
+      setOpenaiCodexOauthStatus(status);
+      toast.success(t("settings.chatgptRemoveSuccess"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("settings.chatgptRemoveFailed"));
+    } finally {
+      // Revocation can fail after successful local removal. Read authoritative
+      // state on both paths so the deleted record cannot reappear in the UI.
+      const status = await refreshOpenaiCodexOauthStatus();
+      if (openaiCodexOauthStatus.loggedIn && !status.loggedIn) {
+        invalidateModels({ clearPolish: llmProvider === "openai", clearAssistant: effectiveAssistantProvider === "openai" });
+      }
+      setChatgptSelectedClientId((selected) => selected === clientId ? null : selected);
+      setChatgptAccountAction(null);
+      setOpenaiCodexOauthDeviceCode(null);
+      picker.close();
+      setOpenaiCodexOauthLoading(false);
+      if (!status.savedAccounts?.length) {
+        window.requestAnimationFrame(() => document.getElementById(`${accountPickerId}-sign-in`)?.focus());
+      }
+    }
+  }, [effectiveAssistantProvider, invalidateModels, llmProvider, openaiCodexOauthStatus.loggedIn, picker, refreshOpenaiCodexOauthStatus, t]);
   const handleOpenaiCodexOauthDeviceCodeStart = useCallback(async () => {
     setOpenaiCodexOauthLoading(true);
     try {
@@ -1155,9 +1196,11 @@ export default function SettingsPage({
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("toast.codexOauthLogoutFailed"));
     } finally {
+      await refreshOpenaiCodexOauthStatus();
+      setChatgptSelectedClientId(null);
       setOpenaiCodexOauthLoading(false);
     }
-  }, [effectiveAssistantProvider, invalidateModels, llmProvider, t]);
+  }, [effectiveAssistantProvider, invalidateModels, llmProvider, refreshOpenaiCodexOauthStatus, t]);
   const handleOpenaiFastModeToggle = useCallback((enabled: boolean) => {
     setOpenaiFastModeState(enabled);
     setOpenaiFastMode(enabled).catch(() => {
@@ -1261,6 +1304,8 @@ export default function SettingsPage({
   const renderOpenaiCodexOauthBlock = useCallback((
     scope: "polish" | "assistant",
     forceVisible = false,
+    accountPickerId: "chatgptAccount" | "assistantChatgptAccount" | "selectionChatgptAccount"
+      = scope === "polish" ? "chatgptAccount" : "assistantChatgptAccount",
   ) => {
     const visible = forceVisible
       || (scope === "polish" ? llmProvider === "openai" : effectiveAssistantProvider === "openai");
@@ -1270,10 +1315,12 @@ export default function SettingsPage({
     const summaryParts = [
       openaiCodexOauthStatus.email,
       openaiCodexOauthStatus.planType,
-      openaiCodexOauthStatus.accountId
+      !openaiCodexOauthStatus.email && openaiCodexOauthStatus.accountId
         ? t("settings.codexOauthAccountSummary", { accountId: openaiCodexOauthStatus.accountId })
         : null,
     ].filter(Boolean);
+    const selectedClientId = chatgptLoginClientId ?? "";
+    const selectedAccount = openaiCodexOauthStatus.savedAccounts?.find((account) => account.clientId === selectedClientId);
 
     return (
       <div className="settings-column" style={{ gap: 6 }}>
@@ -1283,9 +1330,90 @@ export default function SettingsPage({
             ? t("settings.codexOauthConnectedHint", { summary: summaryParts.join(" · ") || "OpenAI" })
             : t("settings.codexOauthHint")}
         </p>
+        {loggedIn && openaiCodexOauthStatus.planUsageEnabled === false ? (
+          <p className="settings-hint" role="status">{t("settings.chatgptPlanPermissionMissing")}</p>
+        ) : null}
+        {(openaiCodexOauthStatus.savedAccounts?.length ?? 0) > 0 ? (
+          <div className="settings-column" style={{ gap: 6 }}>
+            <span className="settings-option-desc">{t("settings.chatgptAccountPicker")}</span>
+            <div className="picker-shell chatgpt-account-picker" ref={picker.setRef(accountPickerId)}>
+              <button
+                type="button"
+                className="picker-trigger"
+                data-open={picker.isOpen(accountPickerId)}
+                aria-haspopup="dialog"
+                aria-expanded={picker.isExpanded(accountPickerId)}
+                aria-label={t("settings.chatgptAccountPicker")}
+                onClick={() => { setChatgptAccountAction(null); picker.toggle(accountPickerId); }}
+                disabled={openaiCodexOauthLoading}
+              >
+                <span className="picker-trigger-copy">
+                  <strong>{selectedAccount?.email || selectedAccount?.clientId || t("settings.chatgptAddAccount")}</strong>
+                  {selectedAccount?.email ? <span>{selectedAccount.clientId.slice(-8)}</span> : null}
+                  {selectedAccount?.pending ? <span>{t("settings.chatgptPendingSignIn")}</span> : null}
+                </span>
+                <ChevronsUpDown size={14} className="icon-tertiary" />
+              </button>
+              {picker.isOpen(accountPickerId) ? (
+                <div className={picker.popoverClass(accountPickerId)} role="dialog" aria-label={t("settings.chatgptAccountPicker")} aria-hidden={!picker.isExpanded(accountPickerId)} inert={!picker.isExpanded(accountPickerId)}>
+                  <div className="picker-list">
+                    {openaiCodexOauthStatus.savedAccounts?.map((account, index) => (
+                      <div key={account.clientId} className="chatgpt-account-row">
+                        <button
+                          type="button"
+                          className="picker-option chatgpt-account-select"
+                          data-active={account.clientId === selectedClientId}
+                          aria-pressed={account.clientId === selectedClientId}
+                          disabled={openaiCodexOauthLoading}
+                          onClick={() => { setChatgptSelectedClientId(account.clientId); picker.close(); }}
+                        >
+                          <span className="picker-option-copy">
+                            <strong>{account.email || account.clientId}</strong>
+                            {account.email ? <span>{account.clientId.slice(-8)}</span> : null}
+                            {account.pending ? <span>{t("settings.chatgptPendingSignIn")}</span> : null}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost chatgpt-account-more"
+                          aria-label={t("settings.chatgptAccountActions", { account: `${account.email || account.clientId} · ${account.clientId.slice(-8)}` })}
+                          aria-expanded={chatgptAccountAction?.pickerId === accountPickerId && chatgptAccountAction.clientId === account.clientId}
+                          aria-controls={`${accountPickerId}-actions-${index}`}
+                          disabled={openaiCodexOauthLoading}
+                          onClick={() => setChatgptAccountAction((current) => current?.pickerId === accountPickerId && current.clientId === account.clientId ? null : { pickerId: accountPickerId, clientId: account.clientId })}
+                        ><Ellipsis size={16} /></button>
+                        {chatgptAccountAction?.pickerId === accountPickerId && chatgptAccountAction.clientId === account.clientId ? (
+                          <div id={`${accountPickerId}-actions-${index}`} className="chatgpt-account-actions" ref={(element) => { element?.scrollIntoView?.({ block: "nearest" }); }}>
+                            <p className="settings-hint">{t(openaiCodexOauthStatus.clientId === account.clientId ? "settings.chatgptRemoveActiveHint" : "settings.chatgptRemoveHint")}</p>
+                            <button type="button" className="btn-ghost btn-ghost-sm chatgpt-account-remove" disabled={openaiCodexOauthLoading} onClick={() => { void handleRemoveChatgptAccount(account.clientId, accountPickerId); }}>
+                              <Trash2 size={14} /> {t("settings.chatgptRemoveAccount")}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="picker-option"
+                      data-active={selectedClientId === ""}
+                      aria-pressed={selectedClientId === ""}
+                      disabled={openaiCodexOauthLoading}
+                      onClick={() => { setChatgptSelectedClientId(""); picker.close(); }}
+                    >
+                      <span className="picker-option-copy">
+                        <strong><Plus size={12} /> {t("settings.chatgptAddAccount")}</strong>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <div className="settings-row" style={{ gap: 8, alignItems: "center" }}>
           <button
             type="button"
+            id={`${accountPickerId}-sign-in`}
             className="test-btn"
             onClick={() => { void handleOpenaiCodexOauthLogin(); }}
             disabled={openaiCodexOauthLoading}
@@ -1385,7 +1513,7 @@ export default function SettingsPage({
         ) : null}
       </div>
     );
-  }, [effectiveAssistantProvider, effectiveOpenaiAuthMode, handleOpenaiCodexOauthDeviceCodeComplete, handleOpenaiCodexOauthDeviceCodeStart, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, handleOpenaiFastModeToggle, llmProvider, openaiCodexOauthDeviceCode, openaiCodexOauthLoading, openaiCodexOauthStatus, openaiFastMode, t]);
+  }, [chatgptAccountAction, chatgptLoginClientId, effectiveAssistantProvider, effectiveOpenaiAuthMode, handleOpenaiCodexOauthDeviceCodeComplete, handleOpenaiCodexOauthDeviceCodeStart, handleOpenaiCodexOauthLogin, handleOpenaiCodexOauthLogout, handleOpenaiFastModeToggle, handleRemoveChatgptAccount, llmProvider, openaiCodexOauthDeviceCode, openaiCodexOauthLoading, openaiCodexOauthStatus, openaiFastMode, picker, t]);
 
   const renderXaiAuthModeToggle = useCallback(() => (
     <div className="settings-column" style={{ gap: 6 }}>
@@ -1548,7 +1676,9 @@ export default function SettingsPage({
   const filteredAiModels = useMemo(() => aiModels.filter((model) => {
     const keyword = aiModelSearch.trim().toLowerCase();
     if (!keyword) return true;
-    return model.id.toLowerCase().includes(keyword) || (model.ownedBy ?? "").toLowerCase().includes(keyword);
+    return model.id.toLowerCase().includes(keyword)
+      || (model.displayName ?? "").toLowerCase().includes(keyword)
+      || (model.ownedBy ?? "").toLowerCase().includes(keyword);
   }), [aiModels, aiModelSearch]);
   const effectiveAssistantModels = assistantProviderDiffers
     ? assistantModels
@@ -1556,7 +1686,9 @@ export default function SettingsPage({
   const filteredAssistantModels = useMemo(() => effectiveAssistantModels.filter((model) => {
     const keyword = assistantModelSearch.trim().toLowerCase();
     if (!keyword) return true;
-    return model.id.toLowerCase().includes(keyword) || (model.ownedBy ?? "").toLowerCase().includes(keyword);
+    return model.id.toLowerCase().includes(keyword)
+      || (model.displayName ?? "").toLowerCase().includes(keyword)
+      || (model.ownedBy ?? "").toLowerCase().includes(keyword);
   }), [effectiveAssistantModels, assistantModelSearch]);
   const selectedAiModel = aiModels.find((model) => model.id === customModel);
   const selectedAssistantAiModel = effectiveAssistantModels.find((model) => model.id === assistantModel);
@@ -1628,7 +1760,7 @@ export default function SettingsPage({
   ]);
 
   const handleModelSelect = useCallback((nextModel: string) => {
-    const normalizedModel = nextModel.trim();
+    const normalizedModel = resolveModelId(nextModel, aiModels);
     if (!normalizedModel) return;
     const nextAssistantModel = resolveAssistantModelState({
       assistantUseSeparateModel,
@@ -1653,7 +1785,7 @@ export default function SettingsPage({
     if (!assistantUseSeparateModel) {
       setAssistantModel(normalizedModel);
     }
-  }, [assistantModel, assistantProviderToPersist, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, llmProvider, picker, polishReasoningMode, llmConfigSave, updateProviderDraft]);
+  }, [aiModels, assistantModel, assistantProviderToPersist, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, llmProvider, picker, polishReasoningMode, llmConfigSave, updateProviderDraft]);
 
   const handleAssistantModelToggle = useCallback((enabled: boolean) => {
     setAssistantUseSeparateModel(enabled);
@@ -1720,7 +1852,7 @@ export default function SettingsPage({
   }, [assistantProvider, assistantReasoningMode, customBaseUrl, customModel, customProviders, llmConfigSave, llmProvider, picker, polishReasoningMode, refreshAssistantKey]);
 
   const handleAssistantModelSelect = useCallback((nextModel: string) => {
-    const normalizedModel = nextModel.trim();
+    const normalizedModel = resolveModelId(nextModel, effectiveAssistantModels);
     if (!normalizedModel) return;
     setAssistantModel(normalizedModel);
     picker.close();
@@ -1735,7 +1867,7 @@ export default function SettingsPage({
       normalizedModel,
       assistantProviderToPersist,
     );
-  }, [assistantProviderToPersist, assistantReasoningMode, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, llmConfigSave]);
+  }, [assistantProviderToPersist, assistantReasoningMode, customBaseUrl, customModel, effectiveAssistantModels, llmProvider, picker, polishReasoningMode, llmConfigSave]);
 
   const handleTranslationSelect = useCallback(async (target: string | null) => {
     setTranslationTargetState(target);
@@ -3021,7 +3153,7 @@ export default function SettingsPage({
                               onClick={() => handleModelSelect(model.id)}
                             >
                               <span className="picker-option-copy">
-                                <strong>{model.id}</strong>
+                                <strong>{model.displayName || model.id}</strong>
                                 <span>{model.ownedBy || currentLlmPreset.label}</span>
                               </span>
                             </button>
@@ -3162,7 +3294,7 @@ export default function SettingsPage({
                         provider={screenVisionProvider}
                         baseUrl={screenVisionBaseUrl}
                         apiKey={screenVisionApiKey}
-                        loggedIn={openaiCodexOauthStatus.loggedIn}
+                        loggedIn={openaiPlanReady}
                         authIdentity={oauthModelIdentity}
                         openaiAuthMode={screenVisionProvider === "openai"
                           ? effectiveOpenaiAuthMode
@@ -3561,7 +3693,7 @@ export default function SettingsPage({
                               onClick={() => handleAssistantModelSelect(model.id)}
                             >
                               <span className="picker-option-copy">
-                                <strong>{model.id}</strong>
+                                <strong>{model.displayName || model.id}</strong>
                                 <span>{model.ownedBy || currentAssistantPreset.label}</span>
                               </span>
                             </button>
@@ -3667,13 +3799,13 @@ export default function SettingsPage({
           <SelectionAssistantSettingsSection
             profile={profile}
             openaiAuthMode={effectiveOpenaiAuthMode}
-            openaiOauthLoggedIn={openaiCodexOauthStatus.loggedIn}
+            openaiOauthLoggedIn={openaiPlanReady}
             xaiAuthMode={effectiveXaiAuthModeValue}
             grokOauthLoggedIn={grokBuildOauthStatus.loggedIn}
             openaiControls={(
               <>
                 {renderOpenaiAuthModeToggle()}
-                {renderOpenaiCodexOauthBlock("assistant", true)}
+                {renderOpenaiCodexOauthBlock("assistant", true, "selectionChatgptAccount")}
               </>
             )}
             grokAuthToggle={renderXaiAuthModeToggle()}

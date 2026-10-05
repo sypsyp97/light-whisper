@@ -5,6 +5,103 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::task::{Context, Poll, Wake, Waker};
 use std::thread;
 
+#[test]
+fn account_removal_cancels_pending_login_without_signing_out_another_account() {
+    let state = OAuthSessionState::default();
+    state.restore(Some("active-account".to_string()));
+    let login = state.begin_login();
+    let token = login.token();
+    let mut removed = false;
+    state
+        .invalidate_matching(
+            |s| s == "removed-account",
+            |active| {
+                assert!(!active);
+                removed = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert!(removed);
+    assert_eq!(state.read().as_deref(), Some("active-account"));
+    assert_eq!(
+        state.commit(token, "removed-account".to_string(), |_| panic!(
+            "late login must not persist"
+        )),
+        Ok(false)
+    );
+    assert!(state.snapshot_for_refresh().is_some());
+}
+
+#[test]
+fn failed_account_removal_keeps_the_current_session() {
+    let state = OAuthSessionState::default();
+    state.restore(Some("active-account".to_string()));
+    assert!(state
+        .invalidate_matching(|s| s == "other-account", |_| Err("storage failure".into()))
+        .is_err());
+    assert_eq!(state.read().as_deref(), Some("active-account"));
+}
+
+#[test]
+fn active_account_removal_invalidates_refresh_even_if_storage_fails() {
+    let state = OAuthSessionState::default();
+    state.restore(Some("removed-account".to_string()));
+    let (refresh, _) = state.snapshot_for_refresh().unwrap();
+    assert!(state
+        .invalidate_matching(
+            |s| s == "removed-account",
+            |active| {
+                assert!(active);
+                Err("storage failure".into())
+            }
+        )
+        .is_err());
+    assert!(state.read().is_none());
+    assert_eq!(
+        state.commit(refresh, "removed-account".to_string(), |_| panic!(
+            "late refresh must not persist"
+        )),
+        Ok(false)
+    );
+}
+
+#[test]
+fn removal_checks_the_current_account_after_a_concurrent_switch() {
+    let state = OAuthSessionState::default();
+    state.restore(Some("old-account".to_string()));
+    let login = state.begin_login();
+    assert_eq!(
+        state.commit(login.token(), "new-account".to_string(), |_| Ok(())),
+        Ok(true)
+    );
+    assert!(state
+        .invalidate_matching(
+            |s| s == "old-account",
+            |active| {
+                assert!(!active);
+                Ok(())
+            }
+        )
+        .unwrap()
+        .is_none());
+    assert_eq!(state.read().as_deref(), Some("new-account"));
+}
+
+#[test]
+fn pending_registration_progress_cannot_recreate_a_removed_or_signed_out_record() {
+    let state = OAuthSessionState::<String>::default();
+    let login = state.begin_login();
+    let token = login.token();
+    assert_eq!(state.record_login_progress(token, || Ok(())), Ok(true));
+    assert!(state.read().is_none()); // No credentials published before identity verification.
+    state.invalidate_matching(|_| false, |_| Ok(())).unwrap();
+    assert_eq!(
+        state.record_login_progress(token, || panic!("removed registration must stay removed")),
+        Ok(false)
+    );
+}
+
 fn with_session(session: &str) -> OAuthSessionState<String> {
     let state = OAuthSessionState::default();
     state.restore(Some(session.to_owned()));
@@ -382,6 +479,29 @@ async fn refresh_lock_keeps_second_future_pending_until_first_releases() {
         Poll::Pending => panic!("second refresh remained pending after release"),
     };
     drop(second_guard);
+}
+
+#[tokio::test]
+async fn account_switch_waits_for_rotated_token_and_failed_login_keeps_it() {
+    let state = with_session("old-refresh-token");
+    let refresh_guard = state.lock_refresh().await;
+    let (operation, _) = state.snapshot_for_refresh().unwrap();
+    let mut switch = Box::pin(state.begin_login_after_refresh());
+    let waker = Waker::from(Arc::new(NoopWaker));
+    let mut context = Context::from_waker(&waker);
+    assert!(matches!(switch.as_mut().poll(&mut context), Poll::Pending));
+    assert_eq!(
+        state.commit(operation, "rotated-refresh-token".into(), |_| Ok(())),
+        Ok(true)
+    );
+    drop(refresh_guard);
+    let login = switch.await;
+    assert!(state.snapshot_for_refresh().is_none());
+    drop(login); // Browser cancellation or a failed exchange.
+    assert_eq!(
+        state.snapshot_for_refresh().unwrap().1,
+        "rotated-refresh-token"
+    );
 }
 
 #[tokio::test]

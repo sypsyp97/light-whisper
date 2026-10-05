@@ -5,6 +5,7 @@ import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { listAiModels } from "@/api/tauri";
 import { shouldUseGrokBuildOauth } from "@/lib/grokBuildAuth";
+import { resolveModelId } from "@/lib/llmModelOptions";
 import type { AiModelInfo, OpenaiAuthMode, XaiAuthMode } from "@/types";
 import ScreenVisionAuth from "@/components/settings/ScreenVisionAuth";
 
@@ -75,6 +76,7 @@ export default function ScreenVisionModelPicker({
     const keyword = search.trim().toLowerCase();
     if (!keyword) return models;
     return models.filter((item) => item.id.toLowerCase().includes(keyword)
+      || (item.displayName ?? "").toLowerCase().includes(keyword)
       || (item.ownedBy ?? "").toLowerCase().includes(keyword));
   }, [models, search]);
   const selectedModel = models.find((item) => item.id === model);
@@ -135,7 +137,7 @@ export default function ScreenVisionModelPicker({
   }, [fetchModels, requestContext]);
 
   const select = (value: string) => {
-    const normalized = value.trim();
+    const normalized = resolveModelId(value, models);
     if (!normalized) return;
     onSelect(normalized);
     setSearch("");
@@ -245,7 +247,7 @@ export default function ScreenVisionModelPicker({
                 onClick={() => select(item.id)}
               >
                 <span className="picker-option-copy">
-                  <strong>{item.id}</strong>
+                  <strong>{item.displayName || item.id}</strong>
                   <span>{item.ownedBy || provider}</span>
                 </span>
               </button>

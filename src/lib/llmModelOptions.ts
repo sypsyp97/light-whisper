@@ -1,4 +1,12 @@
-import type { LlmReasoningMode } from "@/types";
+import type { AiModelInfo, LlmReasoningMode } from "@/types";
+
+export function resolveModelId(value: string, models: readonly AiModelInfo[]): string {
+  const normalized = value.trim();
+  const keyword = normalized.toLowerCase();
+  return models.find((model) => model.id.toLowerCase() === keyword)?.id
+    ?? models.find((model) => model.displayName?.trim().toLowerCase() === keyword)?.id
+    ?? normalized;
+}
 
 export interface LlmProviderOption {
   key: string;

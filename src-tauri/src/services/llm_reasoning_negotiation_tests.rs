@@ -1944,6 +1944,71 @@ async fn open_sse_response(body: &str) -> (reqwest::Response, tokio::task::JoinH
     (response, server)
 }
 
+async fn request_chatgpt_plan_stream(body: &str) -> Result<String, String> {
+    use base64::Engine;
+    let (url, server) = spawn_sse_response_server(body).await;
+    let endpoint = unknown_openai_compat_endpoint(
+        "openai",
+        &url.replace("/stream", "/responses"),
+        "test-plan-model",
+    );
+    let auth = format!(
+        "openai-chatgpt-plan:{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(r#"{"access_token":"test-plan-token","account_id":"oaiapp_test"}"#)
+    );
+    let options = LlmRequestOptions::default();
+    let request = build_llm_body(&endpoint, "polish", &LlmUserInput::from("hello"), options);
+    let result = llm_client::send_llm_request(
+        &reqwest::Client::new(),
+        &endpoint,
+        &auth,
+        &request,
+        5,
+        None,
+        options,
+    )
+    .await;
+    server.await.expect("SSE server should finish");
+    result
+}
+
+#[tokio::test]
+async fn chatgpt_plan_stream_requires_completed_and_rejects_partial_results() {
+    let delta = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n";
+    for ending in [
+        "",
+        "data: [DONE]\n\n",
+        "data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n",
+    ] {
+        let result = request_chatgpt_plan_stream(&format!("{delta}{ending}")).await;
+        assert!(result.is_err(), "unfinished plan response was accepted: {result:?}");
+    }
+    let complete = format!("{delta}data: {{\"type\":\"response.completed\",\"response\":{{\"status\":\"completed\"}}}}\n\n");
+    assert_eq!(
+        request_chatgpt_plan_stream(&complete).await.as_deref(),
+        Ok("partial")
+    );
+}
+
+#[tokio::test]
+async fn chatgpt_plan_stream_error_preserves_code_and_stops_transport_fallback() {
+    for code in [
+        "subscription_sharing_usage_limit_exceeded",
+        "subscription_sharing_user_not_eligible",
+        "chatpass_v2_scope_not_authorized",
+    ] {
+        let event = format!("data: {{\"type\":\"response.failed\",\"response\":{{\"error\":{{\"code\":\"{code}\",\"message\":\"Request rejected\",\"param\":\"grant\"}}}}}}\n\n");
+        let error = request_chatgpt_plan_stream(&event).await.unwrap_err();
+        assert!(error.contains(code), "lost code: {error}");
+        assert!(error.contains("param: grant"), "lost parameter: {error}");
+        assert!(
+            llm_client::is_terminal_provider_error(&error),
+            "repeated plan request: {error}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn chat_sse_loopback_accumulates_content_until_done() {
     let body = concat!(
@@ -2005,6 +2070,7 @@ async fn responses_sse_loopback_accumulates_delta_content() {
         None,
         None,
         std::time::Duration::from_secs(5),
+        false,
     )
     .await;
     server.await.expect("SSE server should finish");
@@ -2024,6 +2090,7 @@ async fn responses_sse_loopback_surfaces_failed_response() {
         None,
         None,
         std::time::Duration::from_secs(5),
+        false,
     )
     .await;
     server.await.expect("SSE server should finish");

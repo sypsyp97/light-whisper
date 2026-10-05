@@ -27,7 +27,7 @@ describe("selection assistant independent model settings contract", () => {
   it("exposes the same OpenAI authentication and Codex login controls", () => {
     expect(selectionSettings).toContain("openaiControls");
     expect(settingsPage).toMatch(
-      /openaiControls={[\s\S]*renderOpenaiAuthModeToggle\(\)[\s\S]*renderOpenaiCodexOauthBlock\("assistant", true\)/,
+      /openaiControls={[\s\S]*renderOpenaiAuthModeToggle\(\)[\s\S]*renderOpenaiCodexOauthBlock\("assistant", true, "selectionChatgptAccount"\)/,
     );
   });
 

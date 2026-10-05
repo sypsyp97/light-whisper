@@ -360,6 +360,10 @@ async fn send_selection_request(
     user_content_len: usize,
     options: LlmRequestOptions<'_>,
 ) -> Result<String, String> {
+    let options = LlmRequestOptions {
+        auth_context: Some((app_handle, state)),
+        ..options
+    };
     let body = llm_client::build_llm_body(endpoint, SELECTION_SYSTEM_PROMPT.trim(), input, options);
     let content = llm_client::send_llm_request(
         &state.http_client,
@@ -400,6 +404,7 @@ async fn send_selection_with_transport_fallback(
     .await
     {
         Ok(content) => return Ok(content),
+        Err(error) if llm_client::is_terminal_provider_error(&error) => return Err(error),
         Err(error)
             if !input.images.is_empty()
                 && llm_provider::looks_like_image_input_unsupported_error(&error) =>

@@ -41,6 +41,21 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("ChatGPT registration IPC", () => {
+  it("distinguishes returning sign-in from explicit new registration", async () => {
+    const { loginOpenaiCodexOauth, removeChatgptAccount } = await import("@/api/tauri");
+    invokeMock.invoke.mockResolvedValue({ loggedIn: false });
+    await loginOpenaiCodexOauth();
+    expect(invokeMock.invoke).toHaveBeenLastCalledWith("login_openai_codex_oauth", { clientId: null, newAccount: false });
+    await loginOpenaiCodexOauth("oaiapp_saved");
+    expect(invokeMock.invoke).toHaveBeenLastCalledWith("login_openai_codex_oauth", { clientId: "oaiapp_saved", newAccount: false });
+    await loginOpenaiCodexOauth(undefined, true);
+    expect(invokeMock.invoke).toHaveBeenLastCalledWith("login_openai_codex_oauth", { clientId: null, newAccount: true });
+    await removeChatgptAccount("oaiapp_saved");
+    expect(invokeMock.invoke).toHaveBeenLastCalledWith("remove_chatgpt_account", { clientId: "oaiapp_saved" });
+  });
+});
+
 describe("normalizeInvokeError -> IpcError", () => {
   it("structured_error_object_becomes_IpcError", async () => {
     const mod = await import("@/api/tauri");

@@ -14,6 +14,7 @@ static OUTPUT_TOKEN_LIMIT_UNSUPPORTED_CACHE: OnceLock<parking_lot::Mutex<HashSet
 
 pub(crate) fn uses_codex_chatgpt_backend(endpoint: &LlmEndpoint, api_key: &str) -> bool {
     endpoint.provider == "openai"
+        && !codex_oauth_service::is_chatgpt_plan_auth(api_key)
         && codex_oauth_service::decode_chatgpt_bearer_token(api_key).is_some()
 }
 
@@ -106,6 +107,34 @@ pub(crate) fn adapt_body_for_backend(
         return adapted;
     }
 
+    let uses_plan =
+        endpoint.provider == "openai" && codex_oauth_service::is_chatgpt_plan_auth(api_key);
+    if uses_plan {
+        if let Some(map) = adapted.as_object_mut() {
+            for key in [
+                "background",
+                "conversation",
+                "max_output_tokens",
+                "max_tool_calls",
+                "metadata",
+                "moderation",
+                "multi_agent",
+                "prompt",
+                "prompt_cache_retention",
+                "safety_identifier",
+                "temperature",
+                "top_logprobs",
+                "top_p",
+                "truncation",
+                "user",
+                "previous_response_id",
+                "max_tokens",
+                "max_completion_tokens",
+            ] {
+                map.remove(key);
+            }
+        }
+    }
     if uses_chatgpt_backend {
         // The ChatGPT Codex backend rejects this Responses API field, so avoid
         // a guaranteed failed first request before the compatibility retry.
@@ -113,7 +142,7 @@ pub(crate) fn adapt_body_for_backend(
     }
 
     if let Some(map) = adapted.as_object_mut() {
-        if uses_chatgpt_backend {
+        if uses_chatgpt_backend || uses_plan {
             map.insert("store".to_string(), serde_json::json!(false));
             if uses_responses_api(endpoint) {
                 map.insert("stream".to_string(), serde_json::json!(true));
@@ -278,9 +307,24 @@ pub(crate) fn extract_openai_compat_error_message(body_text: &str) -> Option<Str
 
     let message = error["message"]
         .as_str()
+        .or_else(|| json["detail"].as_str())
         .or_else(|| json["message"].as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
+
+    let guidance = match error["code"].as_str() {
+        Some("subscription_sharing_usage_limit_exceeded") => {
+            Some("轻语的 ChatGPT 套餐额度已达上限，请在 ChatGPT 设置的 Usage 页面查看额度。")
+        }
+        Some("subscription_sharing_user_not_eligible") => {
+            Some("当前 ChatGPT 账户或工作区未获准使用套餐接入，请检查账户与工作区权限。")
+        }
+        Some("subscription_sharing_usage_unavailable") => {
+            Some("暂时无法检查 ChatGPT 套餐额度，请稍后重试。")
+        }
+        _ => None,
+    };
+    let message = guidance.unwrap_or(message);
 
     let mut details = Vec::new();
     if let Some(code) = error["code"]
@@ -305,6 +349,23 @@ pub(crate) fn extract_openai_compat_error_message(body_text: &str) -> Option<Str
     } else {
         Some(format!("{} ({})", message, details.join(", ")))
     }
+}
+
+/// Terminal auth/policy/quota failures cannot be recovered by changing transport.
+pub(crate) fn is_terminal_provider_error(error: &str) -> bool {
+    error.contains("CHATGPT_PLAN_ERROR:")
+        || error.contains("API 返回错误 401")
+        || error.contains("API 返回错误 402")
+        || error.contains("API 返回错误 403")
+        || error.contains("subscription_sharing_usage_limit_exceeded")
+        || error.contains("subscription_sharing_user_not_eligible")
+        || error.contains("CHATGPT_REAUTH_REQUIRED")
+        || error.contains("CODEX_REAUTH_REQUIRED")
+        || error.contains("认证路线已更新")
+        || error.contains("账户已切换")
+        || error.contains("已退出登录")
+        || error.contains("登录已失效")
+        || error.contains("套餐使用未获授权")
 }
 
 pub(crate) fn extract_api_error_message(endpoint: &LlmEndpoint, body_text: &str) -> String {

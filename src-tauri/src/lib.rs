@@ -256,6 +256,7 @@ pub fn run() {
             commands::codex_oauth::start_openai_codex_oauth_device_code,
             commands::codex_oauth::complete_openai_codex_oauth_device_code,
             commands::codex_oauth::logout_openai_codex_oauth,
+            commands::codex_oauth::remove_chatgpt_account,
             commands::codex_oauth::get_openai_codex_oauth_status,
             commands::grok_build_oauth::login_grok_build_oauth,
             commands::grok_build_oauth::start_grok_build_oauth_device_code,

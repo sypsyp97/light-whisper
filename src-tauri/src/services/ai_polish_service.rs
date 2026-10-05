@@ -391,6 +391,7 @@ pub(crate) fn ai_polish_transport_plan(
     prefer_streaming_after_partial: bool,
 ) -> [LlmRequestOptions<'static>; 4] {
     let stage1 = LlmRequestOptions {
+        auth_context: None,
         stream: true,
         json_output: true,
         reasoning_mode,
@@ -402,6 +403,7 @@ pub(crate) fn ai_polish_transport_plan(
         stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
     let stream_nojson = LlmRequestOptions {
+        auth_context: None,
         stream: true,
         json_output: false,
         reasoning_mode,
@@ -413,6 +415,7 @@ pub(crate) fn ai_polish_transport_plan(
         stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
     let nostream_json = LlmRequestOptions {
+        auth_context: None,
         stream: false,
         json_output: true,
         reasoning_mode,
@@ -424,6 +427,7 @@ pub(crate) fn ai_polish_transport_plan(
         stream_total_timeout_secs: Some(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
     };
     let nostream_nojson = LlmRequestOptions {
+        auth_context: None,
         stream: false,
         json_output: false,
         reasoning_mode,
@@ -469,12 +473,15 @@ async fn send_llm_request_with_transport_fallback(
             profile.llm_provider.openai_fast_mode,
         )
     });
-    let apply_fast = |mut stage: LlmRequestOptions<'static>| -> LlmRequestOptions<'static> {
+    let apply_fast = |mut stage: LlmRequestOptions<'static>| {
         stage.openai_fast_mode = fast_mode;
         if !emit_status {
             stage.stream_event = None;
         }
-        stage
+        LlmRequestOptions {
+            auth_context: Some((app_handle, state)),
+            ..stage
+        }
     };
     let _ = state.take_ai_polish_stream_started(session_id);
     let [stage1, _, _, _] = ai_polish_transport_plan(reasoning_mode, session_id, false);
@@ -499,10 +506,12 @@ async fn send_llm_request_with_transport_fallback(
             // 空响应是模型/prompt 层面的问题，换 transport 大概率仍然回空——
             // 直接抛错，省下 3 次 LLM 请求；用户能从错误里看到 provider/model
             // 诊断信息。
-            if llm_client::is_empty_llm_response_error(&err) {
+            if llm_client::is_empty_llm_response_error(&err)
+                || llm_client::is_terminal_provider_error(&err)
+            {
                 let _ = state.take_ai_polish_stream_started(session_id);
                 log::warn!(
-                    "AI 润色 {} 收到空响应，跳过 transport fallback: {}",
+                    "AI 润色 {} 遇到不可通过传输回退恢复的错误: {}",
                     ai_polish_transport_label(&stage1),
                     err
                 );
@@ -549,10 +558,13 @@ async fn send_llm_request_with_transport_fallback(
                 let _ = state.take_ai_polish_stream_started(session_id);
                 return Ok(content);
             }
-            Err(err) if llm_client::is_empty_llm_response_error(&err) => {
+            Err(err)
+                if llm_client::is_empty_llm_response_error(&err)
+                    || llm_client::is_terminal_provider_error(&err) =>
+            {
                 let _ = state.take_ai_polish_stream_started(session_id);
                 log::warn!(
-                    "AI 润色 {} 收到空响应，停止剩余 fallback: {}",
+                    "AI 润色 {} 遇到不可通过传输回退恢复的错误，停止剩余 fallback: {}",
                     stage_label,
                     err
                 );

@@ -74,7 +74,10 @@ pub async fn describe_images(
         images: images.to_vec(),
     };
     let reasoning_mode = config.polish_reasoning_mode();
-    let options = request_options(&config);
+    let options = LlmRequestOptions {
+        auth_context: Some((app_handle, state)),
+        ..request_options(&config)
+    };
     let body = llm_client::build_llm_body(&endpoint, VISION_SYSTEM_PROMPT, &input, options);
     let result = llm_client::send_llm_request(
         &state.http_client,

@@ -122,6 +122,7 @@ async fn extract_corrections_via_llm(
 
     let system = "你是文本差异提取工具，只输出 JSON。";
     let opts = LlmRequestOptions {
+        auth_context: Some((app_handle, state)),
         json_output: true,
         reasoning_mode: config.polish_reasoning_mode(),
         ..Default::default()
@@ -885,6 +886,7 @@ pub async fn run_correction_validation(
         );
 
         let opts = LlmRequestOptions {
+            auth_context: Some((app_handle, state)),
             json_output: true,
             reasoning_mode: config.polish_reasoning_mode(),
             ..Default::default()

@@ -9,7 +9,9 @@ pub use request::{build_llm_body, LlmImageInput, LlmRequestOptions, LlmUserInput
 pub use stream::{read_anthropic_sse_stream, read_openai_responses_sse_stream, read_sse_stream};
 pub use transport::send_llm_request;
 
-pub(crate) use protocol::{ensure_non_empty_llm_content, is_empty_llm_response_error};
+pub(crate) use protocol::{
+    ensure_non_empty_llm_content, is_empty_llm_response_error, is_terminal_provider_error,
+};
 
 pub(crate) use stream::AI_POLISH_STREAM_PROGRESS_TIMEOUT_SECS;
 
@@ -125,6 +127,7 @@ mod tests {
             "system",
             &LlmUserInput::from("hello"),
             LlmRequestOptions {
+                auth_context: None,
                 stream: true,
                 json_output: true,
                 reasoning_mode: LlmReasoningMode::ProviderDefault,
@@ -154,6 +157,7 @@ mod tests {
             "system",
             &LlmUserInput::from("hello"),
             LlmRequestOptions {
+                auth_context: None,
                 stream: true,
                 json_output: false,
                 reasoning_mode: LlmReasoningMode::ProviderDefault,
@@ -185,6 +189,7 @@ mod tests {
             "system",
             &LlmUserInput::from("hello"),
             LlmRequestOptions {
+                auth_context: None,
                 stream: false,
                 json_output: false,
                 reasoning_mode: LlmReasoningMode::Off,
@@ -210,6 +215,7 @@ mod tests {
             "system",
             &LlmUserInput::from("hello"),
             LlmRequestOptions {
+                auth_context: None,
                 stream: false,
                 json_output: false,
                 reasoning_mode: LlmReasoningMode::Deep,
@@ -589,6 +595,7 @@ mod tests {
             "system",
             &LlmUserInput::from("hello"),
             LlmRequestOptions {
+                auth_context: None,
                 stream: false,
                 json_output: true,
                 reasoning_mode: LlmReasoningMode::ProviderDefault,
@@ -617,6 +624,7 @@ mod tests {
             "system",
             &LlmUserInput::from("hello"),
             LlmRequestOptions {
+                auth_context: None,
                 stream: false,
                 json_output: false,
                 reasoning_mode: LlmReasoningMode::Off,
@@ -692,6 +700,61 @@ mod tests {
         assert!(adapted_default.get("max_output_tokens").is_none());
     }
 
+    fn direct_chatgpt_auth() -> String {
+        format!(
+            "openai-chatgpt-plan:{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(r#"{"access_token":"direct-token","account_id":"oaiapp_test"}"#)
+        )
+    }
+
+    #[test]
+    fn chatgpt_plan_auth_uses_public_api_and_app_identity() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let auth = direct_chatgpt_auth();
+        assert_eq!(request_url_for_backend(&endpoint, &auth), endpoint.api_url);
+        let headers =
+            crate::services::llm_provider::build_auth_headers(&ApiFormat::OpenaiCompat, &auth)
+                .unwrap();
+        assert_eq!(headers["authorization"], "Bearer direct-token");
+        assert!(!headers.contains_key("chatgpt-account-id"));
+        assert!(!headers.contains_key("originator"));
+    }
+
+    #[test]
+    fn chatgpt_plan_request_obeys_preview_contract_and_preserves_input() {
+        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        let body = serde_json::json!({
+            "input": [{"role":"user","content":"hello"}], "instructions":"polish",
+            "stream":false, "store":true, "temperature":0.2,
+            "max_output_tokens":128, "previous_response_id":"old", "metadata":{},
+            "reasoning":{"effort":"low"}
+        });
+        let adapted = adapt_body_for_backend(&endpoint, &direct_chatgpt_auth(), &body, false);
+        assert_eq!(adapted["input"], body["input"]);
+        assert_eq!(adapted["instructions"], "polish");
+        assert_eq!(adapted["reasoning"]["effort"], "low");
+        assert_eq!(adapted["stream"], true);
+        assert_eq!(adapted["store"], false);
+        for field in [
+            "temperature",
+            "max_output_tokens",
+            "previous_response_id",
+            "metadata",
+        ] {
+            assert!(adapted.get(field).is_none(), "{field}");
+        }
+        assert_eq!(body["stream"], false, "caller body must be immutable");
+    }
+
+    #[test]
+    fn exhausted_subscription_is_not_retryable_traffic() {
+        assert!(!is_retryable_overload_error(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            "Rate limit reached (code: subscription_sharing_usage_limit_exceeded)"
+        ));
+    }
+
     #[test]
     fn chatgpt_backend_responses_gpt6_sol_off_uses_catalog_supported_low() {
         let mut endpoint = openai_endpoint("https://api.openai.com/v1/responses");
@@ -751,6 +814,7 @@ mod tests {
             "system",
             &LlmUserInput::from("hello"),
             LlmRequestOptions {
+                auth_context: None,
                 stream: true,
                 json_output: true,
                 reasoning_mode: LlmReasoningMode::ProviderDefault,
@@ -788,6 +852,7 @@ mod tests {
             "system",
             &LlmUserInput::from("hello"),
             LlmRequestOptions {
+                auth_context: None,
                 stream: true,
                 json_output: false,
                 reasoning_mode: LlmReasoningMode::ProviderDefault,

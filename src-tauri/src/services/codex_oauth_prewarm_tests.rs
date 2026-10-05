@@ -32,6 +32,7 @@ fn session(
         account_id: Some("account-id".to_string()),
         email: Some("user@example.com".to_string()),
         plan_type: Some("pro".to_string()),
+        ..Default::default()
     }
 }
 

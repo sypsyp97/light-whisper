@@ -143,7 +143,12 @@ export const hideMainWindow = createNoArgCommand<string>("hide_main_window");
 export const showSubtitleWindow = createNoArgCommand<string>("show_subtitle_window");
 export const hideSubtitleWindow = createNoArgCommand<string>("hide_subtitle_window");
 export const getOpenaiCodexOauthStatus = createNoArgCommand<OpenaiCodexOauthStatus>("get_openai_codex_oauth_status");
-export const loginOpenaiCodexOauth = createNoArgCommand<OpenaiCodexOauthStatus>("login_openai_codex_oauth");
+export function loginOpenaiCodexOauth(clientId?: string, newAccount = false): Promise<OpenaiCodexOauthStatus> {
+  return invokeCommand<OpenaiCodexOauthStatus>("login_openai_codex_oauth", { clientId: clientId ?? null, newAccount });
+}
+export function removeChatgptAccount(clientId: string): Promise<OpenaiCodexOauthStatus> {
+  return invokeCommand<OpenaiCodexOauthStatus>("remove_chatgpt_account", { clientId });
+}
 export const startOpenaiCodexOauthDeviceCode = createNoArgCommand<OpenaiCodexOauthDeviceCodeChallenge>("start_openai_codex_oauth_device_code");
 export function completeOpenaiCodexOauthDeviceCode(
   challenge: OpenaiCodexOauthDeviceCodeChallenge

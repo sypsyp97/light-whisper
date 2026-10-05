@@ -83,6 +83,9 @@
     "commands::codex_oauth::logout_openai_codex_oauth": [
       "oauth"
     ],
+    "commands::codex_oauth::remove_chatgpt_account": [
+      "oauth"
+    ],
     "commands::codex_oauth::get_openai_codex_oauth_status": [
       "oauth"
     ],
@@ -1791,6 +1794,7 @@
     "commands::codex_oauth::start_openai_codex_oauth_device_code": "src-tauri/src/commands/codex_oauth.rs#fn start_openai_codex_oauth_device_code(",
     "commands::codex_oauth::complete_openai_codex_oauth_device_code": "src-tauri/src/commands/codex_oauth.rs#fn complete_openai_codex_oauth_device_code(",
     "commands::codex_oauth::logout_openai_codex_oauth": "src-tauri/src/commands/codex_oauth.rs#fn logout_openai_codex_oauth(",
+    "commands::codex_oauth::remove_chatgpt_account": "src-tauri/src/commands/codex_oauth.rs#fn remove_chatgpt_account(",
     "commands::codex_oauth::get_openai_codex_oauth_status": "src-tauri/src/commands/codex_oauth.rs#fn get_openai_codex_oauth_status(",
     "commands::grok_build_oauth::login_grok_build_oauth": "src-tauri/src/commands/grok_build_oauth.rs#fn login_grok_build_oauth(",
     "commands::grok_build_oauth::start_grok_build_oauth_device_code": "src-tauri/src/commands/grok_build_oauth.rs#fn start_grok_build_oauth_device_code(",

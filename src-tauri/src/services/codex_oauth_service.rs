@@ -16,6 +16,10 @@ use crate::state::user_profile::{LlmProviderConfig, OpenaiAuthMode, XaiAuthMode}
 use crate::state::AppState;
 use crate::utils::paths;
 
+#[path = "chatgpt_sign_in.rs"]
+mod chatgpt_sign_in;
+pub use chatgpt_sign_in::{ChatgptAccount, ChatgptRegistration};
+
 const OPENAI_PROVIDER: &str = "openai";
 const XAI_PROVIDER: &str = "xai";
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -30,10 +34,15 @@ const SESSION_KEYRING_USER: &str = "openai-codex-oauth";
 const SESSION_REFRESH_TOKEN_KEYRING_USER: &str = "openai-codex-oauth-refresh-token";
 const OAUTH_TIMEOUT_SECS: u64 = 5 * 60;
 const REFRESH_SKEW_SECS: u64 = 60;
+// Bound headers and response-body reads while login/logout wait for refresh.
+const TOKEN_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const CHATGPT_BEARER_PREFIX: &str = "openai-codex-chatgpt:";
+const CHATGPT_PLAN_PREFIX: &str = "openai-chatgpt-plan:";
 const OAUTH_API_KEY_PREFIX: &str = "openai-codex-oauth-api-key:";
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OpenaiCodexOauthSession {
+    #[serde(default)]
+    pub registration: Option<ChatgptRegistration>,
     pub id_token: String,
     pub access_token: String,
     pub refresh_token: String,
@@ -47,6 +56,9 @@ pub struct OpenaiCodexOauthSession {
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenaiCodexOauthStatus {
+    pub client_id: Option<String>,
+    pub plan_usage_enabled: bool,
+    pub saved_accounts: Vec<ChatgptAccount>,
     pub logged_in: bool,
     pub email: Option<String>,
     pub plan_type: Option<String>,
@@ -70,17 +82,14 @@ fn device_challenge_binding(challenge: &OpenaiCodexOauthDeviceCodeChallenge) -> 
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
     id_token: Option<String>,
     access_token: String,
     #[serde(default)]
     refresh_token: Option<String>,
     #[serde(default)]
     expires_in: Option<u64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TokenExchangeResponse {
-    access_token: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -138,6 +147,7 @@ struct AuthClaims {
 #[derive(Debug)]
 struct OAuthCallback {
     code: String,
+    client_id: Option<String>,
     stream: tokio::net::TcpStream,
 }
 
@@ -149,6 +159,8 @@ pub struct ChatgptBearerToken {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct PersistedOpenaiCodexOauthSession {
+    #[serde(default)]
+    registration: Option<ChatgptRegistration>,
     #[serde(default)]
     pub logged_out: bool,
     pub expires_at_ms: Option<u64>,
@@ -191,6 +203,12 @@ fn now_ms() -> u64 {
 fn make_status(session: Option<&OpenaiCodexOauthSession>) -> OpenaiCodexOauthStatus {
     if let Some(session) = session {
         return OpenaiCodexOauthStatus {
+            client_id: session.registration.as_ref().map(|r| r.client_id.clone()),
+            plan_usage_enabled: session
+                .registration
+                .as_ref()
+                .is_none_or(|r| r.plan_usage_enabled()),
+            saved_accounts: chatgpt_sign_in::saved_accounts(),
             logged_in: true,
             email: session.email.clone(),
             plan_type: session.plan_type.clone(),
@@ -199,7 +217,10 @@ fn make_status(session: Option<&OpenaiCodexOauthSession>) -> OpenaiCodexOauthSta
         };
     }
 
-    OpenaiCodexOauthStatus::default()
+    OpenaiCodexOauthStatus {
+        saved_accounts: chatgpt_sign_in::saved_accounts(),
+        ..Default::default()
+    }
 }
 
 fn session_meta_path() -> std::path::PathBuf {
@@ -248,6 +269,7 @@ fn write_metadata_at(
 
 fn write_session_meta(session: &OpenaiCodexOauthSession) -> Result<(), String> {
     let persisted = PersistedOpenaiCodexOauthSession {
+        registration: session.registration.clone(),
         logged_out: false,
         expires_at_ms: session.expires_at_ms,
         account_id: session.account_id.clone(),
@@ -285,6 +307,7 @@ fn load_session_from_storage(app_handle: &tauri::AppHandle) -> Option<OpenaiCode
 
     if let (Some(meta), Some(refresh_token)) = (meta.as_ref(), refresh_token) {
         return Some(OpenaiCodexOauthSession {
+            registration: meta.registration.clone(),
             id_token: String::new(),
             access_token: String::new(),
             refresh_token,
@@ -327,6 +350,9 @@ fn save_session_to_storage(
         SESSION_KEYRING_USER,
         "删除 Codex OAuth legacy 会话",
     )?;
+    if let Some(registration) = &session.registration {
+        chatgpt_sign_in::remember_account(registration)?;
+    }
     // Commit valid metadata last; any earlier failure leaves the intent marker.
     write_session_meta(session)
 }
@@ -432,11 +458,18 @@ pub(crate) fn encode_chatgpt_bearer_token(token: &ChatgptBearerToken) -> Option<
 }
 
 pub fn decode_chatgpt_bearer_token(input: &str) -> Option<ChatgptBearerToken> {
-    let payload = input.trim().strip_prefix(CHATGPT_BEARER_PREFIX)?;
+    let input = input.trim();
+    let payload = input
+        .strip_prefix(CHATGPT_BEARER_PREFIX)
+        .or_else(|| input.strip_prefix(CHATGPT_PLAN_PREFIX))?;
     let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(payload)
         .ok()?;
     serde_json::from_slice::<ChatgptBearerToken>(&raw).ok()
+}
+
+pub fn is_chatgpt_plan_auth(input: &str) -> bool {
+    input.trim().starts_with(CHATGPT_PLAN_PREFIX) && decode_chatgpt_bearer_token(input).is_some()
 }
 
 pub fn encode_oauth_api_key(api_key: &str) -> Option<String> {
@@ -480,9 +513,22 @@ fn auth_from_openai_session(
     let access_token = session.access_token.trim();
     let chatgpt_token = (!access_token.is_empty()).then(|| ChatgptBearerToken {
         access_token: access_token.to_string(),
-        account_id: session.account_id,
+        account_id: session
+            .registration
+            .as_ref()
+            .map(|r| r.client_id.clone())
+            .or(session.account_id),
     });
-    let api_key = if !session.api_key.trim().is_empty() {
+    let api_key = if let Some(registration) = &session.registration {
+        if !registration.plan_usage_enabled() {
+            return Err("ChatGPT 套餐使用未获授权，请重新登录并允许轻语使用套餐额度。".into());
+        }
+        let token = chatgpt_token
+            .as_ref()
+            .ok_or("ChatGPT 登录缺少 access token，请重新登录。")?;
+        let encoded = encode_chatgpt_bearer_token(token).ok_or("编码 ChatGPT 会话失败")?;
+        encoded.replacen(CHATGPT_BEARER_PREFIX, CHATGPT_PLAN_PREFIX, 1)
+    } else if !session.api_key.trim().is_empty() {
         encode_oauth_api_key(&session.api_key)
             .ok_or_else(|| "包装 OpenAI OAuth API Key 失败".to_string())?
     } else if let Some(token) = &chatgpt_token {
@@ -592,9 +638,15 @@ fn is_ipv6_loopback_unavailable(err: &std::io::Error) -> bool {
 async fn bind_callback_listeners() -> Result<CallbackListeners, String> {
     for preferred_port in [Some(DEFAULT_CALLBACK_PORT), None] {
         for _attempt in 0..8 {
-            let ipv4 = TcpListener::bind(("127.0.0.1", preferred_port.unwrap_or(0)))
-                .await
-                .map_err(|err| format!("启动 OAuth IPv4 回调服务失败: {err}"))?;
+            let ipv4 = match TcpListener::bind(("127.0.0.1", preferred_port.unwrap_or(0))).await {
+                Ok(listener) => listener,
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::AddrInUse && preferred_port.is_some() =>
+                {
+                    break
+                }
+                Err(err) => return Err(format!("启动 OAuth IPv4 回调服务失败: {err}")),
+            };
             let actual_port = ipv4
                 .local_addr()
                 .map_err(|err| format!("读取 OAuth 回调端口失败: {err}"))?
@@ -714,7 +766,11 @@ async fn wait_for_callback_with_timeout(
                 continue;
             };
 
-            return Ok(OAuthCallback { code, stream });
+            return Ok(OAuthCallback {
+                code,
+                client_id: query.get("client_id").cloned(),
+                stream,
+            });
         }
     })
     .await
@@ -729,6 +785,7 @@ async fn exchange_code_for_tokens(
 ) -> Result<TokenResponse, String> {
     let response = client
         .post(format!("{ISSUER}/oauth/token"))
+        .timeout(TOKEN_HTTP_TIMEOUT)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(
             reqwest::Url::parse_with_params(
@@ -767,6 +824,7 @@ async fn request_device_code(
 ) -> Result<OpenaiCodexOauthDeviceCodeChallenge, String> {
     let response = client
         .post(format!("{ISSUER}/api/accounts/deviceauth/usercode"))
+        .timeout(TOKEN_HTTP_TIMEOUT)
         .json(&DeviceCodeRequest {
             client_id: CLIENT_ID.to_string(),
         })
@@ -810,6 +868,7 @@ async fn poll_device_code_authorization(
     loop {
         let response = client
             .post(&url)
+            .timeout(TOKEN_HTTP_TIMEOUT)
             .json(&DeviceCodePollRequest {
                 device_auth_id: challenge.device_auth_id.clone(),
                 user_code: challenge.user_code.clone(),
@@ -850,8 +909,24 @@ async fn refresh_tokens(
     client: &reqwest::Client,
     refresh_token: &str,
 ) -> Result<TokenResponse, String> {
+    refresh_tokens_at(
+        client,
+        &format!("{ISSUER}/oauth/token"),
+        refresh_token,
+        TOKEN_HTTP_TIMEOUT,
+    )
+    .await
+}
+
+async fn refresh_tokens_at(
+    client: &reqwest::Client,
+    endpoint: &str,
+    refresh_token: &str,
+    timeout: Duration,
+) -> Result<TokenResponse, String> {
     let response = client
-        .post(format!("{ISSUER}/oauth/token"))
+        .post(endpoint)
+        .timeout(timeout)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(
             reqwest::Url::parse_with_params(
@@ -874,88 +949,38 @@ async fn refresh_tokens(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("刷新 Codex OAuth token 失败 {status}: {body}"));
+        let code = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| {
+                v["error"]
+                    .as_str()
+                    .or_else(|| v["error"]["code"].as_str())
+                    .map(str::to_string)
+            });
+        if status == reqwest::StatusCode::UNAUTHORIZED
+            || code.as_deref().is_some_and(|c| {
+                matches!(
+                    c,
+                    "invalid_grant"
+                        | "invalid_refresh_token"
+                        | "token_expired"
+                        | "refresh_token_expired"
+                        | "refresh_token_reused"
+                        | "refresh_token_invalidated"
+                )
+            })
+        {
+            return Err("CODEX_REAUTH_REQUIRED: Codex 登录已失效，请重新登录。".into());
+        }
+        return Err(format!(
+            "刷新 Codex OAuth token 失败 ({status})，请稍后重试。"
+        ));
     }
 
     response
         .json::<TokenResponse>()
         .await
         .map_err(|err| format!("解析刷新 token 响应失败: {err}"))
-}
-
-async fn exchange_id_token_for_api_key(
-    client: &reqwest::Client,
-    id_token: &str,
-) -> Result<String, String> {
-    let response = client
-        .post(format!("{ISSUER}/oauth/token"))
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(
-            reqwest::Url::parse_with_params(
-                "http://localhost",
-                &[
-                    (
-                        "grant_type",
-                        "urn:ietf:params:oauth:grant-type:token-exchange",
-                    ),
-                    ("client_id", CLIENT_ID),
-                    ("requested_token", "openai-api-key"),
-                    ("subject_token", id_token),
-                    (
-                        "subject_token_type",
-                        "urn:ietf:params:oauth:token-type:id_token",
-                    ),
-                ],
-            )
-            .map_err(|err| format!("构造 OpenAI API Key 交换参数失败: {err}"))?
-            .query()
-            .unwrap_or_default()
-            .to_string(),
-        )
-        .send()
-        .await
-        .map_err(|err| format!("交换 OpenAI API Key 失败: {err}"))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!("交换 OpenAI API Key 失败 {status}: {body}"));
-    }
-
-    let payload = response
-        .json::<TokenExchangeResponse>()
-        .await
-        .map_err(|err| format!("解析 OpenAI API Key 交换响应失败: {err}"))?;
-
-    Ok(payload.access_token)
-}
-
-fn build_authorize_url(
-    redirect_uri: &str,
-    code_challenge: &str,
-    state: &str,
-) -> Result<String, String> {
-    let url = reqwest::Url::parse_with_params(
-        &format!("{ISSUER}/oauth/authorize"),
-        &[
-            ("response_type", "code"),
-            ("client_id", CLIENT_ID),
-            ("redirect_uri", redirect_uri),
-            (
-                "scope",
-                "openid profile email offline_access api.connectors.read api.connectors.invoke",
-            ),
-            ("code_challenge", code_challenge),
-            ("code_challenge_method", "S256"),
-            ("id_token_add_organizations", "true"),
-            ("codex_cli_simplified_flow", "true"),
-            ("state", state),
-            ("originator", ORIGINATOR),
-        ],
-    )
-    .map_err(|err| format!("构造 OpenAI OAuth 地址失败: {err}"))?;
-
-    Ok(url.to_string())
 }
 
 fn session_needs_refresh(session: &OpenaiCodexOauthSession) -> bool {
@@ -970,7 +995,6 @@ fn session_has_runtime_auth_material(session: &OpenaiCodexOauthSession) -> bool 
 }
 
 async fn session_from_token_response(
-    state: &AppState,
     token_response: TokenResponse,
 ) -> Result<OpenaiCodexOauthSession, String> {
     let id_token = match token_response.id_token.clone() {
@@ -985,22 +1009,12 @@ async fn session_from_token_response(
         Some(refresh_token) => refresh_token,
         None => return Err("OAuth 响应缺少 refresh_token，无法继续。".to_string()),
     };
-    let api_key = match exchange_id_token_for_api_key(&state.http_client, &id_token).await {
-        Ok(api_key) => api_key,
-        Err(err) => {
-            log::warn!(
-                "OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}",
-                err
-            );
-            String::new()
-        }
-    };
-
     let mut session = OpenaiCodexOauthSession {
+        registration: None,
         id_token,
         access_token: token_response.access_token,
         refresh_token,
-        api_key,
+        api_key: String::new(),
         expires_at_ms: token_response
             .expires_in
             .map(|expires_in| now_ms().saturating_add(expires_in * 1000)),
@@ -1018,7 +1032,7 @@ fn persist_login_session(
     operation: OAuthOperation,
     session: OpenaiCodexOauthSession,
 ) -> Result<OpenaiCodexOauthStatus, String> {
-    let status = make_status(Some(&session));
+    let mut status = make_status(Some(&session));
     let committed = state
         .openai_codex_oauth_state()
         .commit(operation, session, |session| {
@@ -1027,6 +1041,7 @@ fn persist_login_session(
     if !committed {
         return Err("OpenAI Codex OAuth 登录已被更新的操作取代，请重试。".to_string());
     }
+    status.saved_accounts = chatgpt_sign_in::saved_accounts();
     Ok(status)
 }
 
@@ -1055,13 +1070,42 @@ async fn refresh_session_if_needed(
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<Option<OpenaiCodexOauthSession>, String> {
+    refresh_session(app_handle, state, None).await
+}
+
+async fn refresh_session(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    rejected_auth: Option<&str>,
+) -> Result<Option<OpenaiCodexOauthSession>, String> {
     let _refresh_guard = state.openai_codex_oauth_state().lock_refresh().await;
     let Some((operation, mut session)) = state.openai_codex_oauth_state().snapshot_for_refresh()
     else {
         return Ok(None);
     };
     let refresh_start = std::time::Instant::now();
-    if !session_needs_refresh(&session) && session_has_runtime_auth_material(&session) {
+    if let Some(rejected) = rejected_auth {
+        let rejected_token = decode_chatgpt_bearer_token(rejected);
+        let current = auth_from_openai_session(session.clone())?;
+        if let (Some(old), Some(new)) = (rejected_token, current.chatgpt_token.as_ref()) {
+            if old.account_id != new.account_id
+                || is_chatgpt_plan_auth(rejected) != session.registration.is_some()
+            {
+                return Err("ChatGPT 账户已切换，请重试当前操作。".into());
+            }
+        } else if current.api_key != rejected {
+            return Err("ChatGPT 认证已更新，请重试当前操作。".into());
+        }
+        if session_has_runtime_auth_material(&session)
+            && auth_from_openai_session(session.clone())?.api_key != rejected
+        {
+            return Ok(Some(session));
+        }
+    }
+    if rejected_auth.is_none()
+        && !session_needs_refresh(&session)
+        && session_has_runtime_auth_material(&session)
+    {
         log::info!(
             "OpenAI Codex OAuth 认证材料已就绪 ({}ms): api_key={}, bearer={}",
             refresh_start.elapsed().as_millis(),
@@ -1074,12 +1118,49 @@ async fn refresh_session_if_needed(
     let needs_rehydration =
         session.id_token.trim().is_empty() || session.access_token.trim().is_empty();
 
-    let refreshed = if session_needs_refresh(&session) || needs_rehydration {
+    if session.registration.is_some() {
+        let refreshed = match chatgpt_sign_in::refresh(&state.http_client, &session).await {
+            Ok(refreshed) => refreshed,
+            Err(error) => {
+                if error.starts_with("CHATGPT_REAUTH_REQUIRED:") {
+                    state
+                        .openai_codex_oauth_state()
+                        .invalidate(Some(operation), || clear_session_from_storage(app_handle))?;
+                }
+                return Err(error);
+            }
+        };
+        if !state
+            .openai_codex_oauth_state()
+            .commit(operation, refreshed.clone(), |s| {
+                save_session_to_storage(app_handle, s)
+            })?
+        {
+            return Err("ChatGPT 会话已被更新的操作取代，请重试。".into());
+        }
+        return Ok(Some(refreshed));
+    }
+
+    let refreshed = if session_needs_refresh(&session)
+        || needs_rehydration
+        || rejected_auth.is_some()
+    {
         if session.refresh_token.trim().is_empty() {
             return Err("OpenAI Codex OAuth 会话缺少 refresh token，请重新登录。".to_string());
         }
         let token_refresh_start = std::time::Instant::now();
-        let token_response = refresh_tokens(&state.http_client, &session.refresh_token).await?;
+        let token_response = match refresh_tokens(&state.http_client, &session.refresh_token).await
+        {
+            Ok(tokens) => tokens,
+            Err(error) => {
+                if error.starts_with("CODEX_REAUTH_REQUIRED:") {
+                    state
+                        .openai_codex_oauth_state()
+                        .invalidate(Some(operation), || clear_session_from_storage(app_handle))?;
+                }
+                return Err(error);
+            }
+        };
         log::info!(
             "OpenAI Codex OAuth refresh 完成 ({}ms): rehydration={}, expired={}",
             token_refresh_start.elapsed().as_millis(),
@@ -1098,6 +1179,7 @@ async fn refresh_session_if_needed(
             .map(|expires_in| now_ms().saturating_add(expires_in * 1000));
 
         OpenaiCodexOauthSession {
+            registration: None,
             id_token,
             access_token,
             refresh_token,
@@ -1112,36 +1194,16 @@ async fn refresh_session_if_needed(
     };
 
     let mut refreshed = refreshed;
-    let exchange_start = std::time::Instant::now();
-    refreshed.api_key =
-        match exchange_id_token_for_api_key(&state.http_client, &refreshed.id_token).await {
-            Ok(api_key) => {
-                log::info!(
-                    "OpenAI Codex OAuth API Key exchange 完成 ({}ms)",
-                    exchange_start.elapsed().as_millis()
-                );
-                api_key
-            }
-            Err(err) => {
-                log::warn!(
-                "OpenAI Codex OAuth 无法交换 OpenAI API Key，将继续使用 ChatGPT bearer 模式: {}",
-                err
-            );
-                String::new()
-            }
-        };
     enrich_session_from_tokens(&mut refreshed, None);
-    let committed = state
-        .openai_codex_oauth_state()
-        .commit(operation, refreshed, |session| {
-            save_session_to_storage(app_handle, session)
-        })?;
+    let committed =
+        state
+            .openai_codex_oauth_state()
+            .commit(operation, refreshed.clone(), |session| {
+                save_session_to_storage(app_handle, session)
+            })?;
     if !committed {
         return Err("OpenAI Codex OAuth 会话已被更新的操作取代，请重试。".to_string());
     }
-    let refreshed = state
-        .read_openai_codex_oauth_session()
-        .ok_or_else(|| "OpenAI Codex OAuth 会话在刷新后不可用，请重试。".to_string())?;
     log::info!(
         "OpenAI Codex OAuth 认证材料重水化完成 ({}ms): api_key={}, bearer={}",
         refresh_start.elapsed().as_millis(),
@@ -1210,62 +1272,19 @@ pub async fn prewarm_runtime_session(
 pub async fn login(
     app_handle: &tauri::AppHandle,
     state: &AppState,
+    client_id: Option<&str>,
+    new_account: bool,
 ) -> Result<OpenaiCodexOauthStatus, String> {
-    let login = state.openai_codex_oauth_state().begin_login();
-    let operation = login.token();
-    let listeners = bind_callback_listeners().await?;
-    let redirect_uri = format!("http://localhost:{}{CALLBACK_PATH}", listeners.port);
-    let (code_verifier, code_challenge) = generate_pkce_pair();
-    let state_token = generate_state();
-    let auth_url = build_authorize_url(&redirect_uri, &code_challenge, &state_token)?;
-
-    webbrowser::open(&auth_url).map_err(|err| format!("打开浏览器失败: {err}"))?;
-
-    let OAuthCallback { code, mut stream } = wait_for_callback(listeners, state_token).await?;
-    let token_response =
-        match exchange_code_for_tokens(&state.http_client, &code, &redirect_uri, &code_verifier)
-            .await
-        {
-            Ok(tokens) => tokens,
-            Err(err) => {
-                let html = callback_html("Authorization Failed", &err, false);
-                let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-                return Err(err);
-            }
-        };
-
-    let session = match session_from_token_response(state, token_response).await {
-        Ok(session) => session,
-        Err(err) => {
-            let html = callback_html("Authorization Failed", &err, false);
-            let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-            return Err(err);
-        }
-    };
-
-    let status = match persist_login_session(app_handle, state, operation, session) {
-        Ok(status) => status,
-        Err(err) => {
-            let html = callback_html("Authorization Failed", &err, false);
-            let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-            return Err(err);
-        }
-    };
-    drop(login);
-    let html = callback_html(
-        "Authorization Successful",
-        "可以关闭这个页面并返回轻语。",
-        true,
-    );
-    let _ = respond_with_html(&mut stream, "200 OK", &html).await;
-
-    Ok(status)
+    chatgpt_sign_in::login(app_handle, state, client_id, new_account).await
 }
 
 pub async fn start_device_code_login(
     state: &AppState,
 ) -> Result<OpenaiCodexOauthDeviceCodeChallenge, String> {
-    let login = state.openai_codex_oauth_state().begin_login();
+    let login = state
+        .openai_codex_oauth_state()
+        .begin_login_after_refresh()
+        .await;
     let operation = login.token();
     let challenge = request_device_code(&state.http_client).await?;
     if challenge.device_auth_id.trim().is_empty() || challenge.user_code.trim().is_empty() {
@@ -1310,17 +1329,94 @@ pub async fn complete_device_code_login(
         &authorization.code_verifier,
     )
     .await?;
-    let session = session_from_token_response(state, token_response).await?;
+    let session = session_from_token_response(token_response).await?;
     let result = persist_login_session(app_handle, state, operation, session);
     drop(login);
     result
 }
 
-pub fn logout(app_handle: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
+pub async fn logout(app_handle: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
+    // Revoke the latest rotated credential and serialize a new sign-in with
+    // remote revocation of the previous grant.
+    let _refresh_guard = state.openai_codex_oauth_state().lock_refresh().await;
+    let session = state.read_openai_codex_oauth_session();
+    // Invalidate before awaiting revocation: an in-flight refresh must not revive a signed-out session.
     state
         .openai_codex_oauth_state()
         .invalidate(None, || clear_session_from_storage(app_handle))
-        .map(|_| ())
+        .map(|_| ())?;
+    if let Some(session) = session.filter(|s| s.registration.is_some()) {
+        chatgpt_sign_in::revoke(&state.http_client, &session).await?;
+    }
+    Ok(())
+}
+
+pub async fn remove_account(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    client_id: &str,
+) -> Result<OpenaiCodexOauthStatus, String> {
+    if client_id.trim().is_empty() {
+        return Err("请选择要移除的 ChatGPT 账户。".into());
+    }
+    let _refresh_guard = state.openai_codex_oauth_state().lock_refresh().await;
+    let removed = state.openai_codex_oauth_state().invalidate_matching(
+        |session| {
+            session
+                .registration
+                .as_ref()
+                .is_some_and(|r| r.client_id == client_id)
+        },
+        |active| {
+            if active {
+                clear_session_from_storage(app_handle)?;
+            }
+            chatgpt_sign_in::forget_account(client_id)
+        },
+    )?;
+    if let Some(session) = removed {
+        // Local removal remains effective if remote revocation fails.
+        chatgpt_sign_in::revoke(&state.http_client, &session).await?;
+    }
+    Ok(status(state))
+}
+
+pub async fn recover_rejected_auth(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    provider: &str,
+    rejected: &str,
+) -> Result<Option<String>, String> {
+    if provider == XAI_PROVIDER
+        && grok_build_oauth_service::is_grok_build_oauth_origin_auth(rejected)
+    {
+        return grok_build_oauth_service::recover_rejected_auth(app, state, rejected)
+            .await
+            .map(Some);
+    }
+    if provider != OPENAI_PROVIDER || !is_oauth_origin_auth(rejected) {
+        return Ok(None);
+    }
+    let snapshot = state
+        .read_openai_codex_oauth_session()
+        .ok_or("ChatGPT 已退出登录，请重新登录。")?;
+    let rejected_token = decode_chatgpt_bearer_token(rejected);
+    let current = auth_from_openai_session(snapshot.clone())?;
+    if let (Some(old), Some(new)) = (rejected_token, current.chatgpt_token) {
+        if old.account_id != new.account_id
+            || is_chatgpt_plan_auth(rejected) != snapshot.registration.is_some()
+        {
+            return Err("ChatGPT 账户已切换，请重试当前操作。".into());
+        }
+    }
+    let session = refresh_session(app, state, Some(rejected))
+        .await?
+        .ok_or("ChatGPT 登录正在更新，请重试。")?;
+    let refreshed = auth_from_openai_session(session)?.api_key;
+    if decode_oauth_api_key(rejected).is_some() != decode_oauth_api_key(&refreshed).is_some() {
+        return Err("ChatGPT 认证路线已更新，请重新执行当前操作。".into());
+    }
+    Ok(Some(refreshed))
 }
 
 pub async fn resolve_api_key_for_provider_with_auth_mode(
@@ -1408,6 +1504,67 @@ pub async fn resolve_provider_auth_with_auth_mode(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn refresh_deadline_releases_login_waiter_for_stalled_headers_and_body() {
+        use tokio::io::AsyncReadExt;
+        for send_headers in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = format!("http://{}/token", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = [0u8; 2048];
+                assert!(socket.read(&mut buffer).await.unwrap() > 0);
+                if send_headers {
+                    socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 256\r\n\r\n{").await.unwrap();
+                }
+                std::future::pending::<()>().await;
+            });
+            let coordinator = crate::state::oauth_session::OAuthSessionState::default();
+            coordinator.restore(Some("original-refresh-token".to_string()));
+            let guard = coordinator.lock_refresh().await;
+            let client = reqwest::Client::new();
+            let outcome = tokio::time::timeout(Duration::from_secs(1), async {
+                tokio::join!(
+                    async {
+                        let result = refresh_tokens_at(
+                            &client,
+                            &endpoint,
+                            "test-refresh",
+                            Duration::from_millis(50),
+                        )
+                        .await;
+                        drop(guard);
+                        result
+                    },
+                    coordinator.begin_login_after_refresh()
+                )
+            })
+            .await;
+            server.abort();
+            let (result, login) = outcome.expect("refresh deadline must release the login waiter");
+            let error = result.unwrap_err();
+            assert!(
+                !error.starts_with("CODEX_REAUTH_REQUIRED:"),
+                "network timeout must preserve credentials"
+            );
+            drop(login);
+            assert_eq!(
+                coordinator.read().as_deref(),
+                Some("original-refresh-token")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn browser_callback_uses_an_available_port_when_codex_is_running() {
+        let occupied = TcpListener::bind(("127.0.0.1", DEFAULT_CALLBACK_PORT)).await;
+        let listeners = bind_callback_listeners()
+            .await
+            .expect("busy preferred port must fall back");
+        assert_ne!(listeners.port, DEFAULT_CALLBACK_PORT);
+        drop(occupied);
+    }
 
     #[tokio::test]
     async fn callback_total_deadline_includes_a_stalled_request_line() {

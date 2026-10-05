@@ -6,6 +6,7 @@
 
 /* ---------- Light theme (default) ---------- */
 :root {
+  color-scheme: light;
   /* Surfaces — neutral layers keep long settings sessions visually quiet */
   --color-bg-primary: #F5F6F7;
   --color-bg-secondary: #EFF1F3;
@@ -138,6 +139,7 @@
 /* ---------- Dark theme — evening warmth, not cold terminal ---------- */
 [data-theme="dark"],
 .dark {
+  color-scheme: dark;
   --color-bg-primary: #1A1917;
   --color-bg-secondary: #232220;
   --color-bg-tertiary: #2E2D2A;

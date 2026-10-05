@@ -59,6 +59,45 @@ function PickerWithInputHarness() {
 }
 
 describe("useExclusivePicker accessibility", () => {
+  it("supports account action popovers with normal tab stops and Escape focus return", async () => {
+    function AccountHarness() {
+      const picker = useExclusivePicker<"account">();
+      return <div ref={picker.setRef("account")}>
+        <button aria-haspopup="dialog" aria-label="Account" onClick={() => picker.toggle("account")}>Choose</button>
+        {picker.isOpen("account") && <div className={picker.popoverClass("account")} role="dialog" aria-label="Accounts">
+          <button className="picker-option" aria-pressed="true">Saved account</button>
+          <button>Account actions</button>
+        </div>}
+      </div>;
+    }
+    const user = userEvent.setup();
+    render(<AccountHarness />);
+    const trigger = screen.getByRole("button", { name: "Account" });
+    await user.click(trigger);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Saved account" })).toHaveFocus());
+    expect(trigger).toHaveAttribute("aria-controls", screen.getByRole("dialog").id);
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Account actions" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("updates option semantics and keyboard navigation when async results arrive", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<PickerHarness empty />);
+    const trigger = screen.getByRole("button", { name: "Engine" });
+    await user.click(trigger);
+    rerender(<PickerHarness />);
+    const options = await screen.findAllByRole("option");
+    trigger.focus();
+    await user.keyboard("{End}");
+    expect(options[2]).toHaveFocus();
+    rerender(<PickerHarness empty />);
+    trigger.focus();
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("opens an empty model list upward when the space below is too small", () => {
     const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       return this.classList.contains("settings-content")

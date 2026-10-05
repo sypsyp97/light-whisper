@@ -22,6 +22,7 @@ const tauriMock = vi.hoisted(() => ({
   getModelsDir: vi.fn(),
   getOnlineAsrApiKey: vi.fn(),
   getOnlineAsrEndpoint: vi.fn(),
+  getSelectionApiKey: vi.fn(),
   getGrokBuildOauthStatus: vi.fn(),
   getOpenaiCodexOauthStatus: vi.fn(),
   getUserProfile: vi.fn(),
@@ -36,6 +37,7 @@ const tauriMock = vi.hoisted(() => ({
   loginOpenaiCodexOauth: vi.fn(),
   logoutGrokBuildOauth: vi.fn(),
   logoutOpenaiCodexOauth: vi.fn(),
+  removeChatgptAccount: vi.fn(),
   openAppReleasePage: vi.fn(),
   pasteText: vi.fn(),
   pickFolder: vi.fn(),
@@ -63,6 +65,7 @@ const tauriMock = vi.hoisted(() => ({
   setOpenaiFastMode: vi.fn(),
   setRecordingMode: vi.fn(),
   setSelectionAssistantConfig: vi.fn(),
+  setSelectionApiKey: vi.fn(),
   setSoundEnabled: vi.fn(),
   setTranslationHotkey: vi.fn(),
   setTranslationTarget: vi.fn(),
@@ -203,6 +206,7 @@ function resetMocks(profile: UserProfile = baseProfile) {
   tauriMock.getUserProfile.mockResolvedValue(profile);
   tauriMock.getAiPolishApiKey.mockResolvedValue("");
   tauriMock.getAssistantApiKey.mockResolvedValue("");
+  tauriMock.getSelectionApiKey.mockResolvedValue("");
   tauriMock.getAlibabaAsrConfig.mockResolvedValue({
     model: "qwen3-asr-flash",
     models: ["qwen3-asr-flash"],
@@ -690,5 +694,183 @@ describe("SettingsPage assistant model discovery errors", () => {
     await waitFor(() => expect(screen.getByText("polish discovery failed")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Open assistant model list" }));
     await waitFor(() => expect(screen.getByText("assistant discovery failed")).toBeInTheDocument());
+  });
+});
+
+describe("SettingsPage ChatGPT plan authorization", () => {
+  const accounts = [{ clientId: "oaiapp_first", email: "same@example.invalid" }, { clientId: "oaiapp_second", email: "same@example.invalid" }];
+  const openaiProfile = { ...baseProfile, llm_provider: { ...baseProfile.llm_provider, active: "openai", openai_auth_mode: "oauth" as const } };
+
+  it("reuses the most recently used registration after signing out", async () => {
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: true, clientId: "oaiapp_second", savedAccounts: accounts });
+    tauriMock.loginOpenaiCodexOauth.mockResolvedValue({ loggedIn: true, clientId: "oaiapp_second", savedAccounts: accounts });
+    await renderSettings(openaiProfile);
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: false, savedAccounts: accounts });
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.codexOauthLogout" })[0]);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "settings.codexOauthLogin" })[0]).toBeEnabled());
+    expect(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]).toHaveTextContent("p_second");
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.codexOauthLogin" })[0]);
+    await waitFor(() => expect(tauriMock.loginOpenaiCodexOauth).toHaveBeenCalledWith("oaiapp_second", false));
+  });
+
+  it.each([false, true])("removes only the chosen registration (active: %s)", async (active) => {
+    const connected = { loggedIn: true, clientId: "oaiapp_first", savedAccounts: accounts };
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue(connected);
+    const target = active ? "oaiapp_first" : "oaiapp_second";
+    const remaining = { ...connected, loggedIn: !active, clientId: active ? null : "oaiapp_first", savedAccounts: accounts.filter((a) => a.clientId !== target) };
+    tauriMock.removeChatgptAccount.mockImplementation(async () => {
+      tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue(remaining);
+      return remaining;
+    });
+    await renderSettings(openaiProfile);
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]);
+    const row = screen.getAllByText(target.slice(-8)).find((el) => el.closest(".picker-popover"))!.closest(".chatgpt-account-row");
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "settings.chatgptAccountActions" }));
+    expect(within(row as HTMLElement).getByText(active ? "settings.chatgptRemoveActiveHint" : "settings.chatgptRemoveHint")).toBeInTheDocument();
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "settings.chatgptRemoveAccount" }));
+    await waitFor(() => expect(tauriMock.removeChatgptAccount).toHaveBeenCalledWith(target));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: active ? "settings.codexOauthLogin" : "settings.codexOauthLogout" })[0]).toBeEnabled());
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]);
+    expect(screen.queryByText(target.slice(-8))).not.toBeInTheDocument();
+    expect(screen.getAllByText((active ? "oaiapp_second" : "oaiapp_first").slice(-8)).length).toBeGreaterThan(0);
+  });
+
+  it("keeps a locally removed account gone when remote revocation fails", async () => {
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: true, clientId: "oaiapp_first", savedAccounts: accounts });
+    tauriMock.removeChatgptAccount.mockImplementation(async () => {
+      tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: false, savedAccounts: accounts.slice(1) });
+      throw new Error("remote revocation unconfirmed");
+    });
+    await renderSettings(openaiProfile);
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]);
+    const row = screen.getByRole("button", { name: /same@example.invalid.*pp_first/ }).closest(".chatgpt-account-row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "settings.chatgptAccountActions" }));
+    fireEvent.click(within(row).getByRole("button", { name: "settings.chatgptRemoveAccount" }));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("remote revocation unconfirmed"));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "settings.codexOauthLogin" })[0]).toBeEnabled());
+    expect(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]).toHaveTextContent("p_second");
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]);
+    expect(screen.queryByText("pp_first")).not.toBeInTheDocument();
+  });
+
+  it("returns focus to sign-in after removing the final record", async () => {
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: true, clientId: "oaiapp_first", savedAccounts: accounts.slice(0, 1) });
+    tauriMock.removeChatgptAccount.mockImplementation(async () => {
+      tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: false, savedAccounts: [] });
+      return { loggedIn: false, savedAccounts: [] };
+    });
+    await renderSettings(openaiProfile);
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "settings.chatgptAccountActions" }));
+    const remove = screen.getByRole("button", { name: "settings.chatgptRemoveAccount" });
+    remove.focus();
+    fireEvent.click(remove);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "settings.codexOauthLogin" })[0]).toHaveFocus());
+  });
+
+  it.each([true, false])("retries an issued registration after persistence failure (pending: %s)", async (pending) => {
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: true, clientId: "oaiapp_first", savedAccounts: accounts.slice(0, 1) });
+    tauriMock.loginOpenaiCodexOauth.mockImplementationOnce(async () => {
+      tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: true, clientId: "oaiapp_first", savedAccounts: [...accounts.slice(0, 1), { clientId: "oaiapp_pending", pending }] });
+      throw new Error("token exchange failed");
+    }).mockResolvedValue({ loggedIn: true, clientId: "oaiapp_pending", savedAccounts: [{ clientId: "oaiapp_pending" }] });
+    await renderSettings(openaiProfile);
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "settings.chatgptAddAccount" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.codexOauthReauth" })[0]);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "settings.codexOauthReauth" })[0]).toBeEnabled());
+    expect(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]).toHaveTextContent("oaiapp_pending");
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.codexOauthReauth" })[0]);
+    await waitFor(() => expect(tauriMock.loginOpenaiCodexOauth).toHaveBeenLastCalledWith("oaiapp_pending", false));
+  });
+
+  it.each(["option", "enter", "action"])("saves protocol IDs when selecting upstream model names via %s", async (method) => {
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ loggedIn: true, clientId: "oaiapp_first", planUsageEnabled: true });
+    tauriMock.listAiModels.mockResolvedValue({
+      models: [{ id: "gpt-6.1-sol", displayName: "GPT-6.1 Sol", ownedBy: "openai" }],
+      sourceUrl: "https://api.openai.com/v1/models",
+    });
+    await renderSettings({ ...baseProfile, llm_provider: { ...baseProfile.llm_provider, active: "openai", openai_auth_mode: "oauth" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open model list" }));
+    const search = screen.getByRole("textbox", { name: "Search model" });
+    fireEvent.change(search, { target: { value: "GPT-6.1 Sol" } });
+    const option = await screen.findByRole("option", { name: /GPT-6\.1 Sol/ });
+    if (method === "option") fireEvent.click(option);
+    else if (method === "enter") fireEvent.keyDown(search, { key: "Enter" });
+    else fireEvent.click(screen.getByRole("button", { name: /^settings\.useAsModel/ }));
+    expect(screen.getByRole("textbox", { name: "Model name" })).toHaveValue("gpt-6.1-sol");
+  });
+
+  it("shows declined plan access and does not fetch a catalog with that identity", async () => {
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({
+      loggedIn: true, clientId: "oaiapp_denied", planUsageEnabled: false,
+      savedAccounts: [{ clientId: "oaiapp_denied", email: "test@example.invalid" }],
+    });
+    await renderSettings({ ...baseProfile, llm_provider: { ...baseProfile.llm_provider, active: "openai", openai_auth_mode: "oauth" } });
+    await waitFor(() => expect(screen.getAllByText("settings.chatgptPlanPermissionMissing").length).toBeGreaterThan(0));
+    expect(tauriMock.listAiModels).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })[0]).toHaveTextContent("test@example.invalid");
+  });
+
+  it("passes the selected saved registration to sign-in and refreshes logout state after revocation failure", async () => {
+    const connected = { loggedIn: true, clientId: "oaiapp_first", planUsageEnabled: true,
+      savedAccounts: [{clientId:"oaiapp_first",email:"same@example.invalid"},{clientId:"oaiapp_second",email:"same@example.invalid"}] };
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue(connected);
+    tauriMock.loginOpenaiCodexOauth.mockResolvedValue({ ...connected, clientId: "oaiapp_second" });
+    await renderSettings({ ...baseProfile, llm_provider: { ...baseProfile.llm_provider, active: "openai", openai_auth_mode: "oauth" } });
+    const [picker] = await screen.findAllByRole("button", { name: "settings.chatgptAccountPicker" });
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByRole("button", { name: /same@example.invalid.*p_second/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.codexOauthReauth" })[0]);
+    await waitFor(() => expect(tauriMock.loginOpenaiCodexOauth).toHaveBeenCalledWith("oaiapp_second", false));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "settings.codexOauthLogout" })[0]).toBeEnabled());
+    tauriMock.logoutOpenaiCodexOauth.mockRejectedValue(new Error("remote revocation unconfirmed"));
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({ ...connected, loggedIn: false, clientId: null });
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.codexOauthLogout" })[0]);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "settings.codexOauthLogin" })[0]).toBeInTheDocument());
+    expect(toastMock.error).toHaveBeenCalledWith("remote revocation unconfirmed");
+  });
+
+  it("keeps the two account pickers exclusive and lets a new registration be selected", async () => {
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({
+      loggedIn: true, clientId: "oaiapp_first", planUsageEnabled: true,
+      savedAccounts: [{ clientId: "oaiapp_first", email: "test@example.invalid" }],
+    });
+    tauriMock.loginOpenaiCodexOauth.mockResolvedValue({ loggedIn: false });
+    await renderSettings({ ...baseProfile, llm_provider: { ...baseProfile.llm_provider, active: "openai", openai_auth_mode: "oauth" } });
+    const [polishPicker, assistantPicker] = await screen.findAllByRole("button", { name: "settings.chatgptAccountPicker" });
+    fireEvent.click(polishPicker);
+    expect(polishPicker).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(assistantPicker);
+    expect(polishPicker).toHaveAttribute("aria-expanded", "false");
+    expect(assistantPicker).toHaveAttribute("aria-expanded", "true");
+    const addAccountOptions = screen.getAllByRole("button", { name: "settings.chatgptAddAccount" });
+    fireEvent.click(addAccountOptions[addAccountOptions.length - 1]);
+    expect(assistantPicker).toHaveTextContent("settings.chatgptAddAccount");
+    fireEvent.click(screen.getAllByRole("button", { name: "settings.codexOauthReauth" })[0]);
+    await waitFor(() => expect(tauriMock.loginOpenaiCodexOauth).toHaveBeenCalledWith(undefined, true));
+  });
+
+  it("keeps assistant and selection account popovers independent", async () => {
+    tauriMock.getOpenaiCodexOauthStatus.mockResolvedValue({
+      loggedIn: true, clientId: "oaiapp_first", planUsageEnabled: true,
+      savedAccounts: [{ clientId: "oaiapp_first", email: "test@example.invalid" }],
+    });
+    await renderSettings({
+      ...baseProfile,
+      llm_provider: { ...baseProfile.llm_provider, active: "openai", openai_auth_mode: "oauth", selection_use_separate_model: true, selection_provider: "openai", selection_model: "gpt-6.1-sol" },
+      selection_assistant: { enabled: true, translation_target: "English", excluded_apps: [], auto_screenshot: false },
+    });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" })).toHaveLength(3));
+    const pickers = screen.getAllByRole("button", { name: "settings.chatgptAccountPicker" });
+    fireEvent.click(pickers[1]);
+    expect(pickers[1]).toHaveAttribute("aria-expanded", "true");
+    expect(pickers[2]).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(pickers[1]).toHaveAttribute("aria-controls", screen.getByRole("dialog").id);
+    fireEvent.click(pickers[2]);
+    expect(pickers[1]).toHaveAttribute("aria-expanded", "false");
+    expect(pickers[2]).toHaveAttribute("aria-expanded", "true");
   });
 });

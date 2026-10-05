@@ -81,6 +81,7 @@ export interface HotkeyDiagnostic {
 
 export interface AiModelInfo {
   id: string;
+  displayName?: string | null;
   ownedBy?: string | null;
 }
 
@@ -91,6 +92,9 @@ export interface AiModelListPayload {
 
 export interface OpenaiCodexOauthStatus {
   loggedIn: boolean;
+  clientId?: string | null;
+  planUsageEnabled?: boolean;
+  savedAccounts?: Array<{ clientId: string; email?: string | null; pending?: boolean }>;
   email?: string | null;
   planType?: string | null;
   accountId?: string | null;

@@ -53,7 +53,7 @@ export function useExclusivePicker<T extends string>() {
     window.requestAnimationFrame(() => {
       refs.current
         .get(closingId)
-        ?.querySelector<HTMLElement>('[aria-haspopup="listbox"]')
+        ?.querySelector<HTMLElement>('[aria-haspopup]')
         ?.focus();
     });
   }, []);
@@ -93,11 +93,12 @@ export function useExclusivePicker<T extends string>() {
   useLayoutEffect(() => {
     if (!active) return;
     const container = refs.current.get(active);
-    const trigger = container?.querySelector<HTMLElement>('[aria-haspopup="listbox"]');
-    const listbox = container?.querySelector<HTMLElement>('[role="listbox"]');
+    const trigger = container?.querySelector<HTMLElement>('[aria-haspopup]');
+    const listbox = container?.querySelector<HTMLElement>('[role="listbox"], [role="dialog"]');
     if (!container || !trigger || !listbox) return;
 
-    const listboxId = `picker-${String(active)}-listbox`;
+    const isDialog = listbox.getAttribute("role") === "dialog";
+    const listboxId = `picker-${String(active)}-${isDialog ? "dialog" : "listbox"}`;
     listbox.id = listboxId;
     trigger.setAttribute("aria-controls", listboxId);
     if (!listbox.hasAttribute("aria-label")) {
@@ -105,9 +106,7 @@ export function useExclusivePicker<T extends string>() {
       if (triggerLabel) listbox.setAttribute("aria-label", triggerLabel);
     }
 
-    const options = Array.from(
-      listbox.querySelectorAll<HTMLButtonElement>("button.picker-option:not(:disabled)"),
-    );
+    let options: HTMLButtonElement[] = [];
     const popover = listbox.closest<HTMLElement>(".picker-popover");
     if (popover) {
       const containerRect = container.getBoundingClientRect();
@@ -122,17 +121,46 @@ export function useExclusivePicker<T extends string>() {
         ? "top"
         : "bottom";
     }
-    if (options.length === 0) return;
-
-    options.forEach((option, index) => {
-      option.id = `${listboxId}-option-${index}`;
-      option.setAttribute("role", "option");
-      option.setAttribute("aria-selected", String(option.dataset.active === "true"));
-      option.tabIndex = option.dataset.active === "true" ? 0 : -1;
-    });
-    if (!options.some((option) => option.tabIndex === 0)) options[0].tabIndex = 0;
+    // Account popovers contain selection and management buttons. Keep ordinary
+    // tab navigation instead of treating their actions as listbox options.
+    if (isDialog) {
+      const onEscape = (event: globalThis.KeyboardEvent) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          close();
+        }
+      };
+      container.addEventListener("keydown", onEscape);
+      const frame = window.requestAnimationFrame(() => {
+        const selected = listbox.querySelector<HTMLElement>('[aria-pressed="true"]:not(:disabled)');
+        (selected ?? listbox.querySelector<HTMLElement>("button:not(:disabled)"))?.focus();
+      });
+      return () => {
+        window.cancelAnimationFrame(frame);
+        container.removeEventListener("keydown", onEscape);
+        trigger.removeAttribute("aria-controls");
+      };
+    }
+    const updateOptions = () => {
+      options = Array.from(listbox.querySelectorAll<HTMLButtonElement>("button.picker-option:not(:disabled)"));
+      const focusedOption = options.find((option) => option === document.activeElement);
+      options.forEach((option, index) => {
+        option.id = `${listboxId}-option-${index}`;
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", String(option.dataset.active === "true"));
+        option.tabIndex = focusedOption
+          ? option === focusedOption ? 0 : -1
+          : option.dataset.active === "true" ? 0 : -1;
+      });
+      if (options.length && !options.some((option) => option.tabIndex === 0)) options[0].tabIndex = 0;
+    };
+    updateOptions();
+    // Model fetches and search can replace the options while the picker stays open.
+    const observer = new MutationObserver(updateOptions);
+    observer.observe(listbox, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-active", "disabled"] });
 
     const focusOption = (index: number) => {
+      if (!options.length) return;
       const normalized = (index + options.length) % options.length;
       options.forEach((option, optionIndex) => {
         option.tabIndex = optionIndex === normalized ? 0 : -1;
@@ -207,6 +235,7 @@ export function useExclusivePicker<T extends string>() {
         window.cancelAnimationFrame(openingFocusFrame);
       }
       container.removeEventListener("keydown", onKeyDown);
+      observer.disconnect();
       trigger.removeAttribute("aria-controls");
     };
   }, [active, close]);

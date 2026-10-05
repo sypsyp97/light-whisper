@@ -15,6 +15,9 @@ use crate::state::user_profile::{LlmProviderConfig, XaiAuthMode};
 use crate::state::AppState;
 use crate::utils::paths;
 
+// Bound headers and response-body reads while account switching waits for refresh.
+const TOKEN_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
+
 const XAI_PROVIDER: &str = "xai";
 const CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 const AUTHORIZE_URL: &str = "https://auth.x.ai/oauth2/authorize";
@@ -654,6 +657,7 @@ async fn exchange_code_for_tokens(
 ) -> Result<TokenResponse, String> {
     let response = client
         .post(TOKEN_URL)
+        .timeout(TOKEN_HTTP_TIMEOUT)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(form_encode(&[
             ("grant_type", "authorization_code"),
@@ -683,6 +687,7 @@ async fn request_device_code(
 ) -> Result<GrokBuildOauthDeviceCodeChallenge, String> {
     let response = client
         .post(DEVICE_CODE_URL)
+        .timeout(TOKEN_HTTP_TIMEOUT)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(form_encode(&[("client_id", CLIENT_ID), ("scope", SCOPE)])?)
         .send()
@@ -729,6 +734,7 @@ async fn poll_device_code_token(
     loop {
         let response = client
             .post(TOKEN_URL)
+            .timeout(TOKEN_HTTP_TIMEOUT)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(form_encode(&[
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
@@ -777,6 +783,15 @@ async fn refresh_tokens(
     client: &reqwest::Client,
     refresh_token: &str,
 ) -> Result<TokenResponse, RefreshFailure> {
+    refresh_tokens_at(client, TOKEN_URL, refresh_token, TOKEN_HTTP_TIMEOUT).await
+}
+
+async fn refresh_tokens_at(
+    client: &reqwest::Client,
+    endpoint: &str,
+    refresh_token: &str,
+    timeout: Duration,
+) -> Result<TokenResponse, RefreshFailure> {
     let form = form_encode(&[
         ("grant_type", "refresh_token"),
         ("refresh_token", refresh_token),
@@ -787,7 +802,8 @@ async fn refresh_tokens(
         invalidate_session: false,
     })?;
     let response = client
-        .post(TOKEN_URL)
+        .post(endpoint)
+        .timeout(timeout)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(form)
         .send()
@@ -900,11 +916,31 @@ async fn refresh_session_if_needed(
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<Option<GrokBuildOauthSession>, String> {
+    refresh_session(app_handle, state, None).await
+}
+
+async fn refresh_session(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    rejected: Option<&str>,
+) -> Result<Option<GrokBuildOauthSession>, String> {
     let _refresh_guard = state.grok_build_oauth_state().lock_refresh().await;
     let Some((operation, session)) = state.grok_build_oauth_state().snapshot_for_refresh() else {
         return Ok(None);
     };
-    if !session_needs_refresh(&session) && session_has_runtime_auth_material(&session) {
+    if let Some(old) = rejected {
+        if session_has_runtime_auth_material(&session) && session.access_token != old {
+            let old_identity = decode_jwt_claims(old).and_then(|c| c.sub);
+            if old_identity.is_none() || old_identity != session.account_id {
+                return Err("Grok 账户已切换，请重试当前操作。".into());
+            }
+            return Ok(Some(session));
+        }
+    }
+    if rejected.is_none()
+        && !session_needs_refresh(&session)
+        && session_has_runtime_auth_material(&session)
+    {
         return Ok(Some(session));
     }
     if session.refresh_token.trim().is_empty() {
@@ -934,18 +970,29 @@ async fn refresh_session_if_needed(
     };
 
     let refreshed = session_from_token_response(token_response, Some(&session))?;
-    let committed = state
-        .grok_build_oauth_state()
-        .commit(operation, refreshed, |session| {
-            save_session_to_storage(app_handle, session)
-        })?;
+    let committed =
+        state
+            .grok_build_oauth_state()
+            .commit(operation, refreshed.clone(), |session| {
+                save_session_to_storage(app_handle, session)
+            })?;
     if !committed {
         return Err("Grok Build OAuth 会话已被更新的操作取代，请重试。".to_string());
     }
-    let refreshed = state
-        .read_grok_build_oauth_session()
-        .ok_or_else(|| "Grok Build OAuth 会话在刷新后不可用，请重试。".to_string())?;
     Ok(Some(refreshed))
+}
+
+pub async fn recover_rejected_auth(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    rejected: &str,
+) -> Result<String, String> {
+    let token = decode_grok_build_oauth_access_token(rejected).ok_or("Grok 登录信息无效")?;
+    let session = refresh_session(app, state, Some(&token))
+        .await?
+        .ok_or("Grok 登录正在更新，请重试。")?;
+    encode_grok_build_oauth_access_token(&session.access_token)
+        .ok_or("Grok 登录缺少 token，请重新登录。".into())
 }
 
 pub fn sync_runtime_session(
@@ -990,7 +1037,10 @@ pub async fn login(
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<GrokBuildOauthStatus, String> {
-    let login = state.grok_build_oauth_state().begin_login();
+    let login = state
+        .grok_build_oauth_state()
+        .begin_login_after_refresh()
+        .await;
     let operation = login.token();
     let listener = bind_callback_listener().await?;
     let (code_verifier, code_challenge) = generate_pkce_pair();
@@ -1040,7 +1090,10 @@ pub async fn login(
 pub async fn start_device_code_login(
     state: &AppState,
 ) -> Result<GrokBuildOauthDeviceCodeChallenge, String> {
-    let login = state.grok_build_oauth_state().begin_login();
+    let login = state
+        .grok_build_oauth_state()
+        .begin_login_after_refresh()
+        .await;
     let operation = login.token();
     let challenge = request_device_code(&state.http_client).await?;
     if challenge.device_code.trim().is_empty() || challenge.user_code.trim().is_empty() {
@@ -1131,6 +1184,57 @@ pub async fn resolve_oauth_origin_api_key(
 #[cfg(test)]
 mod storage_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn refresh_deadline_releases_login_waiter_for_stalled_headers_and_body() {
+        use tokio::io::AsyncReadExt;
+        for send_headers in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = format!("http://{}/token", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = [0u8; 2048];
+                assert!(socket.read(&mut buffer).await.unwrap() > 0);
+                if send_headers {
+                    socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 256\r\n\r\n{").await.unwrap();
+                }
+                std::future::pending::<()>().await;
+            });
+            let coordinator = crate::state::oauth_session::OAuthSessionState::default();
+            coordinator.restore(Some("original-refresh-token".to_string()));
+            let guard = coordinator.lock_refresh().await;
+            let client = reqwest::Client::new();
+            let outcome = tokio::time::timeout(Duration::from_secs(1), async {
+                tokio::join!(
+                    async {
+                        let result = refresh_tokens_at(
+                            &client,
+                            &endpoint,
+                            "test-refresh",
+                            Duration::from_millis(50),
+                        )
+                        .await;
+                        drop(guard);
+                        result
+                    },
+                    coordinator.begin_login_after_refresh()
+                )
+            })
+            .await;
+            server.abort();
+            let (result, login) = outcome.expect("refresh deadline must release the login waiter");
+            let error = result.unwrap_err();
+            assert!(
+                !error.invalidate_session,
+                "network timeout must preserve credentials"
+            );
+            drop(login);
+            assert_eq!(
+                coordinator.read().as_deref(),
+                Some("original-refresh-token")
+            );
+        }
+    }
 
     #[tokio::test]
     async fn callback_total_deadline_includes_a_stalled_request_line() {

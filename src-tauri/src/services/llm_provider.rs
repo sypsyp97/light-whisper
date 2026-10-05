@@ -1452,18 +1452,20 @@ pub fn build_auth_headers(
                     "Authorization",
                     parse(&format!("Bearer {}", token.access_token))?,
                 );
-                if let Some(account_id) = token
-                    .account_id
-                    .as_deref()
-                    .filter(|value| !value.trim().is_empty())
-                {
-                    headers.insert("ChatGPT-Account-ID", parse(account_id)?);
+                if !codex_oauth_service::is_chatgpt_plan_auth(api_key) {
+                    if let Some(account_id) = token
+                        .account_id
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                    {
+                        headers.insert("ChatGPT-Account-ID", parse(account_id)?);
+                    }
+                    headers.insert("originator", parse(codex_oauth_service::ORIGINATOR)?);
+                    headers.insert(
+                        "User-Agent",
+                        parse(codex_oauth_service::CHATGPT_BEARER_USER_AGENT)?,
+                    );
                 }
-                headers.insert("originator", parse(codex_oauth_service::ORIGINATOR)?);
-                headers.insert(
-                    "User-Agent",
-                    parse(codex_oauth_service::CHATGPT_BEARER_USER_AGENT)?,
-                );
             } else if let Some(token) =
                 grok_build_oauth_service::decode_grok_build_oauth_access_token(api_key)
             {

@@ -66,6 +66,11 @@ pub(crate) fn is_retryable_overload_error(status: reqwest::StatusCode, message: 
     }
 
     let normalized = message.to_ascii_lowercase();
+    if normalized.contains("subscription_sharing_usage_limit_exceeded")
+        || normalized.contains("insufficient_quota")
+    {
+        return false;
+    }
     normalized.contains("queue_exceeded")
         || normalized.contains("high traffic")
         || normalized.contains("too many requests")
@@ -90,6 +95,69 @@ async fn read_error_body(
         .await
         .map_err(|_| "响应读取超时".to_string())?
         .map_err(|error| format!("响应读取失败: {error}"))
+}
+
+async fn dispatch_request(
+    http_client: &reqwest::Client,
+    endpoint: &LlmEndpoint,
+    api_key: &str,
+    headers: reqwest::header::HeaderMap,
+    body: &Value,
+    deadline: tokio::time::Instant,
+) -> Result<reqwest::Response, String> {
+    let request_url = request_url_for_backend(endpoint, api_key);
+    let request = http_client.post(request_url).headers(headers);
+    tokio::time::timeout_at(deadline, request.json(body).send())
+        .await
+        .map_err(|_| "请求超时".to_string())?
+        .map_err(|e| format!("请求失败: {}", e))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_with_auth_recovery<F, Fut>(
+    client: &reqwest::Client,
+    endpoint: &LlmEndpoint,
+    auth: &str,
+    mut headers: reqwest::header::HeaderMap,
+    body: &Value,
+    deadline: tokio::time::Instant,
+    session_id: Option<u64>,
+    recover: F,
+) -> Result<
+    (
+        reqwest::Response,
+        Option<String>,
+        reqwest::header::HeaderMap,
+    ),
+    String,
+>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Option<String>, String>>,
+{
+    let mut response =
+        dispatch_request(client, endpoint, auth, headers.clone(), body, deadline).await?;
+    let replacement = if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        tokio::time::timeout_at(deadline, recover())
+            .await
+            .map_err(|_| "认证刷新超时")??
+    } else {
+        None
+    };
+    if let Some(auth) = replacement.as_deref() {
+        headers = llm_provider::build_auth_headers(&endpoint.api_format, auth)?;
+        if uses_codex_chatgpt_backend(endpoint, auth) {
+            if let Some(id) = session_id {
+                headers.insert(
+                    "session_id",
+                    id.to_string().parse().map_err(|_| "会话标识无效")?,
+                );
+            }
+        }
+        response =
+            dispatch_request(client, endpoint, auth, headers.clone(), body, deadline).await?;
+    }
+    Ok((response, replacement, headers))
 }
 
 pub async fn send_llm_request(
@@ -144,22 +212,6 @@ pub async fn send_llm_request(
         .unwrap_or(false);
     let requested_stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let mut remember_initial_auto_reasoning_strategy = true;
-
-    async fn dispatch_request(
-        http_client: &reqwest::Client,
-        endpoint: &LlmEndpoint,
-        api_key: &str,
-        headers: reqwest::header::HeaderMap,
-        body: &Value,
-        deadline: tokio::time::Instant,
-    ) -> Result<reqwest::Response, String> {
-        let request_url = request_url_for_backend(endpoint, api_key);
-        let request = http_client.post(request_url).headers(headers);
-        tokio::time::timeout_at(deadline, request.json(body).send())
-            .await
-            .map_err(|_| "请求超时".to_string())?
-            .map_err(|e| format!("请求失败: {}", e))
-    }
 
     struct ReasoningRetryContext<'a> {
         http_client: &'a reqwest::Client,
@@ -338,15 +390,26 @@ pub async fn send_llm_request(
         Ok(retry_response)
     }
 
-    let mut response = dispatch_request(
+    let (mut response, recovered_auth, request_headers) = dispatch_with_auth_recovery(
         http_client,
         endpoint,
         api_key,
-        headers.clone(),
+        headers,
         &request_body,
         deadline,
+        options.session_id,
+        || async {
+            if let Some((app, state)) = options.auth_context {
+                codex_oauth_service::recover_rejected_auth(app, state, &endpoint.provider, api_key)
+                    .await
+            } else {
+                Ok(None)
+            }
+        },
     )
     .await?;
+    headers = request_headers;
+    let api_key = recovered_auth.as_deref().unwrap_or(api_key);
 
     if !response.status().is_success() {
         let mut status = response.status();
@@ -507,6 +570,7 @@ pub async fn send_llm_request(
                         options.session_id,
                         progress_timeout,
                         total_timeout,
+                        codex_oauth_service::is_chatgpt_plan_auth(api_key),
                     )
                     .await
                 } else {
@@ -533,5 +597,103 @@ pub async fn send_llm_request(
             endpoint,
             "non_stream",
         )
+    }
+}
+
+#[cfg(test)]
+mod auth_recovery_tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn plan_auth(token: &str) -> String {
+        use base64::Engine;
+        format!(
+            "openai-chatgpt-plan:{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+                serde_json::json!({"access_token":token,"account_id":"oaiapp_test"}).to_string()
+            )
+        )
+    }
+
+    #[tokio::test]
+    async fn http_auth_recovery_retries_once_with_new_credentials_and_same_body() {
+        for (first, second, count) in [(401, 200, 2), (401, 401, 2), (403, 200, 1), (402, 200, 1)] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = LlmEndpoint {
+                provider: "openai".into(),
+                api_url: format!("http://{}/responses", listener.local_addr().unwrap()),
+                model: "test".into(),
+                timeout_secs: 5,
+                api_format: ApiFormat::OpenaiCompat,
+            };
+            let server = tokio::spawn(async move {
+                let mut bodies = Vec::new();
+                for i in 0..count {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = Vec::new();
+                    loop {
+                        let mut buffer = [0; 1024];
+                        let n = socket.read(&mut buffer).await.unwrap();
+                        assert!(n > 0);
+                        request.extend_from_slice(&buffer[..n]);
+                        if let Some(offset) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let headers =
+                                String::from_utf8_lossy(&request[..offset]).to_ascii_lowercase();
+                            let length: usize = headers
+                                .lines()
+                                .find_map(|l| l.strip_prefix("content-length: "))
+                                .unwrap()
+                                .parse()
+                                .unwrap();
+                            if request.len() >= offset + 4 + length {
+                                assert!(headers.contains(if i == 0 {
+                                    "authorization: bearer stale"
+                                } else {
+                                    "authorization: bearer fresh"
+                                }));
+                                bodies.push(request[offset + 4..].to_vec());
+                                break;
+                            }
+                        }
+                    }
+                    let status = if i == 0 { first } else { second };
+                    socket.write_all(format!("HTTP/1.1 {status} Test\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}").as_bytes()).await.unwrap();
+                }
+                if bodies.len() == 2 {
+                    assert_eq!(bodies[0], bodies[1]);
+                }
+            });
+            let callbacks = Arc::new(AtomicUsize::new(0));
+            let callback_count = callbacks.clone();
+            let auth = plan_auth("stale");
+            let headers =
+                llm_provider::build_auth_headers(&ApiFormat::OpenaiCompat, &auth).unwrap();
+            let (response, replacement, _) = dispatch_with_auth_recovery(
+                &reqwest::Client::new(),
+                &endpoint,
+                &auth,
+                headers,
+                &serde_json::json!({"input":[{"role":"user","content":"same request"}]}),
+                tokio::time::Instant::now() + Duration::from_secs(3),
+                None,
+                || async move {
+                    callback_count.fetch_add(1, Ordering::SeqCst);
+                    Ok(Some(plan_auth("fresh")))
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                response.status().as_u16(),
+                if count == 2 { second } else { first }
+            );
+            assert_eq!(callbacks.load(Ordering::SeqCst), usize::from(first == 401));
+            assert_eq!(replacement.is_some(), first == 401);
+            server.await.unwrap();
+        }
     }
 }
