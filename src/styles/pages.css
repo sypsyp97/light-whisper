@@ -2008,6 +2008,8 @@ select:disabled { cursor: not-allowed; opacity: 0.6; }
 
 .picker-option {
   display: flex;
+  /* Preserve multi-line rows when the menu reaches its scroll limit. */
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
