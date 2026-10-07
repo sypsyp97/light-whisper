@@ -41,6 +41,19 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("GPU idle persistence IPC", () => {
+  it("distinguishes the effective timer from its remembered timeout", async () => {
+    const { getGpuIdleSeconds, setGpuIdleSeconds } = await import("@/api/tauri");
+    invokeMock.invoke.mockResolvedValue(0);
+    await getGpuIdleSeconds();
+    expect(invokeMock.invoke).toHaveBeenLastCalledWith("get_gpu_idle_seconds");
+    await getGpuIdleSeconds(true);
+    expect(invokeMock.invoke).toHaveBeenLastCalledWith("get_gpu_idle_seconds", { includeDisabled: true });
+    await setGpuIdleSeconds(0, 60);
+    expect(invokeMock.invoke).toHaveBeenLastCalledWith("set_gpu_idle_seconds", { seconds: 0, timeoutSeconds: 60 });
+  });
+});
+
 describe("ChatGPT registration IPC", () => {
   it("distinguishes returning sign-in from explicit new registration", async () => {
     const { loginOpenaiCodexOauth, removeChatgptAccount } = await import("@/api/tauri");

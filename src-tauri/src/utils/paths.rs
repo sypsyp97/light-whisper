@@ -418,14 +418,45 @@ pub fn read_gpu_idle_seconds() -> u64 {
     parse_gpu_idle_seconds(read_engine_json().get("gpu_idle_seconds"))
 }
 
-pub fn write_gpu_idle_seconds(seconds: u64) -> Result<(), std::io::Error> {
+fn gpu_idle_timeout_from_config(config: &serde_json::Value) -> u64 {
+    let remembered = parse_gpu_idle_seconds(config.get("gpu_idle_timeout_seconds"));
+    if remembered > 0 {
+        remembered
+    } else {
+        parse_gpu_idle_seconds(config.get("gpu_idle_seconds"))
+    }
+}
+
+pub fn read_gpu_idle_timeout_seconds() -> u64 {
+    gpu_idle_timeout_from_config(&read_engine_json())
+}
+
+pub fn write_gpu_idle_seconds(
+    seconds: u64,
+    timeout_seconds: Option<u64>,
+) -> Result<(), std::io::Error> {
     let seconds = seconds.min(MAX_GPU_IDLE_SECONDS);
     let mut obj = read_engine_json();
     if !obj.is_object() {
         obj = serde_json::json!({});
     }
+    // Keep the effective value (0 = off) separate from the user's last timeout.
+    let remembered = timeout_seconds
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| {
+            if seconds > 0 {
+                seconds
+            } else {
+                gpu_idle_timeout_from_config(&obj)
+            }
+        })
+        .min(MAX_GPU_IDLE_SECONDS);
     if let Some(map) = obj.as_object_mut() {
         map.insert("gpu_idle_seconds".to_string(), serde_json::json!(seconds));
+        map.insert(
+            "gpu_idle_timeout_seconds".to_string(),
+            serde_json::json!(remembered),
+        );
     }
     write_engine_json(&obj)
 }
@@ -531,6 +562,84 @@ mod tests {
             ))),
             super::MAX_GPU_IDLE_SECONDS
         );
+    }
+
+    #[test]
+    fn gpu_idle_timeout_survives_disable_and_restart() {
+        // A fresh process isolates DATA_DIR's OnceLock from every other test.
+        if std::env::var_os("LIGHT_WHISPER_GPU_IDLE_TEST_CHILD").is_none() {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "light-whisper-gpu-idle-{}-{nonce}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "utils::paths::tests::gpu_idle_timeout_survives_disable_and_restart",
+                    "--nocapture",
+                ])
+                .env("LIGHT_WHISPER_DATA_DIR", &dir)
+                .env("LIGHT_WHISPER_GPU_IDLE_TEST_CHILD", "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let restarted = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "utils::paths::tests::gpu_idle_timeout_survives_disable_and_restart",
+                    "--nocapture",
+                ])
+                .env("LIGHT_WHISPER_DATA_DIR", &dir)
+                .env("LIGHT_WHISPER_GPU_IDLE_TEST_CHILD", "restart")
+                .output()
+                .unwrap();
+            assert!(
+                restarted.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&restarted.stdout),
+                String::from_utf8_lossy(&restarted.stderr)
+            );
+            std::fs::remove_file(dir.join("engine.json")).unwrap();
+            std::fs::remove_dir(dir).unwrap();
+            return;
+        }
+        if std::env::var("LIGHT_WHISPER_GPU_IDLE_TEST_CHILD").as_deref() == Ok("restart") {
+            assert_eq!(super::read_gpu_idle_seconds(), 0);
+            assert_eq!(super::read_gpu_idle_timeout_seconds(), 75);
+            super::write_gpu_idle_seconds(super::read_gpu_idle_timeout_seconds(), None).unwrap();
+            assert_eq!(super::read_gpu_idle_seconds(), 75);
+            return;
+        }
+        assert_eq!(super::read_gpu_idle_seconds(), 0);
+        super::atomic_write(
+            &super::get_engine_config_path(),
+            br#"{"engine":"confucius4-r2t2","gpu_idle_seconds":45}"#,
+        )
+        .unwrap();
+        assert_eq!(super::read_gpu_idle_timeout_seconds(), 45);
+        super::write_gpu_idle_seconds(60, None).unwrap();
+        assert_eq!(super::read_gpu_idle_seconds(), 60);
+        super::write_gpu_idle_seconds(0, None).unwrap();
+        assert_eq!(super::read_gpu_idle_seconds(), 0);
+        let config: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(super::get_engine_config_path()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(config["gpu_idle_timeout_seconds"], 60);
+        assert_eq!(config["engine"], "confucius4-r2t2");
+        super::write_gpu_idle_seconds(0, Some(75)).unwrap();
+        assert_eq!(super::read_gpu_idle_seconds(), 0);
+        assert_eq!(super::read_gpu_idle_timeout_seconds(), 75);
     }
 
     #[test]

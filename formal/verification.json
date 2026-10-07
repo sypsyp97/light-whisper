@@ -1264,6 +1264,8 @@
         ],
         "GpuIdleSettings": [
           "DisplayMatchesLastSave",
+          "TimeoutMatchesDisk",
+          "DisabledKeepsTimeout",
           "SavesSettle"
         ],
         "AppWorkflow": [
@@ -1285,6 +1287,7 @@
         "src-tauri/resources/test_qwen3_asr_server.py#test_idle_unload_closes_runtime_and_keeps_vad",
         "src-tauri/resources/test_r2t2_asr_server.py#test_idle_unload_drops_native_pointers_unless_stream_is_active",
         "src/components/settings/GpuIdleUnloadControl.test.tsx",
+        "src-tauri/src/utils/paths.rs#fn gpu_idle_timeout_survives_disable_and_restart(",
         "formal/lean/StateContracts.lean#gpuMayUnload"
       ],
       "assumptions": "Monotonic time and weakly fair timer/command completion; finite clocks in TLC and unbounded Nat policy in Lean. Native load/free success is an input, not a driver proof. AppWorkflow GpuIdle represents R2T2 recording as an active stream. Input focus/click ordering is checked by real user-event regression tests; linguistic accuracy is outside proof."
@@ -1447,7 +1450,8 @@
     "GpuIdleSettings": [
       "BeginSave",
       "FinishSave",
-      "FinishRead"
+      "FinishRead",
+      "Restart"
     ]
   },
   "negative": [
@@ -1765,6 +1769,15 @@
         "0"
       ],
       "invariant": "DisplayMatchesLastSave"
+    },
+    {
+      "name": "gpu-idle-disable-resets-timeout",
+      "model": "GpuIdleSettings",
+      "replace": [
+        "!.pendingTimeout = IF value > 0 THEN value ELSE s.timeout",
+        "!.pendingTimeout = IF value > 0 THEN value ELSE 1"
+      ],
+      "invariant": "DisabledKeepsTimeout"
     }
   ],
   "command_implementation": {

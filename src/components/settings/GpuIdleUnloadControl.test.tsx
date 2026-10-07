@@ -49,7 +49,7 @@ describe("GpuIdleUnloadControl", () => {
     expect(input).toHaveValue("180");
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("switch", { name: zh.settings.gpuIdleTitle }));
-    await waitFor(() => expect(api.setGpuIdleSeconds).toHaveBeenLastCalledWith(0));
+    await waitFor(() => expect(api.setGpuIdleSeconds).toHaveBeenLastCalledWith(0, 180));
     await waitFor(() => expect(screen.queryByRole("textbox", { name: zh.settings.gpuIdleSeconds })).not.toBeInTheDocument());
     // Keep the field in the document while its containing row collapses.
     expect(input).toBeInTheDocument();
@@ -67,7 +67,57 @@ describe("GpuIdleUnloadControl", () => {
     await user.type(input, "60");
     await user.click(screen.getByRole("switch"));
     await waitFor(() => expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "false"));
-    expect(api.setGpuIdleSeconds).toHaveBeenCalledExactlyOnceWith(0);
+    expect(api.setGpuIdleSeconds).toHaveBeenCalledExactlyOnceWith(0, 60);
+  });
+
+  it("keeps an edited timeout when switched off and back on", async () => {
+    api.getGpuIdleSeconds.mockResolvedValue(180);
+    const user = userEvent.setup();
+    render(<GpuIdleUnloadControl />);
+    const input = await screen.findByLabelText(zh.settings.gpuIdleSeconds);
+    await user.clear(input);
+    await user.type(input, "60");
+    await user.click(screen.getByRole("switch"));
+    await waitFor(() => expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "false"));
+    await user.click(screen.getByRole("switch"));
+    await waitFor(() => expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByLabelText(zh.settings.gpuIdleSeconds)).toHaveValue("60");
+    expect(api.setGpuIdleSeconds).toHaveBeenLastCalledWith(60);
+  });
+
+  it("restores the saved timeout after reopening settings while disabled", async () => {
+    api.getGpuIdleSeconds.mockImplementation(async (includeDisabled?: boolean) => includeDisabled ? 75 : 0);
+    const user = userEvent.setup();
+    render(<GpuIdleUnloadControl />);
+    await waitFor(() => expect(api.getGpuIdleSeconds).toHaveBeenCalled());
+    await user.click(screen.getByRole("switch"));
+    await waitFor(() => expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByLabelText(zh.settings.gpuIdleSeconds)).toHaveValue("75");
+    expect(api.setGpuIdleSeconds).toHaveBeenLastCalledWith(75);
+  });
+
+  it("saves edited seconds without requiring blur or Enter", async () => {
+    api.getGpuIdleSeconds.mockResolvedValue(180);
+    const user = userEvent.setup();
+    render(<GpuIdleUnloadControl />);
+    const input = await screen.findByLabelText(zh.settings.gpuIdleSeconds);
+    await user.clear(input);
+    await user.type(input, "45");
+    await waitFor(() => expect(api.setGpuIdleSeconds).toHaveBeenLastCalledWith(45));
+    expect(input).toHaveValue("45");
+  });
+
+  it("keeps the last positive timeout when zero disables the timer", async () => {
+    api.getGpuIdleSeconds.mockResolvedValue(60);
+    const user = userEvent.setup();
+    render(<GpuIdleUnloadControl />);
+    const input = await screen.findByLabelText(zh.settings.gpuIdleSeconds);
+    await user.clear(input);
+    await user.type(input, "0{Enter}");
+    await waitFor(() => expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "false"));
+    expect(api.setGpuIdleSeconds).toHaveBeenLastCalledWith(0, 60);
+    await user.click(screen.getByRole("switch"));
+    await waitFor(() => expect(api.setGpuIdleSeconds).toHaveBeenLastCalledWith(60));
   });
 
   it("ignores an initial read that completes after a saved change", async () => {

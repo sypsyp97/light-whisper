@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { getGpuIdleSeconds, setGpuIdleSeconds } from "@/api/tauri";
 import { SettingsReveal } from "./SettingsReveal";
+import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import {
   GPU_IDLE_OFF_SECONDS,
   GPU_IDLE_SUGGESTED_SECONDS,
@@ -16,15 +17,18 @@ export default function GpuIdleUnloadControl() {
   const [saving, setSaving] = useState(false);
   const edited = useRef(false);
   const togglePointerDown = useRef(false);
+  const pending = useRef(false);
+  const rememberedTimeout = useRef(GPU_IDLE_SUGGESTED_SECONDS);
 
   useEffect(() => {
     let cancelled = false;
-    getGpuIdleSeconds()
-      .then((value) => {
+    Promise.all([getGpuIdleSeconds(), getGpuIdleSeconds(true)])
+      .then(([value, remembered]) => {
         if (cancelled || edited.current) return;
         const next = normalizeGpuIdleSeconds(value);
         setSeconds(next);
-        if (next > 0) setDraft(String(next));
+        rememberedTimeout.current = next || normalizeGpuIdleSeconds(remembered) || GPU_IDLE_SUGGESTED_SECONDS;
+        setDraft(String(rememberedTimeout.current));
       })
       .catch(() => {
         // Missing config reads as off, matching an engine.json without the key.
@@ -35,23 +39,32 @@ export default function GpuIdleUnloadControl() {
   }, []);
 
   const persist = async (next: number) => {
+    if (pending.current) return;
+    pending.current = true;
     edited.current = true;
     const secondsToSave = normalizeGpuIdleSeconds(next);
+    const timeoutToSave = normalizeGpuIdleSeconds(draft) || rememberedTimeout.current;
     setSaving(true);
     try {
-      const saved = normalizeGpuIdleSeconds(await setGpuIdleSeconds(secondsToSave));
+      const saved = normalizeGpuIdleSeconds(await (secondsToSave > 0
+        ? setGpuIdleSeconds(secondsToSave)
+        : setGpuIdleSeconds(secondsToSave, timeoutToSave)));
       setSeconds(saved);
-      if (saved > 0) setDraft(String(saved));
+      rememberedTimeout.current = saved || timeoutToSave;
+      setDraft(String(rememberedTimeout.current));
     } catch {
       toast.error(t("settings.gpuIdleSaveFailed"));
     } finally {
+      pending.current = false;
       setSaving(false);
     }
   };
+  const saveDraft = useDebouncedCallback(persist, 600, { onUnmount: "flush" });
 
   const enabled = seconds > 0;
 
   const commitDraft = () => {
+    saveDraft.cancel();
     const parsed = normalizeGpuIdleSeconds(draft);
     if (parsed === seconds) return;
     void persist(parsed);
@@ -76,7 +89,8 @@ export default function GpuIdleUnloadControl() {
             onPointerCancel={() => { togglePointerDown.current = false; }}
             onBlur={() => { togglePointerDown.current = false; }}
             onClick={() => {
-              void persist(enabled ? GPU_IDLE_OFF_SECONDS : GPU_IDLE_SUGGESTED_SECONDS);
+              saveDraft.cancel();
+              void persist(enabled ? GPU_IDLE_OFF_SECONDS : normalizeGpuIdleSeconds(draft) || GPU_IDLE_SUGGESTED_SECONDS);
             }}
             className="toggle-switch"
             style={{
@@ -98,7 +112,15 @@ export default function GpuIdleUnloadControl() {
               aria-label={t("settings.gpuIdleSeconds")}
               value={draft}
               disabled={saving || !enabled}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                edited.current = true;
+                const value = event.target.value;
+                setDraft(value);
+                saveDraft.cancel();
+                if (value.trim() && Number.isFinite(Number(value)) && Number(value) >= 0) {
+                  saveDraft.schedule(normalizeGpuIdleSeconds(value));
+                }
+              }}
               onBlur={(event) => {
                 // Let a switch click save its final value, without a competing blur save.
                 const switchClick = togglePointerDown.current

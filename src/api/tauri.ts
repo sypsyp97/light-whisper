@@ -122,10 +122,12 @@ export function setEngine(engine: string): Promise<string> {
   return invokeCommand<string>("set_engine", { engine });
 }
 
-export const getGpuIdleSeconds = createNoArgCommand<number>("get_gpu_idle_seconds");
+export function getGpuIdleSeconds(includeDisabled = false): Promise<number> {
+  return invokeCommand<number>("get_gpu_idle_seconds", includeDisabled ? { includeDisabled } : undefined);
+}
 
-export function setGpuIdleSeconds(seconds: number): Promise<number> {
-  return invokeCommand<number>("set_gpu_idle_seconds", { seconds });
+export function setGpuIdleSeconds(seconds: number, timeoutSeconds?: number): Promise<number> {
+  return invokeCommand<number>("set_gpu_idle_seconds", timeoutSeconds === undefined ? { seconds } : { seconds, timeoutSeconds });
 }
 
 export function copyToClipboard(text: string): Promise<string> {

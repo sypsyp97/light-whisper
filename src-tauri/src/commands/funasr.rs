@@ -280,23 +280,29 @@ pub async fn set_engine(
 }
 
 #[tauri::command]
-pub async fn get_gpu_idle_seconds() -> Result<u64, AppError> {
-    Ok(paths::read_gpu_idle_seconds())
+pub async fn get_gpu_idle_seconds(include_disabled: Option<bool>) -> Result<u64, AppError> {
+    Ok(if include_disabled == Some(true) {
+        paths::read_gpu_idle_timeout_seconds()
+    } else {
+        paths::read_gpu_idle_seconds()
+    })
 }
 
 #[tauri::command]
 pub async fn set_gpu_idle_seconds(
     state: tauri::State<'_, AppState>,
     seconds: u64,
+    timeout_seconds: Option<u64>,
 ) -> Result<u64, AppError> {
-    if seconds > paths::MAX_GPU_IDLE_SECONDS {
+    let requested_seconds = seconds.max(timeout_seconds.unwrap_or(0));
+    if requested_seconds > paths::MAX_GPU_IDLE_SECONDS {
         return Err(AppError::Other(format!(
             "GPU 空闲时间过长: {}，最大 {} 秒",
-            seconds,
+            requested_seconds,
             paths::MAX_GPU_IDLE_SECONDS
         )));
     }
-    paths::write_gpu_idle_seconds(seconds)
+    paths::write_gpu_idle_seconds(seconds, timeout_seconds)
         .map_err(|e| AppError::Other(format!("写入 GPU 空闲设置失败: {}", e)))?;
     // 正在运行的本地引擎立刻生效；没启动或在线引擎只记在 engine.json。
     funasr_service::push_gpu_idle_seconds(state.inner(), seconds).await?;
