@@ -86,6 +86,17 @@ These checks cover application state and protocol contracts under [documented as
 
 Decision-model API keys are stored in separate system credential slots for each provider.
 
+Read the [Privacy policy](docs/privacy.md) for network requests, local storage
+and third-party service policies.
+
+## Code signing policy
+
+The v1.7.4 Windows installer is unsigned. A free SignPath Foundation application
+is being prepared; approval and a verified hosted build are required before
+signed downloads can be published. See the [Code signing policy](docs/code-signing.md).
+
+[Download releases](https://github.com/sypsyp97/light-whisper/releases/latest).
+
 ## For developers
 
 [Build & troubleshoot](docs/development.md) · [Release procedure](docs/releasing.md) · [R2T2 backend](docs/r2t2-native.md) · [Formal verification](formal/README.md)
