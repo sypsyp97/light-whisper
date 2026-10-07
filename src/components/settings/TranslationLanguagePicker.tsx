@@ -1,19 +1,9 @@
 import { useEffect, useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { COMMON_LANGUAGE_OPTIONS } from "@/lib/languages";
 
-export const COMMON_TRANSLATION_LANGUAGES = [
-  "简体中文",
-  "繁體中文",
-  "English",
-  "日本語",
-  "한국어",
-  "Français",
-  "Deutsch",
-  "Español",
-  "Русский",
-  "Português",
-] as const;
+export const COMMON_TRANSLATION_LANGUAGES = COMMON_LANGUAGE_OPTIONS.map(({ label }) => label);
 
 interface PickerControl {
   open: boolean;

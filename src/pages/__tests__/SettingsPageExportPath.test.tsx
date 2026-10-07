@@ -392,6 +392,18 @@ describe("SettingsPage navigation", () => {
 });
 
 describe("SettingsPage correction rules dialog", () => {
+  it("does not close the dialog when Escape dismisses its native provider picker", async () => {
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage correction rules" }));
+    const dialog = await screen.findByRole("dialog", { name: "Correction rules" });
+    fireEvent.click(screen.getByRole("switch", { name: "Audit correction rules" }));
+    fireEvent.click(screen.getByRole("switch", { name: "settings.correctionValidationSeparateModel" }));
+    const select = screen.getByRole("combobox", { name: "settings.provider" });
+    fireEvent.keyDown(select.querySelector("option")!, { key: "Escape" });
+    expect(dialog.closest(".correction-modal")).toHaveAttribute("data-closing", "false");
+  });
+
   it("traps keyboard focus, closes with Escape, and restores the trigger", async () => {
     const user = userEvent.setup();
     const { default: SettingsPage } = await import("@/pages/SettingsPage");
@@ -441,6 +453,25 @@ describe("SettingsPage correction rules dialog", () => {
 });
 
 describe("SettingsPage config export path", () => {
+  it("shows pending feedback and prevents duplicate dialogs until export settles", async () => {
+    let finishExport!: (path: string | null) => void;
+    tauriMock.exportUserProfile.mockReturnValueOnce(new Promise<string | null>((resolve) => {
+      finishExport = resolve;
+    }));
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+    const button = await screen.findByRole("button", { name: "Export Config" });
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(button);
+    expect(tauriMock.exportUserProfile).toHaveBeenCalledTimes(1);
+    finishExport(null);
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(button).toHaveAttribute("aria-busy", "false");
+    expect(toastMock.success).not.toHaveBeenCalledWith("Config exported");
+  });
+
   it("shows the saved export path and copies it from the small copy button", async () => {
     const exportPath = "C:\\Users\\sun\\Downloads\\light-whisper-profile.json";
     resetTauriMocks(exportPath);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -40,6 +40,8 @@ export function useSystemSettings({
   const [latestAvailableVersion, setLatestAvailableVersion] = useState<string | null>(null);
   const [latestReleaseUrl, setLatestReleaseUrl] = useState<string | null>(null);
   const [lastExportPath, setLastExportPath] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const exportPending = useRef(false);
 
   useEffect(() => {
     void getVersion().then(setAppVersion).catch(() => {});
@@ -142,6 +144,9 @@ export function useSystemSettings({
   }, [profile, autostart, autostartLoading, autostartMinimized, autostartMinimizedSaving, refreshProfile, t]);
 
   const handleExportConfig = useCallback(async () => {
+    if (exportPending.current) return;
+    exportPending.current = true;
+    setExporting(true);
     try {
       const path = await exportUserProfile();
       if (!path) return;
@@ -149,6 +154,9 @@ export function useSystemSettings({
       toast.success(t("toast.configExported"));
     } catch {
       toast.error(t("toast.configExportFailed"));
+    } finally {
+      exportPending.current = false;
+      setExporting(false);
     }
   }, [t]);
 
@@ -184,6 +192,7 @@ export function useSystemSettings({
 
   return {
     appVersion,
+    exporting,
     autostart,
     autostartLoading,
     autostartMinimized,

@@ -52,6 +52,7 @@ function PickerWithInputHarness() {
             <button className="picker-option" data-active="true">English</button>
           </div>
           <input aria-label="Custom language" />
+          <select aria-label="Format" defaultValue="json"><option value="json">JSON</option><option value="text">Text</option></select>
         </div>
       )}
     </div>
@@ -59,6 +60,31 @@ function PickerWithInputHarness() {
 }
 
 describe("useExclusivePicker accessibility", () => {
+  it("leaves keyboard events from a nested native select to the browser", () => {
+    render(<PickerWithInputHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Language" }));
+    const select = screen.getByRole("combobox", { name: "Format" });
+    for (const target of [select, select.querySelector("option")!]) {
+      const event = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
+      fireEvent(target, event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+  });
+
+  it("removes a closing popover immediately when reduced motion is requested", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    try {
+      render(<PickerHarness />);
+      const trigger = screen.getByRole("button", { name: "Engine" });
+      fireEvent.click(trigger);
+      expect(screen.getByRole("listbox")).toBeInTheDocument();
+      fireEvent.click(trigger);
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("supports account action popovers with normal tab stops and Escape focus return", async () => {
     function AccountHarness() {
       const picker = useExclusivePicker<"account">();

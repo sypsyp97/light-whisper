@@ -846,6 +846,7 @@ export default function SettingsPage({
     handleCheckForUpdates,
     handleCopyExportPath,
     handleExportConfig,
+    exporting,
     handleImportConfig,
     handleOpenReleasePage,
     handleTestPaste,
@@ -2400,9 +2401,9 @@ export default function SettingsPage({
               );
             })()}
             <GpuIdleUnloadControl />
-            {engine === "confucius4-r2t2" && profile && (
-              <R2T2SettingsSection profile={profile} onSaved={() => { void refreshProfile(); }} />
-            )}
+            <SettingsReveal open={engine === "confucius4-r2t2" && !!profile} gap={10}>
+              {profile && <R2T2SettingsSection profile={profile} onSaved={() => { void refreshProfile(); }} />}
+            </SettingsReveal>
             {(engine === "glm-asr" || engine === "alibaba-asr") && (
               <div className="settings-inline-panel" style={{ marginTop: 8 }}>
                 <div className="settings-column" style={{ gap: 4 }}>
@@ -3958,6 +3959,7 @@ export default function SettingsPage({
 
           <SystemSettingsSections
             lastExportPath={lastExportPath}
+            exporting={exporting}
             autostart={autostart}
             autostartLoading={autostartLoading}
             autostartMinimized={autostartMinimized}

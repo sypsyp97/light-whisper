@@ -15,12 +15,21 @@ it("loads old profiles as automatic language and saves both settings together", 
   const saved = vi.fn();
   render(<R2T2SettingsSection profile={{} as UserProfile} onSaved={saved} />);
   expect(screen.getByRole("combobox")).toHaveValue("");
-  expect(screen.getAllByRole("option")).toHaveLength(31);
+  expect(screen.getAllByRole("option")).toHaveLength(10);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "Rust meeting" } });
   fireEvent.change(screen.getByRole("combobox"), { target: { value: "de" } });
   fireEvent.click(screen.getByRole("button"));
   await waitFor(() => expect(saved).toHaveBeenCalledOnce());
   expect(mocks.save).toHaveBeenCalledWith("Rust meeting", "de");
+});
+
+it("preserves a saved uncommon language without showing the full catalog", async () => {
+  render(<R2T2SettingsSection profile={{ r2t2: { context: "old", language: "yue" } } as UserProfile} onSaved={vi.fn()} />);
+  expect(screen.getByRole("combobox")).toHaveValue("yue");
+  expect(screen.getAllByRole("option")).toHaveLength(11);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "new" } });
+  fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => expect(mocks.save).toHaveBeenCalledWith("new", "yue"));
 });
 
 it("retains the draft on failure and sends null when returning to auto", async () => {

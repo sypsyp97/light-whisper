@@ -91,7 +91,10 @@ fn export_markdown(records: &[history_service::HistoryRecord]) -> String {
 }
 
 #[tauri::command]
-pub async fn export_transcription_history(format: String) -> Result<Option<String>, String> {
+pub async fn export_transcription_history(
+    window: tauri::WebviewWindow,
+    format: String,
+) -> Result<Option<String>, String> {
     let records = history_service::all_records().await?;
     let normalized_format = format.trim().to_ascii_lowercase();
     let (extension, filter_label, data) = match normalized_format.as_str() {
@@ -105,24 +108,21 @@ pub async fn export_transcription_history(format: String) -> Result<Option<Strin
         _ => return Err("历史导出格式仅支持 JSON 或 Markdown".into()),
     };
     let file_name = format!("light-whisper-history.{extension}");
-    let selected = tokio::task::spawn_blocking(move || {
-        let mut dialog = rfd::FileDialog::new()
-            .add_filter(filter_label, &[extension])
-            .set_file_name(file_name);
-        if let Some(directory) = dirs::download_dir() {
-            dialog = dialog.set_directory(directory);
-        }
-        dialog.save_file()
-    })
-    .await
-    .map_err(|error| format!("选择历史导出路径失败: {error}"))?;
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_parent(&window)
+        .add_filter(filter_label, &[extension])
+        .set_file_name(file_name);
+    if let Some(directory) = dirs::download_dir() {
+        dialog = dialog.set_directory(directory);
+    }
+    let selected = dialog.save_file().await;
     let Some(path) = selected else {
         return Ok(None);
     };
-    tokio::fs::write(&path, data)
+    tokio::fs::write(path.path(), data)
         .await
         .map_err(|error| format!("写入历史导出文件失败: {error}"))?;
-    Ok(Some(paths::strip_win_prefix(&path)))
+    Ok(Some(paths::strip_win_prefix(path.path())))
 }
 
 async fn transcribe_saved_audio(

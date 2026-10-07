@@ -564,11 +564,12 @@ fn models_dir_update_result(
 }
 
 #[tauri::command]
-pub async fn pick_folder() -> Result<Option<String>, AppError> {
-    let result = tokio::task::spawn_blocking(|| rfd::FileDialog::new().pick_folder())
-        .await
-        .map_err(|e| AppError::Other(format!("文件夹选择失败: {}", e)))?;
-    Ok(result.map(|p| paths::strip_win_prefix(&p)))
+pub async fn pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, AppError> {
+    let result = rfd::AsyncFileDialog::new()
+        .set_parent(&window)
+        .pick_folder()
+        .await;
+    Ok(result.map(|folder| paths::strip_win_prefix(folder.path())))
 }
 
 #[tauri::command]

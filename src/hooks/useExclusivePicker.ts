@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { prefersReducedMotion } from "@/lib/motion";
 
 const POPOVER_EXIT_MS = 160;
 
@@ -31,7 +32,7 @@ export function useExclusivePicker<T extends string>() {
     setActive((prev) => {
       if (prev === id) {
         // Close with exit animation
-        setClosing(id);
+        setClosing(prefersReducedMotion() ? null : id);
         clearTimeout(closingTimer.current);
         closingTimer.current = setTimeout(() => setClosing(null), POPOVER_EXIT_MS);
         return null;
@@ -47,14 +48,14 @@ export function useExclusivePicker<T extends string>() {
     const closingId = activeRef.current;
     if (!closingId) return;
     setActive(null);
-    setClosing(closingId);
+    setClosing(prefersReducedMotion() ? null : closingId);
     clearTimeout(closingTimer.current);
     closingTimer.current = setTimeout(() => setClosing(null), POPOVER_EXIT_MS);
     window.requestAnimationFrame(() => {
       refs.current
         .get(closingId)
         ?.querySelector<HTMLElement>('[aria-haspopup]')
-        ?.focus();
+        ?.focus({ preventScroll: true });
     });
   }, []);
 
@@ -79,7 +80,7 @@ export function useExclusivePicker<T extends string>() {
       if (ref && !ref.contains(e.target as Node)) {
         // Close via animated path
         setActive(null);
-        setClosing(active);
+        setClosing(prefersReducedMotion() ? null : active);
         clearTimeout(closingTimer.current);
         closingTimer.current = setTimeout(() => setClosing(null), POPOVER_EXIT_MS);
       }
@@ -133,7 +134,7 @@ export function useExclusivePicker<T extends string>() {
       container.addEventListener("keydown", onEscape);
       const frame = window.requestAnimationFrame(() => {
         const selected = listbox.querySelector<HTMLElement>('[aria-pressed="true"]:not(:disabled)');
-        (selected ?? listbox.querySelector<HTMLElement>("button:not(:disabled)"))?.focus();
+        (selected ?? listbox.querySelector<HTMLElement>("button:not(:disabled)"))?.focus({ preventScroll: true });
       });
       return () => {
         window.cancelAnimationFrame(frame);
@@ -165,10 +166,17 @@ export function useExclusivePicker<T extends string>() {
       options.forEach((option, optionIndex) => {
         option.tabIndex = optionIndex === normalized ? 0 : -1;
       });
-      options[normalized].focus();
+      const option = options[normalized];
+      option.focus({ preventScroll: true });
+      // Scroll only the options, keeping the surrounding page still.
+      const optionRect = option.getBoundingClientRect();
+      const listRect = listbox.getBoundingClientRect();
+      if (optionRect.top < listRect.top) listbox.scrollTop -= listRect.top - optionRect.top;
+      else if (optionRect.bottom > listRect.bottom) listbox.scrollTop += optionRect.bottom - listRect.bottom;
     };
 
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest("select")) return;
       const currentIndex = options.findIndex((option) => option === document.activeElement);
       if (event.key === "Escape") {
         event.preventDefault();

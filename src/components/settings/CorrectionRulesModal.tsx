@@ -80,6 +80,8 @@ export default function CorrectionRulesModal({
 
   const handleDialogKeyDown = useCallback((event: KeyboardEvent) => {
     if (event.key === "Escape") {
+      // Customizable native selects dispatch picker keys from their option.
+      if (event.target instanceof HTMLOptionElement) return;
       event.preventDefault();
       event.stopPropagation();
       onClose();
@@ -154,7 +156,7 @@ export default function CorrectionRulesModal({
       />
       <div
         ref={dialogRef}
-        className="animate-fade-in correction-dialog"
+        className="correction-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="correction-rules-title"

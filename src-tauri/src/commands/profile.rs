@@ -760,23 +760,26 @@ pub async fn set_polish_structure_level(
 
 #[tauri::command]
 pub async fn export_user_profile(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     let data = serde_json::to_string_pretty(&state.snapshot_profile())
         .map_err(|e| format!("序列化失败: {}", e))?;
-    let selected_path = tokio::task::spawn_blocking(|| {
-        let mut dialog = rfd::FileDialog::new()
-            .add_filter("JSON", &["json"])
-            .set_file_name(PROFILE_EXPORT_FILE_NAME);
-        if let Some(dir) = dirs::download_dir() {
-            dialog = dialog.set_directory(dir);
-        }
-        dialog.save_file()
-    })
-    .await
-    .map_err(|e| format!("选择导出路径失败: {}", e))?;
+    // rfd's async backend uses a dedicated STA thread on Windows. A reused
+    // blocking worker may already be MTA, causing the sync dialog to return
+    // None without showing UI. Parent the dialog to keep it above this window.
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_parent(&window)
+        .add_filter("JSON", &["json"])
+        .set_file_name(PROFILE_EXPORT_FILE_NAME);
+    if let Some(dir) = dirs::download_dir() {
+        dialog = dialog.set_directory(dir);
+    }
+    let selected_path = dialog.save_file().await;
 
-    let Some(path) = selected_path.map(normalize_profile_export_path) else {
+    let Some(path) =
+        selected_path.map(|file| normalize_profile_export_path(file.path().to_path_buf()))
+    else {
         return Ok(None);
     };
 

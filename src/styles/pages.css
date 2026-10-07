@@ -1710,8 +1710,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-bg-elevated);
@@ -1733,10 +1733,19 @@
 }
 
 /* Keep equivalent single-line fields consistent across settings sections. */
-.settings-card input.settings-input,
-.settings-card select.settings-input {
+.settings-card input.settings-input {
   height: 40px;
 }
+
+/* Single-line choices sit below the main, descriptive pickers. */
+select.settings-input {
+  min-width: 0;
+  height: 36px;
+  padding: 7px 10px;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+select:disabled { cursor: not-allowed; opacity: 0.6; }
 
 .picker-inline-button:disabled {
   cursor: not-allowed;
@@ -1756,7 +1765,7 @@
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 12px;
+  padding: 10px 11px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, transparent 100%), var(--color-bg-elevated);
@@ -1774,7 +1783,7 @@
 }
 
 .picker-trigger:active {
-  transform: scale(0.97);
+  transform: scale(0.99);
   transition: transform var(--dur-1) var(--ease-micro);
 }
 
@@ -1830,7 +1839,7 @@
 .picker-trigger-copy {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -1848,41 +1857,44 @@
 @keyframes popover-enter {
   from {
     opacity: 0;
-    transform: translateY(var(--popover-offset, -4px)) scale(0.97);
+    transform: translateY(var(--popover-offset, -3px)) scale(0.985);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes popover-exit {
-  from {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(var(--popover-offset, -4px)) scale(0.97);
   }
 }
 
 .picker-popover {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
   z-index: calc(var(--z-dropdown) + 2);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: var(--space-sm);
+  gap: 6px;
+  padding: 6px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-elevated);
   box-shadow: var(--shadow-lg);
-  animation: popover-enter var(--dur-3) var(--ease-out-expo) forwards;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity var(--dur-3) var(--ease-out-expo),
+              transform var(--dur-3) var(--ease-out-expo);
   transform-origin: top center;
+}
+
+@starting-style {
+  .picker-popover:not(.picker-popover-exit) {
+    opacity: 0;
+    transform: translateY(var(--popover-offset, -3px)) scale(0.985);
+  }
+}
+
+@supports not (transition-behavior: allow-discrete) {
+  .picker-popover:not(.picker-popover-exit) { animation: popover-enter var(--dur-3) var(--ease-out-expo) both; }
 }
 
 .polish-structure-control {
@@ -1965,12 +1977,14 @@
 
 .picker-popover[data-placement="top"] {
   top: auto;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 6px);
   transform-origin: bottom center;
 }
 
 .picker-popover-exit {
-  animation: popover-exit 0.16s var(--ease-out-quart) forwards;
+  opacity: 0;
+  transform: translateY(var(--popover-offset, -3px)) scale(0.985);
+  transition-duration: var(--dur-exit);
   pointer-events: none;
 }
 
@@ -1989,16 +2003,17 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .picker-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  padding: 10px 11px;
+  min-height: 32px;
+  padding: 7px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -2038,7 +2053,7 @@
 }
 
 .picker-option:active {
-  transform: scale(0.97);
+  transform: scale(0.99);
   transition: transform var(--dur-1) var(--ease-micro);
 }
 
@@ -2490,7 +2505,7 @@
 
 .settings-language-picker .settings-language-trigger { width: auto; min-width: 72px; gap: 6px; }
 .settings-section-header > .icon-accent { color: var(--color-text-tertiary); }
-.picker-popover[data-placement="top"] { --popover-offset: 4px; }
+.picker-popover[data-placement="top"] { --popover-offset: 3px; }
 
 .history-record-motion,
 .history-details-motion { display: grid; grid-template-rows: 1fr; }
@@ -2503,3 +2518,94 @@
 .correction-modal { transition: opacity var(--dur-exit) var(--ease-out-expo); }
 .correction-modal[data-closing="true"] { opacity: 0; pointer-events: none; }
 @starting-style { .correction-modal { opacity: 0; } }
+
+.correction-dialog {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity var(--dur-3) var(--ease-out-expo), transform var(--dur-3) var(--ease-out-expo);
+}
+.correction-modal[data-closing="true"] .correction-dialog { opacity: 0; transform: translateY(-3px) scale(0.985); transition-duration: var(--dur-exit); }
+@starting-style { .correction-dialog { opacity: 0; transform: translateY(-3px) scale(0.985); } }
+
+/* Keep native keyboard/form behavior. The top layer prevents clipping in
+   nested forms and scroll containers; older engines retain native selects. */
+@supports (appearance: base-select) {
+  select,
+  select::picker(select) { appearance: base-select; }
+
+  select {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  }
+  select:open {
+    border-color: var(--color-border-accent);
+    background: var(--color-accent-subtle);
+  }
+  select::picker-icon {
+    color: var(--color-text-tertiary);
+    transition: transform var(--dur-3) var(--ease-out-expo);
+  }
+  select:open::picker-icon { transform: rotate(180deg); }
+
+  select::picker(select) {
+    min-width: anchor-size(width);
+    max-width: calc(100vw - 16px);
+    max-height: min(280px, calc(100dvh - 16px));
+    margin: 6px 0;
+    padding: 6px;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-elevated);
+    box-shadow: var(--shadow-lg);
+    color: var(--color-text-secondary);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    overflow: auto;
+    opacity: 0;
+    transform: translateY(-3px) scale(0.985);
+    transform-origin: center;
+    transition: opacity var(--dur-exit) var(--ease-out-expo),
+                transform var(--dur-exit) var(--ease-out-expo),
+                display var(--dur-exit) allow-discrete,
+                overlay var(--dur-exit) allow-discrete;
+  }
+  select:open::picker(select) {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    transition-duration: var(--dur-3);
+  }
+  @starting-style {
+    select:open::picker(select) { opacity: 0; transform: translateY(-3px) scale(0.985); }
+  }
+  select option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 32px;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: background-color var(--transition-fast), border-color var(--transition-fast);
+  }
+  select option + option { margin-top: 4px; }
+  select option:hover,
+  select option:focus-visible { background: var(--color-bg-secondary); }
+  select option:checked {
+    border-color: var(--color-border-accent);
+    background: var(--color-accent-subtle);
+    font-weight: 600;
+  }
+  select option::checkmark { order: 1; color: var(--color-accent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  select::picker(select), select:open::picker(select), select::picker-icon,
+  .picker-popover, .correction-dialog { transition: none; animation: none; }
+}

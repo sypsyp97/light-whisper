@@ -3,13 +3,13 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { setR2T2Config } from "@/api/tauri";
 import type { UserProfile } from "@/types";
+import { COMMON_LANGUAGE_OPTIONS } from "@/lib/languages";
 
-// Language codes supported by the pinned native R2T2 model spec.
-const LANGUAGES = [
-  "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru",
-  "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs",
-  "fil", "fa", "el", "hu", "mk", "ro",
-];
+// R2T2 has one Chinese code for both scripts. Use translation's common presets
+// without pretending the model accepts separate script codes.
+const LANGUAGES = COMMON_LANGUAGE_OPTIONS.filter(
+  ({ code }, index, options) => options.findIndex((option) => option.code === code) === index,
+);
 
 export default function R2T2SettingsSection({ profile, onSaved }: {
   profile: UserProfile;
@@ -49,7 +49,12 @@ export default function R2T2SettingsSection({ profile, onSaved }: {
         <select className="settings-input" value={language} disabled={saving}
           onChange={(event) => setLanguage(event.target.value)}>
           <option value="">{t("settings.r2t2AutoLanguage")}</option>
-          {LANGUAGES.map((code) => <option key={code} value={code}>{names.of(code) ?? code}</option>)}
+          {LANGUAGES.map(({ code, label }) => (
+            <option key={code} value={code}>{code === "zh" ? names.of(code) ?? code : label}</option>
+          ))}
+          {language && !LANGUAGES.some(({ code }) => code === language) && (
+            <option value={language}>{names.of(language) ?? language}</option>
+          )}
         </select>
       </label>
       <label className="settings-column" style={{ gap: 6 }}>

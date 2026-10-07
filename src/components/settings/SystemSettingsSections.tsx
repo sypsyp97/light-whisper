@@ -1,10 +1,11 @@
 import { useRef } from "react";
-import { Archive, Copy, Download, Power, RefreshCw, ShieldCheck, Upload } from "lucide-react";
+import { Archive, Copy, Download, LoaderCircle, Power, RefreshCw, ShieldCheck, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SettingsReveal } from "./SettingsReveal";
 
 interface SystemSettingsSectionsProps {
   lastExportPath: string | null;
+  exporting: boolean;
   autostart: boolean;
   autostartLoading: boolean;
   autostartMinimized: boolean;
@@ -24,6 +25,7 @@ interface SystemSettingsSectionsProps {
 
 export default function SystemSettingsSections({
   lastExportPath,
+  exporting,
   autostart,
   autostartLoading,
   autostartMinimized,
@@ -51,8 +53,8 @@ export default function SystemSettingsSections({
           <h2 className="settings-section-title">{t("settings.data")}</h2>
         </div>
         <div className="settings-data-actions">
-          <button className="btn-ghost settings-data-action" onClick={onExport}>
-            <Download size={13} />{t("settings.exportConfig")}
+          <button className="btn-ghost settings-data-action" onClick={onExport} disabled={exporting} aria-busy={exporting}>
+            {exporting ? <LoaderCircle size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} />}{t("settings.exportConfig")}
           </button>
           <button className="btn-ghost settings-data-action" onClick={() => importInputRef.current?.click()}>
             <Upload size={13} />{t("settings.importConfig")}
