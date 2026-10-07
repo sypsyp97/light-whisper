@@ -90,8 +90,8 @@ AI 润色、屏幕感知和助手联网搜索均提供 **关闭／开启／自�
 
 ## Code signing policy
 
-v1.7.4 Windows 安装包目前未签名。正在准备 SignPath Foundation 免费签名申请；
-通过审核并完成可验证的托管构建后，才能发布签名安装包。
+v1.7.4 Windows 安装包目前未签名。已于 2026 年 10 月 7 日提交 SignPath Foundation
+免费签名申请，正在等待审核；通过审核并完成可验证的托管构建后，才能发布签名安装包。
 详见[代码签名政策](docs/code-signing.md)。
 
 [下载已发布版本](https://github.com/sypsyp97/light-whisper/releases/latest)。

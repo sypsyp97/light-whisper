@@ -3,9 +3,9 @@
 ## Current status
 
 The published v1.7.4 Windows installer is unsigned. A free SignPath Foundation
-application is being prepared; it has not been approved and no signing service
-is active for this project. This page does not imply that existing downloads
-have a trusted signature.
+application was submitted on October 7, 2026. Review is pending; no signing
+service is active for this project. This page does not imply that existing
+downloads have a trusted signature.
 
 If accepted, the intended attribution is: Free code signing provided by
 [SignPath.io](https://signpath.io/), certificate by
