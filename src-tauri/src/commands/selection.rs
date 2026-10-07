@@ -4,7 +4,7 @@ use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput
 use crate::services::{
     codex_oauth_service, llm_client, llm_provider, profile_service, selection_service,
 };
-use crate::state::user_profile::LlmReasoningMode;
+use crate::state::user_profile::{LlmProviderConfig, LlmReasoningMode};
 use crate::state::{AppState, SelectionTask};
 use crate::utils::AppError;
 use tauri::Emitter;
@@ -120,16 +120,14 @@ pub async fn set_selection_assistant_config(
 
 fn validate_provider(state: &AppState, provider: &str) -> Result<String, String> {
     let provider = provider.trim();
-    let valid = matches!(
-        provider,
-        "cerebras" | "openai" | "deepseek" | "siliconflow" | "custom"
-    ) || state.with_profile(|profile| {
-        profile
-            .llm_provider
-            .custom_providers
-            .iter()
-            .any(|candidate| candidate.id == provider)
-    });
+    let valid = LlmProviderConfig::is_builtin_provider(provider)
+        || state.with_profile(|profile| {
+            profile
+                .llm_provider
+                .custom_providers
+                .iter()
+                .any(|candidate| candidate.id == provider)
+        });
     valid
         .then(|| provider.to_string())
         .ok_or_else(|| "划词助手供应商不存在".to_string())
@@ -551,10 +549,67 @@ fn selection_instruction(action: &str, target: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        selection_instruction, selection_transport_plan, validated_selection_text,
-        SELECTION_STREAM_EVENT, SELECTION_SYSTEM_PROMPT,
+        selection_instruction, selection_transport_plan, validate_provider,
+        validated_selection_text, SELECTION_STREAM_EVENT, SELECTION_SYSTEM_PROMPT,
     };
-    use crate::state::user_profile::LlmReasoningMode;
+    use crate::services::llm_provider;
+    use crate::state::user_profile::{CustomProvider, LlmReasoningMode, UserProfile};
+    use crate::state::AppState;
+
+    #[test]
+    fn xai_selection_provider_passes_config_and_key_validation_after_reload() {
+        let state = AppState::new();
+        let provider = validate_provider(&state, " xai ").unwrap();
+        state.update_profile_mut(|profile| {
+            profile.llm_provider.active = "deepseek".to_string();
+            profile.llm_provider.selection_use_separate_model = true;
+            profile.llm_provider.selection_provider = Some(provider.clone());
+            profile.llm_provider.selection_model = Some("grok-4.6".to_string());
+        });
+        let saved = serde_json::to_string(&state.snapshot_profile()).unwrap();
+        let reloaded: UserProfile = serde_json::from_str(&saved).unwrap();
+        state.update_profile_mut(|profile| *profile = reloaded);
+
+        let provider = validate_provider(&state, &provider).unwrap();
+        assert_eq!(
+            llm_provider::keyring_user_for_provider(&provider),
+            "xai-api-key"
+        );
+        let endpoint = llm_provider::selection_endpoint_for_config(&state.llm_provider_config());
+        assert_eq!(endpoint.provider, "xai");
+        assert_eq!(endpoint.model, "grok-4.6");
+        assert_eq!(endpoint.api_url, "https://api.x.ai/v1/responses");
+    }
+
+    #[test]
+    fn selection_provider_validation_keeps_builtin_custom_and_unknown_rules() {
+        let state = AppState::new();
+        state.update_profile_mut(|profile| {
+            profile.llm_provider.custom_providers.push(CustomProvider {
+                id: "registered-provider".to_string(),
+                name: "Registered".to_string(),
+                base_url: "https://example.test".to_string(),
+                model: "test-model".to_string(),
+                api_format: Default::default(),
+            });
+        });
+        for provider in [
+            "cerebras",
+            "openai",
+            "deepseek",
+            "siliconflow",
+            "custom",
+            "registered-provider",
+        ] {
+            assert_eq!(validate_provider(&state, provider).unwrap(), provider);
+        }
+        for provider in ["", "removed-provider"] {
+            assert_eq!(
+                validate_provider(&state, provider).unwrap_err(),
+                "划词助手供应商不存在"
+            );
+        }
+    }
 
     #[test]
     fn explanation_uses_the_translation_target_language() {

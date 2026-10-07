@@ -77,6 +77,49 @@ afterEach(() => {
 });
 
 describe("SelectionAssistantSettingsSection", () => {
+  it("saves xAI config and key, restores the separate model, and can disable it", async () => {
+    const rendered = render(section(profile));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("switch", { name: "settings.selectionSeparateConfig" }));
+    });
+    fireEvent.click(screen.getByRole("button", { name: "settings.selectionProvider" }));
+    fireEvent.click(screen.getByRole("option", { name: /^xAI Grok/ }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+
+    expect(api.setSelectionAssistantConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({ useSeparateModel: true, provider: "xai", model: "grok-4.6" }),
+    );
+    expect(api.getSelectionApiKey).toHaveBeenLastCalledWith("xai");
+    fireEvent.change(screen.getByPlaceholderText("xAI Grok API Key"), {
+      target: { value: "test-xai-key" },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    expect(api.setSelectionApiKey).toHaveBeenLastCalledWith("xai", "test-xai-key");
+
+    rendered.unmount();
+    const savedProfile: UserProfile = JSON.parse(JSON.stringify({
+      ...profile,
+      llm_provider: {
+        ...profile.llm_provider,
+        selection_use_separate_model: true,
+        selection_provider: "xai",
+        selection_model: "grok-4.6",
+      },
+    }));
+    await act(async () => { render(section(savedProfile)); });
+    expect(screen.getByRole("switch", { name: "settings.selectionSeparateConfig" }))
+      .toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("button", { name: "settings.selectionProvider" }))
+      .toHaveTextContent("xAI Grok");
+    expect(screen.getByDisplayValue("grok-4.6")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("switch", { name: "settings.selectionAssistantEnabled" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+    expect(api.setSelectionAssistantConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false, useSeparateModel: true, provider: "xai" }),
+    );
+  });
+
   it("does not persist programmatic hydration in StrictMode", () => {
     const rendered = render(
       <StrictMode>{section(profile)}</StrictMode>,

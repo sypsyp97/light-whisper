@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveSelectionModelConfig } from "../modelConfig";
+import { llmProviderOptions } from "@/lib/llmModelOptions";
 
 const baseConfig = {
   active: "deepseek",
@@ -18,6 +19,26 @@ const baseConfig = {
 };
 
 describe("resolveSelectionModelConfig", () => {
+  it.each([...llmProviderOptions.map((item) => item.key), "custom"])(
+    "retains the saved independent model for %s",
+    (provider) => {
+      const saved = JSON.parse(JSON.stringify({
+        ...baseConfig,
+        selection_use_separate_model: true,
+        selection_provider: provider,
+        selection_model: "saved-model",
+        selection_reasoning_mode: "deep",
+      }));
+
+      expect(resolveSelectionModelConfig(saved)).toEqual({
+        provider,
+        model: "saved-model",
+        reasoningMode: "deep",
+        followsPolish: false,
+      });
+    },
+  );
+
   it("follows the AI polish provider and reasoning mode by default", () => {
     expect(resolveSelectionModelConfig(baseConfig)).toEqual({
       provider: "deepseek",
