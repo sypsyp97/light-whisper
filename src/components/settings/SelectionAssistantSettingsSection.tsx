@@ -5,7 +5,8 @@ import { useTranslation } from "react-i18next";
 
 import SecretInput from "@/components/SecretInput";
 import TranslationLanguagePicker from "@/components/settings/TranslationLanguagePicker";
-import { SettingsReveal } from "@/components/settings/SettingsReveal";
+import ProcessingModeControl from "@/components/settings/ProcessingModeControl";
+import { SettingsDisclosure, SettingsReveal } from "@/components/settings/SettingsReveal";
 import { resolveSelectionModelConfig } from "@/features/selection-assistant/modelConfig";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
@@ -36,6 +37,8 @@ interface SelectionAssistantSettingsSectionProps {
   openaiControls: ReactNode;
   grokAuthToggle?: ReactNode;
   grokOauthBlock?: ReactNode;
+  onConfigureJev: () => void;
+  onSaved: () => void;
 }
 
 export default function SelectionAssistantSettingsSection({
@@ -47,6 +50,8 @@ export default function SelectionAssistantSettingsSection({
   openaiControls,
   grokAuthToggle = null,
   grokOauthBlock = null,
+  onConfigureJev,
+  onSaved,
 }: SelectionAssistantSettingsSectionProps) {
   const { t } = useTranslation();
   const picker = useExclusivePicker<
@@ -54,6 +59,8 @@ export default function SelectionAssistantSettingsSection({
   >();
   const [enabled, setEnabled] = useState(false);
   const [autoScreenshot, setAutoScreenshot] = useState(false);
+  const [screenshotRouting, setScreenshotRouting] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState("");
   const [translationTarget, setTranslationTarget] = useState("English");
   const [excludedApps, setExcludedApps] = useState("");
   const [separate, setSeparate] = useState(false);
@@ -74,6 +81,8 @@ export default function SelectionAssistantSettingsSection({
   latestSelectionConfig.current = {
     enabled,
     autoScreenshot,
+    screenshotRouting,
+    customPrompt: customPrompt.trim() || null,
     translationTarget,
     excludedApps: excludedApps.split(/[,;\n]/).map((value) => value.trim()).filter(Boolean),
     useSeparateModel: separate,
@@ -93,6 +102,7 @@ export default function SelectionAssistantSettingsSection({
     return setSelectionAssistantConfig(config).then(() => {
       if (selectionConfigRevision.current === revision) {
         selectionConfigDirty.current = false;
+        onSaved();
       }
     }).catch(() => {
       toast.error(t("settings.selectionSaveFailed"));
@@ -109,6 +119,8 @@ export default function SelectionAssistantSettingsSection({
     const config = profile.selection_assistant ?? {
       enabled: false,
       auto_screenshot: false,
+      screenshot_routing: false,
+      custom_prompt: null,
       translation_target: "English",
       excluded_apps: ["light-whisper.exe", "snipaste.exe", "pixpin.exe", "sharex.exe"],
     };
@@ -119,6 +131,8 @@ export default function SelectionAssistantSettingsSection({
     const value: Parameters<typeof setSelectionAssistantConfig>[0] = {
       enabled: config.enabled,
       autoScreenshot: Boolean(config.auto_screenshot),
+      screenshotRouting: Boolean(config.screenshot_routing),
+      customPrompt: config.custom_prompt ?? null,
       translationTarget: config.translation_target,
       excludedApps: config.excluded_apps,
       useSeparateModel: !resolved.followsPolish,
@@ -175,6 +189,8 @@ export default function SelectionAssistantSettingsSection({
     const config = profileSelectionConfig.value;
     setEnabled(config.enabled);
     setAutoScreenshot(config.autoScreenshot);
+    setScreenshotRouting(config.screenshotRouting);
+    setCustomPrompt(config.customPrompt ?? "");
     setTranslationTarget(config.translationTarget);
     setExcludedApps(config.excludedApps.join("\n"));
     setSeparate(config.useSeparateModel);
@@ -273,26 +289,17 @@ export default function SelectionAssistantSettingsSection({
           </button>
         </div>
 
-        <div className="settings-row">
-          <div className="settings-column" style={{ gap: 2 }}>
-            <span className="permission-label">{t("settings.selectionAutoScreenshot")}</span>
-            <span className="settings-hint" style={{ margin: 0 }}>{t("settings.selectionAutoScreenshotHint")}</span>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={autoScreenshot}
-            aria-label={t("settings.selectionAutoScreenshot")}
-            className="toggle-switch"
-            onClick={() => {
-              setAutoScreenshot((value) => !value);
-              scheduleSelectionConfigSave();
-            }}
-            style={{ flexShrink: 0 }}
-          >
-            <div className="toggle-knob" />
-          </button>
-        </div>
+        <ProcessingModeControl
+          label={t("settings.selectionAutoScreenshot")}
+          value={!autoScreenshot ? "off" : screenshotRouting ? "auto" : "on"}
+          hint={t("settings.selectionAutoScreenshotHint")}
+          onChange={(mode) => {
+            setAutoScreenshot(mode !== "off");
+            setScreenshotRouting(mode === "auto");
+            scheduleSelectionConfigSave();
+          }}
+          onConfigure={onConfigureJev}
+        />
 
         <div className="settings-row">
           <div className="settings-column" style={{ gap: 2 }}>
@@ -557,6 +564,26 @@ export default function SelectionAssistantSettingsSection({
             }}
           />
         </div>
+
+        <SettingsDisclosure label={t("settings.selectionCustomPrompt")}>
+          <div className="settings-column" style={{ gap: 6 }}>
+            <textarea
+              className="settings-input"
+              placeholder={t("settings.selectionCustomPromptPlaceholder")}
+              aria-label={t("settings.selectionCustomPromptLabel")}
+              value={customPrompt}
+              onChange={(event) => {
+                setCustomPrompt(event.target.value);
+                scheduleSelectionConfigSave();
+              }}
+              rows={3}
+              style={{ resize: "vertical", minHeight: 60, fontFamily: "inherit" }}
+            />
+            <p className="settings-hint" style={{ margin: 0 }}>
+              {t("settings.selectionCustomPromptHint")}
+            </p>
+          </div>
+        </SettingsDisclosure>
 
         <label className="settings-column" style={{ gap: 4 }}>
           <span className="settings-option-desc">{t("settings.selectionExcludedApps")}</span>

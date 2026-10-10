@@ -3799,6 +3799,8 @@ export default function SettingsPage({
 
           <SelectionAssistantSettingsSection
             profile={profile}
+            onConfigureJev={configureJev}
+            onSaved={() => { void refreshProfile(); }}
             openaiAuthMode={effectiveOpenaiAuthMode}
             openaiOauthLoggedIn={openaiPlanReady}
             xaiAuthMode={effectiveXaiAuthModeValue}

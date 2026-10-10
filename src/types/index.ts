@@ -345,6 +345,8 @@ export interface PersistentHistoryStats {
 export interface SelectionAssistantConfig {
   enabled: boolean;
   auto_screenshot?: boolean;
+  screenshot_routing?: boolean;
+  custom_prompt?: string | null;
   translation_target: string;
   excluded_apps: string[];
 }

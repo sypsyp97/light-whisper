@@ -41,6 +41,7 @@ export default function JevSettingsSection({ profile, onSaved, polishEnabled = t
   const modelProviders = PROVIDERS.filter((option) => (option.value === "liquid") === (model === "d1"));
   const anyEnabled = (enabled && polishEnabled) || Object.values(features).some(Boolean)
     || Boolean(profile?.jev?.screen_routing && (profile.ai_polish_screen_context_enabled || profile.assistant_screen_context_enabled))
+    || Boolean(profile?.selection_assistant?.auto_screenshot && profile.selection_assistant.screenshot_routing)
     || Boolean(profile?.jev?.search_routing && profile.web_search?.enabled);
   const [apiKey, setApiKey] = useState("");
   const [configSaving, setConfigSaving] = useState(false);

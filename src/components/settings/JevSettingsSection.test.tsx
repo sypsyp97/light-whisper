@@ -130,6 +130,23 @@ afterEach(() => {
 });
 
 describe("JevSettingsSection", () => {
+  it("shows the shared JEV connection when selection screenshots use Auto", async () => {
+    await act(async () => {
+      render(<JevSettingsSection profile={{
+        ...baseProfile,
+        selection_assistant: {
+          ...baseProfile.selection_assistant!,
+          auto_screenshot: true,
+          screenshot_routing: true,
+        },
+      }} polishEnabled={false} onSaved={vi.fn()} />);
+    });
+
+    expect(getProviderSelect()).toBeInTheDocument();
+    expect(getApiKeyInput()).toBeInTheDocument();
+    expect(tauriMock.getJevApiKey).toHaveBeenCalledWith("typesafe");
+  });
+
   it("defaults off and expands exactly three providers with a password key input", async () => {
     const onSaved = renderSection({ ...baseProfile, jev: undefined });
 

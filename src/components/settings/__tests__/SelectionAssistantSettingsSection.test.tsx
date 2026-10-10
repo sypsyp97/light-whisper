@@ -49,6 +49,8 @@ function section(profileValue: UserProfile) {
       openaiAuthMode="api_key"
       openaiOauthLoggedIn={false}
       openaiControls={null}
+      onConfigureJev={vi.fn()}
+      onSaved={vi.fn()}
     />
   );
 }
@@ -177,6 +179,8 @@ describe("SelectionAssistantSettingsSection", () => {
     expect(api.setSelectionAssistantConfig).toHaveBeenCalledWith({
       enabled: false,
       autoScreenshot: true,
+      screenshotRouting: false,
+      customPrompt: null,
       translationTarget: "German",
       excludedApps: ["alpha.exe", "beta.exe"],
       useSeparateModel: false,
@@ -207,6 +211,8 @@ describe("SelectionAssistantSettingsSection", () => {
     expect(api.setSelectionAssistantConfig).toHaveBeenCalledWith({
       enabled: false,
       autoScreenshot: true,
+      screenshotRouting: false,
+      customPrompt: null,
       translationTarget: "German",
       excludedApps: ["alpha.exe", "beta.exe"],
       useSeparateModel: false,
@@ -239,8 +245,8 @@ describe("SelectionAssistantSettingsSection", () => {
 
     expect(screen.getByRole("switch", { name: "settings.selectionAssistantEnabled" }))
       .toHaveAttribute("aria-checked", "false");
-    expect(screen.getByRole("switch", { name: "settings.selectionAutoScreenshot" }))
-      .toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("button", { name: "settings.processingModeOff" }))
+      .toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("switch", { name: "settings.selectionSeparateConfig" }))
       .toHaveAttribute("aria-checked", "true");
     expect(screen.getByDisplayValue("deepseek-chat")).toBeInTheDocument();
@@ -261,6 +267,40 @@ describe("SelectionAssistantSettingsSection", () => {
     expect(screen.queryByText("settings.selectionLengthRange")).not.toBeInTheDocument();
     expect(screen.queryByText("settings.selectionMinChars")).not.toBeInTheDocument();
     expect(screen.queryByText("settings.selectionMaxChars")).not.toBeInTheDocument();
+  });
+
+  it("defaults older profiles to Off and saves On, Auto, and selection-specific instructions", async () => {
+    render(section({ ...profile, selection_assistant: undefined }));
+
+    expect(screen.getByRole("button", { name: "settings.processingModeOff" }))
+      .toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "settings.processingModeOn" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+    expect(api.setSelectionAssistantConfig).toHaveBeenLastCalledWith(expect.objectContaining({
+      autoScreenshot: true,
+      screenshotRouting: false,
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "settings.processingModeAuto" }));
+    fireEvent.click(screen.getByRole("button", { name: "settings.selectionCustomPrompt" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "settings.selectionCustomPromptLabel" }), {
+      target: { value: "Keep acronyms" },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+
+    expect(api.setSelectionAssistantConfig).toHaveBeenLastCalledWith(expect.objectContaining({
+      autoScreenshot: true,
+      screenshotRouting: true,
+      customPrompt: "Keep acronyms",
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "settings.processingModeOff" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+    expect(api.setSelectionAssistantConfig).toHaveBeenLastCalledWith(expect.objectContaining({
+      autoScreenshot: false,
+      screenshotRouting: false,
+      customPrompt: "Keep acronyms",
+    }));
   });
 
   it("uses the shared picker styles and offers common language presets", () => {

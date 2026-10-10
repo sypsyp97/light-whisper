@@ -2,9 +2,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::services::llm_client::{LlmImageInput, LlmRequestOptions, LlmUserInput};
 use crate::services::{
-    codex_oauth_service, llm_client, llm_provider, profile_service, selection_service,
+    codex_oauth_service, jev_service, jev_tasks, llm_client, llm_provider, profile_service,
+    selection_service,
 };
-use crate::state::user_profile::{LlmProviderConfig, LlmReasoningMode};
+use crate::state::user_profile::{LlmProviderConfig, LlmReasoningMode, SelectionAssistantConfig};
 use crate::state::{AppState, SelectionTask};
 use crate::utils::AppError;
 use tauri::Emitter;
@@ -58,6 +59,8 @@ pub async fn set_selection_assistant_config(
     state: tauri::State<'_, AppState>,
     enabled: bool,
     auto_screenshot: bool,
+    screenshot_routing: bool,
+    custom_prompt: Option<String>,
     translation_target: String,
     excluded_apps: Vec<String>,
     use_separate_model: bool,
@@ -83,6 +86,9 @@ pub async fn set_selection_assistant_config(
     let model = model
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+    let custom_prompt = custom_prompt
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
     if use_separate_model {
         let selected_provider = provider
             .as_deref()
@@ -102,6 +108,8 @@ pub async fn set_selection_assistant_config(
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
         profile.selection_assistant.enabled = enabled;
         profile.selection_assistant.auto_screenshot = auto_screenshot;
+        profile.selection_assistant.screenshot_routing = auto_screenshot && screenshot_routing;
+        profile.selection_assistant.custom_prompt = custom_prompt;
         profile.selection_assistant.translation_target = translation_target;
         profile.selection_assistant.excluded_apps = excluded_apps;
         profile.llm_provider.selection_use_separate_model = use_separate_model;
@@ -354,6 +362,7 @@ async fn send_selection_request(
     endpoint: &llm_provider::LlmEndpoint,
     api_key: &str,
     app_handle: &tauri::AppHandle,
+    system_prompt: &str,
     input: &LlmUserInput,
     user_content_len: usize,
     options: LlmRequestOptions<'_>,
@@ -362,7 +371,7 @@ async fn send_selection_request(
         auth_context: Some((app_handle, state)),
         ..options
     };
-    let body = llm_client::build_llm_body(endpoint, SELECTION_SYSTEM_PROMPT.trim(), input, options);
+    let body = llm_client::build_llm_body(endpoint, system_prompt, input, options);
     let content = llm_client::send_llm_request(
         &state.http_client,
         endpoint,
@@ -382,6 +391,7 @@ async fn send_selection_with_transport_fallback(
     endpoint: &llm_provider::LlmEndpoint,
     api_key: &str,
     app_handle: &tauri::AppHandle,
+    system_prompt: &str,
     input: &LlmUserInput,
     user_content_len: usize,
     request_id: u64,
@@ -395,6 +405,7 @@ async fn send_selection_with_transport_fallback(
         endpoint,
         api_key,
         app_handle,
+        system_prompt,
         input,
         user_content_len,
         streaming,
@@ -419,6 +430,7 @@ async fn send_selection_with_transport_fallback(
         endpoint,
         api_key,
         app_handle,
+        system_prompt,
         input,
         user_content_len,
         fallback,
@@ -464,9 +476,10 @@ async fn run_llm_action(
         ));
     }
 
-    let target =
-        state.with_profile(|profile| profile.selection_assistant.translation_target.clone());
-    let instruction = selection_instruction(action, &target);
+    let selection = state.with_profile(|profile| profile.selection_assistant.clone());
+    let target = &selection.translation_target;
+    let instruction = selection_instruction(action, target);
+    let system_prompt = selection_system_prompt(selection.custom_prompt.as_deref());
     let user_text = if selected_text.is_empty() {
         crate::utils::foreground::wrap_xml_cdata("operation", &instruction)
     } else {
@@ -477,7 +490,37 @@ async fn run_llm_action(
         )
     };
 
-    let images = if state.with_profile(|profile| profile.selection_assistant.auto_screenshot) {
+    let screen_choice = if selection.auto_screenshot && selection.screenshot_routing {
+        let provider = state.with_profile(|profile| profile.jev.provider);
+        let key = jev_service::load_api_key_for_provider(app_handle, provider).unwrap_or_default();
+        let decision = jev_tasks::evaluate(
+            &state.http_client,
+            provider,
+            &key,
+            serde_json::json!({
+                "request": instruction,
+                "selected_text": selected_text,
+                "custom_instructions": selection.custom_prompt.as_deref(),
+                "screen_requested": true,
+            }),
+            jev_tasks::screen_questions(),
+            std::time::Duration::from_secs(1),
+            None,
+        )
+        .await;
+        let choice = decision.as_ref().and_then(|payload| {
+            jev_tasks::confident_choice(
+                payload,
+                "screen",
+                &["needed", "unneeded", "uncertain"],
+                0.90,
+            )
+        });
+        choice
+    } else {
+        None
+    };
+    let images = if selection_screenshot_allowed(&selection, screen_choice.as_deref()) {
         selection_service::current_selection_screenshots(selected_text)
             .into_iter()
             .map(|image| LlmImageInput {
@@ -500,6 +543,7 @@ async fn run_llm_action(
         &endpoint,
         &api_key,
         app_handle,
+        &system_prompt,
         &input,
         user_text.len(),
         request_id,
@@ -521,6 +565,7 @@ async fn run_llm_action(
                 &endpoint,
                 &api_key,
                 app_handle,
+                &system_prompt,
                 &fallback,
                 user_text.len(),
                 request_id,
@@ -532,6 +577,26 @@ async fn run_llm_action(
         }
         Err(error) => Err(AppError::Other(error)),
     }
+}
+
+fn selection_system_prompt(custom_prompt: Option<&str>) -> String {
+    let mut prompt = SELECTION_SYSTEM_PROMPT.trim().to_string();
+    if let Some(custom) = custom_prompt
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        prompt.push_str("\nApply these user-configured preferences when compatible with the requested operation and the rules above:\n");
+        prompt.push_str(&crate::utils::foreground::wrap_xml_cdata(
+            "custom_instructions",
+            custom,
+        ));
+    }
+    prompt
+}
+
+fn selection_screenshot_allowed(config: &SelectionAssistantConfig, choice: Option<&str>) -> bool {
+    config.auto_screenshot
+        && (!config.screenshot_routing || jev_tasks::screen_allowed(true, false, choice))
 }
 
 fn selection_instruction(action: &str, target: &str) -> String {
@@ -549,11 +614,14 @@ fn selection_instruction(action: &str, target: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        selection_instruction, selection_transport_plan, validate_provider,
-        validated_selection_text, SELECTION_STREAM_EVENT, SELECTION_SYSTEM_PROMPT,
+        selection_instruction, selection_screenshot_allowed, selection_system_prompt,
+        selection_transport_plan, validate_provider, validated_selection_text,
+        SELECTION_STREAM_EVENT, SELECTION_SYSTEM_PROMPT,
     };
     use crate::services::llm_provider;
-    use crate::state::user_profile::{CustomProvider, LlmReasoningMode, UserProfile};
+    use crate::state::user_profile::{
+        CustomProvider, LlmReasoningMode, SelectionAssistantConfig, UserProfile,
+    };
     use crate::state::AppState;
 
     #[test]
@@ -668,5 +736,41 @@ mod tests {
         let validated = validated_selection_text(true, selected.clone()).unwrap();
 
         assert_eq!(validated, selected);
+    }
+
+    #[test]
+    fn selection_screenshot_modes_preserve_on_and_require_confident_unneeded_to_skip_auto() {
+        let mut config = SelectionAssistantConfig::default();
+        assert!(!selection_screenshot_allowed(&config, None));
+        config.auto_screenshot = true;
+        assert!(selection_screenshot_allowed(&config, Some("unneeded")));
+        config.screenshot_routing = true;
+        assert!(!selection_screenshot_allowed(&config, Some("unneeded")));
+        for choice in [None, Some("needed"), Some("uncertain"), Some("unknown")] {
+            assert!(selection_screenshot_allowed(&config, choice));
+        }
+    }
+
+    #[test]
+    fn selection_custom_instructions_extend_only_the_selection_system_prompt() {
+        let default = selection_system_prompt(None);
+        assert_eq!(default, SELECTION_SYSTEM_PROMPT.trim());
+        let custom = selection_system_prompt(Some("  Keep abbreviations  "));
+        assert!(custom.starts_with(&default));
+        assert!(custom.contains("Keep abbreviations"));
+        assert!(!custom.contains("  Keep abbreviations  "));
+
+        let profile = UserProfile {
+            custom_prompt: Some("Dictation instruction".to_string()),
+            selection_assistant: SelectionAssistantConfig {
+                custom_prompt: Some("Selection instruction".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let selection_only =
+            selection_system_prompt(profile.selection_assistant.custom_prompt.as_deref());
+        assert!(selection_only.contains("Selection instruction"));
+        assert!(!selection_only.contains("Dictation instruction"));
     }
 }

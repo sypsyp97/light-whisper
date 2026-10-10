@@ -345,6 +345,10 @@ pub struct SelectionAssistantConfig {
     pub enabled: bool,
     #[serde(default)]
     pub auto_screenshot: bool,
+    #[serde(default)]
+    pub screenshot_routing: bool,
+    #[serde(default)]
+    pub custom_prompt: Option<String>,
     #[serde(default = "default_selection_translation_target")]
     pub translation_target: String,
     #[serde(default = "default_selection_excluded_apps")]
@@ -372,6 +376,8 @@ impl Default for SelectionAssistantConfig {
         Self {
             enabled: false,
             auto_screenshot: false,
+            screenshot_routing: false,
+            custom_prompt: None,
             translation_target: default_selection_translation_target(),
             excluded_apps: default_selection_excluded_apps(),
         }
@@ -1045,10 +1051,37 @@ mod tests {
     #[test]
     fn automatic_selection_screenshots_are_opt_in() {
         assert!(!SelectionAssistantConfig::default().auto_screenshot);
+        assert!(!SelectionAssistantConfig::default().screenshot_routing);
+        assert!(SelectionAssistantConfig::default().custom_prompt.is_none());
 
         let legacy: SelectionAssistantConfig =
             serde_json::from_value(serde_json::json!({ "enabled": true })).unwrap();
         assert!(!legacy.auto_screenshot);
+        assert!(!legacy.screenshot_routing);
+        assert!(legacy.custom_prompt.is_none());
+    }
+
+    #[test]
+    fn selection_and_dictation_instructions_round_trip_independently() {
+        let profile = UserProfile {
+            custom_prompt: Some("Dictation instruction".to_string()),
+            selection_assistant: SelectionAssistantConfig {
+                custom_prompt: Some("Selection instruction".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let reloaded: UserProfile =
+            serde_json::from_value(serde_json::to_value(profile).unwrap()).unwrap();
+        assert_eq!(
+            reloaded.custom_prompt.as_deref(),
+            Some("Dictation instruction")
+        );
+        assert_eq!(
+            reloaded.selection_assistant.custom_prompt.as_deref(),
+            Some("Selection instruction")
+        );
     }
 
     #[test]
