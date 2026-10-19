@@ -25,10 +25,19 @@ const OPENAI: &str = "openai";
 const XAI: &str = "xai";
 const DEEPSEEK: &str = "deepseek";
 const SILICONFLOW: &str = "siliconflow";
+const OPENROUTER: &str = "openrouter";
 const CUSTOM: &str = "custom";
 
 /// 预置服务商列表（用于判断是否为预置）
-const PRESET_PROVIDERS: &[&str] = &[CEREBRAS, OPENAI, XAI, DEEPSEEK, SILICONFLOW, CUSTOM];
+const PRESET_PROVIDERS: &[&str] = &[
+    CEREBRAS,
+    OPENAI,
+    XAI,
+    DEEPSEEK,
+    SILICONFLOW,
+    OPENROUTER,
+    CUSTOM,
+];
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct LlmReasoningSupport {
@@ -68,6 +77,11 @@ fn default_endpoint_parts(provider: &str) -> (&'static str, &'static str, u64) {
         XAI => ("https://api.x.ai", "grok-4.7", 10),
         DEEPSEEK => ("https://api.deepseek.com", "deepseek-flash", 10),
         SILICONFLOW => ("https://api.siliconflow.cn", "Qwen/Qwen3.8-27B", 10),
+        OPENROUTER => (
+            "https://openrouter.ai/api",
+            "~deepseek/deepseek-flash-latest",
+            10,
+        ),
         CUSTOM => ("http://127.0.0.1:8000", "gpt-6-luna", 10),
         _ => ("https://api.cerebras.ai", "qwen-3.8-27b", 5),
     }
@@ -664,6 +678,13 @@ pub fn is_cerebras_like_endpoint(endpoint: &LlmEndpoint) -> bool {
     endpoint.provider == CEREBRAS || endpoint_host_matches(endpoint, "cerebras.ai")
 }
 
+/// OpenRouter 统一使用 `reasoning` 对象控制思考强度，并与顶层 `reasoning_effort`
+/// 互为简写。按 host 判定，因此预置项与自定义接入都能命中。
+pub fn is_openrouter_like_endpoint(endpoint: &LlmEndpoint) -> bool {
+    endpoint.api_format == ApiFormat::OpenaiCompat
+        && (endpoint.provider == OPENROUTER || endpoint_host_matches(endpoint, "openrouter.ai"))
+}
+
 const GPT5_EFFORTS: &[&str] = &["minimal", "low", "medium", "high"];
 const GPT5_1_EFFORTS: &[&str] = &["none", "low", "medium", "high"];
 const GPT5_2_54_EFFORTS: &[&str] = &["none", "low", "medium", "high", "xhigh"];
@@ -798,6 +819,7 @@ enum ReasoningControlKind {
     CerebrasReasoningEffort,
     CerebrasGlmToggle,
     VolcengineThinkingType,
+    OpenRouterReasoning,
     AutoOpenaiCompat,
 }
 
@@ -812,6 +834,7 @@ impl ReasoningControlKind {
             Self::CerebrasReasoningEffort => "cerebras_reasoning_effort",
             Self::CerebrasGlmToggle => "cerebras_disable_reasoning",
             Self::VolcengineThinkingType => "volcengine_thinking_type",
+            Self::OpenRouterReasoning => "openrouter_reasoning",
             Self::AutoOpenaiCompat => "auto_openai_compat_probe",
         }
     }
@@ -842,6 +865,9 @@ impl ReasoningControlKind {
             Self::VolcengineThinkingType => {
                 "当前模型支持 thinking.type；关闭=disabled，轻量/标准=auto，深度=enabled。"
             }
+            Self::OpenRouterReasoning => {
+                "当前是 OpenRouter 端点，使用统一 reasoning 参数；关闭档下发 reasoning.enabled=false，其余档位映射为 reasoning.effort。"
+            }
             Self::AutoOpenaiCompat => {
                 "当前是 OpenAI-compatible 后端；会自动探测可用的思考控制参数并缓存成功策略。"
             }
@@ -858,6 +884,12 @@ fn reasoning_control_kind(
     if endpoint.api_format == ApiFormat::Anthropic {
         return supports_anthropic_thinking(model)
             .then_some(ReasoningControlKind::AnthropicThinking);
+    }
+
+    // host 优先于模型名启发式：OpenRouter 会上游代理任意厂商模型
+    // （如 doubao/seed-* 会被 is_volcengine_like_endpoint 命中），必须在此提前返回。
+    if is_openrouter_like_endpoint(endpoint) {
+        return Some(ReasoningControlKind::OpenRouterReasoning);
     }
 
     if is_volcengine_like_endpoint(endpoint)
@@ -1258,6 +1290,17 @@ pub fn apply_reasoning_controls(
         (ReasoningControlKind::CerebrasGlmToggle, _) => {
             body["disable_reasoning"] = serde_json::json!(mode == LlmReasoningMode::Off);
         }
+        (ReasoningControlKind::OpenRouterReasoning, _) => {
+            // OpenRouter 统一入口：enabled=false 关闭思考，effort 控制强度。
+            let reasoning = match mode {
+                LlmReasoningMode::ProviderDefault => return,
+                LlmReasoningMode::Off => serde_json::json!({ "enabled": false }),
+                LlmReasoningMode::Light => serde_json::json!({ "effort": "low" }),
+                LlmReasoningMode::Balanced => serde_json::json!({ "effort": "medium" }),
+                LlmReasoningMode::Deep => serde_json::json!({ "effort": "high" }),
+            };
+            body["reasoning"] = reasoning;
+        }
         (ReasoningControlKind::AutoOpenaiCompat, _) => {
             let Some(strategy) = cached_auto_reasoning_strategy(endpoint, uses_responses_api, mode)
                 .or_else(|| Some(preferred_auto_reasoning_strategy(uses_responses_api, mode)))
@@ -1351,6 +1394,7 @@ pub fn keyring_user_for_provider(provider: &str) -> String {
         XAI => "xai-api-key".to_string(),
         DEEPSEEK => "deepseek-api-key".to_string(),
         SILICONFLOW => "siliconflow-api-key".to_string(),
+        OPENROUTER => "openrouter-api-key".to_string(),
         CUSTOM => "custom-api-key".to_string(),
         CEREBRAS => "cerebras-api-key".to_string(),
         id => format!("custom-{id}-api-key"),
@@ -2094,6 +2138,73 @@ mod tests {
             support.strategy.as_deref(),
             Some("auto_openai_compat_probe"),
             "only the actual URL host should identify the official OpenAI API"
+        );
+    }
+
+    #[test]
+    fn openrouter_preset_defaults_to_chat_completions_endpoint() {
+        let endpoint = endpoint_for_preview("openrouter", None, None, ApiFormat::OpenaiCompat);
+
+        assert_eq!(
+            endpoint.api_url,
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(endpoint.model, "~deepseek/deepseek-flash-latest");
+        assert_eq!(
+            reasoning_support(&endpoint, false).strategy.as_deref(),
+            Some("openrouter_reasoning")
+        );
+    }
+
+    #[test]
+    fn openrouter_off_sends_reasoning_enabled_false() {
+        let endpoint = endpoint_for_preview("openrouter", None, None, ApiFormat::OpenaiCompat);
+        let mut body = serde_json::json!({});
+
+        apply_reasoning_controls(&endpoint, false, &mut body, LlmReasoningMode::Off);
+
+        assert_eq!(body["reasoning"], serde_json::json!({ "enabled": false }));
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn openrouter_tiers_map_to_reasoning_effort() {
+        let endpoint = endpoint_for_preview("openrouter", None, None, ApiFormat::OpenaiCompat);
+
+        for (mode, effort) in [
+            (LlmReasoningMode::Light, "low"),
+            (LlmReasoningMode::Balanced, "medium"),
+            (LlmReasoningMode::Deep, "high"),
+        ] {
+            let mut body = serde_json::json!({});
+            apply_reasoning_controls(&endpoint, false, &mut body, mode);
+            assert_eq!(body["reasoning"], serde_json::json!({ "effort": effort }));
+        }
+
+        let mut default_body = serde_json::json!({});
+        apply_reasoning_controls(
+            &endpoint,
+            false,
+            &mut default_body,
+            LlmReasoningMode::ProviderDefault,
+        );
+        assert!(default_body.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn openrouter_custom_host_wins_over_model_name_heuristics() {
+        // doubao/seed-* 会命中火山启发式；按 host 识别的 OpenRouter 必须优先。
+        let endpoint = endpoint_for_preview(
+            "custom-openrouter",
+            Some("https://openrouter.ai/api"),
+            Some("doubao-seed-2-0-pro"),
+            ApiFormat::OpenaiCompat,
+        );
+
+        assert_eq!(
+            reasoning_support(&endpoint, false).strategy.as_deref(),
+            Some("openrouter_reasoning")
         );
     }
 

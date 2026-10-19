@@ -21,6 +21,54 @@ use super::stream::{
     stream_progress_timeout, stream_total_timeout,
 };
 
+// Preserve the previously supported Messages budget for older models.
+const ANTHROPIC_COMPAT_MAX_TOKENS: u64 = 4096;
+
+fn is_parameter_rejection(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 400 | 422)
+}
+
+fn reasoning_controls_rejected(
+    endpoint: &LlmEndpoint,
+    status: reqwest::StatusCode,
+    message: &str,
+) -> bool {
+    if llm_provider::looks_like_reasoning_unsupported_error(message) {
+        return true;
+    }
+    let normalized = message.to_ascii_lowercase();
+    llm_provider::is_openrouter_like_endpoint(endpoint)
+        && is_parameter_rejection(status)
+        && normalized.contains("reasoning")
+        && ["cannot be disabled", "is mandatory", "is required"]
+            .iter()
+            .any(|phrase| normalized.contains(phrase))
+}
+
+fn should_reduce_anthropic_budget(
+    endpoint: &LlmEndpoint,
+    status: reqwest::StatusCode,
+    message: &str,
+    body: &Value,
+) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    endpoint.api_format == ApiFormat::Anthropic
+        && is_parameter_rejection(status)
+        && body["max_tokens"]
+            .as_u64()
+            .is_some_and(|limit| limit > ANTHROPIC_COMPAT_MAX_TOKENS)
+        && normalized.contains("max_tokens")
+        && [
+            "maximum",
+            "at most",
+            "less than or equal",
+            "too large",
+            "exceed",
+            "<=",
+        ]
+        .iter()
+        .any(|phrase| normalized.contains(phrase))
+}
 const RETRYABLE_429_DELAYS_MS: &[u64] = &[600, 1200];
 
 pub(crate) fn dynamic_timeout(
@@ -197,7 +245,16 @@ pub async fn send_llm_request(
     let mut request_body =
         adapt_body_for_backend(endpoint, api_key, body, options.openai_fast_mode);
     if cached_output_token_limit_unsupported(endpoint) {
-        strip_output_token_limits(&mut request_body);
+        if endpoint.api_format == ApiFormat::Anthropic {
+            if request_body["max_tokens"]
+                .as_u64()
+                .is_some_and(|limit| limit > ANTHROPIC_COMPAT_MAX_TOKENS)
+            {
+                request_body["max_tokens"] = serde_json::json!(ANTHROPIC_COMPAT_MAX_TOKENS);
+            }
+        } else {
+            strip_output_token_limits(&mut request_body);
+        }
     }
     let timeout = dynamic_timeout(
         endpoint.timeout_secs,
@@ -464,7 +521,32 @@ pub async fn send_llm_request(
 
         if let Some(retry_response) = successful_retry {
             response = retry_response;
+        } else if should_reduce_anthropic_budget(endpoint, status, &error_message, &request_body) {
+            log::warn!(
+                "当前模型拒绝较大的输出额度，使用兼容额度重试: provider={}, model={}",
+                endpoint.provider,
+                endpoint.model,
+            );
+            let mut fallback_body = request_body.clone();
+            fallback_body["max_tokens"] = serde_json::json!(ANTHROPIC_COMPAT_MAX_TOKENS);
+            response = dispatch_request(
+                http_client,
+                endpoint,
+                api_key,
+                headers.clone(),
+                &fallback_body,
+                deadline,
+            )
+            .await?;
+            if !response.status().is_success() {
+                status = response.status();
+                body_text = read_error_body(response, deadline).await?;
+                error_message = extract_api_error_message(endpoint, &body_text);
+                return Err(format!("API 返回错误 {}: {}", status, error_message));
+            }
+            remember_output_token_limit_unsupported(endpoint);
         } else if looks_like_output_token_limit_unsupported_error(&error_message)
+            && endpoint.api_format != ApiFormat::Anthropic
             && has_output_token_limit(&request_body)
         {
             log::warn!(
@@ -489,7 +571,7 @@ pub async fn send_llm_request(
                 body_text = read_error_body(response, deadline).await?;
                 error_message = extract_api_error_message(endpoint, &body_text);
                 if options.reasoning_mode != LlmReasoningMode::ProviderDefault
-                    && llm_provider::looks_like_reasoning_unsupported_error(&error_message)
+                    && reasoning_controls_rejected(endpoint, status, &error_message)
                 {
                     remember_initial_auto_reasoning_strategy = false;
                     response = retry_after_reasoning_rejection(
@@ -507,7 +589,7 @@ pub async fn send_llm_request(
                 remember_output_token_limit_unsupported(endpoint);
             }
         } else if options.reasoning_mode != LlmReasoningMode::ProviderDefault
-            && llm_provider::looks_like_reasoning_unsupported_error(&error_message)
+            && reasoning_controls_rejected(endpoint, status, &error_message)
         {
             remember_initial_auto_reasoning_strategy = false;
             response = retry_after_reasoning_rejection(

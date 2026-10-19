@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { findLlmPreset, isFixedPresetProvider, llmProviderOptions, resolveLlmModel } from "./llmModelOptions";
+import { findLlmPreset, isFixedPresetProvider, llmProviderOptions, resolveLlmBaseUrl, resolveLlmModel } from "./llmModelOptions";
 
 describe("DeepSeek model options", () => {
   it("defaults new configurations to canonical Flash and retains the previous model choices", () => {
@@ -53,6 +53,25 @@ describe("OpenAI provider preset", () => {
     expect(openai.defaultModel).toBe("gpt-6-luna");
     expect(openai.models).toEqual([]);
     expect(isFixedPresetProvider("openai")).toBe(true);
+  });
+});
+
+describe("OpenRouter provider preset", () => {
+  it("registers its built-in endpoint and default model alias", () => {
+    const openrouter = findLlmPreset("openrouter");
+
+    expect(isFixedPresetProvider("openrouter")).toBe(true);
+    expect(openrouter.baseUrl).toBe("https://openrouter.ai/api");
+    expect(openrouter.defaultModel).toBe("~deepseek/deepseek-flash-latest");
+    expect(openrouter.models).toContain(openrouter.defaultModel);
+    expect(resolveLlmBaseUrl("openrouter", "https://stale-custom.example")).toBe(openrouter.baseUrl);
+    expect(resolveLlmModel("openrouter")).toBe(openrouter.defaultModel);
+  });
+
+  it("preserves explicitly saved upstream model choices", () => {
+    for (const model of ["anthropic/claude-sonnet-4-5", "openai/gpt-5-mini", "future-provider/future-model"]) {
+      expect(resolveLlmModel("openrouter", model)).toBe(model);
+    }
   });
 });
 

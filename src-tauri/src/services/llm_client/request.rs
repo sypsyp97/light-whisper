@@ -4,7 +4,7 @@ use crate::services::llm_provider;
 use crate::services::llm_provider::LlmEndpoint;
 use crate::state::user_profile::{ApiFormat, LlmReasoningMode};
 
-use super::protocol::{chat_output_token_limit_key, request_uses_responses_api};
+use super::protocol::request_uses_responses_api;
 
 #[derive(Clone, Copy)]
 pub struct LlmRequestOptions<'a> {
@@ -74,7 +74,7 @@ pub fn build_llm_body(
     let mut body = match endpoint.api_format {
         ApiFormat::Anthropic => serde_json::json!({
             "model": endpoint.model,
-            "max_tokens": 4096,
+            "max_tokens": 16384,
             "system": [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
             "messages": [{"role": "user", "content": anthropic_user_content(user_input)}],
             "stream": options.stream,
@@ -115,12 +115,6 @@ pub fn build_llm_body(
                 &mut body,
                 options.reasoning_mode,
             );
-
-            if is_responses_api {
-                body["max_output_tokens"] = serde_json::json!(4096);
-            } else {
-                body[chat_output_token_limit_key(endpoint)] = serde_json::json!(4096);
-            }
 
             // Cerebras json_object 与 stream 不兼容：结构化输出优先，放弃流式
             if options.stream

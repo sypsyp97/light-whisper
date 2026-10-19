@@ -125,7 +125,7 @@ function getApiKeyInput() {
 
 const connections: Record<JevProvider, JevConnection> = {
   typesafe: { base_url: "https://api.typesafe.ai/v1/systemone", model: "jev-1.13.0" },
-  openrouter: { base_url: "https://openrouter.ai/api/alpha/decisions", model: "typesafe/jev-1.13" },
+  openrouter: { base_url: "https://openrouter.ai/api/alpha/decisions", model: "~typesafe/jev-latest" },
   vercel: { base_url: "https://ai-gateway.vercel.sh/v4/ai/evaluation-model", model: "typesafe-ai/jev" },
   liquid: { base_url: "https://api.liquid.ai/decisions/v1/systemone", model: "d1:free" },
   custom: { base_url: "", model: "" },

@@ -33,6 +33,12 @@ const PRESETS: &[(&str, &str, &str, u64)] = &[
         10,
     ),
     (
+        "openrouter",
+        "https://openrouter.ai/api/v1/chat/completions",
+        "~deepseek/deepseek-flash-latest",
+        10,
+    ),
+    (
         "custom",
         "http://127.0.0.1:8000/v1/chat/completions",
         "gpt-6-luna",

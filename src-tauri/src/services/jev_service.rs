@@ -32,7 +32,7 @@ impl JevProvider {
     fn model(self) -> &'static str {
         match self {
             Self::TypeSafe => "jev-latest",
-            Self::OpenRouter => "typesafe/jev-1.13",
+            Self::OpenRouter => "~typesafe/jev-latest",
             Self::Vercel => "typesafe-ai/jev",
             Self::Liquid => "d1",
             Self::Custom => "",

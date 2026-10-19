@@ -344,7 +344,10 @@ fn build_request_matches_openrouter_alpha_contract() {
         "https://openrouter.ai/api/alpha/decisions"
     );
     assert_common_request_contract(&request);
-    assert_eq!(request_body(&request)["model"], json!("typesafe/jev-1.13"));
+    assert_eq!(
+        request_body(&request)["model"],
+        json!("~typesafe/jev-latest")
+    );
 }
 
 #[test]
@@ -532,7 +535,7 @@ async fn evaluate_calls_the_selected_provider_and_accepts_a_valid_pass() {
         header_value(&captured.headers, "authorization").as_deref(),
         Some("Bearer jev-test-key")
     );
-    assert_eq!(captured.body["model"], json!("typesafe/jev-1.13"));
+    assert_eq!(captured.body["model"], json!("~typesafe/jev-latest"));
 }
 
 #[tokio::test]
@@ -967,7 +970,7 @@ fn legacy_jev_profiles_resolve_current_defaults_without_persisting_connections()
             JevProvider::OpenRouter,
             "openrouter",
             "https://openrouter.ai/api/alpha/decisions",
-            "typesafe/jev-1.13",
+            "~typesafe/jev-latest",
         ),
         (
             JevProvider::Vercel,

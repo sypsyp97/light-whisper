@@ -616,7 +616,7 @@ impl LlmProviderConfig {
     pub(crate) fn is_builtin_provider(provider: &str) -> bool {
         matches!(
             provider,
-            "cerebras" | "openai" | "xai" | "deepseek" | "siliconflow" | "custom"
+            "cerebras" | "openai" | "xai" | "deepseek" | "siliconflow" | "openrouter" | "custom"
         )
     }
 

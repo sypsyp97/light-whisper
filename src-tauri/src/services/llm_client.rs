@@ -474,93 +474,119 @@ mod tests {
     }
 
     #[test]
-    fn generic_openai_compat_chat_body_sets_max_tokens() {
-        let endpoint = make_test_endpoint();
-        let body = build_llm_body(
-            &endpoint,
-            "system",
-            &LlmUserInput::from("hello"),
-            LlmRequestOptions::default(),
-        );
+    fn openai_compat_bodies_omit_optional_output_limits_and_preserve_request_features() {
+        for (provider, base_url, model) in [
+            ("openai", "https://api.openai.com/v1", "gpt-5-mini"),
+            (
+                "custom-gateway",
+                "https://gateway.example/v1",
+                "future-model",
+            ),
+            (
+                "custom-gateway",
+                "https://gateway.example/api.openai.com/v1",
+                "gpt-5-mini",
+            ),
+            ("cerebras", "https://api.cerebras.ai/v1", "gpt-oss-120b"),
+            (
+                "deepseek",
+                "https://api.deepseek.com/v1",
+                "deepseek-reasoner",
+            ),
+            ("deepseek", "https://api.deepseek.com/v1", "deepseek-flash"),
+            (
+                "openrouter",
+                "https://openrouter.ai/api/v1",
+                "~deepseek/deepseek-flash-latest",
+            ),
+        ] {
+            for suffix in ["chat/completions", "responses"] {
+                let endpoint = LlmEndpoint {
+                    provider: provider.to_string(),
+                    api_url: format!("{base_url}/{suffix}"),
+                    model: model.to_string(),
+                    timeout_secs: 10,
+                    api_format: ApiFormat::OpenaiCompat,
+                };
+                let responses =
+                    suffix == "responses" || (provider == "deepseek" && model == "deepseek-flash");
+                let body = build_llm_body(
+                    &endpoint,
+                    "system",
+                    &LlmUserInput::from("hello"),
+                    LlmRequestOptions {
+                        stream: true,
+                        json_output: true,
+                        web_search: true,
+                        reasoning_mode: LlmReasoningMode::Balanced,
+                        ..LlmRequestOptions::default()
+                    },
+                );
 
-        assert_eq!(body["max_tokens"], serde_json::json!(4096));
+                for key in ["max_tokens", "max_completion_tokens", "max_output_tokens"] {
+                    assert!(
+                        body.get(key).is_none(),
+                        "{provider}/{suffix} sets {key}: {body}"
+                    );
+                }
+                assert_eq!(body["model"], model);
+                assert_eq!(
+                    body.get("stream").and_then(serde_json::Value::as_bool),
+                    (provider != "cerebras" || responses).then_some(true),
+                    "existing Cerebras JSON/stream compatibility must be preserved: {body}"
+                );
+                if responses {
+                    assert_eq!(body["instructions"], "system");
+                    assert_eq!(body["input"][1]["content"][0]["text"], "hello");
+                    assert_eq!(body["text"]["format"]["type"], "json_object");
+                    assert_eq!(body["tools"][0]["type"], "web_search");
+                } else {
+                    assert_eq!(body["messages"][0]["content"], "system");
+                    assert_eq!(body["messages"][1]["content"], "hello");
+                    assert_eq!(body["response_format"]["type"], "json_object");
+                    assert_eq!(body["tools"][0]["type"], "web_search_preview");
+                }
+                if provider == "cerebras" {
+                    assert_eq!(body["reasoning_effort"], "medium");
+                } else if provider == "deepseek" && !responses {
+                    assert_eq!(body["thinking"]["type"], "enabled");
+                } else if responses || provider == "openrouter" {
+                    assert_eq!(body["reasoning"]["effort"], "medium");
+                } else {
+                    assert_eq!(body["reasoning_effort"], "medium");
+                }
+            }
+        }
     }
 
     #[test]
-    fn custom_gateway_path_containing_openai_host_uses_generic_token_limit() {
+    fn native_anthropic_body_keeps_required_larger_output_budget_and_features() {
         let endpoint = LlmEndpoint {
-            provider: "custom-gateway".to_string(),
-            api_url: "https://gateway.example/api.openai.com/v1/chat/completions".to_string(),
-            model: "gpt-5.2".to_string(),
+            provider: "custom-anthropic".to_string(),
+            api_url: "https://api.anthropic.com/v1/messages".to_string(),
+            model: "claude-sonnet-4-5".to_string(),
             timeout_secs: 10,
-            api_format: ApiFormat::OpenaiCompat,
-        };
-
-        let body = build_llm_body(
-            &endpoint,
-            "system",
-            &LlmUserInput::from("hello"),
-            LlmRequestOptions::default(),
-        );
-
-        assert_eq!(body["max_tokens"], serde_json::json!(4096));
-        assert!(
-            body.get("max_completion_tokens").is_none(),
-            "only the actual URL host should opt into official OpenAI chat token naming"
-        );
-    }
-
-    #[test]
-    fn openai_chat_body_sets_max_completion_tokens() {
-        let endpoint = openai_endpoint("https://api.openai.com/v1/chat/completions");
-        let body = build_llm_body(
-            &endpoint,
-            "system",
-            &LlmUserInput::from("hello"),
-            LlmRequestOptions::default(),
-        );
-
-        assert_eq!(body["max_completion_tokens"], serde_json::json!(4096));
-        assert!(
-            body.get("max_tokens").is_none(),
-            "OpenAI Chat Completions deprecates max_tokens and requires max_completion_tokens for current reasoning models"
-        );
-    }
-
-    #[test]
-    fn cerebras_chat_body_sets_max_completion_tokens() {
-        let endpoint = LlmEndpoint {
-            provider: "cerebras".to_string(),
-            api_url: "https://api.cerebras.ai/v1/chat/completions".to_string(),
-            model: "gpt-oss-120b".to_string(),
-            timeout_secs: 5,
-            api_format: ApiFormat::OpenaiCompat,
+            api_format: ApiFormat::Anthropic,
         };
         let body = build_llm_body(
             &endpoint,
             "system",
             &LlmUserInput::from("hello"),
-            LlmRequestOptions::default(),
+            LlmRequestOptions {
+                stream: true,
+                web_search: true,
+                reasoning_mode: LlmReasoningMode::Deep,
+                ..LlmRequestOptions::default()
+            },
         );
 
-        assert_eq!(body["max_completion_tokens"], serde_json::json!(4096));
-        assert!(
-            body.get("max_tokens").is_none(),
-            "Cerebras Chat Completions documents max_completion_tokens, not max_tokens"
-        );
-    }
-
-    #[test]
-    fn responses_body_sets_max_output_tokens() {
-        let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
-        let body = build_llm_body(
-            &endpoint,
-            "system",
-            &LlmUserInput::from("hello"),
-            LlmRequestOptions::default(),
-        );
-
-        assert_eq!(body["max_output_tokens"], serde_json::json!(4096));
+        assert_eq!(body["max_tokens"], 16_384);
+        assert!(body.get("max_completion_tokens").is_none());
+        assert!(body.get("max_output_tokens").is_none());
+        assert_eq!(body["system"][0]["text"], "system");
+        assert_eq!(body["messages"][0]["content"], "hello");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["tools"][0]["type"], "web_search_20250305");
     }
 
     #[test]

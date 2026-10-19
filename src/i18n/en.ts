@@ -534,6 +534,7 @@ const en: TranslationSchema = {
     deepseekDesc: "Official compatible API",
     cerebrasDesc: "Ultra-fast inference",
     siliconflowDesc: "OpenAI compatible",
+    openrouterDesc: "The Unified Interface For Every Model",
     assistant: "Voice Assistant",
     selectionAssistant: "Selection Assistant",
     selectionAssistantHint: "Select text with the mouse in any Windows app to show a non-focus-stealing toolbar near the cursor.",

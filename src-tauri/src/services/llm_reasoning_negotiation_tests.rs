@@ -256,6 +256,192 @@ async fn write_json_response(stream: &mut TcpStream, status: &str, body: &[u8]) 
         .expect("response body should be writable");
 }
 
+pub(super) async fn spawn_scripted_server(
+    path: &str,
+    responses: Vec<(&'static str, Value)>,
+) -> (String, tokio::task::JoinHandle<Vec<Value>>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let api_url = format!("http://{}{path}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let mut bodies = Vec::new();
+        for (status, response) in responses {
+            let (mut stream, _) =
+                tokio::time::timeout(std::time::Duration::from_secs(3), listener.accept())
+                    .await
+                    .expect("scripted request must arrive")
+                    .unwrap();
+            bodies.push(
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    read_json_request(&mut stream),
+                )
+                .await
+                .expect("scripted request body must arrive"),
+            );
+            write_json_response(&mut stream, status, &serde_json::to_vec(&response).unwrap()).await;
+        }
+        bodies
+    });
+    (api_url, server)
+}
+
+fn native_anthropic_endpoint(api_url: &str) -> LlmEndpoint {
+    LlmEndpoint {
+        provider: "native-anthropic-budget-test".to_string(),
+        api_url: api_url.to_string(),
+        model: "claude-sonnet-4-5".to_string(),
+        timeout_secs: 10,
+        api_format: ApiFormat::Anthropic,
+    }
+}
+
+#[tokio::test]
+async fn native_anthropic_budget_rejection_retries_once_and_caches_supported_budget() {
+    for (status, message) in [
+        (
+            "400 Bad Request",
+            "max_tokens: 16384 is greater than the maximum allowed 8192",
+        ),
+        (
+            "422 Unprocessable Entity",
+            "max_tokens must be less than or equal to 8192",
+        ),
+    ] {
+        let success = json!({"content": [{"type": "text", "text": "ok"}]});
+        let (api_url, server) = spawn_scripted_server(
+            "/v1/messages",
+            vec![
+                (
+                    status,
+                    json!({"error": {"type": "invalid_request_error", "message": message}}),
+                ),
+                ("200 OK", success.clone()),
+                ("200 OK", success),
+            ],
+        )
+        .await;
+        let endpoint = native_anthropic_endpoint(&api_url);
+        let options = LlmRequestOptions::default();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        for _ in 0..2 {
+            let body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+            assert_eq!(body["max_tokens"], 16_384);
+            let response = llm_client::send_llm_request(
+                &client, &endpoint, "test-key", &body, 5, None, options,
+            )
+            .await
+            .expect("native Anthropic should retry and reuse its supported budget");
+            assert_eq!(response, "ok");
+        }
+        let bodies = server.await.unwrap();
+        assert_eq!(bodies.len(), 3);
+        assert_eq!(bodies[0]["max_tokens"], 16_384);
+        assert_eq!(bodies[1]["max_tokens"], 4096);
+        assert_eq!(bodies[2]["max_tokens"], 4096);
+        let mut reduced = bodies[0].clone();
+        reduced["max_tokens"] = json!(4096);
+        assert_eq!(bodies[1], reduced);
+        assert_eq!(bodies[2], reduced);
+    }
+}
+
+#[tokio::test]
+async fn native_anthropic_failed_budget_retry_is_not_repeated_or_cached() {
+    let rejection = json!({"error": {"message": "max_tokens must be less than or equal to 1024"}});
+    let (api_url, server) = spawn_scripted_server(
+        "/v1/messages",
+        vec![
+            ("400 Bad Request", rejection.clone()),
+            ("400 Bad Request", rejection),
+            (
+                "200 OK",
+                json!({"content": [{"type": "text", "text": "ok"}]}),
+            ),
+        ],
+    )
+    .await;
+    let endpoint = native_anthropic_endpoint(&api_url);
+    let options = LlmRequestOptions::default();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    let error =
+        llm_client::send_llm_request(&client, &endpoint, "test-key", &body, 5, None, options)
+            .await
+            .expect_err("a rejected 4096 budget must stop after one retry");
+    assert!(error.contains("max_tokens"));
+    let response =
+        llm_client::send_llm_request(&client, &endpoint, "test-key", &body, 5, None, options)
+            .await
+            .expect("failed budget retry must not cache a reduced budget");
+    assert_eq!(response, "ok");
+    let bodies = server.await.unwrap();
+    assert_eq!(bodies.len(), 3);
+    assert_eq!(bodies[0]["max_tokens"], 16_384);
+    assert_eq!(bodies[1]["max_tokens"], 4096);
+    assert_eq!(bodies[2]["max_tokens"], 16_384);
+}
+
+#[tokio::test]
+async fn native_anthropic_other_errors_never_remove_or_downgrade_required_budget() {
+    for (status, message) in [
+        ("400 Bad Request", "max_tokens is not supported"),
+        ("400 Bad Request", "invalid max_tokens value"),
+        ("400 Bad Request", "max_tokens must be positive"),
+        ("400 Bad Request", "max_tokens must be greater than 32768"),
+        (
+            "400 Bad Request",
+            "request exceeds the maximum allowed context length",
+        ),
+        (
+            "401 Unauthorized",
+            "max_tokens must be less than or equal to 8192",
+        ),
+        (
+            "403 Forbidden",
+            "max_tokens must be less than or equal to 8192",
+        ),
+        (
+            "429 Too Many Requests",
+            "max_tokens must be less than or equal to 8192",
+        ),
+        (
+            "500 Internal Server Error",
+            "max_tokens must be less than or equal to 8192",
+        ),
+    ] {
+        let (api_url, server) = spawn_scripted_server(
+            "/v1/messages",
+            vec![
+                (status, json!({"error": {"message": message}})),
+                (
+                    "200 OK",
+                    json!({"content": [{"type": "text", "text": "ok"}]}),
+                ),
+            ],
+        )
+        .await;
+        let endpoint = native_anthropic_endpoint(&api_url);
+        let options = LlmRequestOptions::default();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+        let error =
+            llm_client::send_llm_request(&client, &endpoint, "test-key", &body, 5, None, options)
+                .await
+                .expect_err("unrelated failures must not trigger a budget compatibility retry");
+        assert!(
+            error.contains(message),
+            "original error must survive: {error}"
+        );
+        llm_client::send_llm_request(&client, &endpoint, "test-key", &body, 5, None, options)
+            .await
+            .expect("unrelated failures must not cache budget changes");
+        let bodies = server.await.unwrap();
+        assert_eq!(bodies.len(), 2);
+        assert_eq!(bodies[0]["max_tokens"], 16_384);
+        assert_eq!(bodies[1], bodies[0]);
+    }
+}
+
 async fn spawn_reasoning_fallback_server() -> (String, tokio::task::JoinHandle<Vec<Value>>) {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .await
@@ -1434,7 +1620,8 @@ async fn responses_retry_can_strip_max_tokens_then_reasoning_controls() {
         "future-lab/responses-compat-model",
     );
     let options = reasoning_options(LlmReasoningMode::Balanced);
-    let body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    let mut body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    body["max_output_tokens"] = json!(4096);
 
     let response = llm_client::send_llm_request(
         &reqwest::Client::new(),
@@ -1473,7 +1660,8 @@ async fn responses_max_output_tokens_strip_is_cached_after_success() {
         "future-lab/responses-max-output-cache-model",
     );
     let options = reasoning_options(LlmReasoningMode::ProviderDefault);
-    let first_body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    let mut first_body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    first_body["max_output_tokens"] = json!(4096);
 
     let first_response = llm_client::send_llm_request(
         &reqwest::Client::new(),
@@ -1488,7 +1676,9 @@ async fn responses_max_output_tokens_strip_is_cached_after_success() {
     .expect("first request should learn to strip max_output_tokens");
     assert_eq!(first_response, "ok");
 
-    let second_body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    let mut second_body =
+        build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    second_body["max_output_tokens"] = json!(4096);
     let second_response = llm_client::send_llm_request(
         &reqwest::Client::new(),
         &endpoint,
@@ -1521,7 +1711,8 @@ async fn chat_max_completion_tokens_strip_is_cached_after_success() {
         api_format: ApiFormat::OpenaiCompat,
     };
     let options = reasoning_options(LlmReasoningMode::ProviderDefault);
-    let first_body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    let mut first_body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    first_body["max_completion_tokens"] = json!(4096);
 
     let first_response = llm_client::send_llm_request(
         &reqwest::Client::new(),
@@ -1536,7 +1727,9 @@ async fn chat_max_completion_tokens_strip_is_cached_after_success() {
     .expect("first request should learn to strip max_completion_tokens");
     assert_eq!(first_response, "ok");
 
-    let second_body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    let mut second_body =
+        build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    second_body["max_completion_tokens"] = json!(4096);
     let second_response = llm_client::send_llm_request(
         &reqwest::Client::new(),
         &endpoint,
@@ -1606,7 +1799,8 @@ async fn responses_no_controls_and_max_output_caches_make_next_request_single_sh
         "future-lab/responses-combined-cache-model",
     );
     let options = reasoning_options(LlmReasoningMode::Balanced);
-    let first_body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    let mut first_body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    first_body["max_output_tokens"] = json!(4096);
 
     let first_response = llm_client::send_llm_request(
         &reqwest::Client::new(),
@@ -1621,7 +1815,9 @@ async fn responses_no_controls_and_max_output_caches_make_next_request_single_sh
     .expect("first request should learn both terminal compatibility decisions");
     assert_eq!(first_response, "ok");
 
-    let second_body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    let mut second_body =
+        build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    second_body["max_output_tokens"] = json!(4096);
     let second_response = llm_client::send_llm_request(
         &reqwest::Client::new(),
         &endpoint,
@@ -1661,7 +1857,8 @@ async fn responses_retry_can_handle_reasoning_then_max_tokens_rejections() {
         "future-lab/responses-reverse-compat-model",
     );
     let options = reasoning_options(LlmReasoningMode::Balanced);
-    let body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    let mut body = build_llm_body(&endpoint, "system", &LlmUserInput::from("hello"), options);
+    body["max_output_tokens"] = json!(4096);
 
     let response = llm_client::send_llm_request(
         &reqwest::Client::new(),

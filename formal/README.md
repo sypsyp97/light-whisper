@@ -42,7 +42,7 @@ automatic proof of a Rust/TypeScript function.
 | Routing, tasks and history | ContextRouting, TaskOwnership, HistoryRecords, HistoryLeaseInterleavings, OutputDrainOwnership |
 | Windows and UI state | WindowLifecycle, UiPreferences, ThemeSynchronization |
 | Download timers and event subscriptions | DownloadUiLifecycle, EventSubscriptionLifecycle |
-| Protocols and transport | RequestProtocols, LlmTransport, IpcCommandDeadline |
+| Protocols and transport | RequestProtocols, LlmTransport, LlmRequestParameters, IpcCommandDeadline |
 
 AppWorkflow is the additional integrated model. The registry is the authoritative
 positive configuration/negative-control list. Operator names and concrete

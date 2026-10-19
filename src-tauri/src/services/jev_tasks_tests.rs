@@ -617,7 +617,7 @@ async fn evaluate_uses_selected_provider_transport_and_returns_json_payload() {
         (
             JevProvider::OpenRouter,
             "/api/alpha/decisions",
-            "typesafe/jev-1.13",
+            "~typesafe/jev-latest",
         ),
         (
             JevProvider::Vercel,

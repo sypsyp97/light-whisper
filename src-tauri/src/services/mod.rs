@@ -39,5 +39,7 @@ mod llm_endpoint_resolution_tests;
 mod llm_reasoning_negotiation_tests;
 #[cfg(test)]
 mod openai_fast_mode_oauth_tests;
+#[cfg(test)]
+mod openrouter_regression_tests;
 
 pub mod bing_search_service;

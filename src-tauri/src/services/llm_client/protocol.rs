@@ -56,22 +56,6 @@ pub(crate) fn responses_api_url(api_url: &str) -> String {
     }
 }
 
-fn uses_openai_chat_completions_api(endpoint: &LlmEndpoint) -> bool {
-    endpoint.api_format == ApiFormat::OpenaiCompat
-        && endpoint.api_url.contains("/chat/completions")
-        && llm_provider::is_openai_like_endpoint(endpoint)
-}
-
-pub(crate) fn chat_output_token_limit_key(endpoint: &LlmEndpoint) -> &'static str {
-    if uses_openai_chat_completions_api(endpoint)
-        || llm_provider::is_cerebras_like_endpoint(endpoint)
-    {
-        "max_completion_tokens"
-    } else {
-        "max_tokens"
-    }
-}
-
 /// Wire value for OpenAI OAuth fast-mode priority processing.
 ///
 /// Why "priority" and not "fast":

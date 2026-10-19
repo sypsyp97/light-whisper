@@ -58,6 +58,14 @@ export const llmProviderOptions: ReadonlyArray<LlmProviderOption> = [
     defaultModel: "Qwen/Qwen3.8-27B",
     models: ["Qwen/Qwen3.8-27B", "deepseek-ai/DeepSeek-V4.1-Flash", "deepseek-ai/DeepSeek-V4-Pro"],
   },
+  {
+    key: "openrouter",
+    label: "OpenRouter",
+    descKey: "settings.openrouterDesc",
+    baseUrl: "https://openrouter.ai/api",
+    defaultModel: "~deepseek/deepseek-flash-latest",
+    models: ["~deepseek/deepseek-flash-latest"],
+  },
 ];
 
 export const reasoningModeOptions: ReadonlyArray<{

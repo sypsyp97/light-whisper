@@ -14,6 +14,7 @@ the built-in lists are discovery fallbacks, not model allowlists.
 | DeepSeek | `deepseek-flash` | `https://api.deepseek.com/v1/responses` | [Responses and model aliases](https://api-docs.deepseek.com/quick_start/pricing/) |
 | Cerebras | `qwen-3.8-27b` | `https://api.cerebras.ai/v1/chat/completions` | [Chat Completions](https://inference-docs.cerebras.ai/resources/openai) |
 | SiliconFlow | `Qwen/Qwen3.8-27B` | `https://api.siliconflow.cn/v1/chat/completions` | [Chat Completions](https://docs.siliconflow.cn/docs/api/chat-completions-post), [model catalog](https://www.siliconflow.cn/models) |
+| OpenRouter | `~deepseek/deepseek-flash-latest` | `https://openrouter.ai/api/v1/chat/completions` | [Chat Completions](https://openrouter.ai/docs/api-reference/chat-completions), [model catalog](https://openrouter.ai/models) |
 
 OpenAI retains the small-model role previously filled by GPT-4.1 mini. The new
 Cerebras and SiliconFlow Qwen defaults retain native thinking controls. Cerebras
@@ -37,6 +38,22 @@ Cerebras and SiliconFlow do not currently document an OpenAI Responses endpoint.
 Custom OpenAI-compatible connections default to Chat Completions and honor an
 explicit `/responses` URL. Anthropic connections retain `/v1/messages`.
 
+OpenRouter is detected by host, so both the built-in preset and an
+OpenAI-compatible custom connection pointed at `openrouter.ai` share the same
+behavior. Reasoning uses OpenRouter's unified `reasoning` object: the off tier
+sends `reasoning.enabled = false`, and the light/balanced/deep tiers map to
+`reasoning.effort` (`low`/`medium`/`high`).
+Models flagged `mandatory` by OpenRouter reject
+`reasoning.enabled = false`; the request then retries once without any
+reasoning control and keeps the model default.
+
+Chat Completions and Responses requests omit optional output-token limits, so
+the provider chooses its default instead of sharing a fixed 4,096-token budget
+between reasoning and visible output. This does not remove provider-side limits.
+Anthropic Messages requires `max_tokens`: its default is 16,384, with one retry
+at the previous 4,096-token budget if the model explicitly rejects the larger
+limit. A successful downgrade is reused for that endpoint and model in memory.
+
 Subscription authentication keeps its existing dedicated transport: OpenAI Codex
 uses `https://chatgpt.com/backend-api/codex/responses`, and Grok Build uses
 `https://cli-chat-proxy.grok.com/v1/responses`. Their model lists remain dynamic.
@@ -49,7 +66,7 @@ Decision APIs return typed probabilities and are separate from Responses.
 | Provider | Default model | Request URL | Official source |
 | --- | --- | --- | --- |
 | TypeSafe | `jev-latest` | `https://api.typesafe.ai/v1/systemone` | [Stable alias; currently Jev 1.13](https://docs.typesafe.ai/models) |
-| OpenRouter | `typesafe/jev-1.13` | `https://openrouter.ai/api/alpha/decisions` | [Current stable integration example](https://openrouter.ai/blog/tutorials/how-to-use-jev/) |
+| OpenRouter | `~typesafe/jev-latest` | `https://openrouter.ai/api/alpha/decisions` | [Latest Jev alias](https://openrouter.ai/docs/guides/community/typesafe-sdk#model-ids) |
 | Vercel | `typesafe-ai/jev` | `https://ai-gateway.vercel.sh/typesafe/v1/systemone` | [Public TypeSafe-compatible API](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe) |
 | Liquid | `d1` | `https://api.liquid.ai/decisions/v1/systemone` | [Current D1 API](https://docs.liquid.ai/lfm/models/d1) |
 

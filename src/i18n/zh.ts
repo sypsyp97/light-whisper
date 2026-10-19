@@ -532,6 +532,7 @@ const zh = {
     deepseekDesc: "官方兼容接口",
     cerebrasDesc: "极速推理",
     siliconflowDesc: "OpenAI 兼容",
+    openrouterDesc: "多模型的统一接口",
     assistant: "语音助手",
     selectionAssistant: "划词助手",
     selectionAssistantHint: "在 Windows 任意应用中用鼠标选中文字后，在光标附近显示不抢焦点的操作条。",

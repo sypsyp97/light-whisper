@@ -1307,7 +1307,7 @@
       "assumptions": "OS key delivery/debounce clock are inputs; all three event kinds get separate configurations; bounded representative registration permutations are explicit."
     },
     "transport": {
-      "obligation": "Request IDs are required; cancelled replies are ignored; streams validate identity, offsets, prefix, terminal output and sample bounds. One total command deadline covers stdin write, flush and reply read; timeout or cancellation invalidates the owned process and releases the command lock.",
+      "obligation": "Request IDs are required; cancelled replies are ignored; streams validate identity, offsets, prefix, terminal output and sample bounds. One total command deadline covers stdin write, flush and reply read; timeout or cancellation invalidates the owned process and releases the command lock. OpenRouter maps unified reasoning before model heuristics; optional completion limits are omitted; native Anthropic retains its mandatory budget and bounded compatibility fallback.",
       "models": {
         "RequestProtocols": [
           "NoReplyWithoutIdentity",
@@ -1329,22 +1329,33 @@
           "Reply",
           "OneTotalDeadline",
           "InvalidFrameCannotBeReused"
+        ],
+        "LlmRequestParameters": [
+          "OpenRouterModesMatch",
+          "OptionalOutputLimitOmitted",
+          "NativeOutputLimitRequired",
+          "CompatibilityRetryBounded",
+          "RequestsSettle"
         ]
       },
       "implementation": [
         "src-tauri/src/services/funasr_service.rs",
         "src-tauri/src/services/funasr_service/native_stream.rs",
         "src-tauri/src/services/llm_client.rs",
-        "src-tauri/resources/server_common.py"
+        "src-tauri/resources/server_common.py",
+        "src-tauri/src/services/llm_provider.rs",
+        "src-tauri/src/services/llm_client/request.rs",
+        "src-tauri/src/services/llm_client/transport.rs"
       ],
       "evidence": [
         "src-tauri/src/services/funasr_service.rs#request_identity_tests",
         "src-tauri/src/services/funasr_service/native_stream_tests.rs",
         "src-tauri/src/services/llm_reasoning_negotiation_tests.rs",
         "src-tauri/src/services/funasr_service/ipc_recovery_tests.rs#tlc_ipc_deadline_replays_write_progress_without_restarting_the_budget",
-        "formal/evidence/async-ownership.md"
+        "formal/evidence/async-ownership.md",
+        "src-tauri/src/services/openrouter_regression_tests.rs"
       ],
-      "assumptions": "Current bundled servers echo request_id; older incompatible engines need updating. Clock/scheduler/network timeout fairness required; providers may fail. Write/flush/read phases use a three-tick total deadline; successful I/O progress never resets it. Real child-pipe replay checks blocked write, write progress before deadline and cancellation, then installs a fresh server. Scheduler/clock fairness and OS pipe semantics remain environmental assumptions."
+      "assumptions": "Current bundled servers echo request_id; older incompatible engines need updating. Clock/scheduler/network timeout fairness required; providers may fail. Write/flush/read phases use a three-tick total deadline; successful I/O progress never resets it. Real child-pipe replay checks blocked write, write progress before deadline and cancellation, then installs a fresh server. Scheduler/clock fairness and OS pipe semantics remain environmental assumptions. LlmRequestParameters abstracts validated provider/host classification and recognized parameter errors; live provider defaults/limits are external, with request-capture regressions establishing correspondence."
     },
     "updater": {
       "obligation": "Update versions compare by the actual numeric parser; release opening accepts HTTPS GitHub hosts only and reports errors.",
@@ -1582,6 +1593,9 @@
     ],
     "ThemeSynchronization": [
       "ThemeSynchronization.cfg"
+    ],
+    "LlmRequestParameters": [
+      "LlmRequestParameters.cfg"
     ]
   },
   "actions": {
@@ -2178,6 +2192,33 @@
       "model": "ThemeSynchronization",
       "config": "ThemeSynchronizationNegative.cfg",
       "invariant": "ManualPreferenceRetained"
+    },
+    {
+      "name": "openrouter-native-heuristic",
+      "model": "LlmRequestParameters",
+      "replace": [
+        "IF IsOpenRouter(route) THEN RouterControl(mode)",
+        "IF FALSE THEN RouterControl(mode)"
+      ],
+      "invariant": "OpenRouterModesMatch"
+    },
+    {
+      "name": "optional-llm-output-cap",
+      "model": "LlmRequestParameters",
+      "replace": [
+        "THEN 16384 ELSE 0",
+        "THEN 16384 ELSE 4096"
+      ],
+      "invariant": "OptionalOutputLimitOmitted"
+    },
+    {
+      "name": "missing-native-output-budget",
+      "model": "LlmRequestParameters",
+      "replace": [
+        "!.limit = 4096, !.retries = 1",
+        "!.limit = 0, !.retries = 1"
+      ],
+      "invariant": "NativeOutputLimitRequired"
     }
   ],
   "command_implementation": {
