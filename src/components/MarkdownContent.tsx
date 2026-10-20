@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -8,8 +8,10 @@ import "@/styles/markdown.css";
 
 interface MarkdownContentProps {
   content: string;
+  streaming?: boolean;
   className?: string;
   onOpenLink?: (url: string) => void;
+  onContentRendered?: () => void;
 }
 
 const BARE_DISPLAY_COMMAND = /^\\(?:d?frac|tfrac|sqrt|i{1,3}nt|oint|lim|max|min|operatorname|prod|sum)\b/;
@@ -304,9 +306,49 @@ export function normalizeSelectionMath(content: string): string {
   });
 }
 
-export default function MarkdownContent({ content, className, onOpenLink }: MarkdownContentProps) {
+function useStreamingContent(content: string, streaming: boolean): string {
+  const [snapshot, setSnapshot] = useState({ source: content, display: content, streaming });
+  const frameRef = useRef<number | null>(null);
+  let current = snapshot;
+  if (content !== snapshot.source || streaming !== snapshot.streaming) {
+    const immediate = !streaming || !snapshot.streaming || !snapshot.source
+      || !content.startsWith(snapshot.source);
+    current = { source: content, display: immediate ? content : snapshot.display, streaming };
+    setSnapshot(current);
+  }
+
+  useEffect(() => {
+    if (current.source === current.display || !streaming) {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    } else if (frameRef.current === null) {
+      const frame = requestAnimationFrame(() => {
+        if (frameRef.current !== frame) return;
+        frameRef.current = null;
+        setSnapshot((latest) => ({ ...latest, display: latest.source }));
+      });
+      frameRef.current = frame;
+    }
+  }, [current.source, current.display, streaming]);
+
+  useEffect(() => () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+  }, []);
+
+  return current.display;
+}
+
+export default function MarkdownContent({ content, streaming = false, ...props }: MarkdownContentProps) {
+  const display = useStreamingContent(content, streaming);
+  return <MarkdownBody content={display} {...props} />;
+}
+
+// Keep parsing tied to displayed content, including while the outer stream receives more chunks.
+const MarkdownBody = memo(function MarkdownBody({ content, className, onOpenLink, onContentRendered }: MarkdownContentProps) {
   const normalized = useMemo(() => normalizeSelectionMath(content), [content]);
   const renderable = useMemo(() => addFallbackMacroDefinitions(normalized), [normalized]);
+  useLayoutEffect(() => { onContentRendered?.(); }, [renderable, onContentRendered]);
 
   return (
     <div className={`markdown-content${className ? ` ${className}` : ""}`}>
@@ -342,4 +384,4 @@ export default function MarkdownContent({ content, className, onOpenLink }: Mark
       </ReactMarkdown>
     </div>
   );
-}
+});

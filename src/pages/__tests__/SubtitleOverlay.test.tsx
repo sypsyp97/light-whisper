@@ -22,7 +22,7 @@
  *   import constants from the component so the test acts as an external
  *   spec assertion rather than a tautology.
  */
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoisted: shared handler registry for the mocked `@tauri-apps/api/event`.
@@ -1695,6 +1695,7 @@ describe("SubtitleOverlay assistant rich text", () => {
     await act(async () => {
       tauriEvents.emit("assistant-stream", { sessionId: 301, chunk: "$" });
     });
+    await advance(16);
     expect(container.querySelector(".katex")).not.toBeNull();
     expect(container.querySelector(".katex-error")).toBeNull();
     expect(container.querySelector(".subtitle-status-indicator")).not.toBeNull();
@@ -1772,5 +1773,204 @@ describe("SubtitleOverlay assistant rich text", () => {
     });
     expect(readSubtitleText(container)).toBe(response);
     expect(container.querySelector("h2, strong, .katex")).toBeNull();
+  });
+
+  describe("streaming Markdown frame batching", () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+
+    function flushFrame() {
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        pending.forEach((callback) => callback(16));
+      });
+    }
+
+    beforeEach(() => {
+      frames.clear();
+      nextFrame = 0;
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+        const id = ++nextFrame;
+        frames.set(id, callback);
+        return id;
+      });
+      vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+        frames.delete(id);
+      });
+    });
+
+    afterEach(() => {
+      cleanup();
+      vi.restoreAllMocks();
+    });
+
+    async function startScrollableStream(kind: "assistant" | "conversation") {
+      const { container } = render(<SubtitleOverlay />);
+      await flushAsyncListeners();
+      const sessionId = kind === "assistant" ? 401 : 301;
+      const eventName = kind === "assistant" ? "assistant-stream" : "assistant-chat-stream";
+      if (kind === "conversation") {
+        tauriApiMocks.continueAssistantConversation.mockReturnValue(new Promise<string>(() => undefined));
+        await showAssistantResult("**Initial history**");
+        fireEvent.click(screen.getByRole("button", { name: "subtitle.conversation.open" }));
+        flushFrame();
+        const input = screen.getByLabelText("subtitle.conversation.placeholder");
+        fireEvent.change(input, { target: { value: "Follow-up question" } });
+        fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+      }
+      await act(async () => {
+        tauriEvents.emit(eventName, { sessionId, status: "started", request: "Explain" });
+        tauriEvents.emit(eventName, { sessionId, chunk: "**First**" });
+      });
+      await act(async () => { await vi.dynamicImportSettled(); });
+      expect(screen.getByText("First").tagName).toBe("STRONG");
+      const node = kind === "assistant"
+        ? container.querySelector<HTMLElement>(".subtitle-text")!
+        : screen.getByLabelText("subtitle.conversation.history");
+
+      // jsdom has no layout. Only committed Markdown DOM contributes to height.
+      const renderedHeight = () => 200 + Array.from(node.querySelectorAll(".markdown-content"))
+        .reduce((height, markdown) => height + (markdown.textContent?.length ?? 0) * 10, 0);
+      let scrollTop = 0;
+      Object.defineProperties(node, {
+        scrollHeight: { configurable: true, get: renderedHeight },
+        clientHeight: { configurable: true, value: 100 },
+        scrollTop: {
+          configurable: true,
+          get: () => scrollTop,
+          set: (value: number) => {
+            scrollTop = Math.max(0, Math.min(value, renderedHeight() - node.clientHeight));
+          },
+        },
+      });
+      node.scrollTop = node.scrollHeight - node.clientHeight;
+      fireEvent.scroll(node);
+      return {
+        node,
+        append: () => tauriEvents.emit(eventName, {
+          sessionId, chunk: `\n\n${"Additional content ".repeat(12)}`,
+        }),
+      };
+    }
+
+    it.each(["assistant", "conversation"] as const)(
+      "follows the new bottom after the %s Markdown frame commits without another chunk",
+      async (kind) => {
+        const { node, append } = await startScrollableStream(kind);
+        const previousHeight = node.scrollHeight;
+        await act(async () => { append(); });
+        expect(node.scrollHeight).toBe(previousHeight);
+        expect(frames.size).toBe(1);
+
+        flushFrame();
+
+        expect(node.scrollHeight).toBeGreaterThan(previousHeight);
+        expect(node.scrollTop).toBe(node.scrollHeight - node.clientHeight);
+        expect(frames.size).toBe(0);
+      },
+    );
+
+    it.each(["assistant", "conversation"] as const)(
+      "preserves a reader's scroll-up while the %s Markdown frame is pending",
+      async (kind) => {
+        const { node, append } = await startScrollableStream(kind);
+        const previousHeight = node.scrollHeight;
+        await act(async () => { append(); });
+        expect(node.scrollHeight).toBe(previousHeight);
+        expect(frames.size).toBe(1);
+        node.scrollTop = 25;
+        fireEvent.scroll(node);
+
+        flushFrame();
+
+        expect(node.scrollHeight).toBeGreaterThan(previousHeight);
+        expect(node.scrollTop).toBe(25);
+        expect(frames.size).toBe(0);
+      },
+    );
+
+    it("batches initial assistant chunks and flushes the final result immediately", async () => {
+      const { container } = render(<SubtitleOverlay />);
+      await flushAsyncListeners();
+      await act(async () => {
+        tauriEvents.emit("assistant-stream", { sessionId: 401, status: "started", request: "Explain" });
+        tauriEvents.emit("assistant-stream", { sessionId: 401, chunk: "**First**" });
+      });
+      await act(async () => { await vi.dynamicImportSettled(); });
+      expect(screen.getByText("First").tagName).toBe("STRONG");
+      await act(async () => {
+        tauriEvents.emit("assistant-stream", { sessionId: 401, chunk: " second" });
+      });
+      expect.soft(container.querySelector(".markdown-content")).toHaveTextContent(/^First$/);
+      expect.soft(frames.size).toBe(1);
+      flushFrame();
+      expect(container.querySelector(".markdown-content")).toHaveTextContent("First second");
+
+      await act(async () => {
+        tauriEvents.emit("assistant-stream", { sessionId: 401, chunk: " queued" });
+      });
+      await act(async () => {
+        tauriEvents.emit("transcription-result", {
+          sessionId: 401, text: "**Final**", interim: false, mode: "assistant",
+        });
+      });
+      expect(screen.getByText("Final").tagName).toBe("STRONG");
+      expect(screen.queryByText(/queued/)).toBeNull();
+      expect(frames.size).toBe(0);
+    });
+
+    it("batches conversation drafts while retaining immediate final and history content", async () => {
+      let finishReply!: (value: string) => void;
+      tauriApiMocks.continueAssistantConversation.mockReturnValue(new Promise<string>((resolve) => {
+        finishReply = resolve;
+      }));
+      const { container } = render(<SubtitleOverlay />);
+      await flushAsyncListeners();
+      await showAssistantResult("**Initial history**");
+      fireEvent.click(screen.getByRole("button", { name: "subtitle.conversation.open" }));
+      flushFrame();
+      const input = screen.getByLabelText("subtitle.conversation.placeholder");
+      fireEvent.change(input, { target: { value: "Follow-up question" } });
+      fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+      await act(async () => {
+        tauriEvents.emit("assistant-chat-stream", { sessionId: 301, status: "started" });
+        tauriEvents.emit("assistant-chat-stream", { sessionId: 301, chunk: "**Draft**" });
+      });
+      expect(screen.getByText("Draft").tagName).toBe("STRONG");
+      await act(async () => {
+        tauriEvents.emit("assistant-chat-stream", { sessionId: 301, chunk: " second" });
+      });
+      expect.soft(container.querySelector(".is-streaming .markdown-content")).toHaveTextContent(/^Draft$/);
+      expect.soft(frames.size).toBe(1);
+      flushFrame();
+      expect(container.querySelector(".is-streaming .markdown-content")).toHaveTextContent("Draft second");
+      expect(screen.getByText("Initial history")).toBeVisible();
+      await act(async () => {
+        tauriEvents.emit("assistant-chat-stream", { sessionId: 301, chunk: " queued" });
+      });
+      await act(async () => { finishReply("**Final reply**"); });
+      expect(screen.getByText("Final reply").tagName).toBe("STRONG");
+      expect(container.querySelector(".is-streaming")).toBeNull();
+      expect(frames.size).toBe(0);
+    });
+
+    it("keeps ordinary ASR interim subtitles immediate without using Markdown batching", async () => {
+      const { container } = render(<SubtitleOverlay />);
+      await flushAsyncListeners();
+      await act(async () => {
+        tauriEvents.emit("recording-state", {
+          sessionId: 402, isRecording: true, isProcessing: false, mode: "dictation",
+        });
+      });
+      for (const text of ["First words", "First words updated", "**literal** $x$"]) {
+        await act(async () => {
+          tauriEvents.emit("transcription-result", { sessionId: 402, text, interim: true, mode: "dictation" });
+        });
+        expect(readSubtitleText(container)).toBe(text);
+      }
+      expect(container.querySelector(".markdown-content, strong, .katex")).toBeNull();
+      expect(frames.size).toBe(0);
+    });
   });
 });

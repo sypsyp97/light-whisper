@@ -268,6 +268,12 @@ export interface AssistantConversationTurn {
 
 // Profile commands
 export const getUserProfile = createNoArgCommand<UserProfile>("get_user_profile");
+export interface ProfileSaveStatus {
+  revision: number;
+  state: "saved" | "saving" | "error";
+}
+export const getProfileSaveStatus = createNoArgCommand<ProfileSaveStatus>("get_profile_save_status");
+export const retryProfileSave = createNoArgCommand<void>("retry_profile_save");
 
 export function setAutostartMinimized(enabled: boolean): Promise<void> {
   return invokeCommand<void>("set_autostart_minimized", { enabled });

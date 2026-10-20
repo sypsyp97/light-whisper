@@ -98,6 +98,21 @@ pub fn run() {
 
             {
                 let app_handle = app_handle.clone();
+                let mut statuses = services::profile_service::subscribe_profile_save_status();
+                tauri::async_runtime::spawn(async move {
+                    while statuses.changed().await.is_ok() {
+                        let status = statuses.borrow_and_update().clone();
+                        if let Err(error) =
+                            app_handle.emit_to("main", "profile-save-status", status)
+                        {
+                            log::warn!("发送设置保存状态失败: {error}");
+                        }
+                    }
+                });
+            }
+
+            {
+                let app_handle = app_handle.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(error) = services::history_service::initialize().await {
                         log::warn!("初始化本地转写历史失败: {error}");
@@ -303,6 +318,8 @@ pub fn run() {
             commands::jev::get_jev_api_key,
             commands::jev::set_jev_api_key,
             commands::profile::get_user_profile,
+            commands::profile::get_profile_save_status,
+            commands::profile::retry_profile_save,
             commands::profile::set_history_settings,
             commands::profile::set_app_profile_rules,
             commands::profile::add_hot_word,

@@ -126,8 +126,10 @@ export default function SelectionOverlay() {
   useEffect(() => {
     let disposed = false;
     let lastVersion = 0;
-    const poll = async () => {
-      const payload = await getSelectionOverlayState().catch(() => null);
+    let unlisten: (() => void) | undefined;
+    let fallbackTimer: number | undefined;
+    type SelectionState = NonNullable<Awaited<ReturnType<typeof getSelectionOverlayState>>>;
+    const applySelection = async (payload: SelectionState | null) => {
       if (disposed || !payload || payload.version <= lastVersion) return;
       lastVersion = payload.version;
       const hadActiveRequest = activeRequestIdRef.current !== null;
@@ -145,13 +147,31 @@ export default function SelectionOverlay() {
       setSourceCopied(false);
       setResultCopied(false);
       setLoadingAction(null);
-      void resizeSelectionWindow(false);
+      void resizeSelectionWindow(false).catch(() => undefined);
     };
-    void poll();
-    const timer = window.setInterval(() => { void poll(); }, 100);
+    // Poll only if event registration failed, and wait for each request to settle.
+    const snapshot = async (fallback: boolean) => {
+      if (disposed) return;
+      await applySelection(await getSelectionOverlayState().catch(() => null));
+      if (fallback && !disposed) {
+        fallbackTimer = window.setTimeout(() => { void snapshot(true); }, 1_000);
+      }
+    };
+    void listen<SelectionState>("selection-detected", (event) => {
+      void applySelection(event.payload);
+    }).then((stop) => {
+      if (disposed) {
+        stop();
+        return;
+      }
+      unlisten = stop;
+      // Subscribe first so a concurrent selection cannot fall between snapshot and listener.
+      void snapshot(false);
+    }).catch(() => { void snapshot(true); });
     return () => {
       disposed = true;
-      window.clearInterval(timer);
+      unlisten?.();
+      window.clearTimeout(fallbackTimer);
     };
   }, [requestSelectionCancellation]);
 
@@ -348,7 +368,7 @@ export default function SelectionOverlay() {
           ) : loadingAction && !result ? (
             <div className="selection-loading"><LoaderCircle size={18} />{t("selection.workingHint")}</div>
           ) : (
-            <SelectionResult content={result} />
+            <SelectionResult content={result} streaming={Boolean(loadingAction)} />
           )}
           <button
             type="button"

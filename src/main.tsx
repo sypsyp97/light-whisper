@@ -7,6 +7,7 @@ import { RecordingProvider } from "./contexts/RecordingContext";
 import { prefersReducedMotion } from "./lib/motion";
 import MainPage from "./pages/MainPage";
 import { useTheme } from "./hooks/useTheme";
+import { useProfileSaveNotifications } from "./hooks/useProfileSaveNotifications";
 import i18n from "./i18n";
 import "./styles/theme.css";
 import "./styles/pages.css";
@@ -56,6 +57,7 @@ export function App() {
   const [animClass, setAnimClass] = useState("");
   const isTransitioning = useRef(false);
   useTheme();
+  useProfileSaveNotifications();
 
   useEffect(() => {
     const preloadTimer = window.setTimeout(() => {

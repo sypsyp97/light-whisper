@@ -8,6 +8,10 @@ use crate::state::AppState;
 use crate::utils::foreground::normalize_whitespace;
 use crate::utils::paths;
 
+#[cfg(test)]
+#[path = "profile_save_tests.rs"]
+mod profile_save_tests;
+
 const MAX_CORRECTION_PATTERNS: usize = 500;
 const MAX_HOT_WORDS: usize = 300;
 const MAX_SEGMENT_CHARS: usize = 12;
@@ -15,6 +19,39 @@ const MAX_HOT_WORD_CHARS: usize = 24;
 const MAX_USER_HOT_WORD_CHARS: usize = 80;
 pub const MAX_APP_PROFILE_RULES: usize = 100;
 const PROFILE_SAVE_DEBOUNCE_MS: u64 = 350;
+
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProfileSaveState {
+    Saved,
+    Saving,
+    Error,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProfileSaveStatus {
+    pub revision: u64,
+    pub state: ProfileSaveState,
+}
+
+fn profile_save_status_channel() -> &'static tokio::sync::watch::Sender<ProfileSaveStatus> {
+    static CHANNEL: OnceLock<tokio::sync::watch::Sender<ProfileSaveStatus>> = OnceLock::new();
+    CHANNEL.get_or_init(|| {
+        tokio::sync::watch::channel(ProfileSaveStatus {
+            revision: 0,
+            state: ProfileSaveState::Saved,
+        })
+        .0
+    })
+}
+
+pub fn profile_save_status() -> ProfileSaveStatus {
+    profile_save_status_channel().borrow().clone()
+}
+
+pub fn subscribe_profile_save_status() -> tokio::sync::watch::Receiver<ProfileSaveStatus> {
+    profile_save_status_channel().subscribe()
+}
 
 // ============================================================
 // 持久化
@@ -118,18 +155,45 @@ fn profile_save_lock() -> &'static tokio::sync::Mutex<()> {
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-fn take_pending_profile_save_if(
-    predicate: impl FnOnce(&PendingProfileSave) -> bool,
-) -> Option<PendingProfileSave> {
-    let mut slot = pending_profile_save_slot().lock();
-    if slot.as_ref().is_some_and(predicate) {
-        slot.take()
+fn publish_profile_save_state(state: ProfileSaveState) {
+    profile_save_status_channel().send_modify(|status| {
+        status.revision += 1;
+        status.state = state;
+    });
+}
+
+fn queue_profile_save(profile: UserProfile) -> u64 {
+    let mut pending = pending_profile_save_slot().lock();
+    let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
+    *pending = Some(PendingProfileSave {
+        generation,
+        profile,
+    });
+    publish_profile_save_state(ProfileSaveState::Saving);
+    generation
+}
+
+fn complete_profile_save(generation: u64, result: &Result<(), String>) {
+    let mut pending = pending_profile_save_slot().lock();
+    if pending
+        .as_ref()
+        .is_none_or(|save| save.generation != generation)
+    {
+        return;
+    }
+    // Keep the generation check and status publication atomic with newer saves.
+    if result.is_ok() {
+        pending.take();
+        publish_profile_save_state(ProfileSaveState::Saved);
     } else {
-        None
+        publish_profile_save_state(ProfileSaveState::Error);
     }
 }
 
 async fn write_profile_async(profile: &UserProfile) -> Result<(), String> {
+    #[cfg(test)]
+    profile_save_tests::before_profile_write().await;
+
     let path = paths::get_data_dir().join("user_profile.json");
     let data = serialize_profile(profile)?;
     tokio::task::spawn_blocking(move || paths::atomic_write(&path, data.as_bytes()))
@@ -139,15 +203,7 @@ async fn write_profile_async(profile: &UserProfile) -> Result<(), String> {
 }
 
 pub fn schedule_profile_save(profile: UserProfile) {
-    let generation = {
-        let mut pending = pending_profile_save_slot().lock();
-        let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
-        *pending = Some(PendingProfileSave {
-            generation,
-            profile,
-        });
-        generation
-    };
+    let generation = queue_profile_save(profile);
 
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(PROFILE_SAVE_DEBOUNCE_MS)).await;
@@ -161,9 +217,15 @@ pub fn schedule_profile_save(profile: UserProfile) {
             return;
         }
 
-        let pending = take_pending_profile_save_if(|pending| pending.generation == generation);
-        if let Some(pending) = pending {
-            if let Err(err) = write_profile_async(&pending.profile).await {
+        let profile = pending_profile_save_slot()
+            .lock()
+            .as_ref()
+            .filter(|pending| pending.generation == generation)
+            .map(|pending| pending.profile.clone());
+        if let Some(profile) = profile {
+            let result = write_profile_async(&profile).await;
+            complete_profile_save(generation, &result);
+            if let Err(err) = result {
                 log::warn!("异步保存用户画像失败: {}", err);
             }
         }
@@ -184,18 +246,13 @@ pub fn update_profile_and_schedule<R>(
 
 pub async fn save_profile_async(state: &AppState) -> Result<(), String> {
     let _write_guard = profile_save_lock().lock().await;
-    {
-        let mut pending = pending_profile_save_slot().lock();
-        let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
-        if pending
-            .as_ref()
-            .is_some_and(|save| save.generation <= generation)
-        {
-            pending.take();
-        }
-    }
     // A delayed immediate save must use current state, not its caller's old clone.
-    write_profile_async(&state.snapshot_profile()).await
+    // Publish under the profile lock so a later edit cannot be replaced by this snapshot.
+    let (generation, profile) =
+        state.with_profile(|profile| (queue_profile_save(profile.clone()), profile.clone()));
+    let result = write_profile_async(&profile).await;
+    complete_profile_save(generation, &result);
+    result
 }
 
 // ============================================================

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,15 +21,19 @@ const currentWindow = vi.hoisted(() => ({
 const tauriEvents = vi.hoisted(() => {
   type Handler = (event: { payload: unknown }) => void;
   const handlers = new Map<string, Set<Handler>>();
-  const listen = vi.fn(async (event: string, handler: Handler) => {
+  const unlisten = vi.fn((event: string, handler: Handler) => {
+    handlers.get(event)?.delete(handler);
+  });
+  const subscribe = (event: string, handler: Handler) => {
     let set = handlers.get(event);
     if (!set) {
       set = new Set();
       handlers.set(event, set);
     }
     set.add(handler);
-    return () => set?.delete(handler);
-  });
+    return () => unlisten(event, handler);
+  };
+  const listen = vi.fn(async (event: string, handler: Handler) => subscribe(event, handler));
   const emit = (event: string, payload: unknown) => {
     for (const handler of Array.from(handlers.get(event) ?? [])) {
       handler({ payload });
@@ -37,9 +41,10 @@ const tauriEvents = vi.hoisted(() => {
   };
   const reset = () => {
     handlers.clear();
-    listen.mockClear();
+    unlisten.mockClear();
+    listen.mockReset().mockImplementation(async (event, handler) => subscribe(event, handler));
   };
-  return { emit, listen, reset };
+  return { emit, listen, reset, subscribe, unlisten };
 });
 
 vi.mock("@/api/tauri", () => api);
@@ -80,6 +85,7 @@ async function renderReadyOverlay(text = "Selected source text") {
   api.getSelectionOverlayState.mockResolvedValue({
     version: 1,
     text,
+    characterCount: text.length,
   });
   const rendered = render(<SelectionOverlay />);
 
@@ -106,7 +112,215 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function selection(version: number, text: string) {
+  return { version, text, characterCount: text.length };
+}
+
+describe("SelectionOverlay event synchronization", () => {
+  it("waits for selection subscription before taking the bootstrap snapshot", async () => {
+    const ready = deferred<void>();
+    tauriEvents.listen.mockImplementation(async (event, handler) => {
+      if (event === "selection-detected") await ready.promise;
+      return tauriEvents.subscribe(event, handler);
+    });
+    api.getSelectionOverlayState.mockResolvedValue(selection(1, "Bootstrap selection"));
+
+    await act(async () => { render(<SelectionOverlay />); });
+    expect.soft(api.getSelectionOverlayState).not.toHaveBeenCalled();
+    await act(async () => { ready.resolve(); });
+
+    expect(tauriEvents.listen).toHaveBeenCalledWith("selection-detected", expect.any(Function));
+    expect(api.getSelectionOverlayState).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Bootstrap selection")).toBeVisible();
+  });
+
+  it("keeps a newer event when the bootstrap snapshot arrives late, ignoring duplicate and older events", async () => {
+    const snapshot = deferred<ReturnType<typeof selection>>();
+    api.getSelectionOverlayState.mockReturnValue(snapshot.promise);
+    await act(async () => { render(<SelectionOverlay />); });
+
+    await act(async () => {
+      tauriEvents.emit("selection-detected", selection(3, "Newest selection"));
+      snapshot.resolve(selection(2, "Stale bootstrap"));
+    });
+    await act(async () => {
+      tauriEvents.emit("selection-detected", selection(3, "Duplicate version"));
+      tauriEvents.emit("selection-detected", selection(1, "Older event"));
+    });
+
+    expect(screen.getByText("Newest selection")).toBeVisible();
+    expect(screen.queryByText(/Stale bootstrap|Duplicate version|Older event/)).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "复制" })); });
+    expect(api.copySelection).toHaveBeenCalledWith("Newest selection");
+  });
+
+  it("uses no idle snapshots after initial synchronization and receives changes from events", async () => {
+    vi.useFakeTimers();
+    api.getSelectionOverlayState.mockResolvedValue(selection(1, "Initial selection"));
+    await act(async () => { render(<SelectionOverlay />); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+
+    expect.soft(api.getSelectionOverlayState).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      tauriEvents.emit("selection-detected", selection(2, "Event selection"));
+    });
+    expect(screen.getByText("Event selection")).toBeVisible();
+    expect(api.getSelectionOverlayState).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a bootstrap snapshot newer than an event received during hydration", async () => {
+    const snapshot = deferred<ReturnType<typeof selection>>();
+    api.getSelectionOverlayState.mockReturnValue(snapshot.promise);
+    await act(async () => { render(<SelectionOverlay />); });
+    await act(async () => {
+      tauriEvents.emit("selection-detected", selection(2, "Early event"));
+    });
+    await act(async () => { snapshot.resolve(selection(3, "Latest snapshot")); });
+
+    expect(screen.getByText("Latest snapshot")).toBeVisible();
+    expect(screen.queryByText("Early event")).toBeNull();
+  });
+
+  it("resets completed result and copy state when a new selection event arrives", async () => {
+    const user = userEvent.setup();
+    api.runSelectionAction.mockResolvedValue("Optimized result");
+    await renderReadyOverlay("Original selection");
+    await user.click(screen.getByRole("button", { name: "复制" }));
+    await user.click(screen.getByRole("button", { name: "优化" }));
+    await screen.findByText("Optimized result");
+    await user.click(screen.getByRole("button", { name: "复制结果" }));
+    await act(async () => {
+      tauriEvents.emit("selection-detected", selection(2, "Replacement selection"));
+    });
+
+    expect(screen.getByText("Replacement selection")).toBeVisible();
+    expect(screen.queryByText("Optimized result")).toBeNull();
+    expect(screen.queryByRole("button", { name: "已复制" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "一键替换" })).toBeNull();
+    expect(api.cancelSelectionAction).not.toHaveBeenCalled();
+    expect(api.resizeSelectionWindow).toHaveBeenLastCalledWith(false);
+  });
+
+  it("cancels once and applies the newest selection after in-flight cancellation completes", async () => {
+    const cancellation = deferred<void>();
+    const request = deferred<string>();
+    api.cancelSelectionAction.mockReturnValue(cancellation.promise);
+    api.runSelectionAction.mockReturnValue(request.promise);
+    await renderReadyOverlay("Original selection");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "解释" })); });
+    const requestId = api.runSelectionAction.mock.calls[0]?.[2] as number;
+    await act(async () => {
+      tauriEvents.emit("selection-stream", { status: "streaming", sessionId: requestId, chunk: "Old partial" });
+    });
+    await act(async () => {
+      tauriEvents.emit("selection-detected", selection(2, "Intermediate selection"));
+      tauriEvents.emit("selection-detected", selection(3, "Newest selection"));
+      tauriEvents.emit("selection-stream", { status: "streaming", sessionId: requestId, chunk: " stale chunk" });
+      request.resolve("Old final");
+    });
+
+    expect.soft(api.cancelSelectionAction).toHaveBeenCalledTimes(1);
+    await act(async () => { cancellation.resolve(); });
+    expect(screen.getByText("Newest selection")).toBeVisible();
+    expect(screen.queryByText(/Intermediate selection|Old partial|Old final|stale chunk/)).toBeNull();
+    expect(screen.getByRole("button", { name: "翻译" })).toBeEnabled();
+    expect(api.resizeSelectionWindow).toHaveBeenLastCalledWith(false);
+  });
+
+  it("recovers from listener and snapshot failures with slow single-flight fallback snapshots", async () => {
+    vi.useFakeTimers();
+    tauriEvents.listen.mockImplementation(async (event, handler) => {
+      if (event === "selection-detected") throw new Error("selection listener unavailable");
+      return tauriEvents.subscribe(event, handler);
+    });
+    const pending = deferred<ReturnType<typeof selection>>();
+    api.getSelectionOverlayState
+      .mockRejectedValueOnce(new Error("snapshot temporarily unavailable"))
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(selection(3, "Recovered latest selection"));
+    await act(async () => { render(<SelectionOverlay />); });
+    expect(api.getSelectionOverlayState).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect.soft(api.getSelectionOverlayState).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect.soft(api.getSelectionOverlayState).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect.soft(api.getSelectionOverlayState).toHaveBeenCalledTimes(2);
+
+    await act(async () => { pending.resolve(selection(2, "Recovered selection")); });
+    expect.soft(screen.queryByText("Recovered selection")).toBeVisible();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(screen.getByText("Recovered latest selection")).toBeVisible();
+  });
+
+  it("unsubscribes selection events and stops fetching after disposal", async () => {
+    vi.useFakeTimers();
+    api.getSelectionOverlayState.mockResolvedValue(selection(1, "Initial selection"));
+    let unmount!: () => void;
+    await act(async () => { ({ unmount } = render(<SelectionOverlay />)); });
+    unmount();
+    expect(tauriEvents.unlisten).toHaveBeenCalledWith("selection-detected", expect.any(Function));
+    const snapshots = api.getSelectionOverlayState.mock.calls.length;
+    const resizes = api.resizeSelectionWindow.mock.calls.length;
+    await act(async () => {
+      tauriEvents.emit("selection-detected", selection(2, "After disposal"));
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(api.getSelectionOverlayState).toHaveBeenCalledTimes(snapshots);
+    expect(api.resizeSelectionWindow).toHaveBeenCalledTimes(resizes);
+  });
+
+  it("unsubscribes a listener that finishes registration after disposal", async () => {
+    const ready = deferred<void>();
+    tauriEvents.listen.mockImplementation(async (event, handler) => {
+      if (event === "selection-detected") await ready.promise;
+      return tauriEvents.subscribe(event, handler);
+    });
+    api.getSelectionOverlayState.mockResolvedValue(null);
+    const { unmount } = render(<SelectionOverlay />);
+    unmount();
+    await act(async () => { ready.resolve(); });
+
+    expect(tauriEvents.unlisten).toHaveBeenCalledWith("selection-detected", expect.any(Function));
+    expect(api.getSelectionOverlayState).not.toHaveBeenCalled();
+  });
+
+  it("does not resume fallback snapshots after disposal with a snapshot pending", async () => {
+    vi.useFakeTimers();
+    tauriEvents.listen.mockImplementation(async (event, handler) => {
+      if (event === "selection-detected") throw new Error("selection listener unavailable");
+      return tauriEvents.subscribe(event, handler);
+    });
+    const snapshot = deferred<ReturnType<typeof selection>>();
+    api.getSelectionOverlayState.mockReturnValue(snapshot.promise);
+    let unmount!: () => void;
+    await act(async () => { ({ unmount } = render(<SelectionOverlay />)); });
+    unmount();
+    await act(async () => {
+      snapshot.resolve(selection(1, "After disposal"));
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(api.getSelectionOverlayState).toHaveBeenCalledTimes(1);
+    expect(api.resizeSelectionWindow).not.toHaveBeenCalled();
+  });
 });
 
 describe("SelectionOverlay dismissal", () => {
@@ -248,6 +462,44 @@ describe("SelectionOverlay window resizing", () => {
 });
 
 describe("SelectionOverlay streaming", () => {
+  it("batches streamed Markdown updates but flushes final content without waiting for a frame", async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++nextFrame;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => { frames.delete(id); });
+    const request = deferred<string>();
+    api.runSelectionAction.mockReturnValue(request.promise);
+    await renderReadyOverlay();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "翻译" })); });
+    const sessionId = api.runSelectionAction.mock.calls[0]?.[2] as number;
+    await act(async () => {
+      tauriEvents.emit("selection-stream", { status: "streaming", sessionId, chunk: "**First**" });
+    });
+    expect(screen.getByText("First").tagName).toBe("STRONG");
+    await act(async () => {
+      tauriEvents.emit("selection-stream", { status: "streaming", sessionId, chunk: " second" });
+    });
+    expect.soft(screen.queryByText(/second/)).toBeNull();
+    expect.soft(frames.size).toBe(1);
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      pending.forEach((callback) => callback(16));
+    });
+    expect(screen.getByText(/second/)).toBeVisible();
+    await act(async () => {
+      tauriEvents.emit("selection-stream", { status: "streaming", sessionId, chunk: " queued" });
+    });
+    await act(async () => { request.resolve("**Final**"); });
+    expect(screen.getByText("Final").tagName).toBe("STRONG");
+    expect(screen.queryByText(/queued/)).toBeNull();
+    expect(frames.size).toBe(0);
+  });
+
   it("renders matching chunks while pending and replaces them with the final result", async () => {
     const user = userEvent.setup();
     let resolveRequest: ((value: string) => void) | undefined;
@@ -362,7 +614,10 @@ describe("SelectionOverlay streaming", () => {
 
   it("still shows the final result when stream listener registration fails", async () => {
     const user = userEvent.setup();
-    tauriEvents.listen.mockRejectedValueOnce(new Error("listener unavailable"));
+    tauriEvents.listen.mockImplementation(async (event, handler) => {
+      if (event === "selection-stream") throw new Error("listener unavailable");
+      return tauriEvents.subscribe(event, handler);
+    });
     api.runSelectionAction.mockResolvedValue("Final-only result");
     await renderReadyOverlay();
 
@@ -374,7 +629,10 @@ describe("SelectionOverlay streaming", () => {
 
   it("falls back to the final result when stream listener registration stalls", async () => {
     const user = userEvent.setup();
-    tauriEvents.listen.mockImplementationOnce(() => new Promise<never>(() => undefined));
+    tauriEvents.listen.mockImplementation(async (event, handler) => {
+      if (event === "selection-stream") return new Promise<never>(() => undefined);
+      return tauriEvents.subscribe(event, handler);
+    });
     api.runSelectionAction.mockResolvedValue("Final after listener timeout");
     await renderReadyOverlay();
 
@@ -442,32 +700,6 @@ describe("SelectionOverlay streaming", () => {
     expect(screen.getByRole("button", { name: "复制结果" })).toBeVisible();
   });
 
-  it("ignores an older selection poll that finishes after a newer one", async () => {
-    let resolveOlderPoll: ((value: { version: number; text: string }) => void) | undefined;
-    const olderPoll = new Promise<{ version: number; text: string }>((resolve) => {
-      resolveOlderPoll = resolve;
-    });
-    const neverFinishes = new Promise<never>(() => undefined);
-    let followupPoll = 0;
-    await renderReadyOverlay("Initial selection");
-    api.getSelectionOverlayState.mockImplementation(() => {
-      followupPoll += 1;
-      if (followupPoll === 1) return olderPoll;
-      if (followupPoll === 2) {
-        return Promise.resolve({ version: 3, text: "Newest selection" });
-      }
-      return neverFinishes;
-    });
-
-    expect(await screen.findByText("Newest selection", {}, { timeout: 1_000 })).toBeVisible();
-    await act(async () => {
-      resolveOlderPoll?.({ version: 2, text: "Stale selection" });
-      await Promise.resolve();
-    });
-
-    expect(screen.getByText("Newest selection")).toBeVisible();
-    expect(screen.queryByText("Stale selection")).toBeNull();
-  });
 });
 
 describe("SelectionOverlay content and result actions", () => {

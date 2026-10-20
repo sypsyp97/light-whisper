@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::services::screen_capture_service::{self, CapturedScreen};
 use crate::state::AppState;
@@ -329,14 +329,15 @@ fn show_selection(
         .ok_or_else(|| "划词助手窗口创建后不存在".to_string())?;
     position_window(app_handle, &window, gesture, false)?;
     let version = SELECTION_VERSION.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
-    *CURRENT_SELECTION
-        .get_or_init(|| parking_lot::Mutex::new(None))
-        .lock() = Some(SelectionDetectedPayload {
+    let selection = SelectionDetectedPayload {
         version,
         character_count: text.chars().count(),
         text,
         source_window,
-    });
+    };
+    *CURRENT_SELECTION
+        .get_or_init(|| parking_lot::Mutex::new(None))
+        .lock() = Some(selection.clone());
     *CURRENT_SELECTION_SCREENSHOTS
         .get_or_init(|| parking_lot::Mutex::new(None))
         .lock() = (!screenshots.is_empty()).then_some(SelectionScreenshotContext {
@@ -344,6 +345,9 @@ fn show_selection(
         images: screenshots,
     });
     show_without_activation(&window);
+    window
+        .emit_to(OVERLAY_LABEL, "selection-detected", selection)
+        .map_err(|error| tauri_error("发送划词状态失败", error))?;
     Ok(())
 }
 

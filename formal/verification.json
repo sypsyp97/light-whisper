@@ -461,6 +461,12 @@
     ],
     "commands::funasr::set_gpu_idle_seconds": [
       "gpu-idle"
+    ],
+    "commands::profile::get_profile_save_status": [
+      "profile-save"
+    ],
+    "commands::profile::retry_profile_save": [
+      "profile-save"
     ]
   },
   "events": {
@@ -520,6 +526,12 @@
     "paste-recovery": [
       "clipboard",
       "recording"
+    ],
+    "profile-save-status": [
+      "profile-save"
+    ],
+    "selection-detected": [
+      "selection"
     ]
   },
   "lifecycle": {
@@ -946,9 +958,11 @@
       ],
       "evidence": [
         "src-tauri/src/services/profile_service.rs",
-        "src-tauri/src/state/app_state.rs"
+        "src-tauri/src/state/app_state.rs",
+        "src-tauri/src/services/profile_save_tests.rs",
+        "src/hooks/__tests__/useProfileSaveNotifications.test.tsx"
       ],
-      "assumptions": "Debounce timer and atomic filesystem replacement eventually succeed for settlement; Lean proves version ordering over arbitrary Nat updates."
+      "assumptions": "Debounce timer and atomic filesystem replacement eventually succeed for settlement; Lean proves version ordering over arbitrary Nat updates. Failed writes and generation-owned status/retry are covered by isolated real-filesystem implementation tests; ProfilePersistence models successful writes only. The UI receives revisioned status snapshots after listener registration."
     },
     "preferences": {
       "obligation": "Settings controls require a successfully loaded profile; failures retain the blocked state and retry restores saved preferences. Normalize/validate before publication; optional clears are explicit; runtime-only flags do not overwrite other fields.",
@@ -1138,7 +1152,7 @@
         "src-tauri/src/services/selection_service.rs#replacement_context_requires_the_exact_version_text_and_source_window",
         "src/pages/__tests__/SelectionOverlay.test.tsx"
       ],
-      "assumptions": "OS selection and paste operations are external; two context versions represent arbitrary text, not recognition correctness."
+      "assumptions": "OS selection and paste operations are external; two context versions represent arbitrary text, not recognition correctness. State changes use a window-targeted event after publication plus a post-subscription bootstrap snapshot; listener failure falls back to single-flight slow snapshots, checked by implementation tests."
     },
     "clipboard": {
       "obligation": "Paste restores clipboard only when clipboard still contains the text owned by that paste; assistant output is never auto-pasted. A completed dictation remains a distinct session/text/original-target queue item while a second assistant occupies the recording slot; all eligible terminal paths schedule a drain; unknown/changed targets and paste failures expose original text for recovery.",
@@ -1217,9 +1231,10 @@
         "src/pages/__tests__/HistoryPage.test.tsx",
         "src-tauri/src/services/history_service.rs#latency_percentiles_match_sorted_rank_for_empty_tied_and_large_inputs",
         "src-tauri/src/services/history_service.rs#tlc_history_leases_replay_public_sqlite_operations",
-        "formal/evidence/async-ownership.md"
+        "formal/evidence/async-ownership.md",
+        "src-tauri/src/services/history_stats_tests.rs"
       ],
-      "assumptions": "SQLite transactions and successful filesystem deletion are trusted primitives; detailed base bound of five rows, three audio classes and one reprocessor/count-one lease; DB errors retain audio conservatively. Finalization may publish after a failed audio/history write, but must first await its completion. Publication here means terminal transcription/subtitle results and paste authorization; assistant stream chunks and stream done arrive during LLM work and are excluded. Scheduling permits audio I/O to remain pending during LLM work; the model does not prove a wall-clock speedup. HistoryRecords retains its detailed five-row, three audio-class, single-reprocessor/count-one bound. HistoryLeaseInterleavings adds two independent tasks and two shared audio identities; release is DELETE count=1, UPDATE count>1, then commit. Equality is asserted outside the transaction; row deletion and GC interleave only at commit boundaries."
+      "assumptions": "SQLite transactions and successful filesystem deletion are trusted primitives; detailed base bound of five rows, three audio classes and one reprocessor/count-one lease; DB errors retain audio conservatively. Finalization may publish after a failed audio/history write, but must first await its completion. Publication here means terminal transcription/subtitle results and paste authorization; assistant stream chunks and stream done arrive during LLM work and are excluded. Scheduling permits audio I/O to remain pending during LLM work; the model does not prove a wall-clock speedup. HistoryRecords retains its detailed five-row, three audio-class, single-reprocessor/count-one bound. HistoryLeaseInterleavings adds two independent tasks and two shared audio identities; release is DELETE count=1, UPDATE count>1, then commit. Equality is asserted outside the transaction; row deletion and GC interleave only at commit boundaries. Statistics reuse is checked by implementation tests: a retained read connection compares SQLite data_version, aggregate and latency queries share a read transaction, and concurrent changes invalidate cache publication. Database path remains fixed during the process; replacing the open database file is outside this contract."
     },
     "windows": {
       "obligation": "Only current show/hide generations publish; interactive state requires a window; exit signals capture and reaps child.",
@@ -2347,6 +2362,8 @@
     "commands::history::export_transcription_history": "src-tauri/src/commands/history.rs#fn export_transcription_history(",
     "commands::history::reprocess_transcription_history": "src-tauri/src/commands/history.rs#fn reprocess_transcription_history(",
     "commands::funasr::get_gpu_idle_seconds": "src-tauri/src/commands/funasr.rs#fn get_gpu_idle_seconds(",
-    "commands::funasr::set_gpu_idle_seconds": "src-tauri/src/commands/funasr.rs#fn set_gpu_idle_seconds("
+    "commands::funasr::set_gpu_idle_seconds": "src-tauri/src/commands/funasr.rs#fn set_gpu_idle_seconds(",
+    "commands::profile::get_profile_save_status": "src-tauri/src/commands/profile.rs#pub fn get_profile_save_status",
+    "commands::profile::retry_profile_save": "src-tauri/src/commands/profile.rs#pub async fn retry_profile_save"
   }
 }

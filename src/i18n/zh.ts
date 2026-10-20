@@ -216,6 +216,7 @@ const zh = {
     translationAutoPolish: "已自动开启 AI 润色",
     translationSaveFailed: "保存翻译设置失败",
     customPromptSaveFailed: "保存自定义指令失败",
+    profileSaveFailed: "设置尚未保存到磁盘，请重试以保留修改。",
     polishStructureSaveFailed: "保存结构化强度失败",
     assistantPromptSaveFailed: "保存助手提示词失败",
     assistantScreenContextFailed: "助手屏幕感知设置失败",
