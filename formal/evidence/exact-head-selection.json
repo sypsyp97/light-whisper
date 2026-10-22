@@ -1,0 +1,328 @@
+{
+  "schema": 1,
+  "model": "ExactHeadSelection",
+  "status": {
+    "model": "PASS: unchanged model and twelve configurations verified before and after promotion",
+    "registration": "PASS: inventory, twelve registered TLC runs and action bindings",
+    "current_native_replay": "SCENARIO_CORRESPONDENCE_PASS for fresh build-12 inputs; ten mappings, zero errors"
+  },
+  "boundary": "Bounded source-backed scenario correspondence under serialized application use. No compiler, driver, all-input floating-point, concurrent external C ABI, universal device or performance proof.",
+  "model_sha256": "de39e9cd3e570411192d0e0a6760108daea0e363c004f0e78844de97a160bfae",
+  "tlc": {
+    "jar_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+    "workers": 1,
+    "heap_mib": 512,
+    "summary_sha256": "4500365af1321ef197141ae07e0b8a024b0b334e69373a464aa0370ec1809025",
+    "runs": [
+      {
+        "config": "ExactHeadSelection.cfg",
+        "kind": "positive",
+        "exit": 0,
+        "distinct": 377553,
+        "config_sha256": "e0210db6437ab2d87d5fbd3e5282cee0ab89a957cc7d2d33c24f67e6831c894c",
+        "log_sha256": "f058e77715ee05366fbe9937438f9acce8d412bfc61acb3560f424778b2169a5"
+      },
+      {
+        "config": "ExactHeadSelectionTwoDevices.cfg",
+        "kind": "positive",
+        "exit": 0,
+        "distinct": 377553,
+        "config_sha256": "2b3d61a6901441f343a923308a703915d9efd68ad5ab9a3fa4615bf59bd7a7da",
+        "log_sha256": "e64785b9c30f0d2966f414d2381402300d6b2708a767d74b8de469c23a5210b1"
+      },
+      {
+        "config": "ExactHeadSelectionLifecycle.cfg",
+        "kind": "positive",
+        "exit": 0,
+        "distinct": 163047,
+        "config_sha256": "b932aa75c1254727bb360b2a5fd2ba9e0a397d7dbcfda47c9f425679feb509d7",
+        "log_sha256": "996aa67b30ff89089a63a436b75f5d4438bd25f642d1fe3889c460116e78c453"
+      },
+      {
+        "config": "ExactHeadSelectionWrongKeyNegative.cfg",
+        "kind": "negative",
+        "exit": 12,
+        "expected_invariant": "CachedKeyMatches",
+        "distinct": 3004,
+        "config_sha256": "a35ba647c56fce9c24939e995eabd3603b8ab0e8913b9d23399a5a5b7b103436",
+        "log_sha256": "d4e6351daa89e23b5a65e70631510d0e5f0c47d9ead5a76f0db6b3f6fcc023b6"
+      },
+      {
+        "config": "ExactHeadSelectionCrossContextNegative.cfg",
+        "kind": "negative",
+        "exit": 12,
+        "expected_invariant": "SelectedContextMatches",
+        "distinct": 3002,
+        "config_sha256": "31cf52ad14535909fefba6e37c9fe6c79b5a3432bef0e5c1a6534d832c0ad379",
+        "log_sha256": "2bb459a59f74d096aa7a11e620a9321ebf41277ade98e552203affe50692b637"
+      },
+      {
+        "config": "ExactHeadSelectionTuneInCaptureNegative.cfg",
+        "kind": "negative",
+        "exit": 12,
+        "expected_invariant": "CaptureSafe",
+        "distinct": 130,
+        "config_sha256": "bdf26af59be8b72d4398682525167ecf0d7b085f3e57e8506a9b1ee3bb3160e0",
+        "log_sha256": "0d64256c411110abdc60a220ed47656321a5afd19fe19df32e7d09213f0dc6cb"
+      },
+      {
+        "config": "ExactHeadSelectionIgnoredParityNegative.cfg",
+        "kind": "negative",
+        "exit": 12,
+        "expected_invariant": "GroupedRequiresEvidence",
+        "distinct": 189,
+        "config_sha256": "a9d4b421b40afc6cb01d4565c57481db971ba202e383e5b40daed926222bf8da",
+        "log_sha256": "c8aebdf3fe355ad33d42499f1504667860b93c9643942c34093b6c617ae68516"
+      },
+      {
+        "config": "ExactHeadSelectionMutablePlanNegative.cfg",
+        "kind": "negative",
+        "exit": 12,
+        "expected_invariant": "ImmutablePlan",
+        "distinct": 6920,
+        "config_sha256": "1cad7222ca8e87b386445a45cc91e6d692849f1d2cc14a7fcf4590f67cef1dd2",
+        "log_sha256": "cc61200b06ce9ecf2632c45cefe6aeaf2dc861d7f745b706c914f39a5d429940"
+      },
+      {
+        "config": "ExactHeadSelectionSkipSelectedNegative.cfg",
+        "kind": "negative",
+        "exit": 12,
+        "expected_invariant": "SelectedOutputExecuted",
+        "distinct": 327,
+        "config_sha256": "725755090b24eea21914e548600f1733ef0b7999c9ca29da34e8b36c1a90cf7f",
+        "log_sha256": "0cd3bc296a9ee8e245e4fbc788bf4050d1d687ef10020d1c8fc778b0197722a2"
+      },
+      {
+        "config": "ExactHeadSelectionGroupedCaptureWitness.cfg",
+        "kind": "witness",
+        "exit": 12,
+        "expected_invariant": "NoGroupedCaptureHit",
+        "distinct": 11167,
+        "config_sha256": "feb4798e76cd9c8943cb64033680013bf1db30124af338a3d437f0456ace4147",
+        "log_sha256": "d82fb11b8ac6df4bdd1970dabadb3c2ffc8fe4709e5c97373162d2bac83cb37b"
+      },
+      {
+        "config": "ExactHeadSelectionMismatchRestoreWitness.cfg",
+        "kind": "witness",
+        "exit": 12,
+        "expected_invariant": "NoMismatchRestoration",
+        "distinct": 486,
+        "config_sha256": "e51b0ae2661e2027abcd24e1c17155b304a8b3682efee52aaffac96eeee7744a",
+        "log_sha256": "0251383bd4ee9a04c6d65e02e01da1882b00803410b0cb1ae0c47228fae49fd9"
+      },
+      {
+        "config": "ExactHeadSelectionFreshContextWitness.cfg",
+        "kind": "witness",
+        "exit": 12,
+        "expected_invariant": "NoFreshContextRetune",
+        "distinct": 562,
+        "config_sha256": "0bd8b3019f8e68f104263869a5c948c848672896a4693d20d35b4feb7ef2642f",
+        "log_sha256": "f0485d667389c2f526dc26ebb7d4afe344acaab8800e739a6dafdf3785349750"
+      }
+    ],
+    "purpose": "Historical one-worker logs are the frozen request-projection provenance; promoted two-worker runs are separately recorded."
+  },
+  "implementation": {
+    "canonical_patch": "scripts/patches/audio-cpp-r2t2-windows-streaming.patch",
+    "patch_sha256": "a4df6103eea3cd657d65bd5e361cbccad6392948da3b68c04e649680df1aff9b",
+    "reviewed_native_sources_sha256": {
+      "external/ggml/src/ggml-cuda/common.cuh": "d491c511cfbb1261d27c7456cd8545f6f6e0e7d36a900bed5c1532ee84a5b149",
+      "external/ggml/src/ggml-cuda/ggml-cuda.cu": "922399397281251abb43c3b5db32bbd163e94ab729904378c62fcdd9ebe87af1",
+      "external/ggml/include/ggml.h": "412cab05a4d2fded7397e6f05ca33f6e1a532f48807596f4d6fcf6828f20351c",
+      "src/framework/modules/transformers/qwen_causal_decode_runtime.cpp": "1302907656d97024300c54f2b3c3bd88804a0cfc148dc768aaa207e6c9b5b734"
+    },
+    "historical_source_binding_sha256": "5b39513d9a73bb83c7184d5b0c84a147de5849cf2b3ac5353d93aa89743b68a0",
+    "reviewed_source_anchors": 33
+  },
+  "tests": {
+    "dispatcher": {
+      "scripts/native_tests/r2t2_head_autotune/autotune_test.cu": "de9edc939fc4694623714baeb6033531a4bcd3c124d2197477a12beb16cd22d4",
+      "scripts/native_tests/r2t2_head_autotune/observer.h": "35f17bc450681e968ba5ebf33ce40b60d938c07e9c2ed2ede515e9b4d50cd4e6",
+      "scripts/native_tests/r2t2_head_autotune/interpose.h": "e6c7f2f2fef9b24460eac4008ec0b3a01c490f7293ac27f44bc5bf0afeb8de80",
+      "scripts/native_tests/r2t2_head_autotune/run.py": "4ecf64b4e44fb05c37c36407730b3b7e43bf400529ca38af9bcba4e99c6ecaab"
+    },
+    "graph": {
+      "scripts/test_r2t2_grouped_head.py": "83b7863986ce41311f4843314a9d8a0ba395bcd9ed42d30417abe772988aa708",
+      "scripts/native_tests/r2t2_grouped_head_test.cpp": "341c8adb3c4fe25b7f3753fd88ee4bf88d6538fd496da2649ffb79ef915fc01d",
+      "scripts/native_tests/r2t2_grouped_head_observer.h": "f91e70adf8f88ef44667bd07748f49997658cec5a0d1d2780db36d870ad4667f",
+      "scripts/native_tests/r2t2_grouped_head_interpose.h": "2236688982455d8a57ac2dbfd5d9f9da94045beb506c10a41a2aef7528f2897c"
+    }
+  },
+  "historical_native_correspondence": {
+    "status": "PASS for recorded build-11 inputs",
+    "checker_sha256": "3ff300e015ecad66e4adc74a9b4c59b3175b4386f7eb3fb63c2fd05b251a4c89",
+    "report_sha256": "c8afeeb30c3ae88dfda32e120448a138dcf4fa5481ed4d2f13439c3d81931c0c",
+    "projection_sha256": "f666b4c1cea0e858f8e17f1da480732ee1958b16b7dee2c733f4194771ec0624",
+    "tlc_traces": 9,
+    "native_mappings": 10,
+    "observations": 59,
+    "work_failures": 0,
+    "numeric_failures": 0,
+    "unmarked_control_words_equal": 528,
+    "fatal_error_exit": 3221226505,
+    "graph_cpu_cases": 1,
+    "graph_cpu_assertions": 258,
+    "graph_cuda_cases": 10,
+    "graph_cuda_assertions": 2524,
+    "graph_cpu_trace_sha256": "6c9ca4a58730c4edbd9ea9179d137deb8758cc22e1ba600a13c82e769126410a",
+    "graph_cuda_trace_sha256": "167df52c6b0fd7f61079cab64f58a0cc09030a73db89f125b7c8df03b9349c78"
+  },
+  "performance": {
+    "scope": "Measured resident full-protocol English on the tested device/workloads; independent acceptance reported by the main task. Not a >=10% result or portable speed guarantee.",
+    "analysis_sha256": "2057c260c0a6e9686a7ca8089c500fa461f59ee7962c6d2b6cf5b14fe0ea92cd",
+    "english_initial_percent": 4.8089,
+    "english_fresh_replication_percent": 4.3977,
+    "fresh_plus_combined_guard_checks": 36,
+    "guard_limit_ratio": 1.05,
+    "exact_traces_reported_by_main": 192,
+    "initial_pooled_guard_failures": [
+      {
+        "phase": "measured",
+        "case": "zh-full",
+        "metrics": {
+          "feed_p95_ms": 1.0579724702364852
+        }
+      },
+      {
+        "phase": "warmup",
+        "case": "en-full",
+        "metrics": {
+          "first_caption_ms": 1.1378410622216746
+        }
+      },
+      {
+        "phase": "warmup",
+        "case": "zh-rolling-36s",
+        "metrics": {
+          "feed_p95_ms": 1.1017027782393916
+        }
+      }
+    ],
+    "guard_scope_note": "These are three initial pooled failures; additional per-round failures occurred. The 36 passing checks cover the fresh replication and combined pooled summaries."
+  },
+  "reproduction": "docs/exact-head-verification.md",
+  "promoted_tlc": {
+    "status": "PASS",
+    "workers": 2,
+    "summary_sha256": "a77d38b136d2a747e7bf8bcc3ca8576720e5a6ed07aaa65958a5bc6ee30250fb",
+    "action_binding": "PASS",
+    "runs": [
+      {
+        "config": "ExactHeadSelection.cfg",
+        "distinct": 377553,
+        "expected_violation": null,
+        "log_sha256": "fe90831d74e074904fd2abdd29bd6ce2a7ac64a398de05e9fdd6a8a7ad7b6d25"
+      },
+      {
+        "config": "ExactHeadSelectionTwoDevices.cfg",
+        "distinct": 377553,
+        "expected_violation": null,
+        "log_sha256": "c8077702a75368bae81fc2bc83767eceb96e52bc0ed88eb8f3b3aa7df660f3ca"
+      },
+      {
+        "config": "ExactHeadSelectionLifecycle.cfg",
+        "distinct": 163047,
+        "expected_violation": null,
+        "log_sha256": "e69a8330fdfa0d8b9ed3ea4b2b1371d56e26571fe9cf0cd47da1a799225f33be"
+      },
+      {
+        "config": "ExactHeadSelectionWrongKeyNegative.cfg",
+        "distinct": 3536,
+        "expected_violation": "CachedKeyMatches",
+        "log_sha256": "b01f6c8c19a192704d0c4ac8b9fb149c9021267db0f288875bc98f09fcaea847"
+      },
+      {
+        "config": "ExactHeadSelectionCrossContextNegative.cfg",
+        "distinct": 3174,
+        "expected_violation": "SelectedContextMatches",
+        "log_sha256": "3178c2ea28e0898ecb75a6ee4847ebea37daffefec9c5f92a17f82a82db25d95"
+      },
+      {
+        "config": "ExactHeadSelectionTuneInCaptureNegative.cfg",
+        "distinct": 141,
+        "expected_violation": "CaptureSafe",
+        "log_sha256": "c377eb852a313d514313c07e5b064e69824df506a9e21bed8bed3ff6a89230f4"
+      },
+      {
+        "config": "ExactHeadSelectionIgnoredParityNegative.cfg",
+        "distinct": 191,
+        "expected_violation": "GroupedRequiresEvidence",
+        "log_sha256": "90829a499da8dfdecdb6625951529591172946899fd75d8cf936e99cef3b7878"
+      },
+      {
+        "config": "ExactHeadSelectionMutablePlanNegative.cfg",
+        "distinct": 6874,
+        "expected_violation": "ImmutablePlan",
+        "log_sha256": "3acc3df1da36116d0623ec73f43dd87714898cf0905a4a3c02e9ff8ba046797e"
+      },
+      {
+        "config": "ExactHeadSelectionSkipSelectedNegative.cfg",
+        "distinct": 325,
+        "expected_violation": "SelectedOutputExecuted",
+        "log_sha256": "28a69e31ee06b1a984252307c4647290049b6344bce848627de248c9f3566d5d"
+      },
+      {
+        "config": "ExactHeadSelectionGroupedCaptureWitness.cfg",
+        "distinct": 8577,
+        "expected_violation": "NoGroupedCaptureHit",
+        "log_sha256": "cd860c241e8b30147ff7c17d174038f157e91b2b483d935dda1cfd5f94ff4b67"
+      },
+      {
+        "config": "ExactHeadSelectionMismatchRestoreWitness.cfg",
+        "distinct": 322,
+        "expected_violation": "NoMismatchRestoration",
+        "log_sha256": "94b8ab40125eadc5679dac8ee8a3ddb1486141e3efadaba54e64b2745a0a0bb5"
+      },
+      {
+        "config": "ExactHeadSelectionFreshContextWitness.cfg",
+        "distinct": 436,
+        "expected_violation": "NoFreshContextRetune",
+        "log_sha256": "d4e0f61b2eb7841025039aa79807faeaedba72250e548e91d2e99513485a96c1"
+      }
+    ]
+  },
+  "current_native_correspondence": {
+    "status": "SCENARIO_CORRESPONDENCE_PASS",
+    "build_id": "light-whisper-asr-12",
+    "build_helper": "scripts/build_r2t2_runtime.py",
+    "build_helper_sha256": "293c0df19ebe8d1fdf8202967b5d0e8bda96fd87a3ee0651f56ff0ebb3d10231",
+    "source_binding_sha256": "73a223911b74c4958c9aeb77878544cf391acdacbcf21f3121a3a048122b227a",
+    "checker_sha256": "3ff300e015ecad66e4adc74a9b4c59b3175b4386f7eb3fb63c2fd05b251a4c89",
+    "report_sha256": "f7493faf2784d40d1509810c9be9d882167d3677b3d998240e431747f15c2041",
+    "corruption_controls_sha256": "e055a04c70c9b39768154ee078cb32ff02dc3f3d0317c899b3d61a6e77a4f4ca",
+    "corruption_controls_rejected": 4,
+    "native_summary_sha256": "5110a281657ab2f99ef88287ba7789dd6679aae9130c592d5c1b943621e1211e",
+    "native_observations_sha256": "3546b66534441bdb9e6250cf2f014bc597684eb7d157d2e696c061e838431466",
+    "graph_summary_sha256": "bb30542c60d71c16e4ca479f8ed636efe9133a71ac2d2d29409e86a64a3c0a3b",
+    "source_anchors_rehashed": 33,
+    "native_input_fingerprints_rehashed": 119,
+    "graph_input_fingerprints_rehashed": 847,
+    "promoted_dispatcher_code_files_byte_identical": 4,
+    "tlc_trace_provenance": "Original one-worker hashed state traces; unchanged model/config bytes. Fresh two-worker traces are not substituted for those projections.",
+    "native_mappings": 10,
+    "errors": 0,
+    "stock_cases": 3,
+    "observations": 59,
+    "work_failures": 0,
+    "numeric_failures": 0,
+    "unmarked_control_words_equal": 528,
+    "fatal_error_exit": 3221226505,
+    "native_executable_sha256": "f116788b474f2e1abe0533193aeee8e0722855a8dafd438e95866683e75a7df1",
+    "graph": {
+      "cpu": {
+        "numerical": "NUMERICAL_GREEN backend=cpu cases=1 work_red=0 assertions=258 synthetic_only=1 timing_claim=0",
+        "trace_sha256": "6c9ca4a58730c4edbd9ea9179d137deb8758cc22e1ba600a13c82e769126410a",
+        "trace_bytes": 263856,
+        "executable_sha256": "c91e5ba7cfc086e59565c1c98ffee659bf96b12d10e692a9e41f8f6e7e2095fd",
+        "baseline_trace_equal": true
+      },
+      "cuda": {
+        "numerical": "NUMERICAL_GREEN backend=cuda cases=10 work_red=0 assertions=2524 synthetic_only=1 timing_claim=0",
+        "trace_sha256": "167df52c6b0fd7f61079cab64f58a0cc09030a73db89f125b7c8df03b9349c78",
+        "trace_bytes": 2638560,
+        "executable_sha256": "c91e5ba7cfc086e59565c1c98ffee659bf96b12d10e692a9e41f8f6e7e2095fd",
+        "baseline_trace_equal": true
+      }
+    }
+  }
+}

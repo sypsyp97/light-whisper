@@ -1,3 +1,17 @@
+diff --git a/external/ggml/include/ggml.h b/external/ggml/include/ggml.h
+index 498446c..de14237 100644
+--- a/external/ggml/include/ggml.h
++++ b/external/ggml/include/ggml.h
+@@ -455,8 +455,9 @@ extern "C" {
+     enum ggml_mul_mat_lowering {
+         GGML_MUL_MAT_LOWERING_DEFAULT                    = 0,
+         GGML_MUL_MAT_LOWERING_CUDA_NVFP4_F16_ACTIVATION  = 2,
+         GGML_MUL_MAT_LOWERING_CUDA_TILE_F16_ACCUM_OUTPUT = 3,
++        GGML_MUL_MAT_LOWERING_CUDA_EXACT_F16_HEAD       = 4,
+     };
+ 
+     // model file types
+     enum ggml_ftype {
 diff --git a/external/ggml/src/ggml-cpu/ops.cpp b/external/ggml/src/ggml-cpu/ops.cpp
 index fcdcd8d..0d8319a 100644
 --- a/external/ggml/src/ggml-cpu/ops.cpp
@@ -75,11 +89,165 @@ index 6b89931..c2ab511 100644
 -    argmax_f32<<<blocks_num, blocks_dim, 0, stream>>>(src0_d, dst_d, ne00);
 +    argmax_f32<<<blocks_num, blocks_dim, 0, stream>>>(src0_d, dst_d, ne00, dst->op_params[0] == 1);
  }
+diff --git a/external/ggml/src/ggml-cuda/common.cuh b/external/ggml/src/ggml-cuda/common.cuh
+index 6b3bb6e..8dc25e8 100644
+--- a/external/ggml/src/ggml-cuda/common.cuh
++++ b/external/ggml/src/ggml-cuda/common.cuh
+@@ -1524,8 +1524,19 @@ struct ggml_backend_cuda_context {
+ 
+     ggml_cuda_pool & pool() {
+         return pool(device);
+     }
++
++    void mul_mat_exact_head(const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst);
++
++private:
++    // One immutable decision per context lifetime; k == 0 means uncalibrated.
++    // Keep this last so existing context members retain their offsets.
++    struct {
++        int64_t k;
++        int64_t vocab;
++        bool grouped;
++    } exact_head_plan = {};
+ };
+ 
+ struct ggml_cuda_mm_fusion_args_host {
+     const ggml_tensor * x_bias = nullptr;
 diff --git a/external/ggml/src/ggml-cuda/ggml-cuda.cu b/external/ggml/src/ggml-cuda/ggml-cuda.cu
-index d948e4e..714e676 100644
+index d948e4e..e263acb 100644
 --- a/external/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/external/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -5172,8 +5172,19 @@ void * ggml_backend_cuda_get_stream(ggml_backend_t backend) {
+@@ -77,8 +77,9 @@
+ #include <condition_variable>
+ #include <cstddef>
+ #include <cstdint>
+ #include <cfloat>
++#include <cmath>
+ #include <initializer_list>
+ #include <limits>
+ #include <map>
+ #include <memory>
+@@ -2739,9 +2740,119 @@ static bool ggml_cuda_should_fuse_mul_mat_vec_q(const ggml_tensor * tensor) {
+ 
+     return use_mul_mat_vec_q;
+ }
+ 
++static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst);
++
++static void ggml_cuda_mul_mat_serial(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
++    // Stack views preserve precision and real strides. Slice batches as well so
++    // ordinary dispatch never receives a noncontiguous batched destination.
++    for (int64_t i3 = 0; i3 < src1->ne[3]; ++i3) {
++        for (int64_t i2 = 0; i2 < src1->ne[2]; ++i2) {
++            ggml_tensor weight = *src0;
++            weight.data = (char *) src0->data + (i3 / (src1->ne[3] / src0->ne[3])) * src0->nb[3] +
++                (i2 / (src1->ne[2] / src0->ne[2])) * src0->nb[2];
++            weight.ne[2] = weight.ne[3] = 1;
++            for (int64_t column = 0; column < src1->ne[1]; ++column) {
++                ggml_tensor input = *src1;
++                ggml_tensor output = *dst;
++                input.data = (char *) src1->data + column * src1->nb[1] + i2 * src1->nb[2] + i3 * src1->nb[3];
++                output.data = (char *) dst->data + column * dst->nb[1] + i2 * dst->nb[2] + i3 * dst->nb[3];
++                input.ne[1] = input.ne[2] = input.ne[3] = 1;
++                output.ne[1] = output.ne[2] = output.ne[3] = 1;
++                output.src[0] = &weight;
++                output.src[1] = &input;
++                ggml_mul_mat_set_lowering(&output, GGML_MUL_MAT_LOWERING_DEFAULT);
++                ggml_cuda_mul_mat(ctx, &weight, &input, &output);
++            }
++        }
++    }
++}
++
++void ggml_backend_cuda_context::mul_mat_exact_head(const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
++    const int cc = ggml_cuda_info().devices[device].cc;
++    const bool eligible = GGML_CUDA_CC_IS_NVIDIA(cc) &&
++        src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32 &&
++        ggml_get_op_params_i32(dst, 0) == GGML_PREC_DEFAULT && src1->ne[1] == 4 &&
++        ggml_is_matrix(src0) && ggml_is_matrix(src1) && ggml_is_matrix(dst) &&
++        ggml_is_contiguous(src0) && ggml_is_contiguous(src1) && ggml_is_contiguous(dst) &&
++        !ggml_backend_buft_is_cuda_split(src0->buffer->buft) &&
++        !ggml_backend_buft_is_cuda_split(src1->buffer->buft) &&
++        !ggml_backend_buft_is_cuda_split(dst->buffer->buft) &&
++        ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne, src0->nb, 1);
++    if (!eligible || (exact_head_plan.k != 0 &&
++        (exact_head_plan.k != src0->ne[0] || exact_head_plan.vocab != src0->ne[1]))) {
++        ggml_cuda_mul_mat_serial(*this, src0, src1, dst);
++        return;
++    }
++
++    if (exact_head_plan.k == 0) {
++        const cudaStream_t current_stream = stream();
++        cudaStreamCaptureStatus capture;
++        CUDA_CHECK(cudaStreamIsCapturing(current_stream, &capture));
++        if (capture != cudaStreamCaptureStatusNone) {
++            ggml_cuda_mul_mat_serial(*this, src0, src1, dst);
++            return;
++        }
++
++        // Compare the entire output on this first input before timing. This is
++        // a device/shape sanity check, not a proof for all subsequent inputs.
++        const size_t elements = ggml_nelements(dst);
++        const size_t bytes = elements * sizeof(float);
++        std::vector<uint32_t> serial_bits(elements), grouped_bits(elements);
++        ggml_cuda_mul_mat_serial(*this, src0, src1, dst);
++        CUDA_CHECK(cudaMemcpyAsync(serial_bits.data(), dst->data, bytes, cudaMemcpyDeviceToHost, current_stream));
++        ggml_cuda_mul_mat_vec_f(*this, src0, src1, nullptr, dst);
++        CUDA_CHECK(cudaMemcpyAsync(grouped_bits.data(), dst->data, bytes, cudaMemcpyDeviceToHost, current_stream));
++        CUDA_CHECK(cudaStreamSynchronize(current_stream));
++        bool parity = true;
++        for (size_t i = 0; i < elements; ++i) {
++            parity &= serial_bits[i] == grouped_bits[i];
++        }
++
++        bool grouped = false;
++        if (parity) {
++            cudaEvent_t begin, end;
++            CUDA_CHECK(cudaEventCreate(&begin));
++            CUDA_CHECK(cudaEventCreate(&end));
++            double serial_ms = 0.0, grouped_ms = 0.0;
++            bool valid = true;
++            // Two samples per path, AB then BA, after the parity warmup.
++            for (int sample = 0; sample < 4; ++sample) {
++                const bool measure_grouped = sample == 1 || sample == 2;
++                CUDA_CHECK(cudaEventRecord(begin, current_stream));
++                if (measure_grouped) {
++                    ggml_cuda_mul_mat_vec_f(*this, src0, src1, nullptr, dst);
++                } else {
++                    ggml_cuda_mul_mat_serial(*this, src0, src1, dst);
++                }
++                CUDA_CHECK(cudaEventRecord(end, current_stream));
++                CUDA_CHECK(cudaEventSynchronize(end));
++                float elapsed_ms;
++                CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, begin, end));
++                valid &= std::isfinite(elapsed_ms) && elapsed_ms > 0.0f;
++                (measure_grouped ? grouped_ms : serial_ms) += elapsed_ms;
++            }
++            CUDA_CHECK(cudaEventDestroy(begin));
++            CUDA_CHECK(cudaEventDestroy(end));
++            grouped = valid && 100.0 * grouped_ms <= 95.0 * serial_ms;
++        }
++        exact_head_plan = {src0->ne[0], src0->ne[1], grouped};
++    }
++
++    // Always write the selected output after calibration, including rejection.
++    if (exact_head_plan.grouped) {
++        ggml_cuda_mul_mat_vec_f(*this, src0, src1, nullptr, dst);
++    } else {
++        ggml_cuda_mul_mat_serial(*this, src0, src1, dst);
++    }
++}
++
+ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
++    if (ggml_get_op_params_i32(dst, 1) == GGML_MUL_MAT_LOWERING_CUDA_EXACT_F16_HEAD) {
++        ctx.mul_mat_exact_head(src0, src1, dst);
++        return;
++    }
+     const bool split = ggml_backend_buft_is_cuda_split(src0->buffer->buft);
+ 
+     // If src0 is a temporary compute buffer it may have some padding that needs to be cleared for mul_mat_vec_q or mul_mat_q.
+     // But if src0 is also a view of another tensor then this cannot be done safely because it may overwrite valid tensor data.
+@@ -5172,8 +5283,19 @@ void * ggml_backend_cuda_get_stream(ggml_backend_t backend) {
  bool ggml_backend_is_cuda(ggml_backend_t backend) {
      return backend != NULL && ggml_guid_matches(backend->guid, ggml_backend_cuda_guid());
  }
@@ -99,7 +267,7 @@ index d948e4e..714e676 100644
      if (!ggml_backend_is_cuda(backend)) {
          return;
      }
-@@ -6049,8 +6060,11 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
+@@ -6049,8 +6171,11 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
      }
      if (strcmp(name, "ggml_backend_cuda_get_stream") == 0) {
          return (void *)ggml_backend_cuda_get_stream;
@@ -988,7 +1156,7 @@ index 0397642..3ccc863 100644
  AudioTensor MelSpectrogram::compute(
      const std::vector<float> & waveform,
 diff --git a/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp b/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp
-index 37637bd..cdfd343 100644
+index 37637bd..6c0adf3 100644
 --- a/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp
 +++ b/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp
 @@ -10,8 +10,9 @@
@@ -1330,7 +1498,7 @@ index 37637bd..cdfd343 100644
              out.logits.resize(static_cast<size_t>(ggml_nelements(decode_logits_)));
              ggml_backend_tensor_get(decode_logits_, out.logits.data(), 0, out.logits.size() * sizeof(float));
          } else {
-@@ -1761,8 +1889,106 @@ private:
+@@ -1761,8 +1889,126 @@ private:
          batched_prefill_steps_ = 0;
          batched_prefill_input_kind_ = InputKind::None;
      }
@@ -1400,7 +1568,13 @@ index 37637bd..cdfd343 100644
 +            }
 +            for (const auto & row : rows) { ggml_build_forward_expand(verify_graph_, row.tensor); }
 +        }
++        const auto * head_weight = weights_.lm_head->weight.tensor;
++        const bool group_head = backend_type_ == core::BackendType::Cuda && verify_steps_ == 4 &&
++            !config_.decoder.use_lm_head_bias && !weights_.lm_head->bias.has_value() &&
++            !config_.decoder.lm_head_input_type && config_.decoder.lm_head_precision == GGML_PREC_DEFAULT &&
++            head_weight->type == GGML_TYPE_F16 && ggml_is_matrix(head_weight) && ggml_is_contiguous(head_weight);
 +        ggml_tensor * logits = nullptr;
++        ggml_tensor * head_input = nullptr;
 +        for (auto & row : rows) {
 +            auto hidden = RMSNormModule({config_.decoder.stack.hidden_size, config_.decoder.stack.rms_norm_eps, true, false})
 +                .build(ctx, row, weights_.final_norm);
@@ -1408,9 +1582,23 @@ index 37637bd..cdfd343 100644
 +                hidden = core::wrap_tensor(ggml_cast(ctx.ggml, hidden.tensor, *config_.decoder.lm_head_input_type),
 +                    hidden.shape, *config_.decoder.lm_head_input_type);
 +            }
-+            const auto projected = LinearModule({config_.decoder.stack.hidden_size, config_.decoder.logits_size,
-+                config_.decoder.use_lm_head_bias, config_.decoder.lm_head_precision}).build(ctx, hidden, *weights_.lm_head);
-+            logits = logits ? ggml_concat(ctx.ggml, logits, projected.tensor, 1) : projected.tensor;
++            if (group_head) {
++                head_input = head_input ? ggml_concat(ctx.ggml, head_input, hidden.tensor, 1) : hidden.tensor;
++            } else {
++                const auto projected = LinearModule({config_.decoder.stack.hidden_size, config_.decoder.logits_size,
++                    config_.decoder.use_lm_head_bias, config_.decoder.lm_head_precision}).build(ctx, hidden, *weights_.lm_head);
++                logits = logits ? ggml_concat(ctx.ggml, logits, projected.tensor, 1) : projected.tensor;
++            }
++        }
++        if (group_head) {
++            // Preserve each row's normalization; only the final head shares weight reads.
++            const auto hidden = core::wrap_tensor(head_input,
++                core::TensorShape::from_dims({1, verify_steps_, config_.decoder.stack.hidden_size}), GGML_TYPE_F32);
++            logits = LinearModule({config_.decoder.stack.hidden_size, config_.decoder.logits_size,
++                false, GGML_PREC_DEFAULT}).build(ctx, hidden, *weights_.lm_head).tensor;
++            auto * projection = logits;
++            while (projection->op == GGML_OP_RESHAPE) { projection = projection->src[0]; }
++            ggml_mul_mat_set_lowering(projection, GGML_MUL_MAT_LOWERING_CUDA_EXACT_F16_HEAD);
 +        }
 +        verify_tokens_ = ggml_argmax(ctx.ggml, logits);
 +        verify_tokens_->op_params[0] = 1;  // Generation uses the FIRST maximum.
@@ -1437,7 +1625,7 @@ index 37637bd..cdfd343 100644
          const auto build_start = Clock::now();
          block_ctx_.reset(ggml_init({config_.prefill_graph_arena_bytes, nullptr, true}));
          if (!block_ctx_) { throw std::runtime_error("Qwen chunked prefill context allocation failed"); }
-@@ -1784,8 +2010,9 @@ private:
+@@ -1784,8 +2030,9 @@ private:
              hidden = layer.build_with_static_cache_block(ctx, block_graph_, hidden, positions,
                  weights_.stack.layers[i], decode_cache_.key_tensor(i), decode_cache_.value_tensor(i),
                  positions, mask).output;
@@ -1447,7 +1635,7 @@ index 37637bd..cdfd343 100644
              core::TensorShape::from_dims({chunk, config_.decoder.stack.hidden_size}));
          hidden = core::wrap_tensor(ggml_get_rows(ctx.ggml, hidden.tensor, block_last_),
              core::TensorShape::from_dims({1, 1, config_.decoder.stack.hidden_size}), GGML_TYPE_F32);
-@@ -1803,33 +2030,56 @@ private:
+@@ -1803,33 +2050,56 @@ private:
              }
              block_logits_ = LinearModule({config_.decoder.stack.hidden_size, config_.decoder.logits_size,
                  config_.decoder.use_lm_head_bias, config_.decoder.lm_head_precision})
@@ -1506,7 +1694,7 @@ index 37637bd..cdfd343 100644
          if (prefill_populates_decode_cache_) {
              release_prefill_graph();
          }
-@@ -1847,8 +2097,9 @@ private:
+@@ -1847,8 +2117,9 @@ private:
          decode_cache_slot_ = nullptr;
          decode_attention_mask_ = nullptr;
          decode_logits_readback_token_ids_ = nullptr;
@@ -1516,7 +1704,7 @@ index 37637bd..cdfd343 100644
          decode_graph_ = nullptr;
          decode_cache_ = runtime::TransformerKVCache();
          decode_attention_mask_values_.clear();
-@@ -1933,19 +2184,31 @@ private:
+@@ -1933,19 +2204,31 @@ private:
      ggml_tensor * block_positions_ = nullptr;
      ggml_tensor * block_mask_ = nullptr;
      ggml_tensor * block_last_ = nullptr;
@@ -1548,7 +1736,7 @@ index 37637bd..cdfd343 100644
      ggml_cgraph * decode_graph_ = nullptr;
      ggml_backend_buffer_t decode_buffer_ = nullptr;
      std::vector<ggml_fp16_t> decode_attention_mask_values_;
-@@ -2031,8 +2294,12 @@ void QwenCausalDecodeRuntime::start_decode_embeddings(
+@@ -2031,8 +2314,12 @@ void QwenCausalDecodeRuntime::start_decode_embeddings(
  QwenCausalDecodeStepResult QwenCausalDecodeRuntime::decode_token(int32_t token) {
      return impl_->decode_token(token);
  }

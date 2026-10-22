@@ -3,6 +3,7 @@
 import importlib.metadata
 
 import contextlib
+import fnmatch
 import hashlib
 import io
 import json
@@ -18,6 +19,47 @@ from unittest import mock
 
 import build_r2t2_runtime as builder
 from test_build_engine_atomicity import load_build_engine_module
+
+
+class WindowsBuildEnvironmentTests(unittest.TestCase):
+    def test_vcvars_overrides_inherited_environment_case_insensitively(self):
+        inherited = {"PATH": r"C:\caller\bin", "INCLUDE": r"C:\old\include",
+                     "VCTOOLSREDISTDIR": r"C:\old\redist", "CALLER_ONLY": "retained=value",
+                     "EMPTY_VALUE": ""}
+        inherited_before = inherited.copy()
+        global_before = dict(os.environ)
+        tool_path = r"C:\Visual Studio\VC\bin;C:\caller\bin"
+        vcvars_values = {"Path": tool_path, "Include": r"C:\Visual Studio\VC\include",
+                         "VCToolsRedistDir": r"C:\Visual Studio\VC\redist"}
+        with tempfile.TemporaryDirectory() as directory:
+            installation = Path(directory)
+            vcvars = installation / "VC/Auxiliary/Build/vcvars64.bat"
+            vcvars.parent.mkdir(parents=True)
+            vcvars.write_text("@echo off\n", encoding="utf-8")
+            responses = [
+                SimpleNamespace(stdout=str(installation) + "\n"),
+                SimpleNamespace(stdout="\n".join(f"{key}={value}" for key, value in vcvars_values.items())),
+            ]
+            # Simulate Windows without changing the host's os module or environment.
+            with mock.patch.object(builder, "os", SimpleNamespace(name="nt", environ=inherited)), \
+                 mock.patch.object(builder.subprocess, "run", side_effect=responses):
+                environment, ninja = builder.build_environment()
+
+        self.assertEqual(ninja, installation / "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe")
+        self.assertEqual(inherited, inherited_before)
+        self.assertEqual(dict(os.environ), global_before)
+        self.assertEqual(environment["CALLER_ONLY"], "retained=value")
+        self.assertEqual(environment["EMPTY_VALUE"], "")
+        # The CUDA caller indexes PATH; the packager indexes VCToolsRedistDir.
+        self.assertEqual(environment["VCToolsRedistDir"], vcvars_values["VCToolsRedistDir"])
+        with self.subTest(contract="unique Windows environment keys"):
+            self.assertEqual(len(environment), len({key.upper() for key in environment}))
+        with self.subTest(contract="canonical PATH retains compiler tools and caller path"):
+            self.assertEqual(environment["PATH"], tool_path)
+        for key, expected in vcvars_values.items():
+            with self.subTest(contract="vcvars overrides inherited value", variable=key):
+                self.assertEqual({value for name, value in environment.items() if name.upper() == key.upper()},
+                                 {expected})
 
 
 class CpuCudaNativeBuildTests(unittest.TestCase):
@@ -54,8 +96,19 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
         self.build_environment = self.enterContext(mock.patch.object(
             builder, "build_environment", side_effect=lambda: (self.environment.copy(), self.root / "ninja.exe")
         ))
+        self.configure_stdout = self.cuda_configure_log(
+            "50-virtual;61-virtual;70-virtual;75-real;80-virtual;86-real;89-real;90-virtual;120a-real;121a-real"
+        )
+
+        def fake_run(command, **kwargs):
+            captures_stdout = kwargs.get("capture_output") or kwargs.get("stdout") == builder.subprocess.PIPE
+            stdout = self.configure_stdout if captures_stdout and "-S" in command else None
+            if stdout is not None and not any(kwargs.get(key) for key in ("text", "encoding", "universal_newlines")):
+                stdout = stdout.encode("utf-8")
+            return SimpleNamespace(returncode=0, stdout=stdout, stderr=None)
+
         self.subprocess = self.enterContext(mock.patch.object(
-            builder.subprocess, "run", return_value=SimpleNamespace(returncode=0)
+            builder.subprocess, "run", side_effect=fake_run
         ))
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
         self.enterContext(contextlib.redirect_stderr(io.StringIO()))
@@ -68,6 +121,136 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
             arguments += ["--cuda-root", str(self.cuda)]
         with mock.patch.object(sys, "argv", arguments):
             builder.main()
+
+    @staticmethod
+    def cuda_configure_log(architectures, native="89"):
+        # Pinned root and ggml CMake both emit this summary; the host is separate.
+        summary = (f"-- Using CMAKE_CUDA_ARCHITECTURES={architectures} "
+                   f"CMAKE_CUDA_ARCHITECTURES_NATIVE={native}\n")
+        return "-- Found CUDAToolkit\n" + summary + "-- Including CUDA backend\n" + summary
+
+    def test_cuda_default_clears_cached_architectures_and_defers_to_upstream(self):
+        (self.build / "CMakeCache.txt").write_text(
+            "CMAKE_CUDA_ARCHITECTURES:STRING=89\n", encoding="utf-8"
+        )
+        self.invoke("cuda")
+        command = self.subprocess.call_args_list[0].args[0]
+        self.assertFalse(any(arg.startswith("-DCMAKE_CUDA_ARCHITECTURES") for arg in command), command)
+        self.assertTrue(
+            "-UCMAKE_CUDA_ARCHITECTURES" in command
+            or any(command[index:index + 2] == ["-U", "CMAKE_CUDA_ARCHITECTURES"]
+                   for index in range(len(command) - 1)),
+            command,
+        )
+
+    def test_cuda_default_removes_ambient_architectures_case_insensitively(self):
+        # build_environment merges os.environ and vcvars output into a plain dict.
+        self.environment.update({"CUDAARCHS": "89", "cudaarchs": "native", "CuDaArChS": "80-real"})
+        environment_before = self.environment.copy()
+        with mock.patch.dict(os.environ, {"CUDAARCHS": "native"}):
+            global_before = dict(os.environ)
+            self.invoke("cuda")
+            self.assertEqual(dict(os.environ), global_before)
+        self.assertEqual(self.environment, environment_before)
+        for call in self.subprocess.call_args_list:
+            self.assertFalse(any(key.upper() == "CUDAARCHS" for key in call.kwargs["env"]), call)
+
+    def test_cuda_manifest_records_resolved_portable_lists_for_each_toolchain(self):
+        common = "75-real;80-virtual;86-real;89-real;90-virtual"
+        legacy = "50-virtual;61-virtual;70-virtual;" + common
+        # Synthetic summaries mirror the pinned source's toolkit-dependent lists.
+        for toolkit, resolved in (
+            ("12.0", legacy),
+            ("12.8", legacy + ";120a-real"),
+            ("12.9", legacy + ";120a-real;121a-real"),
+            ("13.0", common + ";120a-real;121a-real"),
+        ):
+            with self.subTest(toolkit=toolkit):
+                self.configure_stdout = self.cuda_configure_log(resolved)
+                self.invoke("cuda")
+                manifest = json.loads((self.output / "cuda/runtime-manifest.json").read_text(encoding="utf-8"))
+                self.assertEqual(manifest["cuda_architectures"], resolved)
+
+    def test_cuda_explicit_architectures_override_environment_and_record_normalization(self):
+        requested = "80-virtual;90a;100f-real;120;121-real"
+        resolved = "80-virtual;90a;100f-real;120a;121a-real"
+        self.environment["CUDAARCHS"] = "native"
+        self.configure_stdout = "-- Replacing 120 in CMAKE_CUDA_ARCHITECTURES with 120a\n" + self.cuda_configure_log(resolved)
+        self.invoke("cuda", ("--cuda-architectures", requested))
+        command = self.subprocess.call_args_list[0].args[0]
+        self.assertIn(f"-DCMAKE_CUDA_ARCHITECTURES={requested}", command)
+        assignment_index = command.index(f"-DCMAKE_CUDA_ARCHITECTURES={requested}")
+        for index, argument in enumerate(command):
+            if argument == "-U":
+                pattern = command[index + 1]
+            elif argument.startswith("-U"):
+                pattern = argument[2:]
+            else:
+                continue
+            if fnmatch.fnmatchcase("CMAKE_CUDA_ARCHITECTURES", pattern):
+                self.assertLess(index, assignment_index, "cache clearing erases the explicit architecture override")
+        manifest = json.loads((self.output / "cuda/runtime-manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["cuda_architectures"], resolved)
+
+    def test_cuda_manifest_accepts_concrete_architectures_without_a_host_gpu(self):
+        resolved = "75-real;80-virtual;86-real;89-real;90-virtual"
+        self.configure_stdout = self.cuda_configure_log(resolved, native="")
+        self.invoke("cuda")
+        manifest = json.loads((self.output / "cuda/runtime-manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["cuda_architectures"], resolved)
+
+    def test_cuda_explicit_plain_numeric_architectures_remain_supported(self):
+        requested = "75;80;86;89;90"
+        self.configure_stdout = self.cuda_configure_log(requested)
+        self.invoke("cuda", ("--cuda-architectures", requested))
+        command = self.subprocess.call_args_list[0].args[0]
+        self.assertIn(f"-DCMAKE_CUDA_ARCHITECTURES={requested}", command)
+        manifest = json.loads((self.output / "cuda/runtime-manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["cuda_architectures"], requested)
+
+    def test_cuda_invalid_or_conflicting_resolution_stops_before_compile_or_publish(self):
+        valid = self.cuda_configure_log("89-real;90-virtual")
+        invalid_logs = {
+            "missing": "-- Using CMAKE_CUDA_ARCHITECTURES_NATIVE=89\n",
+            "conflicting": valid + self.cuda_configure_log("80-real"),
+            "valid_then_empty": valid + self.cuda_configure_log(""),
+            "invalid_then_valid": self.cuda_configure_log("native") + valid,
+        }
+        for value in ("", "native", "all", "all-major", "OFF", "89;native", "89;all",
+                      "89-real;bogus", "89,90", "89 90", "89-real; 90-virtual",
+                      ";89", "89;", "89;;90", "89-REAL", "90aa-real"):
+            invalid_logs[f"invalid:{value}"] = self.cuda_configure_log(value)
+        directory = self.output / "cuda"
+        directory.mkdir(parents=True)
+        for selection in ((), ("--cuda-architectures", "89")):
+            for case, configure_stdout in invalid_logs.items():
+                with self.subTest(case=case, selection=selection):
+                    (directory / "runtime-manifest.json").write_bytes(b'{"backend":"cuda","build_id":"previous"}\n')
+                    (directory / "audiocpp.dll").write_bytes(b"previous native library")
+                    (directory / "retained.dat").write_bytes(b"previous package data")
+                    before = {path.name: path.read_bytes() for path in directory.iterdir()}
+                    self.configure_stdout = configure_stdout
+                    self.subprocess.reset_mock()
+                    environment_before = dict(os.environ)
+                    with self.assertRaises((RuntimeError, SystemExit)) as failure:
+                        self.invoke("cuda", selection)
+                    if isinstance(failure.exception, SystemExit):
+                        self.assertNotEqual(failure.exception.code, 0)
+                    self.assertEqual(self.subprocess.call_count, 1, "invalid resolution reached compilation")
+                    self.assertNotIn("--build", self.subprocess.call_args.args[0])
+                    self.assertEqual({path.name: path.read_bytes() for path in directory.iterdir()}, before)
+                    self.assertEqual(dict(os.environ), environment_before)
+
+    def test_cpu_ignores_cuda_resolution_and_preserves_ambient_architectures(self):
+        self.configure_stdout = "-- CPU configure complete\n"
+        self.environment["CUDAARCHS"] = "native"
+        self.invoke("cpu")
+        configure, compile_call = self.subprocess.call_args_list
+        self.assertEqual(configure.kwargs["env"]["CUDAARCHS"], "native")
+        self.assertEqual(compile_call.kwargs["env"]["CUDAARCHS"], "native")
+        self.assertFalse(any("CMAKE_CUDA_ARCHITECTURES" in arg for arg in configure.args[0]))
+        manifest = json.loads((self.output / "cpu/runtime-manifest.json").read_text(encoding="utf-8"))
+        self.assertIsNone(manifest["cuda_architectures"])
 
     def test_cpu_and_cuda_explicitly_disable_vulkan_and_keep_runtime_manifest_hashes(self):
         for backend in ("cpu", "cuda"):

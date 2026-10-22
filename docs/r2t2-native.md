@@ -38,7 +38,9 @@ in [R2T2-MODEL-LICENSE.txt](../src-tauri/resources/R2T2-MODEL-LICENSE.txt).
 
 Follow [Development](development.md) to build the two native packages and the installer. Native builds require Visual Studio 2022 C++ tools, CMake and Ninja; CUDA builds were validated with CUDA 12.9 and MSVC 14.44.
 
-The build pins audio.cpp revision `6c70f32d0d90a29a9863e556bd9712ce622f868b` and requires an exact match to `scripts/patches/audio-cpp-r2t2-windows-streaming.patch`. Build `light-whisper-asr-11` writes libraries, licenses and SHA-256 manifests to ignored `src-tauri/resources/r2t2-native/{cpu,cuda}/`. CUDA targets architectures 75, 80, 86, 89 and 90.
+The build pins audio.cpp revision `6c70f32d0d90a29a9863e556bd9712ce622f868b` and requires an exact match to `scripts/patches/audio-cpp-r2t2-windows-streaming.patch`. Build `light-whisper-asr-12` writes libraries, licenses and SHA-256 manifests to ignored `src-tauri/resources/r2t2-native/{cpu,cuda}/`.
+
+CUDA builds default to the pinned engine's portable architecture selection for the installed toolkit, independent of the build machine's GPU. CUDA 12 includes legacy PTX targets; newer targets are added when the toolkit supports them. CUDA 13 excludes Maxwell, Pascal and Volta. The builder clears stale architecture settings from its build cache and child environment, and records the concrete configured targets in `runtime-manifest.json`. An explicit `--cuda-architectures` overrides this default for experiments. A successful build establishes compiled coverage; performance and driver compatibility still need validation on the target hardware.
 
 The engine builder validates both manifests and shares byte-identical CUDA/CRT DLLs in `_internal` when a root copy exists. Otherwise, dependencies stay beside the native library. Shared files are listed in each copied manifest. Standalone native packages retain their dependencies. Only CPU/CUDA native directories enter the engine; copied legacy Vulkan DLLs are removed before compression, and reused archives containing Vulkan libraries or retired transcribe.cpp packages are rejected. Model weights are not bundled.
 
@@ -192,6 +194,18 @@ The combined final package was measured against the original asr10 DLL on the RT
 | Repeated Chinese, 36 s | 12,062.84 ms | 11,338.11 ms | 6.01% | 5.51% / 5.52% |
 
 Both orders favor asr11 in every case. Clock variation between rounds makes the within-round comparisons preferable for the size of the effect; pooled medians are also shown for reproducibility. First-caption audio positions remain 15,360 Chinese / 28,160 English samples. First-caption accumulated compute improves by 1.4–4.0% across the six case/order combinations, and every feed-p95 comparison improves. These results measure the combined changes on these fixtures; they neither isolate each component's GPU contribution nor establish broad CER/WER parity, microphone-to-screen latency or a theoretical speed limit. An earlier mixed-object prompt experiment was invalidated after a rollback timestamp audit; only the clean rebuilt final package supplies the figures above.
+
+## Device-measured output-head selection
+
+Build `light-whisper-asr-12` groups only the four eligible F16 output-head projections during temporal verification. The transformer rows and their normalization remain separate. NVIDIA CUDA Events compare the existing scalar and four-column kernels on the actual device and matrix shape, after a complete initial bit comparison. A valid measured gain of at least 5% selects grouping; other results select the scalar path. The immutable decision belongs to one backend context. Capture misses and unsupported layouts use scalar execution without calibration. No GPU model names select a path, and ordinary unmarked matrix operations retain their dispatcher.
+
+NVIDIA Nsight Systems confirmed the grouped kernel runs in real R2T2 inference. Two independent ABBA/BAAB experiments compared rebuilt asr11 and asr12 DLLs with the same CUDA 12.9, sm89 configuration on one RTX 4070 SUPER. Across 144 measured streams and 48 warmups, all 192 output traces and first-caption audio positions matched exactly. The English fixture's native start/feed/finish median improved by 4.81% and 4.40% in the two complete experiments. The last individual BAAB round improved by 2.96%; this is a repeatable full-experiment result, not a guarantee that every round exceeds 3%.
+
+The first experiment failed latency guards, including a 5.80% increase in pooled Chinese feed p95. One unchanged replication was fixed in advance; all original observations were retained. Both that replication and the combined data pass all 36 measured/warmup guard comparisons for feed p95, first-caption compute and finish medians, with no increase above 5%. The broad 10% acceleration target was not reached. These measurements exclude loading, recording duration, IPC, rendering and AI polish; they do not establish other GPUs' performance or broad recognition accuracy.
+
+The measured DLLs are isolated sm89 experiments, not portable release packages. Shipping requires rebuilding CPU and portable CUDA packages with matching asr12 manifests. Existing installed applications and asr11 resource bundles were not replaced by this experiment.
+
+The controller's bounded TLA+ checks, source correspondence and native regression scope are documented in [Exact head verification](exact-head-verification.md). Initial numerical calibration and model checking do not prove floating-point equality for every possible input or compiler.
 
 ## Reproduce checks
 

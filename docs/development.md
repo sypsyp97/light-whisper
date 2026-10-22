@@ -82,6 +82,8 @@ uv lock --check
 uv run --no-sync python -m compileall -q scripts src-tauri/resources
 uv run --no-sync python -m unittest discover -s src-tauri/resources -p "test_*.py"
 uv run --no-sync python scripts/test_build_engine_atomicity.py
+uv run --no-sync python scripts/test_cpu_cuda_backends.py
+uv run --no-sync python scripts/test_native_source_checkout.py
 uv run --no-sync python scripts/test_release_ci.py
 uv run --no-sync python scripts/test_ci_fail_fast.py
 uv run --no-sync python scripts/test_check_verus.py

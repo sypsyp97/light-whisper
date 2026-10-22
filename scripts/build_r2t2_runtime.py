@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -15,7 +16,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_URL = "https://github.com/0xShug0/audio.cpp.git"
 SOURCE_REVISION = "6c70f32d0d90a29a9863e556bd9712ce622f868b"
-BUILD_ID = "light-whisper-asr-11"
+BUILD_ID = "light-whisper-asr-12"
 PATCH = ROOT / "scripts/patches/audio-cpp-r2t2-windows-streaming.patch"
 
 
@@ -45,11 +46,14 @@ def build_environment():
         f'cmd.exe /d /s /c ""{vcvars}" >nul && set"', check=True,
         capture_output=True, text=True, errors="replace",
     ).stdout
-    env = os.environ.copy()
+    # Windows names are case-insensitive, unlike this plain Python dictionary.
+    env = {key.upper(): value for key, value in os.environ.items()}
     for line in output.splitlines():
         key, separator, value = line.partition("=")
         if separator and key:
-            env[key] = value
+            env[key.upper()] = value
+    if "VCTOOLSREDISTDIR" in env:
+        env["VCToolsRedistDir"] = env.pop("VCTOOLSREDISTDIR")
     ninja = Path(installation) / "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
     return env, ninja
 
@@ -57,19 +61,40 @@ def build_environment():
 def prepare_source(source):
     if not source.exists():
         source.parent.mkdir(parents=True, exist_ok=True)
-        run(["git", "clone", "--no-checkout", "--filter=blob:none", SOURCE_URL, source])
+        run(["git", "clone", "--no-checkout", "--filter=blob:none",
+             "--config", "core.autocrlf=false", SOURCE_URL, source])
         run(["git", "-C", source, "checkout", "--detach", SOURCE_REVISION])
     actual = run(["git", "-C", source, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     if actual != SOURCE_REVISION:
         raise RuntimeError(f"Expected audio.cpp {SOURCE_REVISION}, found {actual}; refusing to reset source")
-    reverse = subprocess.run(["git", "-C", str(source), "apply", "--reverse", "--check", str(PATCH)],
-                             capture_output=True)
-    if reverse.returncode:
-        run(["git", "-C", source, "apply", "--check", PATCH])
-        run(["git", "-C", source, "apply", PATCH])
-    modified = run(["git", "-C", source, "diff", "--binary", "--unified=4", "HEAD"],
-                   capture_output=True, text=True).stdout
-    if modified.strip() != PATCH.read_text(encoding="utf-8").strip():
+    diff_command = ["git", "-C", source, "diff", "--binary", "--unified=4", "HEAD"]
+    reviewed = PATCH.read_text(encoding="utf-8").strip()
+    modified = run(diff_command, capture_output=True, text=True).stdout.strip()
+    if modified == reviewed:
+        return
+    if modified:
+        raise RuntimeError("Native source contains changes other than the reviewed R2T2 patch")
+    # The reviewed patch is LF-only, while this pinned upstream has mixed CRLF
+    # files. Restore added-line endings without rewriting untouched source lines.
+    sections = []
+    for section in re.split(rb"(?=^diff --git )", (reviewed + "\n").encode("utf-8"), flags=re.M):
+        if not section:
+            continue
+        name = re.search(rb"^--- a/(.+)$", section, re.M).group(1).decode("utf-8")
+        if b"\r\n" in (source / name).read_bytes():
+            section = b"".join(
+                line[:-1] + b"\r\n" if line.startswith(b"+") and not line.startswith(b"+++ ")
+                and line.endswith(b"\n") else line for line in section.splitlines(keepends=True)
+            )
+        sections.append(section)
+    with tempfile.TemporaryDirectory(prefix="r2t2-source-patch-") as temporary:
+        patch = Path(temporary) / "reviewed.patch"
+        patch.write_bytes(b"".join(sections))
+        apply = ["git", "-c", "core.autocrlf=false", "-C", source, "apply",
+                 "--ignore-space-change", "--whitespace=nowarn"]
+        run([*apply, "--check", patch])
+        run([*apply, patch])
+    if run(diff_command, capture_output=True, text=True).stdout.strip() != reviewed:
         raise RuntimeError("Native source contains changes other than the reviewed R2T2 patch")
 
 
@@ -140,6 +165,22 @@ def copy_runtime(source, build, output, backend, cuda_root, env, architectures):
     print(f"R2T2 {backend} runtime: {output}")
 
 
+def resolved_cuda_architectures(configure_output):
+    prefix = "-- Using CMAKE_CUDA_ARCHITECTURES="
+    resolved = set()
+    for line in configure_output.splitlines():
+        if not line.startswith(prefix):
+            continue
+        architectures, separator, _native = line[len(prefix):].partition(" CMAKE_CUDA_ARCHITECTURES_NATIVE=")
+        if not separator or not all(re.fullmatch(r"[0-9]+[af]?(?:-(?:real|virtual))?", architecture)
+                                    for architecture in architectures.split(";")):
+            raise RuntimeError(f"Invalid resolved CUDA architectures: {line}")
+        resolved.add(architectures)
+    if len(resolved) != 1:
+        raise RuntimeError("CMake must report one consistent, concrete CUDA architecture list")
+    return resolved.pop()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=("cpu", "cuda"), required=True)
@@ -147,7 +188,7 @@ def main():
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--cuda-root", type=Path)
-    parser.add_argument("--cuda-architectures", default="75;80;86;89;90")
+    parser.add_argument("--cuda-architectures")
     parser.add_argument("--parallel", type=int, default=6)
     args = parser.parse_args()
     # Keep the caller's spelling: resolving MSIX aliases changes compiler paths
@@ -160,6 +201,7 @@ def main():
         parser.error("CUDA build needs --cuda-root or CUDA_PATH (validated with CUDA 12.9)")
     prepare_source(source)
     env, ninja = build_environment()
+    architectures = None
     command = ["cmake", "-S", source, "-B", build, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
                f"-DCMAKE_MAKE_PROGRAM={ninja}", "-DAUDIOCPP_MODEL_SET=custom",
                "-DAUDIOCPP_MODELS=confucius4_r2t2,qwen3_asr", "-DAUDIOCPP_BUILD_C_API=ON",
@@ -168,16 +210,26 @@ def main():
                "-DENGINE_ENABLE_LLAMAFILE=OFF", f"-DAUDIOCPP_VERSION={BUILD_ID}"]
     if args.backend == "cuda":
         cuda_root = cuda_root.absolute()
+        env = {key: value for key, value in env.items() if key.upper() != "CUDAARCHS"}
         env["CUDA_PATH"] = str(cuda_root)
         env["PATH"] = str(cuda_root / "bin") + os.pathsep + env["PATH"]
         command += ["-DENGINE_ENABLE_CUDA=ON", f"-DCUDAToolkit_ROOT={cuda_root}",
                     f"-DCMAKE_CUDA_COMPILER={cuda_root / 'bin/nvcc.exe'}",
-                    f"-DCMAKE_CUDA_ARCHITECTURES={args.cuda_architectures}"]
+                    "-U", "CMAKE_CUDA_ARCHITECTURES"]
+        if args.cuda_architectures is not None:
+            command += [f"-DCMAKE_CUDA_ARCHITECTURES={args.cuda_architectures}"]
+        try:
+            configured = run(command, env=env, stdout=subprocess.PIPE, text=True, errors="replace")
+        except subprocess.CalledProcessError as error:
+            print(error.stdout or "", end="", flush=True)
+            raise
+        print(configured.stdout, end="", flush=True)
+        architectures = resolved_cuda_architectures(configured.stdout)
     else:
         command += ["-DENGINE_ENABLE_CUDA=OFF"]
-    run(command, env=env)
+        run(command, env=env)
     run(["cmake", "--build", build, "--target", "audiocpp", "--parallel", str(args.parallel)], env=env)
-    copy_runtime(source, build, output, args.backend, cuda_root, env, args.cuda_architectures)
+    copy_runtime(source, build, output, args.backend, cuda_root, env, architectures)
 
 
 if __name__ == "__main__":

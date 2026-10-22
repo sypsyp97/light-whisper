@@ -650,6 +650,9 @@
       "recording",
       "preferences",
       "transport"
+    ],
+    "native.cuda-exact-head-selection": [
+      "exact-head-selection"
     ]
   },
   "contracts": {
@@ -1578,6 +1581,53 @@
         "formal/lean/StateContracts.lean#gpuMayUnload"
       ],
       "assumptions": "Monotonic time and weakly fair timer/command completion; finite clocks in TLC and unbounded Nat policy in Lean. Native load/free success is an input, not a driver proof. AppWorkflow GpuIdle represents Qwen 0.6B and R2T2 recording as an active stream. Input focus/click ordering is checked by real user-event regression tests; linguistic accuracy is outside proof."
+    },
+    "exact-head-selection": {
+      "obligation": "A marked four-column F16/F32 head uses one immutable per-context K/vocabulary decision. Grouped requires complete initial parity and finite positive event samples with at least 5% improvement; capture misses, ineligible requests and different keys use scalar execution without tuning. Calibration always ends by executing the selected output; fresh contexts may calibrate again; CUDA API errors remain terminal.",
+      "models": {
+        "ExactHeadSelection": [
+          "TypeOK",
+          "SlotOwnership",
+          "OneCalibrationPerLifetime",
+          "ImmutablePlan",
+          "GroupedRequiresEvidence",
+          "CaptureSafe",
+          "CachedKeyMatches",
+          "SelectedContextMatches",
+          "CachedChoicePreserved",
+          "FallbackUsesSerial",
+          "GroupedOnlyEligible",
+          "SelectedOutputExecuted",
+          "DestroyedContextClearsSlot",
+          "Begin",
+          "Dispatch",
+          "Calibrate",
+          "ExecuteSelected",
+          "Return",
+          "Finish",
+          "ApiError",
+          "Destroy",
+          "Recreate"
+        ]
+      },
+      "implementation": [
+        "scripts/patches/audio-cpp-r2t2-windows-streaming.patch#void ggml_backend_cuda_context::mul_mat_exact_head",
+        "scripts/patches/audio-cpp-r2t2-windows-streaming.patch#exact_head_plan = {}",
+        "scripts/patches/audio-cpp-r2t2-windows-streaming.patch#GGML_MUL_MAT_LOWERING_CUDA_EXACT_F16_HEAD",
+        "scripts/patches/audio-cpp-r2t2-windows-streaming.patch#const bool group_head",
+        "src-tauri/resources/server_common.py#line = sys.stdin.readline()",
+        "src-tauri/resources/server_common.py#self._gpu_idle_lock.acquire(blocking=False)",
+        "src-tauri/resources/r2t2_native.py#status = self.functions[name](*args)"
+      ],
+      "evidence": [
+        "scripts/native_tests/r2t2_head_autotune/autotune_test.cu#void calibrate_fixture",
+        "scripts/native_tests/r2t2_head_autotune/run.py",
+        "scripts/test_r2t2_grouped_head.py",
+        "scripts/native_tests/r2t2_grouped_head_test.cpp",
+        "formal/evidence/exact-head-selection.json",
+        "docs/exact-head-verification.md"
+      ],
+      "assumptions": "Two contexts and two abstract K/vocabulary keys; four-column requests only, two calls per context for policy and three across at most two lifetimes for restart. One eligible application head per backend context; serialized synchronous application commands and idle-lock exclusion. Actual stock-kernel/device/layout guards narrow eligibility. Other column counts retain their actual scalar shape outside this model. Calibration effects/ticks are conservative abstract observations; native parity rejection skips timing. First-input parity is not all-input arithmetic proof. No compiler/driver refinement, unrestricted concurrent C ABI calls, universal GPU validation or performance proof."
     }
   },
   "runs": {
@@ -1736,6 +1786,11 @@
     "EngineStatusOwnership": [
       "EngineStatusOwnership.cfg",
       "EngineStatusOwnershipProgress.cfg"
+    ],
+    "ExactHeadSelection": [
+      "ExactHeadSelection.cfg",
+      "ExactHeadSelectionTwoDevices.cfg",
+      "ExactHeadSelectionLifecycle.cfg"
     ]
   },
   "actions": {
@@ -1883,6 +1938,17 @@
       "Complete",
       "StartProgress",
       "CompleteStart"
+    ],
+    "ExactHeadSelection": [
+      "Begin",
+      "Dispatch",
+      "Calibrate",
+      "ExecuteSelected",
+      "Return",
+      "Finish",
+      "ApiError",
+      "Destroy",
+      "Recreate"
     ]
   },
   "negative": [
@@ -2535,6 +2601,63 @@
       "model": "HistoryFilterOwnership",
       "config": "HistoryFilterOwnershipFailedPaginationNegative.cfg",
       "invariant": "PendingResetBlocksPagination"
+    },
+    {
+      "name": "exact-head-wrong-key-negative",
+      "model": "ExactHeadSelection",
+      "config": "ExactHeadSelectionWrongKeyNegative.cfg",
+      "invariant": "CachedKeyMatches"
+    },
+    {
+      "name": "exact-head-cross-context-negative",
+      "model": "ExactHeadSelection",
+      "config": "ExactHeadSelectionCrossContextNegative.cfg",
+      "invariant": "SelectedContextMatches"
+    },
+    {
+      "name": "exact-head-tune-in-capture-negative",
+      "model": "ExactHeadSelection",
+      "config": "ExactHeadSelectionTuneInCaptureNegative.cfg",
+      "invariant": "CaptureSafe"
+    },
+    {
+      "name": "exact-head-ignored-parity-negative",
+      "model": "ExactHeadSelection",
+      "config": "ExactHeadSelectionIgnoredParityNegative.cfg",
+      "invariant": "GroupedRequiresEvidence"
+    },
+    {
+      "name": "exact-head-mutable-plan-negative",
+      "model": "ExactHeadSelection",
+      "config": "ExactHeadSelectionMutablePlanNegative.cfg",
+      "invariant": "ImmutablePlan"
+    },
+    {
+      "name": "exact-head-skip-selected-negative",
+      "model": "ExactHeadSelection",
+      "config": "ExactHeadSelectionSkipSelectedNegative.cfg",
+      "invariant": "SelectedOutputExecuted"
+    },
+    {
+      "name": "exact-head-grouped-capture-witness",
+      "model": "ExactHeadSelection",
+      "config": "ExactHeadSelectionGroupedCaptureWitness.cfg",
+      "invariant": "NoGroupedCaptureHit",
+      "purpose": "Positive request-order reachability witness for native scenario correspondence; not a safety negative or proof."
+    },
+    {
+      "name": "exact-head-mismatch-restore-witness",
+      "model": "ExactHeadSelection",
+      "config": "ExactHeadSelectionMismatchRestoreWitness.cfg",
+      "invariant": "NoMismatchRestoration",
+      "purpose": "Positive request-order reachability witness for native scenario correspondence; not a safety negative or proof."
+    },
+    {
+      "name": "exact-head-fresh-context-witness",
+      "model": "ExactHeadSelection",
+      "config": "ExactHeadSelectionFreshContextWitness.cfg",
+      "invariant": "NoFreshContextRetune",
+      "purpose": "Positive request-order reachability witness for native scenario correspondence; not a safety negative or proof."
     }
   ],
   "command_implementation": {
