@@ -69,14 +69,6 @@ Version 1.7.7 moves Qwen 0.6B to the shared audio.cpp runtime and requires a new
 
 </details>
 
-## What's new in 1.7
-
-- **Lifecycle fixes** for recording, hotkey replacement, microphone monitoring, OAuth sessions and model downloads, including stale callbacks and cancellation.
-- **Subtitle finality**: late preview events cannot overwrite a completed subtitle result.
-- **A required formal CI gate** combining bounded TLA+ state models, Lean contracts and implementation regression tests for each release candidate.
-
-These checks cover application state and protocol contracts under [documented assumptions](formal/COVERAGE.md). They do not prove every compiled instruction, external dependency or recognition result. Read the [verification guide](formal/README.md) for reproducible commands and evidence.
-
 ## Your data
 
 | Setting | Where data goes |
