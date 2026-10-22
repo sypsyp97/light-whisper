@@ -136,7 +136,8 @@ class VerusRunnerAcceptance(unittest.TestCase):
 
     def run_gate(self, mode="normal", verus=None, domain="*"):
         self.invocation += 1
-        self.logs = self.root / f"logs-{self.invocation}"
+        # Exercise path aliases on every platform, even without Windows 8.3 names.
+        self.logs = self.root / ".." / self.root.name / f"logs-{self.invocation}"
         self.calls = self.root / f"calls-{self.invocation}.jsonl"
         environment = os.environ.copy()
         environment.update(FAKE_VERUS_CALLS=str(self.calls), FAKE_VERUS_MODE=mode,
@@ -218,7 +219,8 @@ class VerusRunnerAcceptance(unittest.TestCase):
                     self.assertEqual(len(checked), 1)
                     self.assertEqual(checked[0]["source"], proof["source"])
                     self.assertLess(calls.index(checked[0]), calls.index(proof))
-                    self.assertEqual(Path(proof["path"]), self.logs / domain / proof["name"])
+                    self.assertEqual(Path(proof["path"]).resolve(),
+                                     (self.logs / domain / proof["name"]).resolve())
                     self.assertEqual(Path(proof["path"]).read_bytes().decode("utf-8"), proof["source"])
                 checked_names = {call["name"] for call in calls if call["domain"] == domain
                                  and "--no-verify" in call["args"]}
@@ -259,7 +261,8 @@ class VerusRunnerAcceptance(unittest.TestCase):
             self.assertIn("exit_code", record)
             for stream in ("stdout", "stderr"):
                 self.assertTrue(Path(record[stream]).is_file())
-                self.assertEqual(Path(record[stream]).parent, self.logs / call["domain"])
+                self.assertEqual(Path(record[stream]).resolve().parent,
+                                 (self.logs / call["domain"]).resolve())
             if call["name"] == "positive.rs" and "--no-verify" not in call["args"]:
                 self.assertEqual(record.get("verified"), PROOF_COUNTS[call["domain"]])
 
