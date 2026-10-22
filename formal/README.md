@@ -11,7 +11,7 @@ selection/assistant, history, windows/subtitles, updates, theme/autostart and
 bundled protocols.
 
 [`verification.json`](verification.json) binds **128 registered commands**,
-**19 event families**, **16 lifecycle entries** and **11 protocol families** to
+**19 event families**, **16 lifecycle entries** and **14 protocol families** to
 obligations, model operators, source/test paths and explicit assumptions. CI
 rejects inventory drift, missing anchors, unasserted properties, unreachable
 explicitly declared actions, failed models/proofs and negative controls that no longer find the
@@ -25,6 +25,7 @@ automatic proof of a Rust/TypeScript function.
 | Integrated AppWorkflow, ten workloads | Cross-subsystem safety: recording/output, consent/context/clipboard, download/configuration, assistant/selection, history/subtitles, updates and GPU suspension/reload. All declared actions must be reached across workloads. |
 | Component TLA+ models | Deeper interleavings and validation/error partitions, with explicit finite bounds and conditional fairness for progress. |
 | Lean StateContracts | Parameter-independent ownership/decision contracts, profile-version induction, first matching rule, consent, clipboard preservation, sample cap, correction provenance and theme. No sorry, admit or declared axiom. |
+| [Verus implementation proofs](verus/README.md) | Required CI verification of production capture arithmetic, hotkey ownership transitions and interim interval control, plus typechecked negative controls. Caller wiring, synchronization and mixing retain separate Rust tests and review. |
 | Implementation correspondence | Actual regression tests and source-path review, including a source guard requiring provider/endpoint/key snapshots before OAuth awaits. This is not compiler refinement. |
 | Negative controls | Legacy races and deliberate guard removals must fail with Java exit 12 and the named violated invariant. Required CI gates. |
 
@@ -34,12 +35,12 @@ automatic proof of a Rust/TypeScript function.
 | --- | --- |
 | Recording and capture | RecordingLifecycle, CapturePipeline, MicrophoneMonitor, MicrophoneAsyncOwnership, MicrophoneEffectOwners |
 | Hotkeys | HotkeyLifecycle (three event-kind runs plus registration workload), HotkeyPendingStart, HotkeyRegistrationEpoch, HotkeyRegistrationFailure |
-| Engines and migration | EngineDownload, RuntimeConfiguration, EngineConfigurationWrites, ModelDirectoryMigration, ModelIntegrityRepair |
+| Engines and migration | EngineDownload, RuntimeConfiguration, EngineConfigurationWrites, ModelDirectoryMigration, ModelIntegrityRepair, EngineStatusOwnership |
 | GPU residency and settings | GpuIdleLifecycle (startup and runtime enable), GpuIdleSettings |
 | Authentication and provider pairing | OAuthLifecycle, OAuthStorage, ProviderRequests |
-| Credential publication and account snapshots | WebSearchKeys, ProviderAuthSnapshot, AssistantCredentialOwnership |
+| Credential publication and account snapshots | WebSearchKeys, ProviderAuthSnapshot, AssistantCredentialOwnership, CatalogDiscoveryOwnership, OnlineAsrIdentity |
 | Settings and personalization | ProfilePersistence, SettingsContracts, Personalization, AppProfileRules, AsyncSettings |
-| Routing, tasks and history | ContextRouting, TaskOwnership, HistoryRecords, HistoryLeaseInterleavings, OutputDrainOwnership |
+| Routing, tasks and history | ContextRouting, TaskOwnership, HistoryRecords, HistoryLeaseInterleavings, OutputDrainOwnership, HistoryFilterOwnership, HistoryStatsOwnership |
 | Windows and UI state | WindowLifecycle, UiPreferences, ThemeSynchronization |
 | Download timers and event subscriptions | DownloadUiLifecycle, EventSubscriptionLifecycle |
 | Protocols and transport | RequestProtocols, LlmTransport, LlmRequestParameters, IpcCommandDeadline |
@@ -73,6 +74,15 @@ editing an event list independently of its TLC State blocks fails the gate.
 The [2026-10-19 quality review](evidence/code-quality-20261019.md) records the
 credential/theme/configuration/archive regressions, hotword optimization and
 resource-limited verification results.
+The [2026-10-21 RSI/TDD iteration](evidence/rsi-tdd-20261021.md) records independent
+catalog ownership, filter reset/recovery, accessibility, and measured grapheme-work
+reduction, together with companion models and implementation replay boundaries.
+The [second RSI/TDD round](evidence/rsi-round2-20261022.md) records statistics
+freshness, independent query/start ownership, real startup progress interleavings,
+the rejected first candidate, and the final formal/replay/mutation checks.
+The [third RSI/TDD round](evidence/rsi-round3-20261022.md) records online ASR
+credential identity readiness, selective read recovery, and source-backed
+interleavings of failed reads, pending siblings and engine changes.
 
 ## Reproduce
 

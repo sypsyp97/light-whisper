@@ -84,6 +84,8 @@ uv run --no-sync python -m unittest discover -s src-tauri/resources -p "test_*.p
 uv run --no-sync python scripts/test_build_engine_atomicity.py
 uv run --no-sync python scripts/test_release_ci.py
 uv run --no-sync python scripts/test_ci_fail_fast.py
+uv run --no-sync python scripts/test_check_verus.py
+uv run --no-sync python scripts/test_verus_ci.py
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked -- --skip services::qwen_hotword_service::tests::hotword_correction_p95_stays_below_one_millisecond
@@ -94,6 +96,12 @@ CI measures the skipped timing-sensitive hotword benchmark separately as advisor
 CI also runs the [TLA+ and Lean contracts](../formal/README.md), including verifier
 regressions and intentional counterexamples, and uploads the proof logs. The
 release gate requires this job to succeed for the exact candidate commit.
+The separate Windows `Verus implementation proofs` job checks the actual capture
+frame-count helper, hotkey ownership transitions and interim interval controller,
+including deliberately faulty variants of each. It verifies the
+download checksum and uses an isolated Rust 1.99.1 toolchain; the application
+continues to build with Rust 1.93.0. This job is also required by the release gate.
+For local execution and proof boundaries, see [Verus checks](../formal/verus/README.md).
 Multi-command PowerShell steps stop on any native command failure. Rust caches
 use OS, compiler, lockfile and source hashes; cache hits still run every check.
 

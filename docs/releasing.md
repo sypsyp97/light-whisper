@@ -19,7 +19,7 @@ From the repository root:
 bash scripts/release.sh 1.6.0 "Concise English release notes." --rebuild-engine
 ```
 
-The script updates all six version files, runs the local CI checks, builds the engine and installer, validates both archives, and prints the installer SHA-256. It then pushes a candidate commit and waits for that exact commit's `Frontend`, `Python`, `Rust` and `Application formal contracts` CI jobs. Every job must exist and succeed; skipped jobs block publication. Only after all succeed and `origin/main` still matches does it publish the annotated tag and GitHub Release.
+The script updates all six version files, runs the local CI checks, builds the engine and installer, validates both archives, and prints the installer SHA-256. It then pushes a candidate commit and waits for that exact commit's `Frontend`, `Python`, `Rust`, `Application formal contracts` and `Verus implementation proofs` CI jobs. Every job must exist and succeed; skipped jobs block publication. Only after all succeed and `origin/main` still matches does it publish the annotated tag and GitHub Release.
 
 Use `--reuse-engine` only when the packaged Python code, native libraries and dependencies are unchanged and the existing archive has been verified. Release builds reject missing or invalid engine archives. Development/debug builds can use a placeholder.
 

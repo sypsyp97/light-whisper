@@ -12,7 +12,8 @@ CANDIDATE = "a" * 40
 
 
 class ReleaseCiTests(unittest.TestCase):
-    def run_gate(self, formal: str, head: str = CANDIDATE) -> subprocess.CompletedProcess:
+    def run_gate(self, formal: str, head: str = CANDIDATE,
+                 *, verus: str = "success") -> subprocess.CompletedProcess:
         source = (ROOT / "scripts/release.sh").read_text(encoding="utf-8")
         function = re.search(r"^wait_for_ci\(\) \{\n.*?^\}", source, re.M | re.S)
         self.assertIsNotNone(function)
@@ -34,17 +35,20 @@ gh() {
         *'--json conclusion '*) printf 'success\n' ;;
         *'--json jobs '*'Application formal contracts'*)
             if [[ "$TEST_FORMAL_RESULT" != missing ]]; then printf '%s\n' "$TEST_FORMAL_RESULT"; fi ;;
+        *'--json jobs '*'Verus implementation proofs'*)
+            if [[ "$TEST_VERUS_RESULT" != missing ]]; then printf '%s\n' "$TEST_VERUS_RESULT"; fi ;;
         *'--json jobs '*) printf 'success\n' ;;
         *) printf 'Unexpected gh invocation: %s\n' "$*" >&2; return 99 ;;
     esac
 }
 '''
-        environment = dict(os.environ, TEST_FORMAL_RESULT=formal, TEST_RUN_HEAD=head)
+        environment = dict(os.environ, TEST_FORMAL_RESULT=formal, TEST_RUN_HEAD=head,
+                           TEST_VERUS_RESULT=verus)
         return subprocess.run([str(bash), "-c", harness + function[0] + '\nwait_for_ci "$1"',
                                "release-ci-test", CANDIDATE], env=environment,
                               text=True, encoding="utf-8", capture_output=True, timeout=15)
 
-    def test_all_four_jobs_pass(self):
+    def test_all_five_jobs_pass(self):
         result = self.run_gate("success")
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -67,6 +71,26 @@ gh() {
         result = self.run_gate("success", "b" * 40)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("headSha", result.stderr)
+
+    def test_missing_verus_job_blocks_release(self):
+        result = self.run_gate("success", verus="missing")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Verus implementation proofs", result.stderr)
+
+    def test_skipped_verus_job_blocks_release(self):
+        result = self.run_gate("success", verus="skipped")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Verus implementation proofs", result.stderr)
+
+    def test_failed_verus_job_blocks_release(self):
+        result = self.run_gate("success", verus="failure")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Verus implementation proofs", result.stderr)
+
+    def test_cancelled_verus_job_blocks_release(self):
+        result = self.run_gate("success", verus="cancelled")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Verus implementation proofs", result.stderr)
 
 
 if __name__ == "__main__":

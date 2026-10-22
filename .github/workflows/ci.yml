@@ -67,6 +67,52 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  verus:
+    name: Verus implementation proofs
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Verify production Rust contracts
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $ErrorActionPreference = 'Stop'
+          python scripts/test_check_verus.py
+          $tools = Join-Path $env:RUNNER_TEMP 'tools'
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          $archive = Join-Path $tools 'verus.zip'
+          if (-not (Test-Path -LiteralPath $archive)) {
+            Invoke-WebRequest -Uri 'https://github.com/verus-lang/verus/releases/download/release/0.2026.10.18.7d82994/verus-0.2026.10.18.7d82994-x86-win.zip' -OutFile $archive
+          }
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne '82b9558a3c4fa77673700507c066c711535d130c2789dcfcec30878168db20ec') {
+            throw 'Verus archive SHA256 mismatch'
+          }
+          $release = Join-Path $tools 'verus-release'
+          Expand-Archive -LiteralPath $archive -DestinationPath $release -Force
+          $env:RUSTUP_HOME = Join-Path $env:RUNNER_TEMP 'tools/rustup'
+          $env:CARGO_HOME = Join-Path $env:RUNNER_TEMP 'tools/cargo'
+          rustup toolchain install 1.99.1 --profile minimal --no-self-update
+          python scripts/check_verus.py --verus (Join-Path $release 'verus-x86-win/verus.exe') --logs (Join-Path $env:RUNNER_TEMP 'verus-results')
+
+      - name: Upload Verus evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verus-contract-results
+          path: ${{ runner.temp }}/verus-results/**
+          if-no-files-found: ignore
+          retention-days: 14
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
@@ -162,6 +208,7 @@ jobs:
           uv run --no-sync python scripts/test_engine_archive_layout.py
           uv run --no-sync python scripts/test_release_ci.py
           uv run --no-sync python scripts/test_ci_fail_fast.py
+          uv run --no-sync python scripts/test_verus_ci.py
 
       - name: Verify tracked files are unchanged
         run: git diff --exit-code

@@ -237,7 +237,96 @@ fn adjust_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{interim_event_segments, utf8_common_prefix_len};
+    use super::{
+        adjust_interval, interim_event_segments, utf8_common_prefix_len, INTERIM_HEAVY_COST_MS,
+        INTERIM_INTERVAL_BASE_MS, INTERIM_INTERVAL_DOWN_STEP_MS, INTERIM_INTERVAL_MAX_MS,
+        INTERIM_INTERVAL_MIN_MS, INTERIM_INTERVAL_UP_STEP_MS, INTERIM_LIGHT_COST_MS,
+    };
+
+    const ELAPSED_BOUNDARIES: [u64; 12] = [
+        0,
+        1,
+        179,
+        180,
+        181,
+        219,
+        220,
+        419,
+        420,
+        421,
+        u64::MAX - 1,
+        u64::MAX,
+    ];
+
+    // Frozen timing contract, evaluated independently with wider arithmetic.
+    fn reference_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
+        let current = u128::from(current);
+        let next = match (executed, elapsed_ms) {
+            (false, _) => (current - 8).clamp(140, 220),
+            (true, 420..) => (current + 42).min(460),
+            (true, 0..=180) => (current - 24).max(140),
+            (true, _) if current < 220 => (current + 4).min(220),
+            (true, _) => current - (current - 220).min(8),
+        };
+        u64::try_from(next).unwrap()
+    }
+
+    #[test]
+    fn interval_constants_match_the_frozen_timing_contract() {
+        assert_eq!(
+            (
+                INTERIM_INTERVAL_MIN_MS,
+                INTERIM_INTERVAL_BASE_MS,
+                INTERIM_INTERVAL_MAX_MS,
+                INTERIM_INTERVAL_DOWN_STEP_MS,
+                INTERIM_INTERVAL_UP_STEP_MS,
+                INTERIM_HEAVY_COST_MS,
+                INTERIM_LIGHT_COST_MS,
+            ),
+            (140, 220, 460, 24, 42, 420, 180)
+        );
+    }
+
+    #[test]
+    fn interval_matches_reference_for_all_valid_current_values_and_elapsed_boundaries() {
+        for current in 140..=460 {
+            for executed in [false, true] {
+                for elapsed_ms in ELAPSED_BOUNDARIES {
+                    assert_eq!(
+                        adjust_interval(current, executed, elapsed_ms),
+                        reference_interval(current, executed, elapsed_ms),
+                        "current={current}, executed={executed}, elapsed_ms={elapsed_ms}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn interval_stays_in_range_and_moves_in_the_contract_direction() {
+        for current in 140..=460 {
+            for executed in [false, true] {
+                for elapsed_ms in ELAPSED_BOUNDARIES {
+                    let next = adjust_interval(current, executed, elapsed_ms);
+                    assert!((140..=460).contains(&next));
+                    if !executed {
+                        assert!((140..=220).contains(&next));
+                        assert!(next <= current);
+                        assert!(next < current || current == 140);
+                    } else if elapsed_ms >= 420 {
+                        assert!(next >= current);
+                        assert!(next > current || current == 460);
+                    } else if elapsed_ms <= 180 {
+                        assert!(next <= current);
+                        assert!(next < current || current == 140);
+                    } else {
+                        assert!((current.min(220)..=current.max(220)).contains(&next));
+                        assert!(next.abs_diff(220) < current.abs_diff(220) || current == 220);
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn common_prefix_len_is_a_valid_utf8_boundary() {

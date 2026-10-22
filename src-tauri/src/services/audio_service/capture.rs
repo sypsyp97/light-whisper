@@ -5,6 +5,7 @@ use std::sync::{
 
 use tauri::Emitter;
 
+use super::capture_bounds::capped_frame_count;
 use super::resample::{f32_to_i16, u16_to_i16};
 use super::{AUDIO_CAPTURE_INIT_TIMEOUT_SECS, TARGET_SAMPLE_RATE};
 use crate::services::audio_service::{InputDeviceInfo, InputDeviceListPayload};
@@ -303,14 +304,7 @@ pub(crate) fn mix_to_mono_capped_i16(
     cap: usize,
 ) {
     let chans = channels.max(1);
-    let allowed_mono_samples = cap.saturating_sub(out.len());
-    if allowed_mono_samples == 0 {
-        return;
-    }
-    // mono input: 1 input sample == 1 output sample
-    // multi-channel: chans input samples == 1 output sample
-    let frame_count = data.len() / chans;
-    let take_frames = frame_count.min(allowed_mono_samples);
+    let take_frames = capped_frame_count(data.len(), channels, out.len(), cap);
     if take_frames == 0 {
         return;
     }
@@ -332,12 +326,7 @@ pub(crate) fn mix_to_mono_capped_f32(
     cap: usize,
 ) {
     let chans = channels.max(1);
-    let allowed_mono_samples = cap.saturating_sub(out.len());
-    if allowed_mono_samples == 0 {
-        return;
-    }
-    let frame_count = data.len() / chans;
-    let take_frames = frame_count.min(allowed_mono_samples);
+    let take_frames = capped_frame_count(data.len(), channels, out.len(), cap);
     if take_frames == 0 {
         return;
     }
@@ -360,12 +349,7 @@ pub(crate) fn mix_to_mono_capped_u16(
     cap: usize,
 ) {
     let chans = channels.max(1);
-    let allowed_mono_samples = cap.saturating_sub(out.len());
-    if allowed_mono_samples == 0 {
-        return;
-    }
-    let frame_count = data.len() / chans;
-    let take_frames = frame_count.min(allowed_mono_samples);
+    let take_frames = capped_frame_count(data.len(), channels, out.len(), cap);
     if take_frames == 0 {
         return;
     }

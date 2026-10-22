@@ -252,6 +252,10 @@ async fn cancelled_partial_stdin_write_invalidates_the_owned_server() {
 // Formal replay ownership: separate append-only test module.
 mod async_ownership_replay_tests {
     use super::*;
+    use std::future::{poll_fn, Future};
+    use std::pin::Pin;
+    use std::task::Poll;
+
     mod trace {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -284,6 +288,10 @@ mod async_ownership_replay_tests {
         for name in ["ipc-deadline", "ipc-write-deadline", "ipc-cancel"] {
             replay_ipc_schedule(name).await;
         }
+    }
+
+    async fn poll_once<F: Future>(mut operation: Pin<&mut F>) -> Poll<F::Output> {
+        poll_fn(|cx| Poll::Ready(operation.as_mut().poll(cx))).await
     }
 
     async fn replay_ipc_schedule(name: &str) {
@@ -325,11 +333,14 @@ mod async_ownership_replay_tests {
         state.set_funasr_ready(true);
         state.set_inline_audio_transport(Some(true));
         let command = pipe_filling_command();
+        // IpcCommandDeadline expires at tick 3. Serialization and real pipe I/O
+        // must not spend model ticks; only ipc:tick advances this clock.
+        tokio::time::pause();
         let mut operation = Some(Box::pin(super::super::send_command_to_server_with_timeout(
             &state,
             &command,
             Some(app.handle()),
-            Duration::from_secs(1),
+            Duration::from_secs(3),
         )));
         let started = tokio::time::Instant::now();
         let mut ticks = 0;
@@ -341,51 +352,66 @@ mod async_ownership_replay_tests {
         for event in &events {
             match event.as_str() {
                 "ipc:begin" => {
-                    assert!(tokio::time::timeout(
-                        Duration::from_millis(5),
-                        operation.as_mut().unwrap().as_mut()
-                    )
-                    .await
-                    .is_err());
+                    assert!(poll_once(operation.as_mut().unwrap().as_mut())
+                        .await
+                        .is_pending());
+                    assert!(state.engine.funasr_process.try_lock().is_err());
+                    assert!(!consumed.exists(), "the real pipe must still be blocked");
                 }
                 "ipc:write:complete" => {
                     std::fs::write(&gate, b"read").unwrap();
-                    tokio::time::timeout(Duration::from_secs(1), async {
-                        while !consumed.exists() {
-                            tokio::select! {
-                                result = operation.as_mut().unwrap().as_mut() => panic!("command settled before write consumed: {}", result.is_ok()),
-                                _ = tokio::time::sleep(Duration::from_millis(1)) => {}
-                            }
+                    let watchdog = std::time::Instant::now();
+                    loop {
+                        assert!(
+                            poll_once(operation.as_mut().unwrap().as_mut())
+                                .await
+                                .is_pending(),
+                            "command settled before its reply in {name}"
+                        );
+                        if consumed.exists() {
+                            break;
                         }
-                    }).await.expect("child must consume the actual JSON frame");
+                        assert!(
+                            watchdog.elapsed() < Duration::from_secs(10),
+                            "child must consume the actual JSON frame in {name}"
+                        );
+                        // Remain runnable so Tokio cannot automatically advance
+                        // paused time while the real subprocess/pipe progresses.
+                        std::thread::sleep(Duration::from_millis(1));
+                        tokio::task::yield_now().await;
+                    }
                 }
                 "ipc:flush:complete" => {
                     assert!(consumed.exists());
                 }
                 "ipc:tick" => {
                     ticks += 1;
+                    tokio::time::advance(Duration::from_secs(1)).await;
                     if ticks == total_ticks {
-                        tokio::time::timeout(
-                            Duration::from_secs(1).saturating_sub(started.elapsed())
-                                + Duration::from_millis(150),
-                            operation.as_mut().unwrap().as_mut(),
-                        )
-                        .await
-                        .expect(
-                            "the original total command deadline must expire after write progress",
-                        )
-                        .expect_err("a server with no reply must time out");
+                        // Tokio rounds deadlines up to its next millisecond.
+                        tokio::time::advance(Duration::from_millis(1)).await;
+                        let watchdog = std::time::Instant::now();
+                        loop {
+                            if let Poll::Ready(result) =
+                                poll_once(operation.as_mut().unwrap().as_mut()).await
+                            {
+                                result.expect_err("a server with no reply must time out");
+                                break;
+                            }
+                            assert!(
+                                watchdog.elapsed() < Duration::from_secs(10),
+                                "the original total command deadline must expire at tick 3 in {name}"
+                            );
+                            std::thread::sleep(Duration::from_millis(1));
+                            tokio::task::yield_now().await;
+                        }
                     } else {
-                        assert!(tokio::time::timeout(
-                            if ticks == 1 {
-                                Duration::from_millis(400)
-                            } else {
-                                Duration::from_millis(5)
-                            },
-                            operation.as_mut().unwrap().as_mut()
-                        )
-                        .await
-                        .is_err());
+                        assert!(
+                            poll_once(operation.as_mut().unwrap().as_mut())
+                                .await
+                                .is_pending(),
+                            "command must remain pending before tick 3 in {name}"
+                        );
                     }
                 }
                 "ipc:cancel" => {
@@ -393,9 +419,20 @@ mod async_ownership_replay_tests {
                 }
                 _ => panic!("unmapped TLC IPC event: {event}"),
             }
+            assert_eq!(
+                started.elapsed(),
+                Duration::from_secs(ticks as u64)
+                    + if ticks > 0 && ticks == total_ticks {
+                        Duration::from_millis(1)
+                    } else {
+                        Duration::ZERO
+                    },
+                "only trace ticks may advance the command clock in {name}"
+            );
             handled += 1;
         }
         drop(operation);
+        tokio::time::resume();
         assert_eq!(handled, events.len());
         assert!(!state.is_funasr_ready());
         assert_eq!(state.inline_audio_transport(), None);

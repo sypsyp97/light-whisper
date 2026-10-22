@@ -12,6 +12,7 @@
     "check:whitespace": "git diff --check HEAD",
     "check:bundle": "node scripts/check_bundle_budget.mjs",
     "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "check:verus": "python scripts/check_verus.py",
     "lint": "eslint src --max-warnings=0",
     "perf:fluidity": "vitest run src/perf/appFluidity.perf.test.tsx --reporter=verbose",
     "preview": "vite preview",

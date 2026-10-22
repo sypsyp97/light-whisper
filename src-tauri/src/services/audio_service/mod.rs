@@ -89,6 +89,11 @@ macro_rules! build_input_stream_dispatch {
 // ---------- 子模块 ----------
 
 mod capture;
+mod capture_bounds;
+#[cfg(test)]
+mod capture_bounds_tests;
+#[cfg(test)]
+mod capture_mixer_bounds_tests;
 mod finalize;
 mod interim;
 mod monitor;
