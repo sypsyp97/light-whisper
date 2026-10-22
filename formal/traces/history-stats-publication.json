@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "generator": "TLC 1.7.4 counterexample",
+  "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model": "formal/HistoryStatsOwnership.tla",
+  "config": "formal/HistoryStatsOwnershipPublicationNegative.cfg",
+  "model_sha256": "4f974b08068fae440428f48745b045190724c6847eb6716b07049bea0d0fa42a",
+  "config_sha256": "ae666f9558790ba5afee4801a8ac52104398d04fa9ae8ffa889b04d76a13c673",
+  "counterexample": "formal/traces/history-stats-publication.tlc.txt",
+  "counterexample_sha256": "590dc931b6c75eb2b7f7961969acefcba7b8c2797168138c7fd3868481780f26",
+  "violated_invariant": "AcceptedSnapshotSurvivesCurrentFailure",
+  "events": [
+    "history-stats:begin:1",
+    "history-stats:begin:2",
+    "history-stats:success:2",
+    "history-stats:begin:3",
+    "history-stats:failure:3",
+    "history-stats:success:1"
+  ]
+}

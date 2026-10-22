@@ -64,7 +64,7 @@ export function useSmoothText(source: string, options: SmoothTextOptions = {}): 
 
   const [display, setDisplay] = useState(source);
   const displayRef = useRef(source);
-  const graphemesRef = useRef<string[]>(segmentGraphemes(source));
+  const graphemesRef = useRef<string[]>([]);
   const drawnRef = useRef<number>(graphemesRef.current.length);
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);

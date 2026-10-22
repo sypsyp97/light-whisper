@@ -945,6 +945,8 @@ export default function SettingsPage({
     alibabaAsrModelsLoading,
     alibabaAsrModelsSource,
     alibabaHasKey,
+    asrConfigError,
+    asrConfigRetrying,
     engine,
     engineLoading,
     handleAlibabaAsrModelSelect,
@@ -952,10 +954,13 @@ export default function SettingsPage({
     handleOnlineAsrApiKeyChange,
     handleOnlineAsrRegionChange,
     onlineAsrApiKey,
+    onlineAsrEndpointReady,
+    onlineAsrKeyReady,
     onlineAsrRegion,
     onlineAsrRegionLoading,
     onlineAsrUrl,
     refreshAlibabaModels,
+    retryAsrConfig,
   } = useAsrEngineSettings({ engineLabel, retryModel });
 
   const {
@@ -2405,6 +2410,14 @@ export default function SettingsPage({
               <AudioLines size={15} className="icon-accent" />
               <h2 className="settings-section-title">{t("settings.engine")}</h2>
             </div>
+            {asrConfigError && (
+              <div className="settings-row" role="alert" style={{ gap: 8 }}>
+                <span className="settings-option-desc" style={{ flex: 1 }}>{t("settings.asrConfigReadFailed")}</span>
+                <button className="theme-btn theme-btn-xs" type="button" disabled={engineLoading || onlineAsrRegionLoading || asrConfigRetrying} onClick={() => void retryAsrConfig()}>
+                  {t("common.retry")}
+                </button>
+              </div>
+            )}
             {(() => {
               const currentOption = engineOptions.find((o) => o.key === engine) ?? engineOptions[0];
               const CurrentIcon = currentOption.icon;
@@ -2504,8 +2517,8 @@ export default function SettingsPage({
                       <button
                         key={region}
                         type="button"
-                        disabled={engineLoading || onlineAsrRegionLoading}
-                        className={`theme-btn${onlineAsrRegion === region ? " active" : ""}`}
+                        disabled={engineLoading || onlineAsrRegionLoading || !onlineAsrEndpointReady}
+                        className={`theme-btn${onlineAsrEndpointReady && onlineAsrRegion === region ? " active" : ""}`}
                         onClick={() => { void handleOnlineAsrRegionChange(region); }}
                         style={{ flex: 1 }}
                       >
@@ -2581,7 +2594,7 @@ export default function SettingsPage({
                     </div>
                   </div>
                 )}
-                <fieldset disabled={engineLoading || onlineAsrRegionLoading}
+                <fieldset disabled={engineLoading || onlineAsrRegionLoading || !onlineAsrKeyReady}
                   className="settings-column" style={{ gap: 4, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                   <span className="settings-option-desc">{t("settings.apiKey")}</span>
                   <SecretInput

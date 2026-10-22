@@ -1,0 +1,74 @@
+Error: Invariant ErrorOwned is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ lastEvent = "init"
+/\ s = [ issued |-> 0,
+  owner |-> 0,
+  intended |-> 0,
+  pending |-> {},
+  mounted |-> TRUE,
+  snapshot |-> 0,
+  wantedSnapshot |-> 0,
+  publications |-> <<>>,
+  wantedPublications |-> <<>>,
+  errors |-> <<>>,
+  wantedErrors |-> <<>>,
+  latestFailed |-> FALSE,
+  failureSnapshot |-> 0,
+  recovered |-> FALSE,
+  disposedPending |-> FALSE ]
+
+State 2: <Begin line 15, col 3 to line 19, col 62 of module HistoryStatsOwnership>
+/\ lastEvent = "history-stats:begin:1"
+/\ s = [ issued |-> 1,
+  owner |-> 1,
+  intended |-> 1,
+  pending |-> {1},
+  mounted |-> TRUE,
+  snapshot |-> 0,
+  wantedSnapshot |-> 0,
+  publications |-> <<>>,
+  wantedPublications |-> <<>>,
+  errors |-> <<>>,
+  wantedErrors |-> <<>>,
+  latestFailed |-> FALSE,
+  failureSnapshot |-> 0,
+  recovered |-> FALSE,
+  disposedPending |-> FALSE ]
+
+State 3: <Begin line 15, col 3 to line 19, col 62 of module HistoryStatsOwnership>
+/\ lastEvent = "history-stats:begin:2"
+/\ s = [ issued |-> 2,
+  owner |-> 2,
+  intended |-> 2,
+  pending |-> {1, 2},
+  mounted |-> TRUE,
+  snapshot |-> 0,
+  wantedSnapshot |-> 0,
+  publications |-> <<>>,
+  wantedPublications |-> <<>>,
+  errors |-> <<>>,
+  wantedErrors |-> <<>>,
+  latestFailed |-> FALSE,
+  failureSnapshot |-> 0,
+  recovered |-> FALSE,
+  disposedPending |-> FALSE ]
+
+State 4: <Complete line 21, col 3 to line 36, col 63 of module HistoryStatsOwnership>
+/\ lastEvent = "history-stats:failure:1"
+/\ s = [ issued |-> 2,
+  owner |-> 2,
+  intended |-> 2,
+  pending |-> {2},
+  mounted |-> TRUE,
+  snapshot |-> 0,
+  wantedSnapshot |-> 0,
+  publications |-> <<>>,
+  wantedPublications |-> <<>>,
+  errors |-> <<1>>,
+  wantedErrors |-> <<>>,
+  latestFailed |-> FALSE,
+  failureSnapshot |-> 0,
+  recovered |-> FALSE,
+  disposedPending |-> FALSE ]
+

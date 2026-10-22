@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "generator": "TLC 1.7.4 counterexample",
+  "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model": "formal/EngineStatusOwnership.tla",
+  "config": "formal/EngineStatusOwnershipStartNegative.cfg",
+  "model_sha256": "2ca486f8ab905632b436d7b40a389d9548d95cf085769503727f1e2433ecf312",
+  "config_sha256": "95e0ba7c16189c687147525fff743dd1249c5eeb9763d18871bc73b981821902",
+  "counterexample": "formal/traces/engine-status-start.tlc.txt",
+  "counterexample_sha256": "48f5ce79f1bd6cfb77659cea161e8acce6e98d527c9921a4c567f7152941c4bb",
+  "violated_invariant": "StartOutcomeOwned",
+  "events": [
+    "engine-status:query:1",
+    "engine-status:complete:1:stopped",
+    "engine-status:query:2",
+    "engine-status:complete:2:stopped",
+    "engine-status:crashed:3",
+    "engine-status:complete:3:stopped",
+    "engine-status:start:1:failure",
+    "engine-status:start:2:failure",
+    "engine-status:start:3:failure"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "generator": "TLC 1.7.4 counterexample",
+  "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model": "formal/EngineStatusOwnership.tla",
+  "config": "formal/EngineStatusOwnershipProgressNegative.cfg",
+  "model_sha256": "2ca486f8ab905632b436d7b40a389d9548d95cf085769503727f1e2433ecf312",
+  "config_sha256": "ab78e75183cc9517451057bea88a39018f66647127951f4f71eb0a38226f4fbd",
+  "counterexample": "formal/traces/engine-status-progress.tlc.txt",
+  "counterexample_sha256": "a1f897e8513534adfa808e34072f4f6106903c70835a9500316977f79ed9bd5b",
+  "violated_invariant": "StartOutcomeOwned",
+  "events": [
+    "engine-status:query:1",
+    "engine-status:complete:1:stopped",
+    "engine-status:progress:1",
+    "engine-status:query:2",
+    "engine-status:complete:2:loading",
+    "engine-status:start:1:failure",
+    "engine-status:query:3",
+    "engine-status:complete:3:stopped",
+    "engine-status:progress:3",
+    "engine-status:query:4",
+    "engine-status:complete:4:loading",
+    "engine-status:start:3:failure",
+    "engine-status:query:5",
+    "engine-status:complete:5:stopped",
+    "engine-status:progress:5",
+    "engine-status:query:6",
+    "engine-status:start:5:failure"
+  ]
+}

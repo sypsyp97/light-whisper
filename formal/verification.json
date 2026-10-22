@@ -595,6 +595,15 @@
     ]
   },
   "protocols": {
+    "settings.online-asr-identity-hydration": [
+      "online-asr-identity"
+    ],
+    "engine.status-query-and-event-ownership": [
+      "engine-status-ownership"
+    ],
+    "history.stats-refresh-ownership": [
+      "history-stats"
+    ],
     "python-jsonl.qwen3-asr": [
       "transport",
       "engine",
@@ -644,6 +653,77 @@
     ]
   },
   "contracts": {
+    "online-asr-identity": {
+      "obligation": "Credential edits require a confirmed engine and Alibaba current-epoch endpoint; GLM shares its slot and local engines have no credential slot. Read retry preserves committed engine changes, independent key failure preserves endpoint success, obsolete endpoint completions cannot publish, and debounced writes retain captured identity across a flush-before-switch boundary.",
+      "models": {
+        "OnlineAsrIdentity": [
+          "CompleteEngine", "CompleteEndpoint", "CompleteKey", "Edit", "Dispatch",
+          "CompleteWrite", "BeginSwitch", "CompleteSwitch", "FinishSwitchRead", "Retry",
+          "WritesRequireKnownIdentity", "EndpointPublicationOwned", "KnownEndpointRetained",
+          "SharedGlmSlotAvailable", "LocalHasNoCredentialSlot", "CommittedEngineRetained", "ConfirmedEngineRetained"
+        ]
+      },
+      "implementation": [
+        "src/hooks/useAsrEngineSettings.ts",
+        "src/hooks/useDebouncedCallback.ts",
+        "src-tauri/src/commands/funasr.rs#pub(crate) fn active_online_keyring_user"
+      ],
+      "evidence": [
+        "src/hooks/__tests__/useAsrEngineSettingsFormalReplay.test.tsx#TLC online ASR identity replay",
+        "scripts/generate_async_ownership_traces.py#online-asr-identity-initial",
+        "scripts/run_async_replay_mutations.py"
+      ],
+      "assumptions": "Three engine kinds with representative Alibaba-domestic/GLM-international combinations, three read batches within two configuration contexts, at most one engine mutation and one read-only retry, two edit/clear attempts and two write invocations. Only a committed engine switch changes context. Retry reissues ERROR fields; READY and PENDING siblings retain their context and may publish after retry. Native success/failure and response order are environmental inputs. Aggregate switch reads settle on first failure or both successes; pending sibling callbacks remain enabled. Engine, endpoint and key failures expose recoverable errors; a key failure preserves identity and an accepted edit retires old key results and clears its key error. Expected identity and write ledgers are independent of implementation readiness. Timer dispatch is abstract in TLC; real hook replay checks 599/600 ms, URL/readiness publication, first-failure busy release, selective retry and deferred flush completion. Switch with both an in-flight save and a second pending draft is excluded and left to debouncer unit regressions. Reachability witnesses are intentional negations, not safety proofs. Region mutation, catalogs, unmount lifecycle, backend storage internals and other windows are outside this bounded companion; no whole-source refinement claim."
+    },
+    "engine-status-ownership": {
+      "obligation": "A newer status query or accepted funasr-status event retires older status snapshots. Obsolete status results and errors cannot publish stage, device, GPU or error, start the engine, schedule auto-download or stop current polling. A separate start owner survives native loading progress and running/not-ready polling; a new actual start or accepted terminal state retires it. Three current start rejections reach terminal error and retire pending status queries, preserving that error against late loading. Already issued starts remain issued. Current queries and post-crash recovery still publish.",
+      "models": {
+        "EngineStatusOwnership": [
+          "Query",
+          "StatusEvent",
+          "Crash",
+          "Complete",
+          "StartProgress",
+          "CompleteStart",
+          "StatusPublicationOwned",
+          "StartEffectsOwned",
+          "AutoDownloadOwned",
+          "PollingOwned",
+          "StartOutcomeOwned"
+        ]
+      },
+      "implementation": [
+        "src/hooks/useModelStatus.ts#const checkStatus = useCallback",
+        "src/hooks/useModelStatus.ts#statusRequestIdRef",
+        "src/api/tauri.ts#checkFunASRStatus"
+      ],
+      "evidence": [
+        "src/hooks/__tests__/useModelStatusFormalReplay.test.tsx",
+        "src/hooks/__tests__/useModelStatusOwnership.test.tsx"
+      ],
+      "assumptions": "Finite safety companion with independent snapshot and native-start ownership. General bound: three queries, one external ready/loading/error/crashed event and one native loading progress event per issued start. Progress bound: six ordered stopped/loading queries, three native loading events and three rejected starts. Each start spans a loading poll; the last poll completes after terminal start error. Specification snapshot/start epochs are independent of implementation tokens. Obsolete status/start completions remain enabled. The polling flag represents the real 6000 ms interval; loading retains prior polling, ready/error stop it, crash immediately queries and starts polling. Missing status folds the first zero-delay auto-download dispatch into its transition and leaves native download work pending. Issued start ledgers cannot be undone. Four faults remove query retirement, event retirement or awaited-start catch ownership, or incorrectly retire starts on loading progress. Two separately labeled reachability witnesses require current error followed by ready recovery (post-crash recovery is checked by implementation replay) and all three legitimate start failures despite progress/polls plus a dropped late loading snapshot; neither witness is a safety negative. Genuine TLC State schedules replay renderHook, deferred API calls and captured listener, checking public metadata/stage/error, timer and side-effect counts. The ten-loading restart threshold is covered by implementation tests; download generations, cancellation, unmount, other model-state branches, native scheduling, unbounded requests, refinement and liveness are outside this model."
+    },
+    "history-stats": {
+      "obligation": "Only the latest started statistics request may publish or log a failure. A current failure retains the last accepted statistics, including when an older success arrives later; a later current success recovers. Unmount retires pending completions.",
+      "models": {
+        "HistoryStatsOwnership": [
+          "Begin",
+          "Complete",
+          "Dispose",
+          "PublicationOwned",
+          "ErrorOwned",
+          "AcceptedSnapshotSurvivesCurrentFailure"
+        ]
+      },
+      "implementation": [
+        "src/pages/HistoryPage.tsx#const refreshStats = useCallback",
+        "src/api/tauri.ts#getTranscriptionHistoryStats"
+      ],
+      "evidence": [
+        "src/pages/__tests__/HistoryStatsFormalReplay.test.tsx"
+      ],
+      "assumptions": "Three ordered request identities with success/error as environment inputs; starts abstract mount, history-updated, delete and reprocess refreshes. Actual publication/error ledgers are compared with independent latest-started intent. One unmount invalidates pending work. The reachability witness requires current error logging, accepted recovery and disposal with pending work; it is not a safety negative. TLC counterexample schedules replay the actual page via the API and captured event listener, asserting distinct DOM metrics and console errors. Bounded correspondence only; no unbounded-request, React/native scheduling, refinement or liveness proof. React drops state after unmount, so cleanup replay observes a rejected pending promise instead."
+    },
     "recording": {
       "obligation": "Reserve, cancel, stop and publish only the current recording session; final UI events cannot regress; disposed recording listeners cannot act.",
       "models": {
@@ -845,13 +925,22 @@
       "assumptions": "Canonical path resolution and successful copies are trusted filesystem operations; source deletion failures must remain visible."
     },
     "discovery": {
-      "obligation": "Only the newest request for current provider/engine/auth context may publish; failure retains same-context data.",
+      "obligation": "Only the newest request for current provider/engine/auth context may publish; failure retains same-context data. Selective invalidation retires and clears only the selected catalog; polish publication preserves independent assistant ownership and shared catalogs follow polish.",
       "models": {
         "AsyncSettings": [
           "NoCrossProviderData",
           "NoModelsWithoutAuth",
           "NoPostUnmountPublication",
           "RequestsSettle"
+        ],
+        "CatalogDiscoveryOwnership": [
+          "Begin",
+          "Complete",
+          "Invalidate",
+          "LatestValidCompletionPublishes",
+          "LoadingOwnershipPreserved",
+          "SelectedInvalidationClears",
+          "SharedProjectionPreserved"
         ]
       },
       "implementation": [
@@ -862,9 +951,10 @@
       "evidence": [
         "src/hooks/__tests__/useModelDiscovery.test.tsx",
         "src/hooks/__tests__/useAsrEngineSettings.test.tsx",
-        "src/pages/__tests__/SettingsPageProviderDiscovery.test.tsx"
+        "src/pages/__tests__/SettingsPageProviderDiscovery.test.tsx",
+        "src/hooks/__tests__/useModelDiscoveryFormalReplay.test.tsx"
       ],
-      "assumptions": "Upstream catalog contents and availability are inputs; finite two-request/context interleavings; HTTP schemas are checked by implementation tests."
+      "assumptions": "Upstream catalog contents and availability are inputs; finite two-request/context interleavings; HTTP schemas are checked by implementation tests. CatalogDiscoveryOwnership adds two roles, at most two issued requests per role and one selective invalidation per role, success/failure inputs and independent/shared modes. Shared mode projects polish publication/invalidation; independent assistant invalidation is checked in independent mode. Auth/context/unmount remain AsyncSettings obligations. TLC counterexample schedules replay actual hook APIs; this is bounded correspondence, not source refinement. Queued callback cancellation remains implementation-test coverage only; this companion has no scheduler/automatic-dispatch state and makes no queued-cancellation proof claim."
     },
     "oauth": {
       "obligation": "Browser/device/refresh owners must remain current; logout and newer login reject old commits and stale fatal refresh.",
@@ -1191,7 +1281,7 @@
       "assumptions": "OS clipboard reads/writes and key injection may fail; success means the API acknowledged the operation, not that a foreign application consumed it. Companion output model starts with A processing and independently records B starting/recording. It checks success/error/start-cancel/start-error exits and one focus change. Real queue/controller replay injects only the native paste primitive; source wiring tests establish terminal scheduling correspondence. OS focus remains sampled, and foreign-app consumption is not proved. One production finalizer owns each unique recording session; the queue deduplicates only currently pending session IDs and deliberately permits re-enqueue after a drain. There is no global exactly-once ledger."
     },
     "history": {
-      "obligation": "Persist only with consent; audio writes may overlap ASR/LLM, but audio resolution and history persistence attempts settle before terminal transcription/subtitle publication and paste authorization; transactions are atomic; shared referenced/leased audio survives GC; reprocess retains captured source. After each SQL transaction, each audio lease count equals the number of independent holders; releasing the first of two shared holders must retain the second.",
+      "obligation": "Persist only with consent; audio writes may overlap ASR/LLM, but audio resolution and history persistence attempts settle before terminal transcription/subtitle publication and paste authorization; transactions are atomic; shared referenced/leased audio survives GC; reprocess retains captured source. After each SQL transaction, each audio lease count equals the number of independent holders; releasing the first of two shared holders must retain the second. History filter effects retire obsolete requests before debounce dispatch; pending or failed resets block old-offset pagination, current errors remain visible, and retry replaces from offset zero.",
       "models": {
         "HistoryRecords": [
           "SaveAudioGate",
@@ -1218,12 +1308,30 @@
           "Collect",
           "LeaseCountMatchesHolders",
           "LiveHoldersKeepAudio"
+        ],
+        "HistoryFilterOwnership": [
+          "BeginOld",
+          "ChangeFilter",
+          "DispatchReset",
+          "CompleteOld",
+          "CompleteReset",
+          "Retry",
+          "ObsoleteCannotPublishOrEndReset",
+          "PendingResetBlocksPagination",
+          "FailedResetRetainsBoundary",
+          "ReplacementSuccessReplacesRows",
+          "Paginate",
+          "CompletePage",
+          "ResetUsesZeroOffset",
+          "PaginationUsesCurrentPage",
+          "NormalPaginationAppends"
         ]
       },
       "implementation": [
         "src-tauri/src/services/history_service.rs",
         "src-tauri/src/commands/history.rs",
-        "src-tauri/src/services/audio_service/finalize.rs#resolve_history_audio"
+        "src-tauri/src/services/audio_service/finalize.rs#resolve_history_audio",
+        "src/pages/HistoryPage.tsx"
       ],
       "evidence": [
         "src-tauri/src/services/history_service.rs",
@@ -1232,9 +1340,10 @@
         "src-tauri/src/services/history_service.rs#latency_percentiles_match_sorted_rank_for_empty_tied_and_large_inputs",
         "src-tauri/src/services/history_service.rs#tlc_history_leases_replay_public_sqlite_operations",
         "formal/evidence/async-ownership.md",
-        "src-tauri/src/services/history_stats_tests.rs"
+        "src-tauri/src/services/history_stats_tests.rs",
+        "src/pages/__tests__/HistoryFilterFormalReplay.test.tsx"
       ],
-      "assumptions": "SQLite transactions and successful filesystem deletion are trusted primitives; detailed base bound of five rows, three audio classes and one reprocessor/count-one lease; DB errors retain audio conservatively. Finalization may publish after a failed audio/history write, but must first await its completion. Publication here means terminal transcription/subtitle results and paste authorization; assistant stream chunks and stream done arrive during LLM work and are excluded. Scheduling permits audio I/O to remain pending during LLM work; the model does not prove a wall-clock speedup. HistoryRecords retains its detailed five-row, three audio-class, single-reprocessor/count-one bound. HistoryLeaseInterleavings adds two independent tasks and two shared audio identities; release is DELETE count=1, UPDATE count>1, then commit. Equality is asserted outside the transaction; row deletion and GC interleave only at commit boundaries. Statistics reuse is checked by implementation tests: a retained read connection compares SQLite data_version, aggregate and latency queries share a read transaction, and concurrent changes invalidate cache publication. Database path remains fixed during the process; replacing the open database file is outside this contract."
+      "assumptions": "SQLite transactions and successful filesystem deletion are trusted primitives; detailed base bound of five rows, three audio classes and one reprocessor/count-one lease; DB errors retain audio conservatively. Finalization may publish after a failed audio/history write, but must first await its completion. Publication here means terminal transcription/subtitle results and paste authorization; assistant stream chunks and stream done arrive during LLM work and are excluded. Scheduling permits audio I/O to remain pending during LLM work; the model does not prove a wall-clock speedup. HistoryRecords retains its detailed five-row, three audio-class, single-reprocessor/count-one bound. HistoryLeaseInterleavings adds two independent tasks and two shared audio identities; release is DELETE count=1, UPDATE count>1, then commit. Equality is asserted outside the transaction; row deletion and GC interleave only at commit boundaries. Statistics reuse is checked by implementation tests: a retained read connection compares SQLite data_version, aggregate and latency queries share a read transaction, and concurrent changes invalidate cache publication. Database path remains fixed during the process; replacing the open database file is outside this contract. HistoryFilterOwnership adds seed row 1, optional old page row 2, one filter epoch, reset/retry replacement rows 3 and 4, and one normal pagination append row 5. Request identities are old=1/reset=2/retry=3/page=4; repeated retries fold to identity 3. Pagination availability directly follows hasMore, loading and error, independent of the specification pending-reset intent; normal pagination must use the current page epoch and offset two, while reset/retry use offset zero. Native success/failure are inputs. Effect retirement and debounce dispatch are distinct actions; actual replay checks 179/180 ms and public DOM/API behavior. Bounded correspondence only; no source refinement."
     },
     "windows": {
       "obligation": "Only current show/hide generations publish; interactive state requires a window; exit signals capture and reaps child.",
@@ -1472,6 +1581,9 @@
     }
   },
   "runs": {
+    "OnlineAsrIdentity": [
+      "OnlineAsrIdentity.cfg", "OnlineAsrIdentityGlm.cfg", "OnlineAsrIdentityLocal.cfg"
+    ],
     "AppProfileRules": [
       "AppProfileRules.cfg"
     ],
@@ -1611,9 +1723,26 @@
     ],
     "LlmRequestParameters": [
       "LlmRequestParameters.cfg"
+    ],
+    "CatalogDiscoveryOwnership": [
+      "CatalogDiscoveryOwnership.cfg"
+    ],
+    "HistoryFilterOwnership": [
+      "HistoryFilterOwnership.cfg"
+    ],
+    "HistoryStatsOwnership": [
+      "HistoryStatsOwnership.cfg"
+    ],
+    "EngineStatusOwnership": [
+      "EngineStatusOwnership.cfg",
+      "EngineStatusOwnershipProgress.cfg"
     ]
   },
   "actions": {
+    "OnlineAsrIdentity": [
+      "CompleteEngine", "CompleteEndpoint", "CompleteKey", "Edit", "Dispatch",
+      "CompleteWrite", "BeginSwitch", "CompleteSwitch", "FinishSwitchRead", "Retry"
+    ],
     "RecordingLifecycle": [
       "Start",
       "CancelStarting"
@@ -1726,9 +1855,151 @@
       "Inspect",
       "RepairBegin",
       "RepairComplete"
+    ],
+    "CatalogDiscoveryOwnership": [
+      "Begin",
+      "Complete",
+      "Invalidate"
+    ],
+    "HistoryFilterOwnership": [
+      "BeginOld",
+      "ChangeFilter",
+      "DispatchReset",
+      "CompleteOld",
+      "CompleteReset",
+      "Retry",
+      "Paginate",
+      "CompletePage"
+    ],
+    "HistoryStatsOwnership": [
+      "Begin",
+      "Complete",
+      "Dispose"
+    ],
+    "EngineStatusOwnership": [
+      "Query",
+      "StatusEvent",
+      "Crash",
+      "Complete",
+      "StartProgress",
+      "CompleteStart"
     ]
   },
   "negative": [
+    {
+      "name": "online-asr-identity-retry-owner",
+      "model": "OnlineAsrIdentity",
+      "config": "OnlineAsrIdentityRetryNegative.cfg",
+      "invariant": "KnownEndpointRetained"
+    },
+    {
+      "name": "online-asr-identity-sibling",
+      "model": "OnlineAsrIdentity",
+      "config": "OnlineAsrIdentitySiblingTrace.cfg",
+      "invariant": "SiblingNotReached",
+      "purpose": "Positive first-failure switch settlement, read-only retry, pending same-context endpoint publication and CN write reachability; not a safety negative or proof."
+    },
+    {
+      "name": "online-asr-identity-initial",
+      "model": "OnlineAsrIdentity",
+      "config": "OnlineAsrIdentityInitialNegative.cfg",
+      "invariant": "WritesRequireKnownIdentity"
+    },
+    {
+      "name": "online-asr-identity-switch",
+      "model": "OnlineAsrIdentity",
+      "config": "OnlineAsrIdentitySwitchNegative.cfg",
+      "invariant": "WritesRequireKnownIdentity"
+    },
+    {
+      "name": "online-asr-identity-stale",
+      "model": "OnlineAsrIdentity",
+      "config": "OnlineAsrIdentityStaleNegative.cfg",
+      "invariant": "EndpointPublicationOwned"
+    },
+    {
+      "name": "online-asr-identity-key-failure",
+      "model": "OnlineAsrIdentity",
+      "config": "OnlineAsrIdentityKeyFailureNegative.cfg",
+      "invariant": "KnownEndpointRetained"
+    },
+    {
+      "name": "online-asr-identity-recovery",
+      "model": "OnlineAsrIdentity",
+      "config": "OnlineAsrIdentityRecoveryTrace.cfg",
+      "invariant": "RecoveryNotReached",
+      "purpose": "Positive read-error/retry/write reachability witness for implementation replay; not a safety negative or proof."
+    },
+    {
+      "name": "online-asr-identity-flush",
+      "model": "OnlineAsrIdentity",
+      "config": "OnlineAsrIdentityFlushTrace.cfg",
+      "invariant": "FlushNotReached",
+      "purpose": "Positive captured-slot write/overlapping edit/switch reachability witness for implementation replay; not a safety negative or proof."
+    },
+    {
+      "name": "engine-status-event",
+      "model": "EngineStatusOwnership",
+      "config": "EngineStatusOwnershipEventNegative.cfg",
+      "invariant": "StatusPublicationOwned"
+    },
+    {
+      "name": "engine-status-query",
+      "model": "EngineStatusOwnership",
+      "config": "EngineStatusOwnershipQueryNegative.cfg",
+      "invariant": "StatusPublicationOwned"
+    },
+    {
+      "name": "engine-status-start",
+      "model": "EngineStatusOwnership",
+      "config": "EngineStatusOwnershipStartNegative.cfg",
+      "invariant": "StartOutcomeOwned"
+    },
+    {
+      "name": "engine-status-recovery-reachability",
+      "model": "EngineStatusOwnership",
+      "config": "EngineStatusOwnershipReachability.cfg",
+      "invariant": "ReadyFailureRecoveryNotReached",
+      "purpose": "Reachability witness for accepted current failure and ready recovery; crash recovery is implementation replay evidence, not established by this witness."
+    },
+    {
+      "name": "engine-status-progress",
+      "model": "EngineStatusOwnership",
+      "config": "EngineStatusOwnershipProgressNegative.cfg",
+      "invariant": "StartOutcomeOwned"
+    },
+    {
+      "name": "engine-status-progress-reachability",
+      "model": "EngineStatusOwnership",
+      "config": "EngineStatusOwnershipProgressReachability.cfg",
+      "invariant": "ProgressFailureThresholdNotReached",
+      "purpose": "Reachability witness for native loading progress and loading polls spanning all three current failed starts, followed by dropped late loading after terminal error; not a safety negative or proof."
+    },
+    {
+      "name": "history-stats-publication",
+      "model": "HistoryStatsOwnership",
+      "config": "HistoryStatsOwnershipPublicationNegative.cfg",
+      "invariant": "AcceptedSnapshotSurvivesCurrentFailure"
+    },
+    {
+      "name": "history-stats-error",
+      "model": "HistoryStatsOwnership",
+      "config": "HistoryStatsOwnershipErrorNegative.cfg",
+      "invariant": "ErrorOwned"
+    },
+    {
+      "name": "history-stats-cleanup",
+      "model": "HistoryStatsOwnership",
+      "config": "HistoryStatsOwnershipCleanupNegative.cfg",
+      "invariant": "ErrorOwned"
+    },
+    {
+      "name": "history-stats-recovery-disposal-reachability",
+      "model": "HistoryStatsOwnership",
+      "config": "HistoryStatsOwnershipReachability.cfg",
+      "invariant": "RecoveryAndPendingDisposalNotReached",
+      "purpose": "Reachability witness for legal current error, accepted recovery success and disposal with pending work; not a safety negative or proof."
+    },
     {
       "name": "settings-write-before-profile-load",
       "model": "SettingsContracts",
@@ -2234,6 +2505,36 @@
         "!.limit = 0, !.retries = 1"
       ],
       "invariant": "NativeOutputLimitRequired"
+    },
+    {
+      "name": "catalog-global-invalidation",
+      "model": "CatalogDiscoveryOwnership",
+      "config": "CatalogDiscoveryOwnershipGlobalNegative.cfg",
+      "invariant": "LatestValidCompletionPublishes"
+    },
+    {
+      "name": "catalog-polish-retires-independent",
+      "model": "CatalogDiscoveryOwnership",
+      "config": "CatalogDiscoveryOwnershipPolishNegative.cfg",
+      "invariant": "LatestValidCompletionPublishes"
+    },
+    {
+      "name": "history-filter-late-retirement",
+      "model": "HistoryFilterOwnership",
+      "config": "HistoryFilterOwnershipLateNegative.cfg",
+      "invariant": "ObsoleteCannotPublishOrEndReset"
+    },
+    {
+      "name": "history-filter-pagination-before-reset",
+      "model": "HistoryFilterOwnership",
+      "config": "HistoryFilterOwnershipPaginationNegative.cfg",
+      "invariant": "PendingResetBlocksPagination"
+    },
+    {
+      "name": "history-filter-failed-reset-pagination",
+      "model": "HistoryFilterOwnership",
+      "config": "HistoryFilterOwnershipFailedPaginationNegative.cfg",
+      "invariant": "PendingResetBlocksPagination"
     }
   ],
   "command_implementation": {

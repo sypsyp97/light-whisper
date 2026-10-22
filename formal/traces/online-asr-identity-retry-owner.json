@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "generator": "TLC 1.7.4 counterexample",
+  "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model": "formal/OnlineAsrIdentity.tla",
+  "config": "formal/OnlineAsrIdentityRetryNegative.cfg",
+  "model_sha256": "7f0f783268a32601a204f39881f5a715154927d21dc668816ffff270e5146857",
+  "config_sha256": "ac2db67e44aeb44bd57da7167866030bbc7c7aa69012c11f3ff9ae4211c18c47",
+  "counterexample": "formal/traces/online-asr-identity-retry-owner.tlc.txt",
+  "counterexample_sha256": "fec555fdfe558398988e77986308cd9b08715f742da19e4394d15fe2dd2328cd",
+  "violated_invariant": "KnownEndpointRetained",
+  "events": [
+    "engine:0:failure",
+    "retry:begin",
+    "endpoint:0:success"
+  ]
+}

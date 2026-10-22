@@ -1,0 +1,38 @@
+Error: Invariant PendingResetBlocksPagination is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ lastEvent = "init"
+/\ s = [ filter |-> 0,
+  pageFilter |-> 0,
+  old |-> "absent",
+  reset |-> "absent",
+  page |-> "absent",
+  owner |-> 0,
+  pendingReset |-> FALSE,
+  loading |-> FALSE,
+  error |-> FALSE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 0,
+  requestFilter |-> 0,
+  requestKind |-> "none",
+  obsoleteOK |-> TRUE ]
+
+State 2: <ChangeFilter line 24, col 3 to line 28, col 41 of module HistoryFilterOwnership>
+/\ lastEvent = "history:filter:change"
+/\ s = [ filter |-> 1,
+  pageFilter |-> 0,
+  old |-> "absent",
+  reset |-> "queued",
+  page |-> "absent",
+  owner |-> 0,
+  pendingReset |-> TRUE,
+  loading |-> FALSE,
+  error |-> FALSE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 0,
+  requestFilter |-> 0,
+  requestKind |-> "none",
+  obsoleteOK |-> TRUE ]
+

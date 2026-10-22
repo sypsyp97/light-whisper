@@ -82,6 +82,7 @@ export default function HistoryPage({
   const deletionInProgress = useRef(false);
   const [exportFormat, setExportFormat] = useState<"json" | "markdown">("markdown");
   const requestId = useRef(0);
+  const statsRequestId = useRef(0);
   const itemCount = useRef(0);
   const pageSize = 50;
 
@@ -90,10 +91,14 @@ export default function HistoryPage({
   }, [items.length]);
 
   const refreshStats = useCallback(async () => {
+    const currentRequest = ++statsRequestId.current;
     try {
-      setStats(await getTranscriptionHistoryStats());
+      const nextStats = await getTranscriptionHistoryStats();
+      if (currentRequest === statsRequestId.current) setStats(nextStats);
     } catch (error) {
-      console.error("Failed to load history stats:", error);
+      if (currentRequest === statsRequestId.current) {
+        console.error("Failed to load history stats:", error);
+      }
     }
   }, []);
 
@@ -128,10 +133,14 @@ export default function HistoryPage({
   }, [load]);
 
   useEffect(() => {
+    setLoading(true);
     const timer = window.setTimeout(() => {
       void load(true);
     }, query ? 180 : 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      requestId.current += 1;
+    };
   }, [load, query, mode, status]);
 
   useEffect(() => {
@@ -153,6 +162,7 @@ export default function HistoryPage({
     });
     return () => {
       disposed = true;
+      statsRequestId.current += 1;
       unlisten?.();
     };
   }, [refreshStats]);
@@ -259,7 +269,7 @@ export default function HistoryPage({
             />
           </label>
           <div className="history-export-control">
-            <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "json" | "markdown")}>
+            <select aria-label={t("historyPage.exportFormat")} value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "json" | "markdown")}>
               <option value="markdown">{t("historyPage.exportMarkdown")}</option>
               <option value="json">{t("historyPage.exportJson")}</option>
             </select>
@@ -270,14 +280,14 @@ export default function HistoryPage({
         </section>
 
         <section className="history-filter-row">
-          <div className="history-filter-group" role="group" aria-label={t("historyPage.allModes")}>
+          <div className="history-filter-group" role="group" aria-label={t("historyPage.modeFilter")}>
             {(["", "dictation", "assistant"] as const).map((value) => (
-              <button key={value || "all"} className={mode === value ? "active" : ""} onClick={() => setMode(value)}>
+              <button key={value || "all"} className={mode === value ? "active" : ""} aria-pressed={mode === value} onClick={() => setMode(value)}>
                 {value === "" ? t("historyPage.allModes") : t(`historyPage.${value}`)}
               </button>
             ))}
           </div>
-          <select className="history-status-filter" value={status} onChange={(event) => setStatus(event.target.value as StatusFilter)}>
+          <select className="history-status-filter" aria-label={t("historyPage.statusFilter")} value={status} onChange={(event) => setStatus(event.target.value as StatusFilter)}>
             <option value="">{t("historyPage.allStatuses")}</option>
             <option value="success">{t("historyPage.success")}</option>
             <option value="failed">{t("historyPage.failed")}</option>
@@ -416,7 +426,7 @@ export default function HistoryPage({
             })}
           </div>
 
-          {hasMore && !loading && (
+          {hasMore && !loading && !loadError && (
             <button className="history-load-more" onClick={() => void load(false)}>
               {t("historyPage.loadMore")} · {items.length}/{total}
             </button>

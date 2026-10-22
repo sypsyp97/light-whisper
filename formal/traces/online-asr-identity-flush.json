@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "generator": "TLC 1.7.4 counterexample",
+  "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model": "formal/OnlineAsrIdentity.tla",
+  "config": "formal/OnlineAsrIdentityFlushTrace.cfg",
+  "model_sha256": "7f0f783268a32601a204f39881f5a715154927d21dc668816ffff270e5146857",
+  "config_sha256": "d0eaced8a48bd9592c5d68bf53d62bd3fb8d64ef2f5f71ba37613c60b0611ee9",
+  "counterexample": "formal/traces/online-asr-identity-flush.tlc.txt",
+  "counterexample_sha256": "a60f3135e16f99427149b183b6bd611be51adbe6d30dd25dacaeffa2e2ad141e",
+  "violated_invariant": "FlushNotReached",
+  "events": [
+    "engine:0:success",
+    "edit:draft",
+    "switch:begin",
+    "edit:draft",
+    "write:success",
+    "switch:success"
+  ]
+}

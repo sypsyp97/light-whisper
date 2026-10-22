@@ -1,0 +1,74 @@
+Error: Invariant PendingResetBlocksPagination is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ lastEvent = "init"
+/\ s = [ filter |-> 0,
+  pageFilter |-> 0,
+  old |-> "absent",
+  reset |-> "absent",
+  page |-> "absent",
+  owner |-> 0,
+  pendingReset |-> FALSE,
+  loading |-> FALSE,
+  error |-> FALSE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 0,
+  requestFilter |-> 0,
+  requestKind |-> "none",
+  obsoleteOK |-> TRUE ]
+
+State 2: <ChangeFilter line 24, col 3 to line 28, col 41 of module HistoryFilterOwnership>
+/\ lastEvent = "history:filter:change"
+/\ s = [ filter |-> 1,
+  pageFilter |-> 0,
+  old |-> "absent",
+  reset |-> "queued",
+  page |-> "absent",
+  owner |-> 0,
+  pendingReset |-> TRUE,
+  loading |-> TRUE,
+  error |-> FALSE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 0,
+  requestFilter |-> 0,
+  requestKind |-> "none",
+  obsoleteOK |-> TRUE ]
+
+State 3: <DispatchReset line 30, col 3 to line 34, col 42 of module HistoryFilterOwnership>
+/\ lastEvent = "history:reset:dispatch"
+/\ s = [ filter |-> 1,
+  pageFilter |-> 0,
+  old |-> "absent",
+  reset |-> "pending",
+  page |-> "absent",
+  owner |-> 2,
+  pendingReset |-> TRUE,
+  loading |-> TRUE,
+  error |-> FALSE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 0,
+  requestFilter |-> 1,
+  requestKind |-> "reset",
+  obsoleteOK |-> TRUE ]
+
+State 4: <CompleteReset line 45, col 3 to line 51, col 80 of module HistoryFilterOwnership>
+/\ lastEvent = "history:reset:failure"
+/\ s = [ filter |-> 1,
+  pageFilter |-> 0,
+  old |-> "absent",
+  reset |-> "failed",
+  page |-> "absent",
+  owner |-> 2,
+  pendingReset |-> TRUE,
+  loading |-> FALSE,
+  error |-> TRUE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 0,
+  requestFilter |-> 1,
+  requestKind |-> "reset",
+  obsoleteOK |-> TRUE ]
+

@@ -166,6 +166,8 @@ export function useModelDiscovery({
     };
   }, [aiModelsFetch, polishHasAuth, polishModelsContext]);
 
+  const sharedAssistantModels = assistantSharesPolishModels ? aiModels : null;
+
   useEffect(() => {
     if (!assistantUseSeparateModel) {
       assistantModelsFetch.cancel();
@@ -176,8 +178,10 @@ export function useModelDiscovery({
       setAssistantModelsLoading(false);
       return;
     }
-    if (assistantSharesPolishModels) {
-      setAssistantModels(aiModels);
+    if (sharedAssistantModels !== null) {
+      setAssistantModels(sharedAssistantModels);
+      setAssistantModelsLoading(false);
+      setAssistantModelsError("");
       assistantModelsContextRef.current = assistantModelsContext;
       return;
     }
@@ -200,7 +204,7 @@ export function useModelDiscovery({
       assistantModelsFetch.cancel();
       assistantModelsRequestIdRef.current += 1;
     };
-  }, [aiModels, assistantHasAuth, assistantModelsContext, assistantModelsFetch, assistantSharesPolishModels, assistantUseSeparateModel]);
+  }, [assistantHasAuth, assistantModelsContext, assistantModelsFetch, assistantUseSeparateModel, sharedAssistantModels]);
 
   const refreshAiModelsNow = useCallback(() => {
     aiModelsFetch.cancel();
@@ -213,19 +217,24 @@ export function useModelDiscovery({
   }, [assistantModelsFetch, refreshAssistantModels]);
 
   const invalidateModels = useCallback(({ clearPolish, clearAssistant }: ModelInvalidationOptions) => {
-    aiModelsRequestIdRef.current += 1;
-    assistantModelsRequestIdRef.current += 1;
     if (clearPolish) {
+      aiModelsFetch.cancel();
+      aiModelsRequestIdRef.current += 1;
       aiModelsContextRef.current = null;
       setAiModels([]);
       setAiModelsSourceUrl("");
+      setAiModelsError("");
+      setAiModelsLoading(false);
     }
     if (clearAssistant) {
+      assistantModelsFetch.cancel();
+      assistantModelsRequestIdRef.current += 1;
       assistantModelsContextRef.current = null;
       setAssistantModels([]);
       setAssistantModelsError("");
+      setAssistantModelsLoading(false);
     }
-  }, []);
+  }, [aiModelsFetch, assistantModelsFetch]);
 
   return {
     aiModels,

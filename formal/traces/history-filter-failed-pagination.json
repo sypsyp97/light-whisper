@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "generator": "TLC 1.7.4 counterexample",
+  "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model": "formal/HistoryFilterOwnership.tla",
+  "config": "formal/HistoryFilterOwnershipFailedPaginationNegative.cfg",
+  "model_sha256": "dfbb52c56d3a2efec59ed31ba41d6e41efed9fcd8dabf1e2c4df8f02ce165133",
+  "config_sha256": "e75d1e734fc7b954ad928f96b816a518f1f44b5680b7bf89ca3709b56adad1d7",
+  "counterexample": "formal/traces/history-filter-failed-pagination.tlc.txt",
+  "counterexample_sha256": "e86d5d4a7abbada89c507e58fc58318f30769012c5fdb87c3eaa87b312907491",
+  "violated_invariant": "PendingResetBlocksPagination",
+  "events": [
+    "history:filter:change",
+    "history:reset:dispatch",
+    "history:reset:failure"
+  ]
+}

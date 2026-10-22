@@ -30,8 +30,13 @@ export function useAsrEngineSettings({
   const modelsRequestId = useRef(0);
   const mounted = useRef(false);
   const transitioning = useRef(false);
+  const configRetryVersion = useRef<number | null>(null);
+  const [configRetryOwner, setConfigRetryOwner] = useState<number | null>(null);
   const [engine, setEngineState] = useState("qwen3-asr-0.6b");
   const [engineLoading, setEngineLoading] = useState(true);
+  const [engineReady, setEngineReady] = useState(false);
+  const [endpointReady, setEndpointReady] = useState(false);
+  const [configReadErrors, setConfigReadErrors] = useState({ engine: false, endpoint: false, key: false });
   const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
   const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
   const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
@@ -40,6 +45,69 @@ export function useAsrEngineSettings({
   const [alibabaAsrModels, setAlibabaAsrModelsState] = useState<readonly string[]>([]);
   const [alibabaAsrModelsSource, setAlibabaAsrModelsSource] = useState<"live" | "fallback">("fallback");
   const [alibabaAsrModelsLoading, setAlibabaAsrModelsLoading] = useState(false);
+
+  const onlineAsrEndpointReady = engineReady && endpointReady;
+  const onlineAsrKeyReady = engineReady
+    && (engine === "glm-asr" || (engine === "alibaba-asr" && endpointReady));
+  const asrConfigError = configReadErrors.engine || configReadErrors.endpoint || configReadErrors.key;
+  const asrConfigRetrying = configRetryOwner === configVersion.current;
+
+  const readAsrConfig = useCallback(async (parts: { engine?: boolean; endpoint?: boolean; key?: boolean }) => {
+    const version = configVersion.current;
+    const keyVersion = keyReadVersion.current;
+    const current = () => mounted.current && version === configVersion.current;
+    setConfigReadErrors((previous) => ({
+      engine: parts.engine ? false : previous.engine,
+      endpoint: parts.endpoint ? false : previous.endpoint,
+      key: parts.key ? false : previous.key,
+    }));
+    if (parts.engine) setEngineLoading(true);
+    // Publish each successful read independently: a missing key cannot erase a known region.
+    return Promise.all([
+      parts.engine && getEngine().then((value) => {
+        if (!current()) return;
+        setEngineState(value);
+        setEngineReady(true);
+      }).catch((error) => {
+        if (!current()) return;
+        setConfigReadErrors((previous) => ({ ...previous, engine: true }));
+        throw error;
+      }).finally(() => { if (current()) setEngineLoading(false); }),
+      parts.endpoint && getOnlineAsrEndpoint().then((endpoint) => {
+        if (!current()) return;
+        setOnlineAsrRegion(endpoint.region);
+        setOnlineAsrUrl(endpoint.url);
+        setEndpointReady(true);
+      }).catch((error) => {
+        if (!current()) return;
+        setConfigReadErrors((previous) => ({ ...previous, endpoint: true }));
+        throw error;
+      }),
+      parts.key && getOnlineAsrApiKey().then((key) => {
+        if (current() && keyVersion === keyReadVersion.current) setOnlineAsrApiKeyState(key || "");
+      }).catch((error) => {
+        if (!current() || keyVersion !== keyReadVersion.current) return;
+        setConfigReadErrors((previous) => ({ ...previous, key: true }));
+        throw error;
+      }),
+    ]).then(() => false, () => current());
+  }, []);
+
+  const retryAsrConfig = useCallback(async () => {
+    const version = configVersion.current;
+    if (transitioning.current || configRetryVersion.current === version) return;
+    configRetryVersion.current = version;
+    setConfigRetryOwner(version);
+    try {
+      // Keep confirmed identity and valid drafts; retry only failed reads.
+      await readAsrConfig(configReadErrors);
+    } finally {
+      if (configRetryVersion.current === version) {
+        configRetryVersion.current = null;
+        setConfigRetryOwner(null);
+      }
+    }
+  }, [configReadErrors, readAsrConfig]);
 
   const computeOnlineAsrKeyringUser = useCallback((engineValue: string, region: string): string => {
     if (engineValue === "alibaba-asr") {
@@ -63,32 +131,19 @@ export function useAsrEngineSettings({
 
   useEffect(() => {
     mounted.current = true;
-    const version = configVersion.current;
-    const keyVersion = keyReadVersion.current;
+    const version = ++configVersion.current;
     const modelVersion = modelSelectionVersion.current;
     const catalogVersion = modelsRequestId.current;
     let disposed = false;
     const current = () => !disposed && version === configVersion.current;
-    getEngine().then((value) => {
-      if (!current()) return;
-      setEngineState(value);
-      setEngineLoading(false);
-    }).catch(() => { if (current()) setEngineLoading(false); });
-    getOnlineAsrApiKey().then((key) => {
-      if (current() && keyVersion === keyReadVersion.current) setOnlineAsrApiKeyState(key || "");
-    }).catch(() => {});
-    getOnlineAsrEndpoint().then((endpoint) => {
-      if (!current()) return;
-      setOnlineAsrRegion(endpoint.region);
-      setOnlineAsrUrl(endpoint.url);
-    }).catch(() => {});
+    void readAsrConfig({ engine: true, endpoint: true, key: true });
     getAlibabaAsrConfig().then((config) => {
       if (!current()) return;
       if (modelVersion === modelSelectionVersion.current) setAlibabaAsrModelState(config.model);
       if (catalogVersion === modelsRequestId.current) setAlibabaAsrModelsState(config.models);
     }).catch(() => {});
     return () => { disposed = true; mounted.current = false; modelsRequestId.current += 1; };
-  }, []);
+  }, [readAsrConfig]);
 
   const refreshAlibabaModels = useCallback(async () => {
     const requestId = ++modelsRequestId.current;
@@ -133,18 +188,13 @@ export function useAsrEngineSettings({
       setOnlineAsrApiKeyState("");
       setOnlineAsrUrl("");
       setEngineState(newEngine);
+      setEngineReady(true);
+      setEndpointReady(false);
+      setConfigReadErrors({ engine: false, endpoint: false, key: false });
       toast.success(t("toast.switchedToEngine", { label: engineLabel(newEngine) }));
       // The backend reloads the keyring slot for the new online engine.
       if (newEngine === "glm-asr" || newEngine === "alibaba-asr") {
-        try {
-          const [key, endpoint] = await Promise.all([
-            getOnlineAsrApiKey(),
-            getOnlineAsrEndpoint(),
-          ]);
-          setOnlineAsrApiKeyState(key || "");
-          setOnlineAsrRegion(endpoint.region);
-          setOnlineAsrUrl(endpoint.url);
-        } catch {
+        if (await readAsrConfig({ key: true, endpoint: true })) {
           toast.error(t("toast.onlineAsrConfigReadFailed"));
         }
       }
@@ -155,10 +205,10 @@ export function useAsrEngineSettings({
       transitioning.current = false;
       setEngineLoading(false);
     }
-  }, [engine, engineLabel, engineLoading, onlineAsrKeySave, retryModel, t]);
+  }, [engine, engineLabel, engineLoading, onlineAsrKeySave, readAsrConfig, retryModel, t]);
 
   const handleOnlineAsrRegionChange = useCallback(async (region: string) => {
-    if (transitioning.current || engineLoading || onlineAsrRegionLoading || onlineAsrRegion === region) return;
+    if (transitioning.current || engineLoading || onlineAsrRegionLoading || !onlineAsrEndpointReady || onlineAsrRegion === region) return;
     transitioning.current = true;
     setOnlineAsrRegionLoading(true);
     try {
@@ -174,11 +224,9 @@ export function useAsrEngineSettings({
       if (engine === "alibaba-asr") setOnlineAsrApiKeyState("");
       setOnlineAsrRegion(endpoint.region);
       setOnlineAsrUrl(endpoint.url);
+      setEndpointReady(true);
       if (engine === "alibaba-asr") {
-        try {
-          const key = await getOnlineAsrApiKey();
-          setOnlineAsrApiKeyState(key || "");
-        } catch {
+        if (await readAsrConfig({ key: true })) {
           toast.error(t("toast.onlineAsrConfigReadFailed"));
         }
       }
@@ -188,17 +236,18 @@ export function useAsrEngineSettings({
       transitioning.current = false;
       setOnlineAsrRegionLoading(false);
     }
-  }, [engine, engineLoading, onlineAsrKeySave, onlineAsrRegion, onlineAsrRegionLoading, t]);
+  }, [engine, engineLoading, onlineAsrEndpointReady, onlineAsrKeySave, onlineAsrRegion, onlineAsrRegionLoading, readAsrConfig, t]);
 
   const handleOnlineAsrApiKeyChange = useCallback((value: string) => {
-    if (transitioning.current) return;
+    if (transitioning.current || !onlineAsrKeyReady) return;
     keyReadVersion.current += 1;
+    setConfigReadErrors((previous) => ({ ...previous, key: false }));
     setOnlineAsrApiKeyState(value);
     onlineAsrKeySave.schedule(
       value,
       computeOnlineAsrKeyringUser(engine, onlineAsrRegion),
     );
-  }, [computeOnlineAsrKeyringUser, engine, onlineAsrKeySave, onlineAsrRegion]);
+  }, [computeOnlineAsrKeyringUser, engine, onlineAsrKeyReady, onlineAsrKeySave, onlineAsrRegion]);
 
   const handleAlibabaAsrModelSelect = useCallback(async (model: string) => {
     try {
@@ -216,6 +265,8 @@ export function useAsrEngineSettings({
     alibabaAsrModelsLoading,
     alibabaAsrModelsSource,
     alibabaHasKey,
+    asrConfigError,
+    asrConfigRetrying,
     engine,
     engineLoading,
     handleAlibabaAsrModelSelect,
@@ -223,9 +274,12 @@ export function useAsrEngineSettings({
     handleOnlineAsrApiKeyChange,
     handleOnlineAsrRegionChange,
     onlineAsrApiKey,
+    onlineAsrEndpointReady,
+    onlineAsrKeyReady,
     onlineAsrRegion,
     onlineAsrRegionLoading,
     onlineAsrUrl,
     refreshAlibabaModels,
+    retryAsrConfig,
   };
 }

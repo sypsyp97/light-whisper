@@ -1,4 +1,4 @@
-"""Check three replay sensitivities in isolated local snapshots; never edit live sources."""
+"""Check replay sensitivities in isolated local snapshots; never edit live sources."""
 
 import argparse
 import hashlib
@@ -10,6 +10,139 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = {
+    "online-asr-identity-initial": {
+        "source": "src/hooks/useAsrEngineSettings.ts",
+        "changes": [("    if (transitioning.current || !onlineAsrKeyReady) return;",
+                     "    if (transitioning.current) return;")],
+        "test": "src/hooks/__tests__/useAsrEngineSettingsFormalReplay.test.tsx",
+        "pattern": "replays online-asr-identity-initial through the real hook",
+        "failure": "to deeply equal []",
+    },
+    "online-asr-identity-switch": {
+        "source": "src/hooks/useAsrEngineSettings.ts",
+        "changes": [("    if (transitioning.current || !onlineAsrKeyReady) return;",
+                     "    if (transitioning.current) return;")],
+        "test": "src/hooks/__tests__/useAsrEngineSettingsFormalReplay.test.tsx",
+        "pattern": "replays online-asr-identity-switch through the real hook",
+        "failure": "to deeply equal []",
+    },
+    "online-asr-identity-stale": {
+        "source": "src/hooks/useAsrEngineSettings.ts",
+        "changes": [(
+            "      parts.endpoint && getOnlineAsrEndpoint().then((endpoint) => {\n        if (!current()) return;",
+            "      parts.endpoint && getOnlineAsrEndpoint().then((endpoint) => {",
+        )],
+        "test": "src/hooks/__tests__/useAsrEngineSettingsFormalReplay.test.tsx",
+        "pattern": "replays online-asr-identity-stale through the real hook",
+        "failure": "international.example.test",
+    },
+    "online-asr-identity-key-failure": {
+        "source": "src/hooks/useAsrEngineSettings.ts",
+        "changes": [(
+            "        setConfigReadErrors((previous) => ({ ...previous, key: true }));",
+            "        setEndpointReady(false);\n        setConfigReadErrors((previous) => ({ ...previous, key: true }));",
+        )],
+        "test": "src/hooks/__tests__/useAsrEngineSettingsFormalReplay.test.tsx",
+        "pattern": "replays online-asr-identity-key-failure through the real hook",
+        "failure": "expected false to be true",
+    },
+    "online-asr-identity-recovery": {
+        "source": "src/hooks/useAsrEngineSettings.ts",
+        "changes": [("      await readAsrConfig(configReadErrors);",
+                     "      setEndpointReady(false);\n      await readAsrConfig(configReadErrors);")],
+        "test": "src/hooks/__tests__/useAsrEngineSettingsFormalReplay.test.tsx",
+        "pattern": "replays online-asr-identity-recovery through the real hook",
+        "failure": "expected false to be true",
+    },
+    "online-asr-identity-retry-owner": {
+        "source": "src/hooks/useAsrEngineSettings.ts",
+        "changes": [(
+            "    const version = configVersion.current;\n    if (transitioning.current || configRetryVersion.current === version) return;",
+            "    const version = ++configVersion.current;\n    if (transitioning.current || configRetryVersion.current === version) return;",
+        )],
+        "test": "src/hooks/__tests__/useAsrEngineSettingsFormalReplay.test.tsx",
+        "pattern": "replays online-asr-identity-retry-owner through the real hook",
+        "failure": "to be 'domestic'",
+    },
+    "online-asr-identity-sibling": {
+        "source": "src/hooks/useAsrEngineSettings.ts",
+        "changes": [("    return Promise.all([\n      parts.engine",
+                     "    return Promise.allSettled([\n      parts.engine")],
+        "test": "src/hooks/__tests__/useAsrEngineSettingsFormalReplay.test.tsx",
+        "pattern": "replays online-asr-identity-sibling through the real hook",
+        "failure": "expected true to be false",
+    },
+    "engine-status-event": {
+        "source": "src/hooks/useModelStatus.ts",
+        "changes": [(
+            "          statusRequestIdRef.current += 1;\n          const { status, message } = event.payload;",
+            "          const { status, message } = event.payload;",
+        )],
+        "test": "src/hooks/__tests__/useModelStatusFormalReplay.test.tsx",
+        "pattern": "replays engine-status-event through the real hook",
+        "failure": "to deeply equal",
+    },
+    "engine-status-query": {
+        "source": "src/hooks/useModelStatus.ts",
+        "changes": [("    const requestId = ++statusRequestIdRef.current;",
+                     "    const requestId = statusRequestIdRef.current;")],
+        "test": "src/hooks/__tests__/useModelStatusFormalReplay.test.tsx",
+        "pattern": "replays engine-status-query through the real hook",
+        "failure": "to deeply equal",
+    },
+    "engine-status-start": {
+        "source": "src/hooks/useModelStatus.ts",
+        "changes": [("      } catch (startErr) {\n        if (!currentStart()) return;",
+                     "      } catch (startErr) {")],
+        "test": "src/hooks/__tests__/useModelStatusFormalReplay.test.tsx",
+        "pattern": "replays engine-status-start through the real hook",
+        "failure": "to deeply equal",
+    },
+    "engine-status-progress": {
+        "source": "src/hooks/useModelStatus.ts",
+        "changes": [(
+            '          } else if (status === "loading") {\n            setStage("loading");',
+            '          } else if (status === "loading") {\n            startRequestIdRef.current += 1;\n            setStage("loading");',
+        )],
+        "test": "src/hooks/__tests__/useModelStatusFormalReplay.test.tsx",
+        "pattern": "replays engine-status-progress through the real hook",
+        "failure": "to match object",
+    },
+    "engine-status-terminal-query": {
+        "source": "src/hooks/useModelStatus.ts",
+        "changes": [(
+            "  const enterErrorState = useCallback((message: string) => {\n    statusRequestIdRef.current += 1;",
+            "  const enterErrorState = useCallback((message: string) => {",
+        )],
+        "test": "src/hooks/__tests__/useModelStatusFormalReplay.test.tsx",
+        "pattern": "replays engine-status-progress through the real hook",
+        "failure": "to deeply equal",
+    },
+    "history-stats-publication": {
+        "source": "src/pages/HistoryPage.tsx",
+        "changes": [("if (currentRequest === statsRequestId.current) setStats(nextStats);",
+                     "setStats(nextStats);")],
+        "test": "src/pages/__tests__/HistoryStatsFormalReplay.test.tsx",
+        "pattern": "replays history-stats-publication through the actual page",
+        "failure": "historyPage.total:202",
+    },
+    "history-stats-error": {
+        "source": "src/pages/HistoryPage.tsx",
+        "changes": [(
+            '      if (currentRequest === statsRequestId.current) {\n        console.error("Failed to load history stats:", error);\n      }',
+            '      console.error("Failed to load history stats:", error);',
+        )],
+        "test": "src/pages/__tests__/HistoryStatsFormalReplay.test.tsx",
+        "pattern": "replays history-stats-error through the actual page",
+        "failure": "to deeply equal []",
+    },
+    "history-stats-cleanup": {
+        "source": "src/pages/HistoryPage.tsx",
+        "changes": [("      statsRequestId.current += 1;\n", "")],
+        "test": "src/pages/__tests__/HistoryStatsFormalReplay.test.tsx",
+        "pattern": "replays history-stats-cleanup through the actual page",
+        "failure": "to deeply equal []",
+    },
     "assistant-saved-read": {
         "source": "src/pages/SettingsPage.tsx",
         "changes": [("&& provider === assistantProviderRef.current && !draft && !assistantKeyDraftsRef.current[provider];",
@@ -47,6 +180,40 @@ CASES = {
         "test": "src/hooks/__tests__/useMicrophoneSettings.test.tsx",
         "pattern": "replays microphone-effect-owner through two hook instances",
         "failure": "replacement",
+    },
+    "catalog-global-invalidation": {
+        "source": "src/hooks/useModelDiscovery.ts",
+        "changes": [(
+            "const invalidateModels = useCallback(({ clearPolish, clearAssistant }: ModelInvalidationOptions) => {",
+            "const invalidateModels = useCallback(({ clearPolish, clearAssistant }: ModelInvalidationOptions) => {\n    aiModelsRequestIdRef.current += 1;\n    assistantModelsRequestIdRef.current += 1;",
+        )],
+        "test": "src/hooks/__tests__/useModelDiscoveryFormalReplay.test.tsx",
+        "pattern": "replays catalog-global-invalidation through the real hook",
+        "failure": "offline",
+    },
+    "catalog-polish-independent": {
+        "source": "src/hooks/useModelDiscovery.ts",
+        "changes": [(
+            "}, [assistantHasAuth, assistantModelsContext, assistantModelsFetch, assistantUseSeparateModel, sharedAssistantModels]);",
+            "}, [aiModels, assistantHasAuth, assistantModelsContext, assistantModelsFetch, assistantUseSeparateModel, sharedAssistantModels]);",
+        )],
+        "test": "src/hooks/__tests__/useModelDiscoveryFormalReplay.test.tsx",
+        "pattern": "replays catalog-polish-independent through the real hook",
+        "failure": "offline",
+    },
+    "history-filter-late-retirement": {
+        "source": "src/pages/HistoryPage.tsx",
+        "changes": [("      requestId.current += 1;\n", "")],
+        "test": "src/pages/__tests__/HistoryFilterFormalReplay.test.tsx",
+        "pattern": "replays history-filter-late-retirement through the actual page",
+        "failure": "obsolete request failed",
+    },
+    "history-filter-failed-pagination": {
+        "source": "src/pages/HistoryPage.tsx",
+        "changes": [("{hasMore && !loading && !loadError && (", "{hasMore && !loading && (")],
+        "test": "src/pages/__tests__/HistoryFilterFormalReplay.test.tsx",
+        "pattern": "replays history-filter-failed-pagination through the actual page",
+        "failure": "historyPage.loadMore",
     },
 }
 

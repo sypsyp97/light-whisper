@@ -85,6 +85,8 @@ export function useModelStatus(): UseModelStatusReturn {
   const pendingAutoDownloadRef = useRef(false);
   const autoDownloadAllowedRef = useRef(true);
   const downloadGenerationRef = useRef(0);
+  const statusRequestIdRef = useRef(0);
+  const startRequestIdRef = useRef(0);
   const autoDownloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const downloadListenerReadyRef = useRef(false);
   const lastDownloadEventAtRef = useRef(0);
@@ -150,6 +152,7 @@ export function useModelStatus(): UseModelStatusReturn {
   }, []);
 
   const enterNeedDownloadState = useCallback(() => {
+    startRequestIdRef.current += 1;
     restartAttemptedRef.current = false;
     loadingChecksRef.current = 0;
     setStage("need_download");
@@ -162,6 +165,8 @@ export function useModelStatus(): UseModelStatusReturn {
   }, [scheduleAutoDownload]);
 
   const enterErrorState = useCallback((message: string) => {
+    statusRequestIdRef.current += 1;
+    startRequestIdRef.current += 1;
     setError(message);
     setStage("error");
     clearPolling();
@@ -200,7 +205,9 @@ export function useModelStatus(): UseModelStatusReturn {
     if (!mountedRef.current) return;
     if (downloadingRef.current) return;
     const generation = downloadGenerationRef.current;
-    const current = () => mountedRef.current && generation === downloadGenerationRef.current;
+    const requestId = ++statusRequestIdRef.current;
+    const currentGeneration = () => mountedRef.current && generation === downloadGenerationRef.current;
+    const current = () => currentGeneration() && requestId === statusRequestIdRef.current;
 
     try {
       const status = await checkFunASRStatus();
@@ -220,6 +227,7 @@ export function useModelStatus(): UseModelStatusReturn {
       }
 
       if (status.running && status.ready) {
+        startRequestIdRef.current += 1;
         startFailuresRef.current = 0;
         autoDownloadRetryRef.current = 0;
         restartAttemptedRef.current = false;
@@ -255,12 +263,15 @@ export function useModelStatus(): UseModelStatusReturn {
         return;
       }
 
+      const startRequestId = ++startRequestIdRef.current;
+      // Progress events and loading polls do not retire the active native start.
+      const currentStart = () => currentGeneration() && startRequestId === startRequestIdRef.current;
       try {
         await startFunASR();
-        if (!current()) return;
+        if (!currentStart()) return;
         startFailuresRef.current = 0;
       } catch (startErr) {
-        if (!current()) return;
+        if (!currentStart()) return;
         startFailuresRef.current += 1;
         if (startFailuresRef.current < MAX_START_FAILURES) {
           return;
@@ -317,6 +328,7 @@ export function useModelStatus(): UseModelStatusReturn {
         "funasr-status",
         (event) => {
           if (disposed || !mountedRef.current) return;
+          statusRequestIdRef.current += 1;
           const { status, message } = event.payload;
           applyStatusSnapshot(event.payload);
 
@@ -330,13 +342,12 @@ export function useModelStatus(): UseModelStatusReturn {
           }
 
           if (status === "ready") {
+            startRequestIdRef.current += 1;
             setStage("ready");
             setError(null);
             clearPolling();
           } else if (status === "need_api_key") {
-            setStage("error");
-            setError(message ?? i18n.t("model.needApiKey"));
-            clearPolling();
+            enterErrorState(message ?? i18n.t("model.needApiKey"));
           } else if (status === "loading") {
             setStage("loading");
             setDownloadMessage(message ?? null);
@@ -347,6 +358,7 @@ export function useModelStatus(): UseModelStatusReturn {
             }
             enterErrorState(message ?? getEngineStartFallbackMessage());
           } else if (status === "crashed") {
+            startRequestIdRef.current += 1;
             setStage("loading");
             setError(null);
             setDownloadMessage(message ?? i18n.t("model.serviceRestarting"));

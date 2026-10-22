@@ -1,5 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { PersistentHistoryPage } from "@/types";
 
 const api = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock("react-i18next", () => ({
       "common.copy": "复制",
       "common.loading": "加载中",
       "common.minimize": "最小化",
+      "common.retry": "重试",
       "historyPage.allModes": "全部",
       "historyPage.allStatuses": "全部状态",
       "historyPage.appRule": `规则：${options?.name ?? ""}`,
@@ -45,10 +48,14 @@ vi.mock("react-i18next", () => ({
       "historyPage.deleteConfirm": "确认删除",
       "historyPage.dictation": "听写",
       "historyPage.export": "导出",
+      "historyPage.exportFormat": "导出格式",
       "historyPage.exportJson": "JSON",
       "historyPage.exportMarkdown": "Markdown",
       "historyPage.failed": "失败",
       "historyPage.finalText": "最终文本",
+      "historyPage.loadFailed": `加载失败：${options?.error ?? ""}`,
+      "historyPage.loadMore": "加载更多",
+      "historyPage.modeFilter": "按模式筛选",
       "historyPage.polishLatency": "AI",
       "historyPage.rawText": "原始 ASR",
       "historyPage.sourceText": "编辑原文",
@@ -59,6 +66,7 @@ vi.mock("react-i18next", () => ({
       "historyPage.showDetails": "查看详情",
       "historyPage.hideDetails": "收起详情",
       "historyPage.success": "成功",
+      "historyPage.statusFilter": "按状态筛选",
       "historyPage.title": "历史记录",
       "historyPage.totalLatency": "总计",
     })[key] ?? key,
@@ -89,6 +97,16 @@ const record = {
   totalMs: 860,
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   event.listen.mockResolvedValue(vi.fn());
@@ -105,6 +123,243 @@ beforeEach(() => {
 });
 
 describe("HistoryPage", () => {
+  describe("filter changes during search debounce", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it.each([
+      { filter: "query", outcome: "success" },
+      { filter: "query", outcome: "error" },
+      { filter: "mode", outcome: "success" },
+      { filter: "mode", outcome: "error" },
+      { filter: "status", outcome: "success" },
+      { filter: "status", outcome: "error" },
+    ])("ignores an obsolete $outcome after the $filter changes before replacement dispatch", async ({ filter, outcome }) => {
+      vi.useFakeTimers();
+      const obsolete = deferred<PersistentHistoryPage>();
+      const latest = deferred<PersistentHistoryPage>();
+      api.listTranscriptionHistory
+        .mockResolvedValueOnce({ items: [record], total: 2, hasMore: true })
+        .mockReturnValueOnce(obsolete.promise)
+        .mockReturnValueOnce(latest.promise);
+      render(<HistoryPage onNavigate={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByText(record.text)).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText("搜索文本、应用或窗口…"), {
+        target: { value: "older" },
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+      expect(api.listTranscriptionHistory).toHaveBeenLastCalledWith({
+        query: "older", mode: "", status: "", limit: 50, offset: 0,
+      });
+
+      const expectedFilter = { query: "older", mode: "", status: "" };
+      if (filter === "query") {
+        fireEvent.change(screen.getByLabelText("搜索文本、应用或窗口…"), {
+          target: { value: "latest" },
+        });
+        expectedFilter.query = "latest";
+      } else if (filter === "mode") {
+        fireEvent.click(screen.getByRole("button", { name: "助手" }));
+        expectedFilter.mode = "assistant";
+      } else {
+        fireEvent.change(screen.getByDisplayValue("全部状态"), { target: { value: "failed" } });
+        expectedFilter.status = "failed";
+      }
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(179);
+        if (outcome === "success") {
+          obsolete.resolve({ items: [{ ...record, id: 8, text: "Obsolete result" }], total: 2, hasMore: true });
+        } else {
+          obsolete.reject(new Error("Obsolete request failed"));
+        }
+      });
+
+      expect.soft(api.listTranscriptionHistory).toHaveBeenCalledTimes(2);
+      expect.soft(screen.queryByText("Obsolete result")).not.toBeInTheDocument();
+      expect.soft(screen.queryByText(record.text)).toBeInTheDocument();
+      expect.soft(screen.queryByText("加载失败：Obsolete request failed")).not.toBeInTheDocument();
+      expect.soft(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+      const loadMore = screen.queryByRole("button", { name: /加载更多/ });
+      expect.soft(loadMore === null || loadMore.hasAttribute("disabled"), "pagination stays unavailable while the filter reset is pending").toBe(true);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(api.listTranscriptionHistory).toHaveBeenCalledTimes(3);
+      expect(api.listTranscriptionHistory).toHaveBeenLastCalledWith({ ...expectedFilter, limit: 50, offset: 0 });
+      await act(async () => {
+        latest.resolve({ items: [{ ...record, id: 9, text: "Latest result" }], total: 1, hasMore: false });
+      });
+      expect(screen.getByText("Latest result")).toBeInTheDocument();
+      expect(screen.queryByText(record.text)).not.toBeInTheDocument();
+      expect(screen.queryByText("Obsolete result")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+    });
+
+    it("blocks load-more at the previous filter's offset while a search reset waits for debounce", async () => {
+      vi.useFakeTimers();
+      const latest = deferred<PersistentHistoryPage>();
+      api.listTranscriptionHistory.mockImplementation(({ query }) => query
+        ? latest.promise
+        : Promise.resolve({ items: [record], total: 2, hasMore: true }));
+      render(<HistoryPage onNavigate={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("button", { name: /加载更多/ })).toBeEnabled();
+
+      fireEvent.change(screen.getByLabelText("搜索文本、应用或窗口…"), {
+        target: { value: "latest" },
+      });
+      const loadMore = screen.queryByRole("button", { name: /加载更多/ });
+      expect.soft(loadMore === null || loadMore.hasAttribute("disabled"), "pagination is unavailable immediately after changing the filter").toBe(true);
+      if (loadMore) fireEvent.click(loadMore);
+      expect.soft(api.listTranscriptionHistory).toHaveBeenCalledTimes(1);
+      expect.soft(api.listTranscriptionHistory).not.toHaveBeenCalledWith({
+        query: "latest", mode: "", status: "", limit: 50, offset: 1,
+      });
+      expect(screen.getByText(record.text)).toBeInTheDocument();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+      expect(api.listTranscriptionHistory).toHaveBeenLastCalledWith({
+        query: "latest", mode: "", status: "", limit: 50, offset: 0,
+      });
+      await act(async () => {
+        latest.resolve({ items: [{ ...record, id: 9, text: "Latest result" }], total: 1, hasMore: false });
+      });
+      expect(screen.getByText("Latest result")).toBeInTheDocument();
+      expect(screen.queryByText(record.text)).not.toBeInTheDocument();
+    });
+
+    it("shows a current request failure and retries the current filters from offset zero", async () => {
+      vi.useFakeTimers();
+      const current = deferred<PersistentHistoryPage>();
+      const retry = deferred<PersistentHistoryPage>();
+      api.listTranscriptionHistory
+        .mockResolvedValueOnce({ items: [record], total: 2, hasMore: true })
+        .mockReturnValueOnce(current.promise)
+        .mockReturnValueOnce(retry.promise);
+      render(<HistoryPage onNavigate={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByText(record.text)).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText("搜索文本、应用或窗口…"), {
+        target: { value: "current" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "助手" }));
+      fireEvent.change(screen.getByDisplayValue("全部状态"), { target: { value: "success" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+      const currentFilter = { query: "current", mode: "assistant", status: "success", limit: 50, offset: 0 };
+      expect(api.listTranscriptionHistory).toHaveBeenLastCalledWith(currentFilter);
+      await act(async () => { current.reject(new Error("Current request failed")); });
+
+      expect(screen.getByText("加载失败：Current request failed")).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "重试" }));
+      expect(api.listTranscriptionHistory).toHaveBeenCalledTimes(3);
+      expect(api.listTranscriptionHistory).toHaveBeenLastCalledWith(currentFilter);
+      await act(async () => {
+        retry.resolve({
+          items: [{ ...record, id: 9, mode: "assistant", workflow: "assistant", text: "Retried current result" }],
+          total: 1,
+          hasMore: false,
+        });
+      });
+      expect(screen.getByText("Retried current result")).toBeVisible();
+      expect(screen.queryByText("加载失败：Current request failed")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+      expect(screen.queryByText(record.text)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("recovery and control semantics", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("keeps pagination unavailable after a failed filter reset until retry replaces the previous page", async () => {
+      vi.useFakeTimers();
+      const reset = deferred<PersistentHistoryPage>();
+      const retry = deferred<PersistentHistoryPage>();
+      const recoveredItems = [
+        { ...record, id: 8, mode: "assistant" as const, workflow: "assistant" as const, text: "Recovered first result" },
+        { ...record, id: 9, mode: "assistant" as const, workflow: "assistant" as const, text: "Recovered second result" },
+      ];
+      const appendedItem = { ...recoveredItems[0], id: 10, text: "Recovered next page" };
+      api.listTranscriptionHistory
+        .mockResolvedValueOnce({ items: [record], total: 4, hasMore: true })
+        .mockReturnValueOnce(reset.promise)
+        .mockReturnValueOnce(retry.promise)
+        .mockResolvedValueOnce({ items: [appendedItem], total: 3, hasMore: false });
+      render(<HistoryPage onNavigate={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("button", { name: /加载更多/ })).toBeEnabled();
+
+      fireEvent.change(screen.getByLabelText("搜索文本、应用或窗口…"), {
+        target: { value: "recovered" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "助手" }));
+      fireEvent.change(screen.getByDisplayValue("全部状态"), { target: { value: "success" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(180); });
+      const currentFilter = { query: "recovered", mode: "assistant", status: "success", limit: 50 };
+      expect(api.listTranscriptionHistory).toHaveBeenLastCalledWith({ ...currentFilter, offset: 0 });
+      await act(async () => { reset.reject(new Error("Filter reset failed")); });
+
+      expect(screen.getByText("加载失败：Filter reset failed")).toBeVisible();
+      expect(screen.getByText(record.text)).toBeVisible();
+      const loadMoreAfterFailure = screen.queryByRole("button", { name: /加载更多/ });
+      expect.soft(loadMoreAfterFailure === null || loadMoreAfterFailure.hasAttribute("disabled"), "pagination stays unavailable after the current filter reset fails").toBe(true);
+
+      fireEvent.click(screen.getByRole("button", { name: "重试" }));
+      expect(api.listTranscriptionHistory).toHaveBeenCalledTimes(3);
+      expect(api.listTranscriptionHistory).toHaveBeenLastCalledWith({ ...currentFilter, offset: 0 });
+      const loadMoreDuringRetry = screen.queryByRole("button", { name: /加载更多/ });
+      expect.soft(loadMoreDuringRetry === null || loadMoreDuringRetry.hasAttribute("disabled"), "pagination stays unavailable until retry succeeds").toBe(true);
+      expect(screen.getByText(record.text)).toBeVisible();
+
+      await act(async () => { retry.resolve({ items: recoveredItems, total: 3, hasMore: true }); });
+      expect(screen.queryByText(record.text)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+      for (const item of recoveredItems) expect(screen.getByText(item.text)).toBeVisible();
+      expect(screen.getByRole("button", { name: /加载更多/ })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
+      expect(api.listTranscriptionHistory).toHaveBeenCalledTimes(4);
+      expect(api.listTranscriptionHistory).toHaveBeenLastCalledWith({ ...currentFilter, offset: recoveredItems.length });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByText(appendedItem.text)).toBeVisible();
+      for (const item of recoveredItems) expect(screen.getByText(item.text)).toBeVisible();
+      expect(screen.queryByRole("button", { name: /加载更多/ })).not.toBeInTheDocument();
+    });
+
+    it("names native comboboxes by their translated purpose when values change", async () => {
+      vi.useFakeTimers();
+      render(<HistoryPage onNavigate={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      const exportFormat = screen.getByDisplayValue("Markdown");
+      const statusFilter = screen.getByDisplayValue("全部状态");
+      expect(screen.getAllByRole("combobox")).toEqual([exportFormat, statusFilter]);
+      expect.soft(exportFormat).toHaveAccessibleName("导出格式");
+      expect.soft(statusFilter).toHaveAccessibleName("按状态筛选");
+
+      fireEvent.change(exportFormat, { target: { value: "json" } });
+      fireEvent.change(statusFilter, { target: { value: "failed" } });
+      expect(exportFormat).toHaveValue("json");
+      expect(statusFilter).toHaveValue("failed");
+      expect.soft(exportFormat).toHaveAccessibleName("导出格式");
+      expect.soft(statusFilter).toHaveAccessibleName("按状态筛选");
+    });
+
+    it("exposes exactly one pressed mode and updates it when switching modes", async () => {
+      vi.useFakeTimers();
+      render(<HistoryPage onNavigate={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      const modeFilter = screen.getByRole("group");
+      expect.soft(modeFilter).toHaveAccessibleName("按模式筛选");
+      const modeButtons = ["全部", "听写", "助手"].map((name) => within(modeFilter).getByRole("button", { name }));
+      expect.soft(modeButtons.map((button) => button.getAttribute("aria-pressed")), "all modes is selected initially").toEqual(["true", "false", "false"]);
+
+      for (const selected of [1, 2, 0]) {
+        fireEvent.click(modeButtons[selected]);
+        expect.soft(modeButtons.map((button) => button.getAttribute("aria-pressed")), `selected mode: ${modeButtons[selected].textContent}`).toEqual(modeButtons.map((_, index) => String(index === selected)));
+      }
+    });
+  });
+
   it("finishes the delete transition before applying a backend history notification", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const { container } = render(<HistoryPage onNavigate={vi.fn()} />);

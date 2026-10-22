@@ -153,15 +153,19 @@ describe("online ASR credential ownership", () => {
     expect(api.setOnlineAsrApiKey).not.toHaveBeenCalled();
   });
 
-  it("still applies initial endpoint data when only the key draft changes", async () => {
+  it("blocks an unsafe draft, still applies the endpoint, and saves a later edit to its confirmed slot", async () => {
     const endpoint = deferred<{region: string; url: string}>();
     api.getOnlineAsrEndpoint.mockReturnValueOnce(endpoint.promise);
     const { result, unmount } = await setup("alibaba-asr");
     act(() => { result.current.handleOnlineAsrApiKeyChange("FAKE_USER_EDIT"); });
+    expect.soft(result.current.onlineAsrApiKey).toBe("FAKE_OLD_KEY");
+    expect(api.setOnlineAsrApiKey).not.toHaveBeenCalled();
     await act(async () => { endpoint.resolve({region: "domestic", url: "https://current.example"}); });
     expect(result.current.onlineAsrRegion).toBe("domestic");
-    expect(result.current.onlineAsrApiKey).toBe("FAKE_USER_EDIT");
+    expect.soft(result.current.onlineAsrApiKey).toBe("FAKE_OLD_KEY");
+    act(() => { result.current.handleOnlineAsrApiKeyChange("FAKE_CONFIRMED_EDIT"); });
     unmount();
+    expect(api.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_CONFIRMED_EDIT", "alibaba-asr-cn-api-key");
   });
 
 });

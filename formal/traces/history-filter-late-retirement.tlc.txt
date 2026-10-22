@@ -1,0 +1,74 @@
+Error: Invariant ObsoleteCannotPublishOrEndReset is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ lastEvent = "init"
+/\ s = [ filter |-> 0,
+  pageFilter |-> 0,
+  old |-> "absent",
+  reset |-> "absent",
+  page |-> "absent",
+  owner |-> 0,
+  pendingReset |-> FALSE,
+  loading |-> FALSE,
+  error |-> FALSE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 0,
+  requestFilter |-> 0,
+  requestKind |-> "none",
+  obsoleteOK |-> TRUE ]
+
+State 2: <BeginOld line 18, col 3 to line 22, col 37 of module HistoryFilterOwnership>
+/\ lastEvent = "history:old:begin"
+/\ s = [ filter |-> 0,
+  pageFilter |-> 0,
+  old |-> "pending",
+  reset |-> "absent",
+  page |-> "absent",
+  owner |-> 1,
+  pendingReset |-> FALSE,
+  loading |-> FALSE,
+  error |-> FALSE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 1,
+  requestFilter |-> 0,
+  requestKind |-> "old",
+  obsoleteOK |-> TRUE ]
+
+State 3: <ChangeFilter line 24, col 3 to line 28, col 41 of module HistoryFilterOwnership>
+/\ lastEvent = "history:filter:change"
+/\ s = [ filter |-> 1,
+  pageFilter |-> 0,
+  old |-> "pending",
+  reset |-> "queued",
+  page |-> "absent",
+  owner |-> 1,
+  pendingReset |-> TRUE,
+  loading |-> TRUE,
+  error |-> FALSE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 1,
+  requestFilter |-> 0,
+  requestKind |-> "old",
+  obsoleteOK |-> TRUE ]
+
+State 4: <CompleteOld line 36, col 3 to line 43, col 78 of module HistoryFilterOwnership>
+/\ lastEvent = "history:old:failure"
+/\ s = [ filter |-> 1,
+  pageFilter |-> 0,
+  old |-> "complete",
+  reset |-> "queued",
+  page |-> "absent",
+  owner |-> 1,
+  pendingReset |-> TRUE,
+  loading |-> FALSE,
+  error |-> TRUE,
+  hasMore |-> TRUE,
+  items |-> <<1>>,
+  offset |-> 1,
+  requestFilter |-> 0,
+  requestKind |-> "old",
+  obsoleteOK |-> FALSE ]
+

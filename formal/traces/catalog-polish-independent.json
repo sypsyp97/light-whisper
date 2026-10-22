@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "generator": "TLC 1.7.4 counterexample",
+  "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model": "formal/CatalogDiscoveryOwnership.tla",
+  "config": "formal/CatalogDiscoveryOwnershipPolishNegative.cfg",
+  "model_sha256": "1ed9228591ce0457ea6de6dff076a1db9383c76888205526a2b8a9b51fba79f6",
+  "config_sha256": "7c84ede757200924f7a81a3a196abc425bc9d500648dab0ac032e4a9bb4ef8a2",
+  "counterexample": "formal/traces/catalog-polish-independent.tlc.txt",
+  "counterexample_sha256": "f6a39ef924f22707fd21fd03e3e0691cba084df949b571d3f3f3f29e7394c905",
+  "violated_invariant": "LatestValidCompletionPublishes",
+  "events": [
+    "catalog:polish:begin:1",
+    "catalog:assistant:begin:1",
+    "catalog:polish:success:1",
+    "catalog:assistant:failure:1"
+  ]
+}

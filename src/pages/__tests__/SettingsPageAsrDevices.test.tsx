@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { INPUT_DEVICE_STORAGE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
 import type { UserProfile } from "@/types";
@@ -129,6 +129,7 @@ const labels: Record<string, string> = {
   "common.copy": "Copy",
   "common.change": "Change",
   "common.refresh": "Refresh",
+  "common.retry": "Retry",
   "common.test": "Test",
   "settings.addCustomProvider": "Add Custom Provider",
   "settings.alsoSystemDefault": "Also the system default",
@@ -149,6 +150,8 @@ const labels: Record<string, string> = {
   "settings.glmApiKeyPlaceholder": "GLM API Key",
   "settings.glmAsrDesc": "GLM cloud speech recognition",
   "settings.engine": "ASR Engine",
+  "settings.domestic": "Domestic",
+  "settings.international": "International",
   "settings.currentDefault": "System default: {{name}}",
   "settings.micLevelMonitor": "Microphone Level Monitor",
   "settings.micMonitorOff": "Microphone level monitor is off",
@@ -536,5 +539,355 @@ describe("SettingsPage ASR and device settings", () => {
         expect(disposer).toHaveBeenCalled();
       }
     });
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+function asrSection() {
+  return within(screen.getByRole("heading", { name: "ASR Engine" }).closest("section")!);
+}
+
+async function renderAsrSettings() {
+  const rendered = await renderSettings();
+  await act(async () => { await Promise.resolve(); });
+  vi.useFakeTimers();
+  return rendered;
+}
+
+async function selectAsrEngine(name: RegExp) {
+  fireEvent.click(asrSection().getByRole("button", { name: "ASR Engine" }));
+  await act(async () => {
+    fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name }));
+  });
+}
+
+describe("SettingsPage ASR credential identity and recovery", () => {
+  const domestic = { region: "domestic", url: "https://cn.example" };
+
+  beforeEach(() => {
+    tauriMock.setEngine.mockImplementation(async (engine: string) => engine);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it("disables Alibaba key and region controls until the initial endpoint identifies the slot", async () => {
+    tauriMock.getEngine.mockResolvedValue("alibaba-asr");
+    tauriMock.getOnlineAsrApiKey.mockResolvedValue("FAKE_STORED_CN_KEY");
+    const endpoint = deferred<typeof domestic>();
+    tauriMock.getOnlineAsrEndpoint.mockReturnValueOnce(endpoint.promise);
+    const rendered = await renderAsrSettings();
+    const key = screen.getByPlaceholderText("Alibaba API Key");
+    expect.soft(key).toBeDisabled();
+    expect.soft(asrSection().getByRole("button", { name: "Domestic" })).toBeDisabled();
+    expect.soft(asrSection().getByRole("button", { name: "International" })).toBeDisabled();
+    expect(tauriMock.setOnlineAsrApiKey).not.toHaveBeenCalled();
+
+    await act(async () => { endpoint.resolve(domestic); });
+    expect(key).not.toBeDisabled();
+    expect(asrSection().getByText(domestic.url)).toBeInTheDocument();
+    fireEvent.change(key, { target: { value: "FAKE_CONFIRMED_CN_KEY" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(599); });
+    expect(tauriMock.setOnlineAsrApiKey).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_CONFIRMED_CN_KEY", "alibaba-asr-cn-api-key");
+    fireEvent.change(key, { target: { value: "" } });
+    rendered.unmount();
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenNthCalledWith(2, "", "alibaba-asr-cn-api-key");
+  });
+
+  it("offers an inline retry after initial endpoint failure and restores domestic key editing", async () => {
+    tauriMock.getEngine.mockResolvedValue("alibaba-asr");
+    tauriMock.getOnlineAsrEndpoint.mockRejectedValueOnce(new Error("endpoint unavailable"));
+    const retryEndpoint = deferred<typeof domestic>();
+    tauriMock.getOnlineAsrEndpoint.mockReturnValueOnce(retryEndpoint.promise);
+    await renderAsrSettings();
+    const retry = asrSection().getByRole("button", { name: /retry/i });
+    const key = screen.getByPlaceholderText("Alibaba API Key");
+    expect(retry).not.toBeDisabled();
+    expect(key).toBeDisabled();
+    expect(asrSection().getByRole("button", { name: "Domestic" })).toBeDisabled();
+
+    await act(async () => { fireEvent.click(retry); });
+    expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(2);
+    expect(key).toBeDisabled();
+    await act(async () => { retryEndpoint.reject(new Error("endpoint still unavailable")); });
+    const retryAgain = asrSection().getByRole("button", { name: /retry/i });
+    expect(retryAgain).not.toBeDisabled();
+    expect(key).toBeDisabled();
+    tauriMock.getOnlineAsrEndpoint.mockResolvedValueOnce(domestic);
+    await act(async () => { fireEvent.click(retryAgain); });
+    expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(3);
+    expect(key).not.toBeDisabled();
+    expect(asrSection().queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
+    fireEvent.change(key, { target: { value: "FAKE_RECOVERED_CN_KEY" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_RECOVERED_CN_KEY", "alibaba-asr-cn-api-key");
+    expect(tauriMock.setEngine).not.toHaveBeenCalled();
+  });
+
+  it("retains a successful engine switch and retries failed endpoint reads without repeating setEngine", async () => {
+    tauriMock.getEngine.mockResolvedValueOnce("glm-asr").mockResolvedValue("alibaba-asr");
+    tauriMock.getOnlineAsrApiKey.mockResolvedValueOnce("FAKE_GLM_KEY").mockResolvedValue("FAKE_CN_KEY");
+    tauriMock.getOnlineAsrEndpoint
+      .mockResolvedValueOnce({ region: "international", url: "https://glm.example" })
+      .mockRejectedValueOnce(new Error("endpoint unavailable"));
+    await renderAsrSettings();
+    await selectAsrEngine(/Alibaba DashScope/);
+    expect(asrSection().getByRole("button", { name: "ASR Engine" })).toHaveTextContent("Alibaba DashScope");
+    expect.soft(screen.getByPlaceholderText("Alibaba API Key")).toBeDisabled();
+    const retry = asrSection().getByRole("button", { name: /retry/i });
+    expect(retry).not.toBeDisabled();
+    tauriMock.getOnlineAsrEndpoint.mockResolvedValueOnce(domestic);
+    await act(async () => { fireEvent.click(retry); });
+    expect(tauriMock.setEngine).toHaveBeenCalledExactlyOnceWith("alibaba-asr");
+    expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(3);
+    const key = screen.getByPlaceholderText("Alibaba API Key");
+    expect(key).not.toBeDisabled();
+    expect(asrSection().getByText(domestic.url)).toBeInTheDocument();
+    fireEvent.change(key, { target: { value: "FAKE_RETRIED_CN_KEY" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_RETRIED_CN_KEY", "alibaba-asr-cn-api-key");
+  });
+
+  it("recovers the actual engine through an inline retry after the initial engine read rejects", async () => {
+    const initialEngine = deferred<string>();
+    tauriMock.getEngine.mockReturnValueOnce(initialEngine.promise).mockResolvedValue("alibaba-asr");
+    tauriMock.getOnlineAsrEndpoint.mockResolvedValue(domestic);
+    await renderAsrSettings();
+    expect(asrSection().getByRole("button", { name: "ASR Engine" })).toBeDisabled();
+    await act(async () => { initialEngine.reject(new Error("engine unavailable")); });
+    const retry = asrSection().getByRole("button", { name: /retry/i });
+    expect(retry).not.toBeDisabled();
+    await act(async () => { fireEvent.click(retry); });
+    expect(tauriMock.getEngine).toHaveBeenCalledTimes(2);
+    expect(asrSection().getByRole("button", { name: "ASR Engine" })).toHaveTextContent("Alibaba DashScope");
+    const key = screen.getByPlaceholderText("Alibaba API Key");
+    expect(key).not.toBeDisabled();
+    fireEvent.change(key, { target: { value: "FAKE_ACTUAL_ENGINE_CN_KEY" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_ACTUAL_ENGINE_CN_KEY", "alibaba-asr-cn-api-key");
+    expect(tauriMock.setEngine).not.toHaveBeenCalled();
+  });
+
+  it("clears the old provider key while preserving a successful domestic endpoint when its key read fails", async () => {
+    tauriMock.getEngine.mockResolvedValue("glm-asr");
+    tauriMock.getOnlineAsrApiKey.mockResolvedValueOnce("FAKE_OLD_GLM_KEY").mockRejectedValueOnce(new Error("keyring unavailable"));
+    tauriMock.getOnlineAsrEndpoint
+      .mockResolvedValueOnce({ region: "international", url: "https://glm.example" })
+      .mockResolvedValueOnce(domestic);
+    await renderAsrSettings();
+    await selectAsrEngine(/Alibaba DashScope/);
+    const key = screen.getByPlaceholderText("Alibaba API Key");
+    expect(key).toHaveValue("");
+    expect(key).not.toBeDisabled();
+    expect.soft(asrSection().queryByText(domestic.url)).toBeInTheDocument();
+    fireEvent.change(key, { target: { value: "FAKE_MANUAL_CN_KEY" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_MANUAL_CN_KEY", "alibaba-asr-cn-api-key");
+  });
+
+  it.each(["pending", "failed"] as const)("keeps GLM key editing available while its endpoint is %s", async (readState) => {
+    tauriMock.getEngine.mockResolvedValue("glm-asr");
+    const endpoint = deferred<typeof domestic>();
+    tauriMock.getOnlineAsrEndpoint.mockReturnValueOnce(endpoint.promise);
+    await renderAsrSettings();
+    if (readState === "failed") {
+      await act(async () => { endpoint.reject(new Error("endpoint unavailable")); });
+    }
+    const key = screen.getByPlaceholderText("GLM API Key");
+    expect(key).not.toBeDisabled();
+    expect.soft(asrSection().getByRole("button", { name: "Domestic" })).toBeDisabled();
+    const retryKey = deferred<string>();
+    const retryEndpoint = deferred<typeof domestic>();
+    if (readState === "failed") {
+      fireEvent.change(key, { target: { value: "FAKE_GLM_PENDING_DRAFT" } });
+      tauriMock.getOnlineAsrApiKey.mockReturnValueOnce(retryKey.promise);
+      tauriMock.getOnlineAsrEndpoint.mockReturnValueOnce(retryEndpoint.promise);
+      await act(async () => { fireEvent.click(asrSection().getByRole("button", { name: /retry/i })); });
+      expect(key).not.toBeDisabled();
+      expect(key).toHaveValue("FAKE_GLM_PENDING_DRAFT");
+    }
+    fireEvent.change(key, { target: { value: "FAKE_GLM_SHARED_KEY" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_GLM_SHARED_KEY", "glm-asr-api-key");
+    if (readState === "failed") {
+      await act(async () => {
+        retryKey.resolve("FAKE_OLD_GLM_KEY");
+        retryEndpoint.resolve(domestic);
+      });
+      expect(key).toHaveValue("FAKE_GLM_SHARED_KEY");
+      expect(key).not.toBeDisabled();
+      expect(tauriMock.setEngine).not.toHaveBeenCalled();
+    }
+  });
+
+  it("keeps a valid GLM draft when retry returns an old key without any subsequent user edit", async () => {
+    tauriMock.getEngine.mockResolvedValue("glm-asr");
+    tauriMock.getOnlineAsrApiKey.mockResolvedValueOnce("FAKE_STORED_GLM_KEY");
+    tauriMock.getOnlineAsrEndpoint.mockRejectedValueOnce(new Error("endpoint unavailable"));
+    await renderAsrSettings();
+    const key = screen.getByPlaceholderText("GLM API Key");
+    expect(key).not.toBeDisabled();
+    fireEvent.change(key, { target: { value: "FAKE_PENDING_GLM_DRAFT" } });
+    const retryKey = deferred<string>();
+    const retryEndpoint = deferred<typeof domestic>();
+    tauriMock.getOnlineAsrApiKey.mockReturnValueOnce(retryKey.promise);
+    tauriMock.getOnlineAsrEndpoint.mockReturnValueOnce(retryEndpoint.promise);
+    await act(async () => { fireEvent.click(asrSection().getByRole("button", { name: /retry/i })); });
+    expect(key).toHaveValue("FAKE_PENDING_GLM_DRAFT");
+    expect(key).not.toBeDisabled();
+    await act(async () => {
+      retryKey.resolve("FAKE_STORED_GLM_KEY");
+      retryEndpoint.resolve(domestic);
+    });
+    expect(key).toHaveValue("FAKE_PENDING_GLM_DRAFT");
+    await act(async () => { await vi.advanceTimersByTimeAsync(599); });
+    expect(tauriMock.setOnlineAsrApiKey).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_PENDING_GLM_DRAFT", "glm-asr-api-key");
+    expect(tauriMock.setEngine).not.toHaveBeenCalled();
+  });
+
+  it.each(["pending", "failed"] as const)("keeps local-engine controls available while the unrelated endpoint is %s", async (readState) => {
+    const endpoint = deferred<typeof domestic>();
+    tauriMock.getOnlineAsrEndpoint.mockReturnValueOnce(endpoint.promise);
+    await renderAsrSettings();
+    if (readState === "failed") {
+      await act(async () => { endpoint.reject(new Error("endpoint unavailable")); });
+    }
+    expect(asrSection().getByRole("button", { name: "ASR Engine" })).not.toBeDisabled();
+    expect(asrSection().getByRole("button", { name: "Change" })).not.toBeDisabled();
+    await selectAsrEngine(/Confucius4-R2T2 Q8/);
+    expect(tauriMock.setEngine).toHaveBeenCalledExactlyOnceWith("confucius4-r2t2");
+    expect(asrSection().getByRole("button", { name: "ASR Engine" })).toHaveTextContent("Confucius4-R2T2 Q8");
+    expect(recordingContextMock.retryModel).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores an old retry endpoint that arrives after a successful engine switch", async () => {
+    tauriMock.getEngine.mockResolvedValue("glm-asr");
+    tauriMock.getOnlineAsrEndpoint.mockRejectedValueOnce(new Error("endpoint unavailable"));
+    await renderAsrSettings();
+    const oldEndpoint = deferred<typeof domestic>();
+    tauriMock.getOnlineAsrEndpoint.mockReturnValueOnce(oldEndpoint.promise).mockResolvedValueOnce(domestic);
+    await act(async () => { fireEvent.click(asrSection().getByRole("button", { name: /retry/i })); });
+    expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(2);
+    expect(asrSection().getByRole("button", { name: "ASR Engine" })).not.toBeDisabled();
+    await selectAsrEngine(/Alibaba DashScope/);
+    await act(async () => { oldEndpoint.resolve({ region: "international", url: "https://obsolete.example" }); });
+    expect(asrSection().getByRole("button", { name: "ASR Engine" })).toHaveTextContent("Alibaba DashScope");
+    expect(asrSection().getByText(domestic.url)).toBeInTheDocument();
+    expect(asrSection().queryByText("https://obsolete.example")).not.toBeInTheDocument();
+    const key = screen.getByPlaceholderText("Alibaba API Key");
+    expect(key).not.toBeDisabled();
+    fireEvent.change(key, { target: { value: "FAKE_CURRENT_CN_KEY" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_CURRENT_CN_KEY", "alibaba-asr-cn-api-key");
+    expect(tauriMock.setEngine).toHaveBeenCalledExactlyOnceWith("alibaba-asr");
+  });
+});
+
+describe("SettingsPage ASR retry progress ownership", () => {
+  beforeEach(() => {
+    tauriMock.setEngine.mockImplementation(async (engine: string) => engine);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it.each([
+    { context: "the current config", supersededRetry: false },
+    { context: "a new config while an older retry finishes", supersededRetry: true },
+  ])("keeps Retry disabled during a pending retry for $context", async ({ supersededRetry }) => {
+    const recoveredEndpoint = { region: "international", url: "https://glm-recovered.example" };
+    const obsoleteEndpoint = deferred<typeof recoveredEndpoint>();
+    tauriMock.getEngine.mockResolvedValue(supersededRetry ? "alibaba-asr" : "glm-asr");
+    tauriMock.getOnlineAsrEndpoint.mockRejectedValueOnce(new Error("initial endpoint unavailable"));
+    if (supersededRetry) {
+      tauriMock.getOnlineAsrApiKey.mockResolvedValueOnce("FAKE_PREVIOUS_ALIBABA_KEY");
+    } else {
+      tauriMock.getOnlineAsrApiKey.mockRejectedValueOnce(new Error("initial key unavailable"));
+    }
+    await renderAsrSettings();
+
+    if (supersededRetry) {
+      tauriMock.getOnlineAsrEndpoint
+        .mockReturnValueOnce(obsoleteEndpoint.promise)
+        .mockRejectedValueOnce(new Error("new config endpoint unavailable"));
+      tauriMock.getOnlineAsrApiKey.mockRejectedValueOnce(new Error("new config key unavailable"));
+      await act(async () => { fireEvent.click(asrSection().getByRole("button", { name: /retry/i })); });
+      await selectAsrEngine(/GLM-ASR/);
+      expect(tauriMock.setEngine).toHaveBeenCalledExactlyOnceWith("glm-asr");
+      expect(asrSection().getByRole("button", { name: /retry/i })).not.toBeDisabled();
+    }
+
+    const initialEndpointReads = supersededRetry ? 3 : 1;
+    const initialKeyReads = supersededRetry ? 2 : 1;
+    expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(initialEndpointReads);
+    expect(tauriMock.getOnlineAsrApiKey).toHaveBeenCalledTimes(initialKeyReads);
+    const firstEndpoint = deferred<typeof recoveredEndpoint>();
+    const firstKey = deferred<string>();
+    const currentEndpoint = deferred<typeof recoveredEndpoint>();
+    const recoveredKey = deferred<string>();
+    tauriMock.getOnlineAsrEndpoint
+      .mockReturnValueOnce(firstEndpoint.promise)
+      .mockReturnValueOnce(currentEndpoint.promise);
+    tauriMock.getOnlineAsrApiKey
+      .mockReturnValueOnce(firstKey.promise)
+      .mockReturnValueOnce(recoveredKey.promise);
+    await act(async () => { fireEvent.click(asrSection().getByRole("button", { name: /retry/i })); });
+    expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(initialEndpointReads + 1);
+    expect(tauriMock.getOnlineAsrApiKey).toHaveBeenCalledTimes(initialKeyReads + 1);
+
+    // A rejected batch permits retrying its endpoint while its sibling key read is still pending.
+    await act(async () => { firstEndpoint.reject(new Error("retry endpoint unavailable")); });
+    expect(asrSection().getByRole("button", { name: /retry/i })).not.toBeDisabled();
+    await act(async () => { fireEvent.click(asrSection().getByRole("button", { name: /retry/i })); });
+    expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(initialEndpointReads + 2);
+    expect(tauriMock.getOnlineAsrApiKey).toHaveBeenCalledTimes(initialKeyReads + 1);
+    await act(async () => { firstKey.reject(new Error("older retry key unavailable")); });
+
+    const retry = asrSection().getByRole("button", { name: /retry/i });
+    const key = screen.getByPlaceholderText("GLM API Key");
+    const engineTrigger = asrSection().getByRole("button", { name: "ASR Engine" });
+    expect(key).not.toBeDisabled();
+    expect(engineTrigger).not.toBeDisabled();
+    expect.soft(retry).toBeDisabled();
+    if (supersededRetry) {
+      await act(async () => {
+        obsoleteEndpoint.resolve({ region: "domestic", url: "https://obsolete.example" });
+      });
+      expect.soft(retry).toBeDisabled();
+      expect(asrSection().queryByText("https://obsolete.example")).not.toBeInTheDocument();
+    }
+    fireEvent.click(engineTrigger);
+    expect(within(screen.getByRole("listbox")).getByRole("option", { name: /Alibaba DashScope/ })).toBeInTheDocument();
+    fireEvent.click(engineTrigger);
+    await act(async () => { fireEvent.click(retry); });
+    expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(initialEndpointReads + 2);
+    expect(tauriMock.getOnlineAsrApiKey).toHaveBeenCalledTimes(initialKeyReads + 1);
+
+    await act(async () => { currentEndpoint.resolve(recoveredEndpoint); });
+    expect(retry).not.toBeDisabled();
+    expect(asrSection().getByText(recoveredEndpoint.url)).toBeInTheDocument();
+    await act(async () => { fireEvent.click(retry); });
+    expect(tauriMock.getOnlineAsrApiKey).toHaveBeenCalledTimes(initialKeyReads + 2);
+    expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(initialEndpointReads + 2);
+    await act(async () => { recoveredKey.resolve("FAKE_RECOVERED_GLM_KEY"); });
+    expect(key).toHaveValue("FAKE_RECOVERED_GLM_KEY");
+    expect(asrSection().queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
+    fireEvent.change(key, { target: { value: "FAKE_EDITED_GLM_KEY" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(tauriMock.setOnlineAsrApiKey).toHaveBeenCalledExactlyOnceWith("FAKE_EDITED_GLM_KEY", "glm-asr-api-key");
   });
 });

@@ -1,0 +1,62 @@
+Error: Invariant LatestValidCompletionPublishes is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ lastEvent = "init"
+/\ s = [ shared |-> FALSE,
+  issued |-> [polish |-> 0, assistant |-> 0],
+  owner |-> [polish |-> 0, assistant |-> 0],
+  intended |-> [polish |-> 0, assistant |-> 0],
+  pending |-> [polish |-> {}, assistant |-> {}],
+  catalog |-> [polish |-> 0, assistant |-> 0],
+  wanted |-> [polish |-> 0, assistant |-> 0],
+  error |-> [polish |-> FALSE, assistant |-> FALSE],
+  wantedError |-> [polish |-> FALSE, assistant |-> FALSE],
+  loading |-> [polish |-> FALSE, assistant |-> FALSE],
+  wantedLoading |-> [polish |-> FALSE, assistant |-> FALSE],
+  invalidated |-> [polish |-> FALSE, assistant |-> FALSE] ]
+
+State 2: <Begin line 18, col 3 to line 24, col 77 of module CatalogDiscoveryOwnership>
+/\ lastEvent = "catalog:polish:begin:1"
+/\ s = [ shared |-> FALSE,
+  issued |-> [polish |-> 1, assistant |-> 0],
+  owner |-> [polish |-> 1, assistant |-> 0],
+  intended |-> [polish |-> 1, assistant |-> 0],
+  pending |-> [polish |-> {1}, assistant |-> {}],
+  catalog |-> [polish |-> 0, assistant |-> 0],
+  wanted |-> [polish |-> 0, assistant |-> 0],
+  error |-> [polish |-> FALSE, assistant |-> FALSE],
+  wantedError |-> [polish |-> FALSE, assistant |-> FALSE],
+  loading |-> [polish |-> TRUE, assistant |-> FALSE],
+  wantedLoading |-> [polish |-> TRUE, assistant |-> FALSE],
+  invalidated |-> [polish |-> FALSE, assistant |-> FALSE] ]
+
+State 3: <Invalidate line 48, col 3 to line 60, col 53 of module CatalogDiscoveryOwnership>
+/\ lastEvent = "catalog:assistant:invalidate"
+/\ s = [ shared |-> FALSE,
+  issued |-> [polish |-> 1, assistant |-> 0],
+  owner |-> [polish |-> 0, assistant |-> 0],
+  intended |-> [polish |-> 1, assistant |-> 0],
+  pending |-> [polish |-> {1}, assistant |-> {}],
+  catalog |-> [polish |-> 0, assistant |-> 0],
+  wanted |-> [polish |-> 0, assistant |-> 0],
+  error |-> [polish |-> FALSE, assistant |-> FALSE],
+  wantedError |-> [polish |-> FALSE, assistant |-> FALSE],
+  loading |-> [polish |-> TRUE, assistant |-> FALSE],
+  wantedLoading |-> [polish |-> TRUE, assistant |-> FALSE],
+  invalidated |-> [polish |-> FALSE, assistant |-> TRUE] ]
+
+State 4: <Complete line 26, col 3 to line 46, col 63 of module CatalogDiscoveryOwnership>
+/\ lastEvent = "catalog:polish:failure:1"
+/\ s = [ shared |-> FALSE,
+  issued |-> [polish |-> 1, assistant |-> 0],
+  owner |-> [polish |-> 0, assistant |-> 0],
+  intended |-> [polish |-> 1, assistant |-> 0],
+  pending |-> [polish |-> {}, assistant |-> {}],
+  catalog |-> [polish |-> 0, assistant |-> 0],
+  wanted |-> [polish |-> 0, assistant |-> 0],
+  error |-> [polish |-> FALSE, assistant |-> FALSE],
+  wantedError |-> [polish |-> TRUE, assistant |-> FALSE],
+  loading |-> [polish |-> TRUE, assistant |-> FALSE],
+  wantedLoading |-> [polish |-> FALSE, assistant |-> FALSE],
+  invalidated |-> [polish |-> FALSE, assistant |-> TRUE] ]
+

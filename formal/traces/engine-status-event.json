@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "generator": "TLC 1.7.4 counterexample",
+  "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model": "formal/EngineStatusOwnership.tla",
+  "config": "formal/EngineStatusOwnershipEventNegative.cfg",
+  "model_sha256": "2ca486f8ab905632b436d7b40a389d9548d95cf085769503727f1e2433ecf312",
+  "config_sha256": "b14274aa08364eef4259f9d303cc6e641c876a87587f7cabed7c4aafa4dfb313",
+  "counterexample": "formal/traces/engine-status-event.tlc.txt",
+  "counterexample_sha256": "86321e32c963f6b8df6a0d44749c19b9b29f926c2c71e3ada1f01ab1913f0032",
+  "violated_invariant": "StatusPublicationOwned",
+  "events": [
+    "engine-status:query:1",
+    "engine-status:event:ready",
+    "engine-status:complete:1:ready"
+  ]
+}
