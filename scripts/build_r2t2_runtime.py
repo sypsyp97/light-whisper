@@ -181,6 +181,16 @@ def resolved_cuda_architectures(configure_output):
     return resolved.pop()
 
 
+def portable_cuda_architectures(architectures):
+    targets = architectures.split(";")
+    # Keep upstream PTX and future targets; restore native code shipped by asr11.
+    for architecture in ("80", "90"):
+        if (f"{architecture}-virtual" in targets
+                and architecture not in targets and f"{architecture}-real" not in targets):
+            targets.append(f"{architecture}-real")
+    return ";".join(targets)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=("cpu", "cuda"), required=True)
@@ -220,11 +230,20 @@ def main():
             command += [f"-DCMAKE_CUDA_ARCHITECTURES={args.cuda_architectures}"]
         try:
             configured = run(command, env=env, stdout=subprocess.PIPE, text=True, errors="replace")
+            print(configured.stdout, end="", flush=True)
+            architectures = resolved_cuda_architectures(configured.stdout)
+            if args.cuda_architectures is None:
+                planned = portable_cuda_architectures(architectures)
+                if planned != architectures:
+                    configured = run([*command, f"-DCMAKE_CUDA_ARCHITECTURES={planned}"],
+                                     env=env, stdout=subprocess.PIPE, text=True, errors="replace")
+                    print(configured.stdout, end="", flush=True)
+                    architectures = resolved_cuda_architectures(configured.stdout)
+                    if architectures != planned:
+                        raise RuntimeError("CMake changed the planned portable CUDA architecture list")
         except subprocess.CalledProcessError as error:
             print(error.stdout or "", end="", flush=True)
             raise
-        print(configured.stdout, end="", flush=True)
-        architectures = resolved_cuda_architectures(configured.stdout)
     else:
         command += ["-DENGINE_ENABLE_CUDA=OFF"]
         run(command, env=env)

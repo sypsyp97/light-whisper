@@ -653,6 +653,9 @@
     ],
     "native.cuda-exact-head-selection": [
       "exact-head-selection"
+    ],
+    "build.cuda-architecture-selection": [
+      "cuda-architecture-selection"
     ]
   },
   "contracts": {
@@ -1582,6 +1585,42 @@
       ],
       "assumptions": "Monotonic time and weakly fair timer/command completion; finite clocks in TLC and unbounded Nat policy in Lean. Native load/free success is an input, not a driver proof. AppWorkflow GpuIdle represents Qwen 0.6B and R2T2 recording as an active stream. Input focus/click ordering is checked by real user-event regression tests; linguistic accuracy is outside proof."
     },
+    "cuda-architecture-selection": {
+      "obligation": "Default CUDA builds preserve the upstream architecture sequence and append generic 80-real/90-real only when that exact virtual target lacks bare/native coverage. Changed plans require a second configure whose parsed report exactly matches the plan before compile/package; manifest records the actual report. Explicit overrides and CPU builds retain their established behavior.",
+      "models": {
+        "CudaArchitectureSelection": [
+          "TypeOK",
+          "UpstreamPreserved",
+          "SelectedGenericHasNative",
+          "OnlyRequiredNativeAdded",
+          "ExplicitAndCpuUnchanged",
+          "NoUnnecessaryReconfigure",
+          "FinalMismatchBlocksBuild",
+          "ManifestMatchesActual",
+          "FirstConfigure",
+          "Plan",
+          "Reconfigure",
+          "Verify",
+          "Build",
+          "Package"
+        ]
+      },
+      "implementation": [
+        "scripts/build_r2t2_runtime.py#def main(",
+        "scripts/build_r2t2_runtime.py#def portable_cuda_architectures(",
+        "scripts/build_r2t2_runtime.py#def resolved_cuda_architectures(",
+        "scripts/build_r2t2_runtime.py#def copy_runtime("
+      ],
+      "evidence": [
+        "scripts/test_cpu_cuda_backends.py#test_cuda_default_adds_only_missing_selected_generic_native_targets",
+        "scripts/test_cpu_cuda_backends.py#test_cuda_reconfigure_must_report_exact_planned_list_before_compile_or_publish",
+        "scripts/test_cpu_cuda_backends.py#test_cuda_reconfigure_failure_stops_before_compile_or_publish",
+        "scripts/test_cpu_cuda_backends.py#test_cuda_explicit_architectures_override_environment_and_record_normalization",
+        "scripts/test_cpu_cuda_backends.py#test_cpu_ignores_cuda_resolution_and_preserves_ambient_architectures",
+        "docs/cuda-architecture-verification.md"
+      ],
+      "assumptions": "Finite configure/verify/build/package protocol, with eleven representative generic, suffixed and future tokens and upstream sequences of length one to three, preserving duplicates and order. CPU uses an empty architecture sequence. Final configure results are environmental inputs: matching, stale, changed or invalid. Three fault controls omit native additions, drop upstream PTX or accept a stale final report. Offline regressions replay the real Python main entry with synthetic CMake reports, actual runtime copying and manifest creation; configure failure/error-log parsing are implementation-test obligations. This is bounded protocol and implementation correspondence, not Python source refinement, CMake/compiler/driver correctness, binary cubin inspection, universal toolkit/GPU compatibility or performance proof."
+    },
     "exact-head-selection": {
       "obligation": "A marked four-column F16/F32 head uses one immutable per-context K/vocabulary decision. Grouped requires complete initial parity and finite positive event samples with at least 5% improvement; capture misses, ineligible requests and different keys use scalar execution without tuning. Calibration always ends by executing the selected output; fresh contexts may calibrate again; CUDA API errors remain terminal.",
       "models": {
@@ -1631,6 +1670,9 @@
     }
   },
   "runs": {
+    "CudaArchitectureSelection": [
+      "CudaArchitectureSelection.cfg"
+    ],
     "OnlineAsrIdentity": [
       "OnlineAsrIdentity.cfg", "OnlineAsrIdentityGlm.cfg", "OnlineAsrIdentityLocal.cfg"
     ],
@@ -1794,6 +1836,9 @@
     ]
   },
   "actions": {
+    "CudaArchitectureSelection": [
+      "FirstConfigure", "Plan", "Reconfigure", "Verify", "Build", "Package"
+    ],
     "OnlineAsrIdentity": [
       "CompleteEngine", "CompleteEndpoint", "CompleteKey", "Edit", "Dispatch",
       "CompleteWrite", "BeginSwitch", "CompleteSwitch", "FinishSwitchRead", "Retry"
@@ -1952,6 +1997,24 @@
     ]
   },
   "negative": [
+    {
+      "name": "cuda-architecture-omit-native",
+      "model": "CudaArchitectureSelection",
+      "config": "CudaArchitectureSelectionOmitNativeNegative.cfg",
+      "invariant": "SelectedGenericHasNative"
+    },
+    {
+      "name": "cuda-architecture-drop-upstream-ptx",
+      "model": "CudaArchitectureSelection",
+      "config": "CudaArchitectureSelectionDropPtxNegative.cfg",
+      "invariant": "UpstreamPreserved"
+    },
+    {
+      "name": "cuda-architecture-accept-stale-report",
+      "model": "CudaArchitectureSelection",
+      "config": "CudaArchitectureSelectionStaleReportNegative.cfg",
+      "invariant": "FinalMismatchBlocksBuild"
+    },
     {
       "name": "online-asr-identity-retry-owner",
       "model": "OnlineAsrIdentity",

@@ -99,10 +99,22 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
         self.configure_stdout = self.cuda_configure_log(
             "50-virtual;61-virtual;70-virtual;75-real;80-virtual;86-real;89-real;90-virtual;120a-real;121a-real"
         )
+        self.configure_count = 0
+        self.reconfigure_stdout = None
+        self.reconfigure_failure = None
 
         def fake_run(command, **kwargs):
             captures_stdout = kwargs.get("capture_output") or kwargs.get("stdout") == builder.subprocess.PIPE
             stdout = self.configure_stdout if captures_stdout and "-S" in command else None
+            if stdout is not None:
+                self.configure_count += 1
+                if self.configure_count > 1:
+                    if self.reconfigure_failure is not None:
+                        raise self.reconfigure_failure
+                    requested = next((argument.partition("=")[2] for argument in command
+                                      if argument.startswith("-DCMAKE_CUDA_ARCHITECTURES=")), None)
+                    stdout = (self.reconfigure_stdout if self.reconfigure_stdout is not None
+                              else self.cuda_configure_log(requested or ""))
             if stdout is not None and not any(kwargs.get(key) for key in ("text", "encoding", "universal_newlines")):
                 stdout = stdout.encode("utf-8")
             return SimpleNamespace(returncode=0, stdout=stdout, stderr=None)
@@ -114,6 +126,7 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
         self.enterContext(contextlib.redirect_stderr(io.StringIO()))
 
     def invoke(self, backend, extra=()):
+        self.configure_count = 0
         arguments = ["build_r2t2_runtime.py", "--backend", backend,
                      "--source", str(self.source), "--build-dir", str(self.build),
                      "--output", str(self.output / backend), "--parallel", "2", *extra]
@@ -169,7 +182,79 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
                 self.configure_stdout = self.cuda_configure_log(resolved)
                 self.invoke("cuda")
                 manifest = json.loads((self.output / "cuda/runtime-manifest.json").read_text(encoding="utf-8"))
-                self.assertEqual(manifest["cuda_architectures"], resolved)
+                self.assertEqual(manifest["cuda_architectures"], resolved + ";80-real;90-real")
+
+    def test_cuda_default_adds_only_missing_selected_generic_native_targets(self):
+        cases = (
+            ("80-virtual;90-virtual", "80-virtual;90-virtual;80-real;90-real"),
+            ("90-virtual;80-virtual;100f-real;130a-virtual",
+             "90-virtual;80-virtual;100f-real;130a-virtual;80-real;90-real"),
+            ("80-virtual;80-virtual;86-real", "80-virtual;80-virtual;86-real;80-real"),
+            ("90-virtual;89-real", "90-virtual;89-real;90-real"),
+            ("80-virtual;90-virtual;90a-real", "80-virtual;90-virtual;90a-real;80-real;90-real"),
+            ("80-virtual;80;90-virtual;90-real", "80-virtual;80;90-virtual;90-real"),
+            ("80-virtual;80-real;80-real;90-virtual;90", "80-virtual;80-real;80-real;90-virtual;90"),
+            ("80-real;90-real;130a-virtual", "80-real;90-real;130a-virtual"),
+            ("90a-virtual;90a-real;100f-real;130a-virtual", "90a-virtual;90a-real;100f-real;130a-virtual"),
+            ("80a-virtual;90f-virtual;89-real", "80a-virtual;90f-virtual;89-real"),
+        )
+        for upstream, expected in cases:
+            with self.subTest(upstream=upstream):
+                self.configure_stdout = self.cuda_configure_log(upstream)
+                self.subprocess.reset_mock()
+                self.invoke("cuda")
+                commands = [call.args[0] for call in self.subprocess.call_args_list]
+                configures = [command for command in commands if "-S" in command]
+                self.assertEqual(len(configures), 2 if upstream != expected else 1,
+                                 "default PTX-only generic targets require a second CMake configure")
+                self.assertFalse(any(arg.startswith("-DCMAKE_CUDA_ARCHITECTURES=") for arg in configures[0]))
+                if upstream != expected:
+                    self.assertIn(f"-DCMAKE_CUDA_ARCHITECTURES={expected}", configures[1])
+                    self.assertEqual(commands[:-1], configures)
+                self.assertIn("--build", commands[-1])
+                manifest = json.loads((self.output / "cuda/runtime-manifest.json").read_text(encoding="utf-8"))
+                self.assertEqual(manifest["cuda_architectures"], expected)
+
+    def test_cuda_reconfigure_must_report_exact_planned_list_before_compile_or_publish(self):
+        upstream = "80-virtual;90-virtual;100f-real;130a-virtual"
+        planned = upstream + ";80-real;90-real"
+        reports = {
+            "stale": self.cuda_configure_log(upstream),
+            "lost-upstream-ptx": self.cuda_configure_log("100f-real;130a-virtual;80-real;90-real"),
+            "unexpected-target": self.cuda_configure_log(planned + ";140-real"),
+            "reordered": self.cuda_configure_log("90-virtual;80-virtual;100f-real;130a-virtual;80-real;90-real"),
+            "missing": "-- CMake configure complete\n",
+            "conflicting": self.cuda_configure_log(planned) + self.cuda_configure_log(upstream),
+            "invalid": self.cuda_configure_log("native"),
+        }
+        directory = self.output / "cuda"
+        directory.mkdir(parents=True)
+        (directory / "runtime-manifest.json").write_bytes(b'{"backend":"cuda","build_id":"previous"}\n')
+        (directory / "audiocpp.dll").write_bytes(b"previous native library")
+        before = {path.name: path.read_bytes() for path in directory.iterdir()}
+        self.configure_stdout = self.cuda_configure_log(upstream)
+        for case, report in reports.items():
+            with self.subTest(case=case):
+                self.reconfigure_stdout = report
+                self.subprocess.reset_mock()
+                with self.assertRaises((RuntimeError, SystemExit)) as failure:
+                    self.invoke("cuda")
+                if isinstance(failure.exception, SystemExit):
+                    self.assertNotEqual(failure.exception.code, 0)
+                self.assertEqual(self.subprocess.call_count, 2)
+                self.assertFalse(any("--build" in call.args[0] for call in self.subprocess.call_args_list))
+                self.assertEqual({path.name: path.read_bytes() for path in directory.iterdir()}, before)
+
+    def test_cuda_reconfigure_failure_stops_before_compile_or_publish(self):
+        self.configure_stdout = self.cuda_configure_log("80-virtual;90-virtual")
+        self.reconfigure_failure = builder.subprocess.CalledProcessError(
+            1, ["cmake"], output="synthetic second configure failure\n"
+        )
+        with self.assertRaises(builder.subprocess.CalledProcessError):
+            self.invoke("cuda")
+        self.assertEqual(self.subprocess.call_count, 2)
+        self.assertFalse(any("--build" in call.args[0] for call in self.subprocess.call_args_list))
+        self.assertFalse(self.output.exists())
 
     def test_cuda_explicit_architectures_override_environment_and_record_normalization(self):
         requested = "80-virtual;90a;100f-real;120;121-real"
@@ -177,6 +262,7 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
         self.environment["CUDAARCHS"] = "native"
         self.configure_stdout = "-- Replacing 120 in CMAKE_CUDA_ARCHITECTURES with 120a\n" + self.cuda_configure_log(resolved)
         self.invoke("cuda", ("--cuda-architectures", requested))
+        self.assertEqual(self.configure_count, 1, "explicit architecture overrides must not force native targets")
         command = self.subprocess.call_args_list[0].args[0]
         self.assertIn(f"-DCMAKE_CUDA_ARCHITECTURES={requested}", command)
         assignment_index = command.index(f"-DCMAKE_CUDA_ARCHITECTURES={requested}")
@@ -197,7 +283,7 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
         self.configure_stdout = self.cuda_configure_log(resolved, native="")
         self.invoke("cuda")
         manifest = json.loads((self.output / "cuda/runtime-manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["cuda_architectures"], resolved)
+        self.assertEqual(manifest["cuda_architectures"], resolved + ";80-real;90-real")
 
     def test_cuda_explicit_plain_numeric_architectures_remain_supported(self):
         requested = "75;80;86;89;90"
@@ -258,7 +344,7 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
                 self.subprocess.reset_mock()
                 before = dict(os.environ)
                 self.invoke(backend)
-                configure, compile_call = self.subprocess.call_args_list
+                configure, *_, compile_call = self.subprocess.call_args_list
                 command = configure.args[0]
                 self.assertIn("-DENGINE_ENABLE_VULKAN=OFF", command)
                 self.assertNotIn("-DENGINE_ENABLE_VULKAN=ON", command)

@@ -42,6 +42,15 @@ The build pins audio.cpp revision `6c70f32d0d90a29a9863e556bd9712ce622f868b` and
 
 CUDA builds default to the pinned engine's portable architecture selection for the installed toolkit, independent of the build machine's GPU. CUDA 12 includes legacy PTX targets; newer targets are added when the toolkit supports them. CUDA 13 excludes Maxwell, Pascal and Volta. The builder clears stale architecture settings from its build cache and child environment, and records the concrete configured targets in `runtime-manifest.json`. An explicit `--cuda-architectures` overrides this default for experiments. A successful build establishes compiled coverage; performance and driver compatibility still need validation on the target hardware.
 
+Default builds preserve that upstream list and append missing `80-real` and
+`90-real` targets when upstream selected the corresponding generic PTX target.
+This restores the native sm80/sm90 code shipped before asr12 while retaining PTX
+and future upstream targets. CMake is configured again only when a target was
+added; its final reported list must match the plan before compilation or package
+replacement. Explicit architecture overrides and CPU builds retain their existing
+behavior. The [architecture contract](cuda-architecture-verification.md) records
+the regression checks, formal model and verification limits.
+
 The engine builder validates both manifests and shares byte-identical CUDA/CRT DLLs in `_internal` when a root copy exists. Otherwise, dependencies stay beside the native library. Shared files are listed in each copied manifest. Standalone native packages retain their dependencies. Only CPU/CUDA native directories enter the engine; copied legacy Vulkan DLLs are removed before compression, and reused archives containing Vulkan libraries or retired transcribe.cpp packages are rejected. Model weights are not bundled.
 
 The shared greedy decoder retains KV data on the device and reuses bounded prefill/decode graphs. Qwen uses 1,024-token prefill blocks and attention views over existing KV storage; R2T2 retains its validated 64-token blocks. CPU/CUDA greedy generation reads one 4-byte token ID per step. The opt-in argmax retains generation's first-maximum tie rule; classification retains its existing backend tie behavior.
