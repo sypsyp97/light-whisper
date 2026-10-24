@@ -83,13 +83,6 @@ Decision-model API keys are stored in separate system credential slots for each 
 Read the [Privacy policy](docs/privacy.md) for network requests, local storage
 and third-party service policies.
 
-## Code signing policy
-
-The v1.7.4 Windows installer is unsigned. A free SignPath Foundation application
-was submitted on October 7, 2026; review is pending. Approval and a verified
-hosted build are required before signed downloads can be published.
-See the [Code signing policy](docs/code-signing.md).
-
 [Download releases](https://github.com/sypsyp97/light-whisper/releases/latest).
 
 ## For developers
