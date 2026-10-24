@@ -1,11 +1,13 @@
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 const events = await vi.hoisted(async () => {
   const { createTauriEventController } = await import("@/test/tauriEventMock");
   return createTauriEventController();
 });
 vi.mock("@tauri-apps/api/event", () => events.module);
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (key: string) => key === "recording.useOriginal" ? "Use original" : key }),
+}));
 import RecordingButton from "./RecordingButton";
 
 afterEach(() => events.reset());
@@ -29,4 +31,33 @@ it("renders live centered waveform bars, ignores older sessions, and disposes it
   late.unmount();
   await act(async () => { await Promise.resolve(); });
   expect(disposer).toHaveBeenCalledOnce();
+});
+
+it.each([true, false])("offers use-original cancellation while processing with ASR readiness %s", (isReady) => {
+  const onToggle = vi.fn();
+  const onCancelProcessing = vi.fn();
+  const view = render(
+    <RecordingButton isStarting={false} isRecording={false} isProcessing isReady={isReady}
+      onToggle={onToggle} onCancelProcessing={onCancelProcessing} />,
+  );
+  const button = view.getByRole("button", { name: "Use original" });
+
+  expect(button).toBeEnabled();
+  fireEvent.click(button);
+
+  expect(onCancelProcessing).toHaveBeenCalledOnce();
+  expect(onToggle).not.toHaveBeenCalled();
+});
+
+it("keeps processing disabled when no cancellation callback exists", () => {
+  const onToggle = vi.fn();
+  const view = render(
+    <RecordingButton isStarting={false} isRecording={false} isProcessing isReady onToggle={onToggle} />,
+  );
+  const button = view.getByRole("button", { name: "recording.processing" });
+
+  expect(button).toBeDisabled();
+  fireEvent.click(button);
+
+  expect(onToggle).not.toHaveBeenCalled();
 });

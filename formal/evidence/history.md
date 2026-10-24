@@ -1,6 +1,34 @@
 # HistoryRecords formal evidence
 
-## 2026-10-11 finalization overlap extension
+## 2026-10-24 output before archiving
+
+The current `AppWorkflow` safety condition is `ArchiveFollowsTerminalOutput`.
+Terminal publication and paste authorization precede audio encoding and history
+persistence. Raw audio is snapshotted only with consent before final ASR drains
+the capture buffer. Persistence and actual paste completion then settle
+independently. The implementation records successful output timing separately
+and updates the exact inserted row ID, because session IDs can repeat across
+application launches. Missing or deleted rows are not recreated.
+
+All ten `AppWorkflow` workloads passed and reached all 67 mapped actions. The
+Mixed workload covered 369,326 distinct states. Removing the archive publication
+guard violated `ArchiveFollowsTerminalOutput` after 2,125 states.
+Two reachability witnesses intentionally violate the retired
+`HistorySettlesBeforePublication` condition (4,283 states) and the assertion that
+history requires completed paste (19,869 states). These witnesses demonstrate
+the requested schedules; they are not safety negatives or native timing proofs.
+
+Deterministic implementation coverage lives in `history_output_tests.rs`,
+`output_tests.rs`, `history_timing_tests.rs`, and `useRecordingTiming.test.tsx`.
+It checks queue/native completion timing, both persistence/completion orders,
+raw samples after ASR buffer consumption, row-specific updates and stale UI
+ownership. `test_async_output_wiring.py` supplies source correspondence for the
+terminal branches and blocking encoder; it does not execute Windows input.
+
+## Historical: 2026-10-11 finalization overlap extension
+
+The ordering described in this section was superseded on 2026-10-24. Its original
+baseline and evidence remain below for provenance.
 
 AppWorkflow now separates the history audio write (`audioWrite`) from ASR/LLM
 processing and the history persistence attempt (`historyFinalized`). `StartLlm`

@@ -18,6 +18,51 @@ use crate::utils::foreground::ForegroundApp;
 
 const AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS: u64 = 120;
 
+pub(crate) const POLISH_CANCELLED_ERROR: &str = "AI 润色已取消";
+
+pub(crate) async fn run_polish_operation<T, F>(
+    state: &AppState,
+    session_id: u64,
+    timeout: std::time::Duration,
+    operation: F,
+) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    struct StreamMarker<'a>(&'a AppState, u64);
+    impl Drop for StreamMarker<'_> {
+        fn drop(&mut self) {
+            self.0.take_ai_polish_stream_started(self.1);
+        }
+    }
+    let _marker = StreamMarker(state, session_id);
+    tokio::time::timeout(timeout, operation)
+        .await
+        .map_err(|_| format!("AI 润色操作超时（{}秒），已停止后续重试", timeout.as_secs()))?
+}
+
+pub(crate) async fn run_cancellable_polish<T, F>(
+    operation: F,
+    cancel: Option<tokio::sync::oneshot::Receiver<()>>,
+) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    let explicit_cancel = async move {
+        if let Some(receiver) = cancel {
+            if receiver.await.is_ok() {
+                return;
+            }
+        }
+        std::future::pending::<()>().await;
+    };
+    tokio::select! {
+        biased;
+        _ = explicit_cancel => Err(POLISH_CANCELLED_ERROR.to_string()),
+        result = operation => result,
+    }
+}
+
 /// LLM 结构化输出
 #[derive(Deserialize)]
 struct StructuredResponse {
@@ -998,6 +1043,22 @@ pub async fn polish_text_with_overrides_detailed(
     session_id: u64,
     overrides: PolishOverrides,
 ) -> Result<PolishOutcome, String> {
+    run_polish_operation(
+        state,
+        session_id,
+        std::time::Duration::from_secs(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
+        polish_text_inner(state, text, app_handle, session_id, overrides),
+    )
+    .await
+}
+
+async fn polish_text_inner(
+    state: &AppState,
+    text: &str,
+    app_handle: &tauri::AppHandle,
+    session_id: u64,
+    overrides: PolishOverrides,
+) -> Result<PolishOutcome, String> {
     let mut overrides = overrides;
     let emit_status = overrides.emit_status;
     let polish_enabled = overrides
@@ -1243,6 +1304,22 @@ pub async fn polish_text_with_overrides_detailed(
 
 /// 编辑模式：根据语音指令改写选中文本
 pub async fn edit_text(
+    state: &AppState,
+    selected_text: &str,
+    instruction: &str,
+    app_handle: &tauri::AppHandle,
+    session_id: u64,
+) -> Result<EditOutcome, String> {
+    run_polish_operation(
+        state,
+        session_id,
+        std::time::Duration::from_secs(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS),
+        edit_text_inner(state, selected_text, instruction, app_handle, session_id),
+    )
+    .await
+}
+
+async fn edit_text_inner(
     state: &AppState,
     selected_text: &str,
     instruction: &str,

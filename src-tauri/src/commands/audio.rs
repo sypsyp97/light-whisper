@@ -3,7 +3,7 @@ use std::sync::{
     Arc,
 };
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::services::audio_service;
 use crate::state::{
@@ -73,6 +73,14 @@ fn emit_start_error(app_handle: &tauri::AppHandle, snapshot: &RecordingSnapshot,
             "detail": error,
         }),
     );
+}
+
+struct DictationPolishCleanup<'a>(&'a crate::state::app_state::RecordingState, u64);
+
+impl Drop for DictationPolishCleanup<'_> {
+    fn drop(&mut self) {
+        self.0.clear_dictation_polish(self.1);
+    }
 }
 
 pub(crate) async fn start_recording_inner(
@@ -466,6 +474,7 @@ pub(crate) async fn stop_recording_inner(
     };
 
     let session_id = session.session_id;
+    let polish_cancel = state.recording.begin_dictation_polish(session_id);
     if state.ui.sound_enabled.load(Ordering::Acquire) {
         match session.trigger.mode() {
             RecordingMode::Dictation => crate::utils::sound::play_stop_sound(),
@@ -478,7 +487,10 @@ pub(crate) async fn stop_recording_inner(
     }
 
     tokio::spawn(async move {
-        audio_service::finalize_recording(app_handle, session).await;
+        let app = app_handle.clone();
+        let state = app.state::<AppState>();
+        let _cleanup = DictationPolishCleanup(&state.recording, session_id);
+        audio_service::finalize_recording(app_handle, session, polish_cancel).await;
     });
 
     Ok(Some(session_id))
@@ -505,6 +517,11 @@ pub async fn stop_recording(
 ) -> Result<(), AppError> {
     let _ = stop_recording_inner(app_handle, state.inner(), None).await?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_dictation_polish(state: tauri::State<'_, AppState>, session_id: u64) -> bool {
+    state.recording.cancel_dictation_polish(session_id)
 }
 
 #[tauri::command]

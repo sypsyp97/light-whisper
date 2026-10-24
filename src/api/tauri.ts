@@ -100,6 +100,9 @@ function createNoArgCommand<T = string>(
 }
 
 export const startFunASR = createNoArgCommand<string>("start_funasr");
+export function cancelDictationPolish(sessionId: number): Promise<boolean> {
+  return invokeCommand<boolean>("cancel_dictation_polish", { sessionId });
+}
 export const checkAppUpdate = createNoArgCommand<AppUpdateInfo>("check_app_update");
 
 export function openAppReleasePage(url?: string | null): Promise<string> {

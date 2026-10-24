@@ -1,6 +1,7 @@
 """Source conformance guard for provider/key snapshots; not a Rust execution proof."""
 
 import argparse
+import re
 import subprocess
 from pathlib import Path
 
@@ -22,6 +23,20 @@ def check(revision: str | None = None) -> None:
             start = source.index(f"fn {name}(")
             end = source.find("\n}", start)
             body = source[start:end]
+            if path == "src-tauri/src/services/ai_polish_service.rs":
+                if f"pub async fn {name}(" not in source:
+                    raise ValueError(f"{path}:{name}: public entry point required")
+                inner = {"polish_text_with_overrides_detailed": "polish_text_inner",
+                         "edit_text": "edit_text_inner"}[name]
+                if f"fn {inner}(" in source:
+                    delegation = (rf"run_polish_operation\(\s*state,\s*session_id,\s*"
+                                  rf"std::time::Duration::from_secs\(AI_POLISH_STREAM_TOTAL_TIMEOUT_SECS\),\s*"
+                                  rf"{inner}\(")
+                    if not re.search(delegation, body):
+                        raise ValueError(f"{path}:{name}: shared operation budget must wrap {inner}")
+                    start = source.index(f"fn {inner}(")
+                    end = source.find("\n}", start)
+                    body = source[start:end]
             resolve = body.index("codex_oauth_service::resolve_api_key_for_provider")
             before, after = body[:resolve], body[resolve:]
             required = ["let config = state.llm_provider_config();", "let endpoint =", "_for_config(&config)",

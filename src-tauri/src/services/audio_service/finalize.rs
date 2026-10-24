@@ -24,6 +24,13 @@ use crate::utils::paths;
 
 const ASSISTANT_PIPELINE_TIMEOUT_SECS: u64 = 180;
 
+pub(super) fn history_audio_snapshot(
+    samples: &parking_lot::Mutex<Vec<i16>>,
+    enabled: bool,
+) -> Option<Vec<i16>> {
+    enabled.then(|| samples.lock().clone())
+}
+
 fn can_reuse_interim(
     cache: &crate::state::InterimCache,
     final_count: usize,
@@ -68,7 +75,6 @@ struct TranscriptionTiming {
     total_ms: Option<u64>,
 }
 
-#[derive(Clone)]
 struct HistorySessionContext {
     enabled: bool,
     retention_days: u32,
@@ -80,13 +86,14 @@ struct HistorySessionContext {
     app_process: Option<String>,
     app_window_title: Option<String>,
     app_rule_name: Option<String>,
-    audio_file: Option<String>,
+    audio_samples: Option<Vec<i16>>,
+    sample_rate: u32,
 }
 
 impl HistorySessionContext {
     #[allow(clippy::too_many_arguments)]
     async fn persist(
-        &self,
+        self,
         app_handle: &tauri::AppHandle,
         status: &str,
         text: &str,
@@ -97,60 +104,88 @@ impl HistorySessionContext {
         model: Option<&str>,
         timing: Option<TranscriptionTiming>,
         error: Option<&str>,
+        receipt: Option<tokio::sync::oneshot::Receiver<Option<u64>>>,
     ) {
-        if !self.enabled {
-            return;
-        }
-        if let Err(error) = crate::commands::history::persist_history_insert(
-            app_handle,
-            history_service::HistoryDraft {
-                session_id: self.session_id,
-                mode: self.mode.as_str().to_string(),
-                workflow: self.workflow.clone(),
-                status: status.to_string(),
-                text: text.to_string(),
-                original_text: original_text.to_string(),
-                source_text: source_text.map(str::to_string),
-                duration_sec: Some(self.duration_sec),
-                language: language.map(str::to_string),
-                engine: self.engine.clone(),
-                provider: provider.map(str::to_string),
-                model: model.map(str::to_string),
-                app_process: self.app_process.clone(),
-                app_window_title: self.app_window_title.clone(),
-                app_rule_name: self.app_rule_name.clone(),
-                audio_file: self.audio_file.clone(),
-                asr_ms: timing.and_then(|value| value.asr_ms),
-                polish_ms: timing.and_then(|value| value.polish_ms),
-                total_ms: timing.and_then(|value| value.total_ms),
-                error: error.map(str::to_string),
-                reprocessed_from_id: None,
+        let session_id = self.session_id;
+        let persist = async move {
+            if !self.enabled {
+                return Ok(None);
+            }
+            let audio_file = if let Some(samples) = self.audio_samples {
+                let sample_rate = self.sample_rate;
+                let encoded =
+                    tokio::task::spawn_blocking(move || encode_wav(&samples, sample_rate)).await;
+                match encoded {
+                    Ok(Ok(wav)) => match history_service::save_audio(session_id, wav).await {
+                        Ok(file_name) => Some(file_name),
+                        Err(error) => {
+                            log::warn!("保存历史音频失败，继续仅保存文本: {error}");
+                            None
+                        }
+                    },
+                    Ok(Err(error)) => {
+                        log::warn!("编码历史音频失败，继续仅保存文本: {error}");
+                        None
+                    }
+                    Err(error) => {
+                        log::warn!("编码历史音频任务异常，继续仅保存文本: {error}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            crate::commands::history::persist_history_insert(
+                app_handle,
+                history_service::HistoryDraft {
+                    session_id,
+                    mode: self.mode.as_str().to_string(),
+                    workflow: self.workflow,
+                    status: status.to_string(),
+                    text: text.to_string(),
+                    original_text: original_text.to_string(),
+                    source_text: source_text.map(str::to_string),
+                    duration_sec: Some(self.duration_sec),
+                    language: language.map(str::to_string),
+                    engine: self.engine,
+                    provider: provider.map(str::to_string),
+                    model: model.map(str::to_string),
+                    app_process: self.app_process,
+                    app_window_title: self.app_window_title,
+                    app_rule_name: self.app_rule_name,
+                    audio_file,
+                    asr_ms: timing.and_then(|value| value.asr_ms),
+                    polish_ms: timing.and_then(|value| value.polish_ms),
+                    total_ms: timing.and_then(|value| value.total_ms),
+                    error: error.map(str::to_string),
+                    reprocessed_from_id: None,
+                },
+                self.retention_days,
+            )
+            .await
+            .map(Some)
+            .inspect_err(|error| log::warn!("保存转写历史失败: {error}"))
+        };
+        let _ = super::output::settle_history_output(
+            persist,
+            receipt,
+            |total_ms| {
+                let _ = app_handle.emit(
+                    "transcription-timing",
+                    serde_json::json!({ "sessionId": session_id, "totalMs": total_ms }),
+                );
             },
-            self.retention_days,
+            |id, total_ms| async move {
+                let updated = history_service::update_total_ms(id, total_ms)
+                    .await
+                    .inspect_err(|error| log::warn!("更新历史总耗时失败: {error}"))?;
+                if updated {
+                    let _ = app_handle.emit("history-updated", serde_json::json!({ "id": id }));
+                }
+                Ok(updated)
+            },
         )
-        .await
-        {
-            log::warn!("保存转写历史失败: {error}");
-        }
-    }
-}
-
-async fn resolve_history_audio(
-    task: Option<tokio::task::JoinHandle<Result<String, String>>>,
-) -> Option<String> {
-    match task {
-        Some(task) => match task.await {
-            Ok(Ok(file_name)) => Some(file_name),
-            Ok(Err(error)) => {
-                log::warn!("保存历史音频失败，继续仅保存文本: {error}");
-                None
-            }
-            Err(error) => {
-                log::warn!("保存历史音频任务异常，继续仅保存文本: {error}");
-                None
-            }
-        },
-        None => None,
+        .await;
     }
 }
 
@@ -184,7 +219,11 @@ fn resolve_recording_app_profile(
     }
 }
 
-pub async fn finalize_recording(app_handle: tauri::AppHandle, session: RecordingSession) {
+pub async fn finalize_recording(
+    app_handle: tauri::AppHandle,
+    session: RecordingSession,
+    polish_cancel: Option<tokio::sync::oneshot::Receiver<()>>,
+) {
     let RecordingSession {
         session_id,
         subtitle_show_gen,
@@ -303,18 +342,6 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         return;
     }
 
-    let history_audio_task = if history_enabled && history_settings.save_audio {
-        match encode_wav(&samples.lock(), sample_rate) {
-            Ok(wav) => Some(tokio::spawn(history_service::save_audio(session_id, wav))),
-            Err(error) => {
-                log::warn!("编码历史音频失败，继续仅保存文本: {error}");
-                None
-            }
-        }
-    } else {
-        None
-    };
-
     let history_workflow = if mode == RecordingMode::Assistant {
         "assistant"
     } else if edit_context.is_some() {
@@ -322,7 +349,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     } else {
         "dictation"
     };
-    let build_history_context = |audio_file: Option<String>| HistorySessionContext {
+    let history = HistorySessionContext {
         enabled: history_enabled,
         retention_days: history_settings.retention_days,
         session_id,
@@ -333,7 +360,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         app_process: foreground_app.as_ref().map(|app| app.process_name.clone()),
         app_window_title: foreground_app.as_ref().map(|app| app.window_title.clone()),
         app_rule_name: app_profile.rule_name.clone(),
-        audio_file,
+        audio_samples: history_audio_snapshot(
+            &samples,
+            history_enabled && history_settings.save_audio,
+        ),
+        sample_rate,
     };
 
     // 优先复用 interim 缓存，否则重新 ASR。
@@ -372,7 +403,20 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let text = match asr_text {
         Ok(t) => t.trim().to_string(),
         Err(e) => {
-            let history = build_history_context(resolve_history_audio(history_audio_task).await);
+            let timing = TranscriptionTiming {
+                asr_ms: Some(asr_elapsed_ms),
+                polish_ms: None,
+                total_ms: Some(elapsed_ms(finalize_start)),
+            };
+            emit_error(
+                &app_handle,
+                session_id,
+                subtitle_show_gen,
+                mode,
+                RecordingOutcomeKind::AsrError,
+                &e,
+            );
+            flush_pending_paste(&app_handle);
             history
                 .persist(
                     &app_handle,
@@ -383,23 +427,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     None,
                     None,
                     None,
-                    Some(TranscriptionTiming {
-                        asr_ms: Some(asr_elapsed_ms),
-                        polish_ms: None,
-                        total_ms: Some(elapsed_ms(finalize_start)),
-                    }),
+                    Some(timing),
                     Some(&e),
+                    None,
                 )
                 .await;
-            emit_error(
-                &app_handle,
-                session_id,
-                subtitle_show_gen,
-                mode,
-                RecordingOutcomeKind::AsrError,
-                &e,
-            );
-            flush_pending_paste(&app_handle);
             return;
         }
     };
@@ -407,7 +439,20 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let lang_ref = detected_lang.as_deref();
 
     if text.is_empty() {
-        let history = build_history_context(resolve_history_audio(history_audio_task).await);
+        let timing = TranscriptionTiming {
+            asr_ms: Some(asr_elapsed_ms),
+            polish_ms: None,
+            total_ms: Some(elapsed_ms(finalize_start)),
+        };
+        emit_terminal_outcome(
+            &app_handle,
+            session_id,
+            subtitle_show_gen,
+            mode,
+            RecordingOutcomeKind::NoSpeech,
+            None,
+        );
+        flush_pending_paste(&app_handle);
         history
             .persist(
                 &app_handle,
@@ -418,27 +463,15 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 lang_ref,
                 None,
                 None,
-                Some(TranscriptionTiming {
-                    asr_ms: Some(asr_elapsed_ms),
-                    polish_ms: None,
-                    total_ms: Some(elapsed_ms(finalize_start)),
-                }),
+                Some(timing),
                 Some("未检测到语音"),
+                None,
             )
             .await;
-        emit_terminal_outcome(
-            &app_handle,
-            session_id,
-            subtitle_show_gen,
-            mode,
-            RecordingOutcomeKind::NoSpeech,
-            None,
-        );
-        flush_pending_paste(&app_handle);
         return;
     }
 
-    // 音频归档与后续处理并行；发布最终结果前仍等待归档并尝试写入历史。
+    // 先发布结果并排队输出；历史音频编码、写盘和清理不阻塞用户结果。
     if mode == RecordingMode::Dictation && edit_context.is_some() {
         let selected_text = edit_context.unwrap_or_default();
         let edit_started = Instant::now();
@@ -448,24 +481,50 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             text.chars().count(),
             selected_text.chars().count()
         );
-        match ai_polish_service::edit_text(
-            state.inner(),
-            &selected_text,
-            &text,
-            &app_handle,
-            session_id,
+        match ai_polish_service::run_cancellable_polish(
+            ai_polish_service::edit_text(
+                state.inner(),
+                &selected_text,
+                &text,
+                &app_handle,
+                session_id,
+            ),
+            polish_cancel,
         )
         .await
         {
             Ok(outcome) => {
                 let result = outcome.text;
                 let edit_elapsed_ms = elapsed_ms(edit_started);
-                let history =
-                    build_history_context(resolve_history_audio(history_audio_task).await);
                 let timing = TranscriptionTiming {
                     asr_ms: Some(asr_elapsed_ms),
                     polish_ms: Some(edit_elapsed_ms),
                     total_ms: Some(elapsed_ms(finalize_start)),
+                };
+                emit_done_with_timing(
+                    &app_handle,
+                    session_id,
+                    subtitle_show_gen,
+                    mode,
+                    &result,
+                    &result,
+                    duration_sec,
+                    true,
+                    lang_ref,
+                    edit_grab_status,
+                    Some(timing),
+                );
+                let receipt = if !result.is_empty() {
+                    Some(do_paste(
+                        &app_handle,
+                        &result,
+                        session_id,
+                        paste_target,
+                        finalize_start,
+                    ))
+                } else {
+                    flush_pending_paste(&app_handle);
+                    None
                 };
                 history
                     .persist(
@@ -479,61 +538,67 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                         Some(&outcome.model),
                         Some(timing),
                         None,
+                        receipt,
                     )
                     .await;
-                emit_done(
-                    &app_handle,
-                    session_id,
-                    subtitle_show_gen,
-                    mode,
-                    &result,
-                    &result,
-                    duration_sec,
-                    true,
-                    lang_ref,
-                    edit_grab_status,
-                );
-                if !result.is_empty() {
-                    let app = app_handle.clone();
-                    tokio::spawn(async move {
-                        do_paste(&app, &result, session_id, paste_target).await;
-                    });
-                } else {
-                    flush_pending_paste(&app_handle);
-                }
             }
             Err(e) => {
-                log::warn!("编辑选中文本失败，不替换原文: {}", e);
+                let cancelled = e == ai_polish_service::POLISH_CANCELLED_ERROR;
+                if cancelled {
+                    log::info!("已取消选区编辑，保留原文 (session {})", session_id);
+                } else {
+                    log::warn!("编辑选中文本失败，不替换原文: {}", e);
+                }
                 let edit_elapsed_ms = elapsed_ms(edit_started);
-                let history =
-                    build_history_context(resolve_history_audio(history_audio_task).await);
+                let timing = TranscriptionTiming {
+                    asr_ms: Some(asr_elapsed_ms),
+                    polish_ms: Some(edit_elapsed_ms),
+                    total_ms: Some(elapsed_ms(finalize_start)),
+                };
+                if cancelled {
+                    emit_done_with_timing(
+                        &app_handle,
+                        session_id,
+                        subtitle_show_gen,
+                        mode,
+                        &selected_text,
+                        &selected_text,
+                        duration_sec,
+                        false,
+                        lang_ref,
+                        edit_grab_status,
+                        Some(timing),
+                    );
+                } else {
+                    emit_error(
+                        &app_handle,
+                        session_id,
+                        subtitle_show_gen,
+                        mode,
+                        RecordingOutcomeKind::ProcessingError,
+                        &format!("编辑失败: {}", e),
+                    );
+                }
+                flush_pending_paste(&app_handle);
                 history
                     .persist(
                         &app_handle,
-                        "processing_error",
-                        "",
+                        if cancelled {
+                            "success"
+                        } else {
+                            "processing_error"
+                        },
+                        if cancelled { &selected_text } else { "" },
                         &text,
                         Some(&selected_text),
                         lang_ref,
                         None,
                         None,
-                        Some(TranscriptionTiming {
-                            asr_ms: Some(asr_elapsed_ms),
-                            polish_ms: Some(edit_elapsed_ms),
-                            total_ms: Some(elapsed_ms(finalize_start)),
-                        }),
-                        Some(&e),
+                        Some(timing),
+                        (!cancelled).then_some(e.as_str()),
+                        None,
                     )
                     .await;
-                emit_error(
-                    &app_handle,
-                    session_id,
-                    subtitle_show_gen,
-                    mode,
-                    RecordingOutcomeKind::ProcessingError,
-                    &format!("编辑失败: {}", e),
-                );
-                flush_pending_paste(&app_handle);
             }
         }
     } else if mode == RecordingMode::Assistant {
@@ -619,27 +684,12 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         match assistant_result {
             Ok(outcome) => {
                 let result = outcome.text;
-                let history =
-                    build_history_context(resolve_history_audio(history_audio_task).await);
-                history
-                    .persist(
-                        &app_handle,
-                        "success",
-                        &result,
-                        &original_request,
-                        None,
-                        lang_ref,
-                        Some(&outcome.provider),
-                        Some(&outcome.model),
-                        Some(TranscriptionTiming {
-                            asr_ms: Some(asr_elapsed_ms),
-                            polish_ms: Some(assistant_elapsed_ms),
-                            total_ms: Some(elapsed_ms(finalize_start)),
-                        }),
-                        None,
-                    )
-                    .await;
-                emit_done(
+                let timing = TranscriptionTiming {
+                    asr_ms: Some(asr_elapsed_ms),
+                    polish_ms: Some(assistant_elapsed_ms),
+                    total_ms: Some(elapsed_ms(finalize_start)),
+                };
+                emit_done_with_timing(
                     &app_handle,
                     session_id,
                     subtitle_show_gen,
@@ -650,6 +700,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     false,
                     lang_ref,
                     edit_grab_status,
+                    Some(timing),
                 );
                 match crate::commands::window::set_subtitle_window_interactive_for_session(
                     &app_handle,
@@ -665,10 +716,37 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                     }
                     Err(err) => log::warn!("助手结果显示时切换字幕窗口交互态失败: {}", err),
                 }
+                history
+                    .persist(
+                        &app_handle,
+                        "success",
+                        &result,
+                        &original_request,
+                        None,
+                        lang_ref,
+                        Some(&outcome.provider),
+                        Some(&outcome.model),
+                        Some(timing),
+                        None,
+                        None,
+                    )
+                    .await;
             }
             Err(err) => {
-                let history =
-                    build_history_context(resolve_history_audio(history_audio_task).await);
+                let timing = TranscriptionTiming {
+                    asr_ms: Some(asr_elapsed_ms),
+                    polish_ms: Some(assistant_elapsed_ms),
+                    total_ms: Some(elapsed_ms(finalize_start)),
+                };
+                emit_error(
+                    &app_handle,
+                    session_id,
+                    subtitle_show_gen,
+                    mode,
+                    RecordingOutcomeKind::ProcessingError,
+                    &err.to_string(),
+                );
+                flush_pending_paste(&app_handle);
                 history
                     .persist(
                         &app_handle,
@@ -679,23 +757,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                         lang_ref,
                         None,
                         None,
-                        Some(TranscriptionTiming {
-                            asr_ms: Some(asr_elapsed_ms),
-                            polish_ms: Some(assistant_elapsed_ms),
-                            total_ms: Some(elapsed_ms(finalize_start)),
-                        }),
+                        Some(timing),
                         Some(&err.to_string()),
+                        None,
                     )
                     .await;
-                emit_error(
-                    &app_handle,
-                    session_id,
-                    subtitle_show_gen,
-                    mode,
-                    RecordingOutcomeKind::ProcessingError,
-                    &err.to_string(),
-                );
-                flush_pending_paste(&app_handle);
             }
         }
     } else {
@@ -748,22 +814,25 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             );
         }
         let polish_start = Instant::now();
-        let polish_result = ai_polish_service::polish_text_with_overrides_detailed(
-            state.inner(),
-            &text,
-            &app_handle,
-            session_id,
-            ai_polish_service::PolishOverrides {
-                ai_polish_enabled: Some(ai_polish_enabled),
-                allow_jev_gate: true,
-                translation_target: translation_override,
-                custom_prompt: app_profile.custom_prompt.clone(),
-                screen_context_enabled: Some(allow_screen_context),
-                screen_context_explicit: app_profile.screen_context_enabled.is_some(),
-                screen_context_foreground: foreground_app.clone(),
-                app_context: app_context.clone(),
-                ..Default::default()
-            },
+        let polish_result = ai_polish_service::run_cancellable_polish(
+            ai_polish_service::polish_text_with_overrides_detailed(
+                state.inner(),
+                &text,
+                &app_handle,
+                session_id,
+                ai_polish_service::PolishOverrides {
+                    ai_polish_enabled: Some(ai_polish_enabled),
+                    allow_jev_gate: true,
+                    translation_target: translation_override,
+                    custom_prompt: app_profile.custom_prompt.clone(),
+                    screen_context_enabled: Some(allow_screen_context),
+                    screen_context_explicit: app_profile.screen_context_enabled.is_some(),
+                    screen_context_foreground: foreground_app.clone(),
+                    app_context: app_context.clone(),
+                    ..Default::default()
+                },
+            ),
+            polish_cancel,
         )
         .await;
         let elapsed_polish_ms = elapsed_ms(polish_start);
@@ -771,6 +840,10 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             Ok(outcome) => {
                 let timing = outcome.executed.then_some(elapsed_polish_ms);
                 (outcome.text, outcome.provider, outcome.model, timing)
+            }
+            Err(error) if error == ai_polish_service::POLISH_CANCELLED_ERROR => {
+                log::info!("已跳过润色，使用识别原文 (session {})", session_id);
+                (original.clone(), None, None, Some(elapsed_polish_ms))
             }
             Err(error) => {
                 log::warn!("AI 润色失败，使用原文: {}", error);
@@ -790,26 +863,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 );
             }
         }
-        let history = build_history_context(resolve_history_audio(history_audio_task).await);
         let timing = TranscriptionTiming {
             asr_ms: Some(asr_elapsed_ms),
             polish_ms: polish_elapsed_ms,
             total_ms: Some(elapsed_ms(finalize_start)),
         };
-        history
-            .persist(
-                &app_handle,
-                "success",
-                &text,
-                &original,
-                None,
-                lang_ref,
-                history_provider.as_deref(),
-                history_model.as_deref(),
-                Some(timing),
-                None,
-            )
-            .await;
         emit_done_with_timing(
             &app_handle,
             session_id,
@@ -824,14 +882,33 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             Some(timing),
         );
 
-        if !text.is_empty() {
-            let app = app_handle.clone();
-            tokio::spawn(async move {
-                do_paste(&app, &text, session_id, paste_target).await;
-            });
+        let receipt = if !text.is_empty() {
+            Some(do_paste(
+                &app_handle,
+                &text,
+                session_id,
+                paste_target,
+                finalize_start,
+            ))
         } else {
             flush_pending_paste(&app_handle);
-        }
+            None
+        };
+        history
+            .persist(
+                &app_handle,
+                "success",
+                &text,
+                &original,
+                None,
+                lang_ref,
+                history_provider.as_deref(),
+                history_model.as_deref(),
+                Some(timing),
+                None,
+                receipt,
+            )
+            .await;
     }
 }
 
@@ -929,34 +1006,6 @@ async fn do_final_asr(
 }
 
 // ---------- 事件发送 ----------
-
-#[allow(clippy::too_many_arguments)]
-fn emit_done(
-    app: &tauri::AppHandle,
-    sid: u64,
-    show_gen: u64,
-    mode: RecordingMode,
-    text: &str,
-    original_text: &str,
-    dur: f64,
-    polished: bool,
-    language: Option<&str>,
-    edit_grab_status: EditGrabStatus,
-) {
-    emit_done_with_timing(
-        app,
-        sid,
-        show_gen,
-        mode,
-        text,
-        original_text,
-        dur,
-        polished,
-        language,
-        edit_grab_status,
-        None,
-    );
-}
 
 #[allow(clippy::too_many_arguments)]
 fn emit_done_with_timing(
@@ -1201,6 +1250,11 @@ where
         } else {
             None
         };
+        state
+            .recording
+            .pending_paste
+            .lock()
+            .finish_output(output.session_id, reason.is_none());
         if let Some(reason) = reason {
             recoveries.push((output, reason));
         }
@@ -1208,26 +1262,27 @@ where
     recoveries
 }
 
-async fn do_paste(
+fn do_paste(
     app: &tauri::AppHandle,
     text: &str,
     session_id: u64,
     target_window: Option<isize>,
-) {
+    started_at: Instant,
+) -> tokio::sync::oneshot::Receiver<Option<u64>> {
     let state = app.state::<AppState>();
-    {
+    let receipt = {
         let _recording = state.recording.recording.lock();
-        state
-            .recording
-            .pending_paste
-            .lock()
-            .push(super::output::PendingPaste {
+        state.recording.pending_paste.lock().push_with_completion(
+            super::output::PendingPaste {
                 session_id,
                 target_window,
                 text: text.to_string(),
-            });
-    }
+            },
+            started_at,
+        )
+    };
     flush_pending_paste(app);
+    receipt
 }
 
 #[cfg(test)]
@@ -1322,12 +1377,23 @@ mod tests {
             .nth(1)
             .and_then(|source| source.split("pub async fn discard_recording").next())
             .expect("normal dictation branch should exist");
-        let polish_completed = dictation_branch
-            .find("let polished = text != original;")
+        let normalized: String = dictation_branch
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect();
+        let polish_completed = normalized
+            .find("letpolished=text!=original;")
             .expect("dictation should resolve AI polish before pasting");
-        let paste = dictation_branch
-            .find("do_paste(&app, &text,")
+        let paste = normalized
+            .find("do_paste(")
             .expect("dictation should paste the final text");
+        let (_, paste_arguments) = normalized[paste..]
+            .split_once(',')
+            .expect("paste should receive an app handle before its output arguments");
+        assert!(
+            paste_arguments.starts_with("&text,session_id,paste_target,"),
+            "paste must use the final text, its recording session, and its captured target"
+        );
 
         assert!(
             polish_completed < paste,

@@ -122,6 +122,161 @@ fn output_keeps_original_content_available_when_target_check_rejects_it() {
     assert!(queue.take_if_idle(false).is_empty());
 }
 
+mod completion_tests {
+    use super::*;
+    use crate::services::audio_service::finalize::drain_pending_pastes;
+    use crate::state::{AppState, PendingRecordingSession, RecordingSlot, RecordingTrigger};
+    use std::cell::{Cell, RefCell};
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll, Waker};
+    use std::time::{Duration, Instant};
+    use tokio::sync::oneshot::error::TryRecvError;
+
+    fn started() -> Instant {
+        tokio::time::Instant::now().into_std()
+    }
+
+    fn poll_once<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
+        future.poll(&mut Context::from_waker(Waker::noop()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn output_receipt_waits_through_busy_and_idle_drains_until_successful_settlement() {
+        let mut queue = PendingPasteQueue::default();
+        let mut receipt = queue.push_with_completion(output(41, Some(100), "Original"), started());
+        assert!(queue.take_if_idle(true).is_empty());
+        assert!(matches!(receipt.try_recv(), Err(TryRecvError::Empty)));
+        tokio::time::advance(Duration::from_millis(300)).await;
+        let ready = queue.take_if_idle(false);
+        assert_eq!(ready.len(), 1);
+        assert!(matches!(receipt.try_recv(), Err(TryRecvError::Empty)));
+
+        tokio::time::advance(Duration::from_millis(60)).await;
+        queue.finish_output(41, true);
+        assert_eq!(receipt.await.unwrap(), Some(360));
+        queue.finish_output(41, true);
+        assert!(queue.take_if_idle(false).is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn tracked_duplicates_preserve_first_output_and_receipt_even_after_drain() {
+        for already_drained in [false, true] {
+            let mut queue = PendingPasteQueue::default();
+            let first = queue.push_with_completion(output(41, Some(100), "Original"), started());
+            tokio::time::advance(Duration::from_millis(500)).await;
+            let ready = if already_drained {
+                queue.take_if_idle(false)
+            } else {
+                Vec::new()
+            };
+            let duplicate =
+                queue.push_with_completion(output(41, Some(200), "Replacement"), started());
+            assert_eq!(duplicate.await.unwrap(), None);
+            let ready = if already_drained {
+                assert!(queue.take_if_idle(false).is_empty());
+                ready
+            } else {
+                queue.take_if_idle(false)
+            };
+            assert_eq!(ready.len(), 1);
+            assert_eq!(ready[0].text, "Original");
+            assert_eq!(ready[0].target_window, Some(100));
+            queue.finish_output(41, true);
+            assert_eq!(first.await.unwrap(), Some(500));
+
+            let next = queue.push_with_completion(output(41, Some(200), "New output"), started());
+            assert_eq!(queue.take_if_idle(false)[0].text, "New output");
+            queue.finish_output(41, false);
+            assert_eq!(next.await.unwrap(), None);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn actual_drain_receipt_waits_for_native_paste_after_the_recording_slot_is_released() {
+        let state = AppState::default();
+        *state.recording.recording.lock() =
+            Some(RecordingSlot::Starting(PendingRecordingSession {
+                session_id: 42,
+                subtitle_show_gen: 1,
+                trigger: RecordingTrigger::Assistant,
+                stop_flag: Default::default(),
+                stop_notify: Default::default(),
+            }));
+        let mut receipt = state
+            .recording
+            .pending_paste
+            .lock()
+            .push_with_completion(output(41, Some(100), "  Original\n"), started());
+        let calls = Cell::new(0);
+        let (settle, waiting) = tokio::sync::oneshot::channel();
+        let waiting = RefCell::new(Some(waiting));
+        let paste = |item: PendingPaste| {
+            calls.set(calls.get() + 1);
+            assert_eq!(item.text, "  Original\n");
+            let waiting = waiting.borrow_mut().take().unwrap();
+            async move { waiting.await.unwrap() }
+        };
+        assert!(drain_pending_pastes(&state, || Some(100), &paste)
+            .await
+            .is_empty());
+        assert_eq!(calls.get(), 0);
+        assert!(matches!(receipt.try_recv(), Err(TryRecvError::Empty)));
+        tokio::time::advance(Duration::from_millis(200)).await;
+
+        *state.recording.recording.lock() = None;
+        tokio::time::advance(Duration::from_millis(60)).await;
+        let mut drain = Box::pin(drain_pending_pastes(&state, || Some(100), paste));
+        assert!(poll_once(drain.as_mut()).is_pending());
+        assert_eq!(calls.get(), 1);
+        assert!(matches!(receipt.try_recv(), Err(TryRecvError::Empty)));
+        tokio::time::advance(Duration::from_millis(140)).await;
+        settle.send(Ok(())).unwrap();
+        assert!(drain.await.is_empty());
+        assert_eq!(receipt.await.unwrap(), Some(400));
+    }
+
+    #[tokio::test]
+    async fn actual_drain_settles_failed_and_mismatched_outputs_without_successful_timing() {
+        for (target, initial_window, changed_window, reason) in [
+            (None, Some(100), Some(100), "target_unknown"),
+            (Some(100), Some(200), Some(200), "target_changed"),
+            (Some(100), Some(100), Some(100), "paste_failed"),
+            (Some(100), Some(100), Some(200), "target_changed"),
+        ] {
+            let state = AppState::default();
+            let receipt = state
+                .recording
+                .pending_paste
+                .lock()
+                .push_with_completion(output(41, target, "  Original punctuation!\n"), started());
+            let foreground = Cell::new(initial_window);
+            let calls = Cell::new(0);
+            let recovery = drain_pending_pastes(
+                &state,
+                || foreground.get(),
+                |_| {
+                    calls.set(calls.get() + 1);
+                    foreground.set(changed_window);
+                    std::future::ready(Err("native failure".to_string()))
+                },
+            )
+            .await;
+            assert_eq!(receipt.await.unwrap(), None);
+            assert_eq!(recovery.len(), 1);
+            assert_eq!(recovery[0].1, reason);
+            assert_eq!(recovery[0].0.text, "  Original punctuation!\n");
+            assert_eq!(calls.get(), usize::from(target == initial_window));
+            assert!(state
+                .recording
+                .pending_paste
+                .lock()
+                .take_if_idle(false)
+                .is_empty());
+        }
+    }
+}
+
 // Formal replay ownership: separate append-only test module.
 mod async_ownership_replay_tests {
     use super::*;

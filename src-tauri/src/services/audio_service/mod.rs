@@ -95,6 +95,8 @@ mod capture_bounds_tests;
 #[cfg(test)]
 mod capture_mixer_bounds_tests;
 mod finalize;
+#[cfg(test)]
+mod history_output_tests;
 mod interim;
 mod monitor;
 mod native_capture;

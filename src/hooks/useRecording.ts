@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import i18n from "@/i18n";
-import { copyToClipboard, startRecording as invokeStartRecording, stopRecording as invokeStopRecording } from "@/api/tauri";
+import { cancelDictationPolish, copyToClipboard, startRecording as invokeStartRecording, stopRecording as invokeStopRecording } from "@/api/tauri";
 import type {
   EditGrabStatus,
   HistoryItem,
@@ -17,6 +17,7 @@ interface UseRecordingReturn {
   isProcessing: boolean;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
+  cancelPolish: () => Promise<void>;
   error: string | null;
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
@@ -94,8 +95,13 @@ export function useRecording(): UseRecordingReturn {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [resultMode, setResultMode] = useState<RecordingMode>("dictation");
   const latestSessionIdRef = useRef(0);
+  const pendingStopRef = useRef<{
+    sessionId: number;
+    promise: ReturnType<typeof invokeStopRecording>;
+  } | null>(null);
   const latestRecordingStateRevisionRef = useRef(-1);
   const latestDisplayedFinalSessionIdRef = useRef(0);
+  const outputTimingBySessionRef = useRef(new Map<number, number>());
   const lastAuditWarningSessionRef = useRef(0);
   const lastAuditToastSessionRef = useRef(0);
   const [auditWarningSession, setAuditWarningSession] = useState<number | null>(null);
@@ -162,11 +168,34 @@ export function useRecording(): UseRecordingReturn {
     if (message) setError(message);
   });
 
+  useTauriEvent<{ sessionId: number; totalMs: number }>("transcription-timing", ({ sessionId, totalMs }) => {
+    if (!Number.isSafeInteger(sessionId) || sessionId <= 0
+      || !Number.isSafeInteger(totalMs) || totalMs < 0) return;
+    const timings = outputTimingBySessionRef.current;
+    timings.delete(sessionId);
+    timings.set(sessionId, totalMs);
+    if (timings.size > 20) {
+      const oldestSession = timings.keys().next().value;
+      if (oldestSession !== undefined) timings.delete(oldestSession);
+    }
+    setHistory((previous) => previous.map((item) => item.id === `session-${sessionId}`
+      ? { ...item, timing: { ...item.timing, totalMs } }
+      : item));
+    if (sessionId === latestDisplayedFinalSessionIdRef.current
+      && sessionId >= latestSessionIdRef.current) {
+      setTiming((previous) => ({ ...previous, totalMs }));
+    }
+  });
+
   useTauriEvent<TranscriptionPayload>("transcription-result", (payload) => {
     if (payload.interim) return;
     const sessionId = Number(payload.sessionId || 0);
     const { text } = payload;
     const rawText = payload.originalText ?? text;
+    const outputTotalMs = outputTimingBySessionRef.current.get(sessionId);
+    const resultTiming = outputTotalMs === undefined
+      ? payload.timing
+      : { ...payload.timing, totalMs: outputTotalMs };
     const now = Date.now();
     const historyId = sessionId > 0 ? `session-${sessionId}` : `session-local-${now}`;
     // 旧 session 的 final 结果可以进 history，但不能覆盖当前显示。避免的是
@@ -182,7 +211,7 @@ export function useRecording(): UseRecordingReturn {
       setCharCount(payload.charCount ?? null);
       setDetectedLanguage(payload.language ?? null);
       setEditGrabStatus(payload.editGrabStatus ?? null);
-      setTiming(payload.timing ?? null);
+      setTiming(resultTiming ?? null);
       setResultMode(payload.mode ?? "dictation");
     }
 
@@ -195,7 +224,7 @@ export function useRecording(): UseRecordingReturn {
             originalText: rawText,
             timestamp: now, timeDisplay: new Date(now).toLocaleTimeString(i18n.language),
             editGrabStatus: payload.editGrabStatus,
-            timing: payload.timing,
+            timing: resultTiming,
           },
           ...prev.filter((item) => item.id !== historyId),
         ].slice(0, 20)
@@ -222,22 +251,48 @@ export function useRecording(): UseRecordingReturn {
   }, []);
 
   const stopRecording = useCallback(async (): Promise<void> => {
+    const sessionId = latestSessionIdRef.current;
     if (isStarting || isRecording) {
       setIsStarting(false);
       setIsRecording(false);
       setIsProcessing(isRecording);
     }
+    let pendingStop: ReturnType<typeof invokeStopRecording> | null = null;
     try {
-      await invokeStopRecording();
+      pendingStop = invokeStopRecording();
+      pendingStopRef.current = { sessionId, promise: pendingStop };
+      await pendingStop;
     } catch (err) {
-      if (isRecording) setIsProcessing(false);
-      setError(err instanceof Error ? err.message : String(err));
+      if (sessionId === latestSessionIdRef.current) {
+        if (isRecording) setIsProcessing(false);
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (pendingStopRef.current?.promise === pendingStop) pendingStopRef.current = null;
     }
   }, [isRecording, isStarting]);
 
+  const cancelPolish = useCallback(async (): Promise<void> => {
+    const sessionId = latestSessionIdRef.current;
+    if (!isProcessing || resultMode !== "dictation"
+      || !Number.isSafeInteger(sessionId) || sessionId <= 0) return;
+    try {
+      const pendingStop = pendingStopRef.current;
+      if (pendingStop?.sessionId === sessionId) {
+        await pendingStop.promise;
+        if (sessionId !== latestSessionIdRef.current) return;
+      }
+      await cancelDictationPolish(sessionId);
+    } catch (err) {
+      if (sessionId === latestSessionIdRef.current) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    }
+  }, [isProcessing, resultMode]);
+
   return {
     polishAuditWarning: auditWarningSession !== null && auditWarningSession === latestDisplayedFinalSessionIdRef.current,
-    isStarting, isRecording, isProcessing, startRecording, stopRecording,
+    isStarting, isRecording, isProcessing, startRecording, stopRecording, cancelPolish,
     error, transcriptionResult, setTranscriptionResult,
     originalAsrText, editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, history,

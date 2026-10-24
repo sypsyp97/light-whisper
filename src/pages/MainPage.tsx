@@ -21,7 +21,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
 }) {
   const { t } = useTranslation();
   const {
-    isStarting, isRecording, isProcessing, startRecording, stopRecording,
+    isStarting, isRecording, isProcessing, startRecording, stopRecording, cancelPolish,
     recordingError, transcriptionResult, originalAsrText, editBaselineText, setEditBaselineText, setTranscriptionResult, polishAuditWarning,
     durationSec, charCount, detectedLanguage, editGrabStatus, timing, history, recordingMode, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
@@ -181,6 +181,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
               isProcessing={isProcessing}
               isReady={isReady}
               onToggle={handleToggleRecording}
+              onCancelProcessing={recordingMode === "dictation" ? () => { void cancelPolish(); } : undefined}
             />
           </StatusIndicator>
         </div>

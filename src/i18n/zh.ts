@@ -125,6 +125,7 @@ const zh = {
     cancelStart: "取消连接麦克风",
     stop: "停止录音",
     processing: "识别中",
+    useOriginal: "使用原文",
     start: "开始录音",
     outcome: {
       too_short: "录音太短，请再说一次",

@@ -56,11 +56,14 @@ does not prevent later OS focus changes. ModelNative search executes inside the
 LLM request; reused pre-polish descriptions retain their existing semantics and
 have Rust regression coverage.
 
-History audio I/O may remain pending during ASR and LLM work. Audio resolution and
-the history persistence attempt settle before terminal transcription/subtitle
-publication and paste authorization, including failed writes. Assistant stream
-chunks and stream done are emitted during LLM work and are outside this ordering
-claim. SettingsProfileLoad checks one representative preference through failed
+Terminal transcription/subtitle publication and paste authorization precede
+history audio encoding and persistence. Consent-gated raw samples are retained
+before final ASR consumes its buffer. History persistence can settle while an
+automatic paste remains queued; successful paste timing later updates the exact
+inserted row, without recreating deleted records. Assistant stream chunks and
+stream done remain outside this terminal ordering claim. The bounded model and
+implementation checks are described in [history evidence](evidence/history.md).
+SettingsProfileLoad checks one representative preference through failed
 initial load, retry and saved-value restoration without multiplying the existing
 full field workload. See [optimization correspondence](evidence/optimization-20261011.md).
 

@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
-import { Loader2, Mic } from "lucide-react";
+import { Loader2, Mic, Undo2 } from "lucide-react";
 
 const EQ_BAR_COUNT = 5;
 
@@ -11,10 +11,11 @@ interface RecordingButtonProps {
   isProcessing: boolean;
   isReady: boolean;
   onToggle: () => void;
+  onCancelProcessing?: () => void;
 }
 
 export default function RecordingButton({
-  isStarting, isRecording, isProcessing, isReady, onToggle,
+  isStarting, isRecording, isProcessing, isReady, onToggle, onCancelProcessing,
 }: RecordingButtonProps) {
   const { t } = useTranslation();
   const isActive = isStarting || isRecording;
@@ -40,12 +41,13 @@ export default function RecordingButton({
   }, [isRecording]);
 
   const isIdle = !isStarting && !isRecording && !isProcessing;
+  const canCancelProcessing = isProcessing && Boolean(onCancelProcessing);
   const label = isStarting
     ? t("recording.cancelStart")
     : isRecording
       ? t("recording.stop")
       : isProcessing
-        ? t("recording.processing")
+        ? t(canCancelProcessing ? "recording.useOriginal" : "recording.processing")
         : t("recording.start");
 
   return (
@@ -60,16 +62,17 @@ export default function RecordingButton({
         className="record-btn"
         aria-label={label}
         aria-pressed={isActive}
-        disabled={!isReady || isProcessing}
-        onClick={onToggle}
+        disabled={!canCancelProcessing && (!isReady || isProcessing)}
+        onClick={canCancelProcessing ? onCancelProcessing : onToggle}
+        title={label}
         style={{
           border: "1px solid",
           borderColor: isRecording ? "transparent" : "var(--color-border)",
           background: isRecording ? "var(--color-accent)" : isProcessing ? "var(--color-bg-tertiary)" : "var(--color-bg-elevated)",
           color: isRecording ? "white" : isProcessing ? "var(--color-text-tertiary)" : "var(--color-accent)",
           boxShadow: isRecording ? "var(--shadow-record-ring), var(--shadow-lg)" : "var(--shadow-md)",
-          cursor: !isReady ? "not-allowed" : isProcessing ? "wait" : "pointer",
-          opacity: !isReady ? 0.4 : 1,
+          cursor: canCancelProcessing ? "pointer" : !isReady ? "not-allowed" : isProcessing ? "wait" : "pointer",
+          opacity: !isReady && !canCancelProcessing ? 0.4 : 1,
         }}
       >
         <span className="record-icon" data-visible={isRecording} aria-hidden="true">
@@ -80,7 +83,9 @@ export default function RecordingButton({
           </span>
         </span>
         <span className="record-icon" data-visible={isIdle && isReady} aria-hidden="true"><Mic size={18} /></span>
-        <span className="record-icon" data-visible={isStarting || isProcessing || (!isReady && isIdle)} aria-hidden="true"><Loader2 size={18} className="animate-spin" /></span>
+        <span className="record-icon" data-visible={isStarting || isProcessing || (!isReady && isIdle)} aria-hidden="true">
+          {canCancelProcessing ? <Undo2 size={18} /> : <Loader2 size={18} className="animate-spin" />}
+        </span>
       </button>
     </div>
   );

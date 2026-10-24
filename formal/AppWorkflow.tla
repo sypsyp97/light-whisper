@@ -36,6 +36,11 @@ Policies == {
 
 VARIABLE app
 
+OutputReadyForArchive ==
+  Workload = "History"
+    \/ (app.terminalPublished
+        /\ (app.mode = "Assistant" \/ app.result = "Error" \/ app.paste # "None"))
+
 Init == app = [
   engine |-> IF Workload \in {"CloudSpeech", "AssistantWeb"}
             THEN "Cloud" ELSE "Local",
@@ -62,7 +67,8 @@ Init == app = [
   audioStored |-> Workload = "History",
   audioFileExists |-> Workload = "History", audioLease |-> FALSE,
   reprocess |-> "Idle", historyQueried |-> FALSE, historyExported |-> FALSE,
-  displayed |-> FALSE, paste |-> "None", clipboard |-> "Original",
+  displayed |-> FALSE, terminalPublished |-> Workload = "History",
+  paste |-> "None", clipboard |-> "Original",
   clipboardSnapshot |-> "Original", pasteExternalChanged |-> FALSE,
   externalPreservedAtFinish |-> TRUE,
   selVersion |-> 0, selPhase |-> "Idle", selAction |-> "None",
@@ -189,7 +195,7 @@ StopRecording ==
        !.audioAllowed = app.historyOn /\ app.audioOn
                         /\ app.target # "Unknown",
        !.audioWrite = IF app.historyOn /\ app.audioOn /\ app.target # "Unknown"
-                     THEN "Running" ELSE "None"]
+                     THEN "Pending" ELSE "None"]
 
 AsrText ==
   /\ app.rec = "Asr"
@@ -262,21 +268,34 @@ LlmFailure ==
         THEN app' = [app EXCEPT !.rec = "Failed", !.result = "Error"]
         ELSE app' = [app EXCEPT !.rec = "Finished", !.result = "Raw"]
 
+PublishFailure ==
+  /\ app.rec = "Failed"
+  /\ ~app.terminalPublished
+  /\ app' = [app EXCEPT !.terminalPublished = TRUE]
+
+BeginHistoryAudio ==
+  /\ app.audioAllowed
+  /\ OutputReadyForArchive
+  /\ app.audioWrite = "Pending"
+  /\ app' = [app EXCEPT !.audioWrite = "Running"]
+
 SaveHistory ==
   /\ app.rec \in {"Finished", "Failed"}
   /\ app.historyAllowed
-  /\ app.audioWrite # "Running"
+  /\ OutputReadyForArchive
+  /\ app.audioWrite \in {"None", "Done"}
   /\ ~app.historyStored
   /\ app' = [app EXCEPT !.historyStored = TRUE, !.historyFinalized = TRUE]
 
 HistoryWriteFailure ==
   /\ app.rec \in {"Finished", "Failed"}
   /\ app.historyAllowed /\ ~app.historyFinalized
-  /\ app.audioWrite # "Running"
+  /\ OutputReadyForArchive
+  /\ app.audioWrite \in {"None", "Done"}
   /\ app' = [app EXCEPT !.historyFinalized = TRUE]
 
 SaveAudio ==
-  /\ app.rec \in {"Asr", "PostAsr", "Preparing", "Llm", "Finished", "Failed"}
+  /\ app.rec \in {"Finished", "Failed"}
   /\ app.audioAllowed
   /\ app.audioWrite = "Running"
   /\ ~app.audioStored
@@ -302,15 +321,14 @@ FinishWebSearch(outcome) ==
 DisplayResult ==
   /\ app.rec = "Finished"
   /\ app.result \in {"Raw", "Processed", "Assistant"}
-  /\ ~app.historyAllowed \/ app.historyFinalized
   /\ ~app.displayed
-  /\ app' = [app EXCEPT !.displayed = TRUE]
+  /\ app' = [app EXCEPT !.displayed = TRUE, !.terminalPublished = TRUE]
 
 QueuePaste ==
   /\ app.rec = "Finished"
   /\ app.mode # "Assistant"
   /\ app.result \in {"Raw", "Processed"}
-  /\ ~app.historyAllowed \/ app.historyFinalized
+  /\ app.terminalPublished
   /\ app.paste = "None"
   /\ app' = [app EXCEPT !.paste = "Queued"]
 
@@ -459,7 +477,6 @@ InterimSubtitle(session) ==
 FinalSubtitle ==
   /\ Workload = "Subtitles" /\ app.rec = "Finished"
   /\ app.subtitle \in {"Visible", "Interim"}
-  /\ ~app.historyAllowed \/ app.historyFinalized
   /\ app' = [app EXCEPT !.subtitle = "Final", !.subtitleFinalSeen = TRUE]
 
 ReprocessHistory ==
@@ -510,6 +527,7 @@ Next ==
   \/ DispatchAssistant \/ LlmSuccess \/ LlmFailure
   \/ StartWebSearch
   \/ \E outcome \in {"Sources", "Unavailable"}: FinishWebSearch(outcome)
+  \/ PublishFailure \/ BeginHistoryAudio
   \/ SaveHistory \/ HistoryWriteFailure \/ SaveAudio \/ AudioWriteFailure
   \/ DisplayResult \/ QueuePaste
   \/ BeginPaste \/ ExternalClipboardChange \/ FinishPaste
@@ -545,7 +563,8 @@ TypeOK ==
   /\ app.screenshotWindow \in Windows
   /\ app.dispatchWindow \in Windows
   /\ app.screenPrep \in {"None", "Pending", "Ready", "Unavailable"}
-  /\ app.audioWrite \in {"None", "Running", "Done"}
+  /\ app.audioWrite \in {"None", "Pending", "Running", "Done"}
+  /\ app.terminalPublished \in BOOLEAN
   /\ app.asr \in {"None", "Text", "Empty", "Error"}
   /\ app.result \in {"None", "Raw", "Processed", "Assistant", "Error"}
   /\ app.webSearch \in {"None", "Running", "Sources", "Unavailable"}
@@ -582,10 +601,15 @@ AssistantPreparationSettlesBeforeDispatch ==
     \/ (app.screenPrep \in {"Ready", "Unavailable"}
         /\ (~app.webAllowed \/ app.webSearch \in {"Sources", "Unavailable"}))
 HistorySettlesBeforePublication ==
-  \* Terminal transcription/subtitle result and paste authorization only.
-  \* Assistant stream chunks/done can arrive before audio/history settles.
+  \* Deliberately false reachability witness: terminal output may precede archive work.
   ~(app.displayed \/ app.paste # "None" \/ app.subtitleFinalSeen)
     \/ ~app.historyAllowed \/ (app.historyFinalized /\ app.audioWrite # "Running")
+ArchiveFollowsTerminalOutput ==
+  ~(app.historyFinalized \/ app.audioWrite \in {"Running", "Done"})
+    \/ OutputReadyForArchive
+HistoryRequiresCompletedPaste ==
+  \* Deliberately false reachability witness: queued paste cannot hold up text storage.
+  ~app.historyFinalized \/ app.paste # "Queued"
 DownloadPinsConfig ==
   app.download \notin {"Running", "Cancelling"}
     \/ app.downloadEpoch = app.configEpoch
@@ -622,7 +646,7 @@ Safety ==
   /\ HistoryConsent /\ AudioConsent /\ ScreenConsent
   /\ ScreenStaysOnCapturedWindow /\ DownloadPinsConfig
   /\ FreshScreenIsCurrentAtDispatch /\ AssistantPreparationSettlesBeforeDispatch
-  /\ HistorySettlesBeforePublication
+  /\ ArchiveFollowsTerminalOutput
   /\ AssistantNeverPastes /\ PasteHasText
   /\ SelectionResultIsCurrent /\ SelectionReplaceIsAuthorized
   /\ ExternalClipboardIsPreserved /\ SavedSettingsNotFuture

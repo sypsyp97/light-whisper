@@ -821,6 +821,23 @@ pub async fn delete(id: i64) -> Result<bool, String> {
     .map_err(|error| format!("删除转写历史任务失败: {error}"))?
 }
 
+pub async fn update_total_ms(id: i64, total_ms: u64) -> Result<bool, String> {
+    let total_ms = i64::try_from(total_ms).map_err(|_| "历史总耗时超出可保存范围".to_string())?;
+    initialize().await?;
+    tokio::task::spawn_blocking(move || {
+        let connection = open_connection()?;
+        connection
+            .execute(
+                "UPDATE transcription_history SET total_ms = ?2, updated_at = ?3 WHERE id = ?1",
+                params![id, total_ms, now_millis()],
+            )
+            .map(|changed| changed > 0)
+            .map_err(|error| format!("更新历史总耗时失败: {error}"))
+    })
+    .await
+    .map_err(|error| format!("更新历史总耗时任务失败: {error}"))?
+}
+
 fn cleanup_expired_with_connection(
     connection: &mut Connection,
     retention_days: u32,
@@ -901,6 +918,7 @@ mod tests {
     };
 
     include!("history_stats_tests.rs");
+    include!("history_timing_tests.rs");
 
     #[test]
     fn latency_percentiles_are_stable() {

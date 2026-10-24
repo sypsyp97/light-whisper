@@ -467,6 +467,10 @@
     ],
     "commands::profile::retry_profile_save": [
       "profile-save"
+    ],
+    "commands::audio::cancel_dictation_polish": [
+      "recording",
+      "transport"
     ]
   },
   "events": {
@@ -532,6 +536,11 @@
     ],
     "selection-detected": [
       "selection"
+    ],
+    "transcription-timing": [
+      "recording",
+      "history",
+      "clipboard"
     ]
   },
   "lifecycle": {
@@ -731,7 +740,7 @@
       "assumptions": "Three ordered request identities with success/error as environment inputs; starts abstract mount, history-updated, delete and reprocess refreshes. Actual publication/error ledgers are compared with independent latest-started intent. One unmount invalidates pending work. The reachability witness requires current error logging, accepted recovery and disposal with pending work; it is not a safety negative. TLC counterexample schedules replay the actual page via the API and captured event listener, asserting distinct DOM metrics and console errors. Bounded correspondence only; no unbounded-request, React/native scheduling, refinement or liveness proof. React drops state after unmount, so cleanup replay observes a rejected pending promise instead."
     },
     "recording": {
-      "obligation": "Reserve, cancel, stop and publish only the current recording session; final UI events cannot regress; disposed recording listeners cannot act.",
+      "obligation": "Reserve, cancel, stop and publish only the current recording session; final UI events cannot regress; disposed recording listeners cannot act. Explicit dictation polish skip is restricted to the current positive processing-session identity; stale cancellation and cleanup cannot affect a newer session.",
       "models": {
         "RecordingLifecycle": [
           "Start",
@@ -752,14 +761,24 @@
       },
       "implementation": [
         "src-tauri/src/commands/audio.rs",
-        "src/hooks/useRecording.ts"
+        "src/hooks/useRecording.ts",
+        "src-tauri/src/state/app_state.rs",
+        "src-tauri/src/services/audio_service/finalize.rs",
+        "src/components/RecordingButton.tsx",
+        "src/contexts/RecordingContext.tsx",
+        "src/pages/MainPage.tsx"
       ],
       "evidence": [
         "src/hooks/__tests__/useRecording.test.tsx",
         "src/hooks/__tests__/useRecordingDisposal.test.tsx",
-        "src-tauri/src/commands/audio.rs"
+        "src-tauri/src/commands/audio.rs",
+        "src-tauri/src/commands/audio_processing_tests.rs",
+        "src/hooks/__tests__/useRecordingPolishCancellation.test.tsx",
+        "src/hooks/__tests__/useRecordingTiming.test.tsx",
+        "src/components/RecordingButton.test.tsx",
+        "scripts/test_async_output_wiring.py"
       ],
-      "assumptions": "CPAL/OS capture and scheduler termination are environmental inputs; two sessions in TLC, Nat ownership contracts in Lean."
+      "assumptions": "CPAL/OS capture and scheduler termination are environmental inputs; two sessions in TLC, Nat ownership contracts in Lean. Session-scoped polish skip and output-timing publication are checked by deterministic implementation tests and source correspondence; existing lifecycle models do not establish source refinement for these additions."
     },
     "capture": {
       "obligation": "Native handoff is accepted once; CPAL fallback owns its samples; cap samples and snapshot the selected device.",
@@ -1284,10 +1303,10 @@
         "src/hooks/__tests__/useRecordingOutputRecovery.test.tsx",
         "formal/evidence/async-ownership.md"
       ],
-      "assumptions": "OS clipboard reads/writes and key injection may fail; success means the API acknowledged the operation, not that a foreign application consumed it. Companion output model starts with A processing and independently records B starting/recording. It checks success/error/start-cancel/start-error exits and one focus change. Real queue/controller replay injects only the native paste primitive; source wiring tests establish terminal scheduling correspondence. OS focus remains sampled, and foreign-app consumption is not proved. One production finalizer owns each unique recording session; the queue deduplicates only currently pending session IDs and deliberately permits re-enqueue after a drain. There is no global exactly-once ledger."
+      "assumptions": "OS clipboard reads/writes and key injection may fail; success means the API acknowledged the operation, not that a foreign application consumed it. Companion output model starts with A processing and independently records B starting/recording. It checks success/error/start-cancel/start-error exits and one focus change. Real queue/controller replay injects only the native paste primitive; source wiring tests establish terminal scheduling correspondence. OS focus remains sampled, and foreign-app consumption is not proved. One production finalizer owns each unique recording session. Tracked outputs deduplicate pending and in-flight IDs until their completion receipt settles; the legacy untracked push deduplicates pending IDs only and permits re-enqueue after a drain. There is no permanent global exactly-once ledger."
     },
     "history": {
-      "obligation": "Persist only with consent; audio writes may overlap ASR/LLM, but audio resolution and history persistence attempts settle before terminal transcription/subtitle publication and paste authorization; transactions are atomic; shared referenced/leased audio survives GC; reprocess retains captured source. After each SQL transaction, each audio lease count equals the number of independent holders; releasing the first of two shared holders must retain the second. History filter effects retire obsolete requests before debounce dispatch; pending or failed resets block old-offset pagination, current errors remain visible, and retry replaces from offset zero.",
+      "obligation": "Persist only with consent; terminal output and paste authorization precede archive encoding and persistence; raw samples are snapshotted before ASR drains them, only with consent; history persistence and actual paste completion settle independently, and measured output timing updates only the inserted row ID; transactions are atomic; shared referenced/leased audio survives GC; reprocess retains captured source. After each SQL transaction, each audio lease count equals the number of independent holders; releasing the first of two shared holders must retain the second. History filter effects retire obsolete requests before debounce dispatch; pending or failed resets block old-offset pagination, current errors remain visible, and retry replaces from offset zero.",
       "models": {
         "HistoryRecords": [
           "SaveAudioGate",
@@ -1302,7 +1321,9 @@
           "AudioWriteFailure",
           "SaveHistory",
           "HistoryWriteFailure",
-          "HistorySettlesBeforePublication"
+          "ArchiveFollowsTerminalOutput",
+          "PublishFailure",
+          "BeginHistoryAudio"
         ],
         "HistoryLeaseInterleavings": [
           "Acquire",
@@ -1336,8 +1357,10 @@
       "implementation": [
         "src-tauri/src/services/history_service.rs",
         "src-tauri/src/commands/history.rs",
-        "src-tauri/src/services/audio_service/finalize.rs#resolve_history_audio",
-        "src/pages/HistoryPage.tsx"
+        "src-tauri/src/services/audio_service/finalize.rs",
+        "src/pages/HistoryPage.tsx",
+        "src-tauri/src/services/audio_service/output.rs",
+        "src/hooks/useRecording.ts"
       ],
       "evidence": [
         "src-tauri/src/services/history_service.rs",
@@ -1347,9 +1370,14 @@
         "src-tauri/src/services/history_service.rs#tlc_history_leases_replay_public_sqlite_operations",
         "formal/evidence/async-ownership.md",
         "src-tauri/src/services/history_stats_tests.rs",
-        "src/pages/__tests__/HistoryFilterFormalReplay.test.tsx"
+        "src/pages/__tests__/HistoryFilterFormalReplay.test.tsx",
+        "src-tauri/src/services/audio_service/output_tests.rs",
+        "src-tauri/src/services/audio_service/history_output_tests.rs",
+        "src-tauri/src/services/history_timing_tests.rs",
+        "src/hooks/__tests__/useRecordingTiming.test.tsx",
+        "scripts/test_async_output_wiring.py"
       ],
-      "assumptions": "SQLite transactions and successful filesystem deletion are trusted primitives; detailed base bound of five rows, three audio classes and one reprocessor/count-one lease; DB errors retain audio conservatively. Finalization may publish after a failed audio/history write, but must first await its completion. Publication here means terminal transcription/subtitle results and paste authorization; assistant stream chunks and stream done arrive during LLM work and are excluded. Scheduling permits audio I/O to remain pending during LLM work; the model does not prove a wall-clock speedup. HistoryRecords retains its detailed five-row, three audio-class, single-reprocessor/count-one bound. HistoryLeaseInterleavings adds two independent tasks and two shared audio identities; release is DELETE count=1, UPDATE count>1, then commit. Equality is asserted outside the transaction; row deletion and GC interleave only at commit boundaries. Statistics reuse is checked by implementation tests: a retained read connection compares SQLite data_version, aggregate and latency queries share a read transaction, and concurrent changes invalidate cache publication. Database path remains fixed during the process; replacing the open database file is outside this contract. HistoryFilterOwnership adds seed row 1, optional old page row 2, one filter epoch, reset/retry replacement rows 3 and 4, and one normal pagination append row 5. Request identities are old=1/reset=2/retry=3/page=4; repeated retries fold to identity 3. Pagination availability directly follows hasMore, loading and error, independent of the specification pending-reset intent; normal pagination must use the current page epoch and offset two, while reset/retry use offset zero. Native success/failure are inputs. Effect retirement and debounce dispatch are distinct actions; actual replay checks 179/180 ms and public DOM/API behavior. Bounded correspondence only; no source refinement."
+      "assumptions": "SQLite transactions and successful filesystem deletion are trusted primitives; detailed base bound of five rows, three audio classes and one reprocessor/count-one lease; DB errors retain audio conservatively. Terminal transcription/outcome publication and paste authorization precede archive work. Actual successful paste publishes an independent session-scoped timing event; persistence proceeds while a paste is queued, and later completion updates the inserted row ID without recreating deleted rows. Publication here means terminal transcription/subtitle results and paste authorization; assistant stream chunks and stream done arrive during LLM work and are excluded. Scheduling permits archive I/O and actual paste completion to settle independently after terminal publication; the model does not prove a wall-clock speedup. HistoryRecords retains its detailed five-row, three audio-class, single-reprocessor/count-one bound. HistoryLeaseInterleavings adds two independent tasks and two shared audio identities; release is DELETE count=1, UPDATE count>1, then commit. Equality is asserted outside the transaction; row deletion and GC interleave only at commit boundaries. Statistics reuse is checked by implementation tests: a retained read connection compares SQLite data_version, aggregate and latency queries share a read transaction, and concurrent changes invalidate cache publication. Database path remains fixed during the process; replacing the open database file is outside this contract. HistoryFilterOwnership adds seed row 1, optional old page row 2, one filter epoch, reset/retry replacement rows 3 and 4, and one normal pagination append row 5. Request identities are old=1/reset=2/retry=3/page=4; repeated retries fold to identity 3. Pagination availability directly follows hasMore, loading and error, independent of the specification pending-reset intent; normal pagination must use the current page epoch and offset two, while reset/retry use offset zero. Native success/failure are inputs. Effect retirement and debounce dispatch are distinct actions; actual replay checks 179/180 ms and public DOM/API behavior. Bounded correspondence only; no source refinement."
     },
     "windows": {
       "obligation": "Only current show/hide generations publish; interactive state requires a window; exit signals capture and reaps child.",
@@ -1437,7 +1465,7 @@
       "assumptions": "OS key delivery/debounce clock are inputs; all three event kinds get separate configurations; bounded representative registration permutations are explicit."
     },
     "transport": {
-      "obligation": "Request IDs are required; cancelled replies are ignored; streams validate identity, offsets, prefix, terminal output and sample bounds. One total command deadline covers stdin write, flush and reply read; timeout or cancellation invalidates the owned process and releases the command lock. OpenRouter maps unified reasoning before model heuristics; optional completion limits are omitted; native Anthropic retains its mandatory budget and bounded compatibility fallback.",
+      "obligation": "Request IDs are required; cancelled replies are ignored; streams validate identity, offsets, prefix, terminal output and sample bounds. One total command deadline covers stdin write, flush and reply read; timeout or cancellation invalidates the owned process and releases the command lock. OpenRouter maps unified reasoning before model heuristics; optional completion limits are omitted; native Anthropic retains its mandatory budget and bounded compatibility fallback. A single 120-second outer polish/edit operation budget covers preparation and all fallback attempts; explicit cancellation drops the active operation without treating sender cleanup as a user cancellation.",
       "models": {
         "RequestProtocols": [
           "NoReplyWithoutIdentity",
@@ -1475,7 +1503,8 @@
         "src-tauri/resources/server_common.py",
         "src-tauri/src/services/llm_provider.rs",
         "src-tauri/src/services/llm_client/request.rs",
-        "src-tauri/src/services/llm_client/transport.rs"
+        "src-tauri/src/services/llm_client/transport.rs",
+        "src-tauri/src/services/ai_polish_service.rs"
       ],
       "evidence": [
         "src-tauri/src/services/funasr_service.rs#request_identity_tests",
@@ -1483,9 +1512,10 @@
         "src-tauri/src/services/llm_reasoning_negotiation_tests.rs",
         "src-tauri/src/services/funasr_service/ipc_recovery_tests.rs#tlc_ipc_deadline_replays_write_progress_without_restarting_the_budget",
         "formal/evidence/async-ownership.md",
-        "src-tauri/src/services/openrouter_regression_tests.rs"
+        "src-tauri/src/services/openrouter_regression_tests.rs",
+        "src-tauri/src/services/polish_operation_tests.rs"
       ],
-      "assumptions": "Current bundled servers echo request_id; older incompatible engines need updating. Clock/scheduler/network timeout fairness required; providers may fail. Write/flush/read phases use a three-tick total deadline; successful I/O progress never resets it. Real child-pipe replay checks blocked write, write progress before deadline and cancellation, then installs a fresh server. Scheduler/clock fairness and OS pipe semantics remain environmental assumptions. LlmRequestParameters abstracts validated provider/host classification and recognized parameter errors; live provider defaults/limits are external, with request-capture regressions establishing correspondence."
+      "assumptions": "Current bundled servers echo request_id; older incompatible engines need updating. Clock/scheduler/network timeout fairness required; providers may fail. Write/flush/read phases use a three-tick total deadline; successful I/O progress never resets it. Real child-pipe replay checks blocked write, write progress before deadline and cancellation, then installs a fresh server. Scheduler/clock fairness and OS pipe semantics remain environmental assumptions. LlmRequestParameters abstracts validated provider/host classification and recognized parameter errors; live provider defaults/limits are external, with request-capture regressions establishing correspondence. The complete polish/edit deadline and dropped-future marker cleanup are established by paused-clock implementation tests, not a new source-level formal proof; synchronous OS calls remain environmental operations."
     },
     "updater": {
       "obligation": "Update versions compare by the actual numeric parser; release opening accepts HTTPS GitHub hosts only and reports errors.",
@@ -1863,7 +1893,9 @@
       "SaveAudio",
       "AudioWriteFailure",
       "SaveHistory",
-      "HistoryWriteFailure"
+      "HistoryWriteFailure",
+      "PublishFailure",
+      "BeginHistoryAudio"
     ],
     "MicrophoneMonitor": [
       "Begin",
@@ -2160,14 +2192,14 @@
       "invariant": "AssistantPreparationSettlesBeforeDispatch"
     },
     {
-      "name": "history-publish-before-audio-resolves",
+      "name": "history-archive-before-terminal-output",
       "model": "AppWorkflow",
       "config": "AppWorkflowHistoryPublicationNegative.cfg",
       "replace": [
-        "  /\\ app.historyAllowed\n  /\\ app.audioWrite # \"Running\"\n  /\\ ~app.historyStored",
-        "  /\\ app.historyAllowed\n  /\\ ~app.historyStored"
+        "  /\\ OutputReadyForArchive\n  /\\ app.audioWrite = \"Pending\"",
+        "  /\\ app.audioWrite = \"Pending\""
       ],
-      "invariant": "HistorySettlesBeforePublication"
+      "invariant": "ArchiveFollowsTerminalOutput"
     },
     {
       "name": "download-ui-stale-completion",
@@ -2721,6 +2753,20 @@
       "config": "ExactHeadSelectionFreshContextWitness.cfg",
       "invariant": "NoFreshContextRetune",
       "purpose": "Positive request-order reachability witness for native scenario correspondence; not a safety negative or proof."
+    },
+    {
+      "name": "history-early-publication-witness",
+      "model": "AppWorkflow",
+      "config": "AppWorkflowEarlyPublicationWitness.cfg",
+      "invariant": "HistorySettlesBeforePublication",
+      "purpose": "Reachability witness for the authorized output-before-archive order; intentionally violates the retired ordering invariant, not a safety negative."
+    },
+    {
+      "name": "history-queued-persistence-witness",
+      "model": "AppWorkflow",
+      "config": "AppWorkflowQueuedHistoryWitness.cfg",
+      "invariant": "HistoryRequiresCompletedPaste",
+      "purpose": "Reachability witness that history can settle while paste remains queued; not a safety negative."
     }
   ],
   "command_implementation": {
@@ -2851,6 +2897,7 @@
     "commands::funasr::get_gpu_idle_seconds": "src-tauri/src/commands/funasr.rs#fn get_gpu_idle_seconds(",
     "commands::funasr::set_gpu_idle_seconds": "src-tauri/src/commands/funasr.rs#fn set_gpu_idle_seconds(",
     "commands::profile::get_profile_save_status": "src-tauri/src/commands/profile.rs#pub fn get_profile_save_status",
-    "commands::profile::retry_profile_save": "src-tauri/src/commands/profile.rs#pub async fn retry_profile_save"
+    "commands::profile::retry_profile_save": "src-tauri/src/commands/profile.rs#pub async fn retry_profile_save",
+    "commands::audio::cancel_dictation_polish": "src-tauri/src/commands/audio.rs#fn cancel_dictation_polish("
   }
 }

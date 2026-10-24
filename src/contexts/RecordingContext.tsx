@@ -21,6 +21,7 @@ interface RecordingContextValue {
   isProcessing: boolean;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
+  cancelPolish: () => Promise<void>;
   recordingError: string | null;
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
@@ -63,6 +64,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     isProcessing,
     startRecording,
     stopRecording,
+    cancelPolish,
     error: recordingError,
     transcriptionResult,
     setTranscriptionResult,
@@ -162,6 +164,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     isProcessing,
     startRecording,
     stopRecording,
+    cancelPolish,
     recordingError,
     transcriptionResult,
     setTranscriptionResult,
@@ -192,7 +195,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     hotkeyDiagnostic,
   }), [
     polishAuditWarning,
-    isStarting, isRecording, isProcessing, startRecording, stopRecording, recordingError,
+    isStarting, isRecording, isProcessing, startRecording, stopRecording, cancelPolish, recordingError,
     transcriptionResult, setTranscriptionResult, originalAsrText,
     editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, timing, history, resultMode,

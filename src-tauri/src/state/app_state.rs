@@ -299,6 +299,7 @@ pub struct RecordingState {
     pub(crate) pending_paste:
         Arc<parking_lot::Mutex<crate::services::audio_service::output::PendingPasteQueue>>,
     pub(crate) paste_dispatch: Mutex<()>,
+    dictation_polish_cancel: parking_lot::Mutex<HashMap<u64, oneshot::Sender<()>>>,
     pub selected_input_device_name: Arc<parking_lot::Mutex<Option<String>>>,
     pub microphone_level_monitor: Arc<parking_lot::Mutex<Option<MicrophoneLevelMonitor>>>,
     pub microphone_level_monitor_generation: AtomicU64,
@@ -315,6 +316,7 @@ impl Default for RecordingState {
             session_counter: AtomicU64::new(0),
             pending_paste: Default::default(),
             paste_dispatch: Default::default(),
+            dictation_polish_cancel: Default::default(),
             selected_input_device_name: Default::default(),
             microphone_level_monitor: Default::default(),
             microphone_level_monitor_generation: AtomicU64::new(0),
@@ -324,6 +326,50 @@ impl Default for RecordingState {
 }
 
 impl RecordingState {
+    fn is_processing_dictation(&self, session_id: u64) -> bool {
+        session_id > 0
+            && self.session_counter.load(Ordering::Acquire) == session_id
+            && self
+                .recording_snapshot
+                .lock()
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot.session_id == session_id
+                        && snapshot.phase == RecordingPhase::Processing
+                        && snapshot.mode == RecordingMode::Dictation
+                })
+    }
+
+    pub fn begin_dictation_polish(&self, session_id: u64) -> Option<oneshot::Receiver<()>> {
+        let _recording = self.recording.lock();
+        if !self.is_processing_dictation(session_id) {
+            return None;
+        }
+        let mut tasks = self.dictation_polish_cancel.lock();
+        if let std::collections::hash_map::Entry::Vacant(entry) = tasks.entry(session_id) {
+            let (cancel, receiver) = oneshot::channel();
+            entry.insert(cancel);
+            Some(receiver)
+        } else {
+            None
+        }
+    }
+
+    pub fn cancel_dictation_polish(&self, session_id: u64) -> bool {
+        let _recording = self.recording.lock();
+        if !self.is_processing_dictation(session_id) {
+            return false;
+        }
+        self.dictation_polish_cancel
+            .lock()
+            .remove(&session_id)
+            .is_some_and(|cancel| cancel.send(()).is_ok())
+    }
+
+    pub fn clear_dictation_polish(&self, session_id: u64) {
+        self.dictation_polish_cancel.lock().remove(&session_id);
+    }
+
     pub fn snapshot(&self) -> Option<RecordingSnapshot> {
         self.recording_snapshot.lock().clone()
     }

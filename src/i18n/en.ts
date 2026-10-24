@@ -127,6 +127,7 @@ const en: TranslationSchema = {
     cancelStart: "Cancel microphone connection",
     stop: "Stop Recording",
     processing: "Processing",
+    useOriginal: "Use original",
     start: "Start Recording",
     outcome: {
       too_short: "Recording was too short. Please try again.",

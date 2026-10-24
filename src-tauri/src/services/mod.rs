@@ -41,5 +41,7 @@ mod llm_reasoning_negotiation_tests;
 mod openai_fast_mode_oauth_tests;
 #[cfg(test)]
 mod openrouter_regression_tests;
+#[cfg(test)]
+mod polish_operation_tests;
 
 pub mod bing_search_service;
