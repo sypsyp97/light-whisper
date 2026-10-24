@@ -27,6 +27,7 @@ pub(super) struct ChunkedResampler {
     input_rate: u32,
     resampler: Option<rubato::FastFixedIn<f32>>,
     pending: Vec<f32>,
+    output_buffer: Vec<f32>,
     chunk_size: usize,
 }
 
@@ -53,10 +54,16 @@ impl ChunkedResampler {
             )
         };
 
+        let output_buffer = resampler
+            .as_ref()
+            .map(|resampler| vec![0.0; resampler.output_frames_max()])
+            .unwrap_or_default();
+
         Ok(Self {
             input_rate,
             resampler,
             pending: Vec::with_capacity(chunk_size),
+            output_buffer,
             chunk_size,
         })
     }
@@ -98,16 +105,9 @@ impl ChunkedResampler {
             return Ok(());
         }
 
-        let resampler = self
-            .resampler
-            .as_mut()
-            .ok_or_else(|| "rubato 状态缺失".to_string())?;
-        let chunk = std::mem::take(&mut self.pending);
-        let out = resampler
-            .process_partial(Some(&[&chunk]), None)
-            .map_err(|e| format!("rubato 重采样失败: {}", e))?;
-        output.extend(out[0].iter().map(|&sample| f32_to_i16(sample)));
-        Ok(())
+        // Match rubato's partial flush padding without allocating temporary buffers.
+        self.pending.resize(self.chunk_size, 0.0);
+        self.process_ready_chunks(output)
     }
 
     fn process_ready_chunks(&mut self, output: &mut Vec<i16>) -> Result<(), String> {
@@ -117,11 +117,18 @@ impl ChunkedResampler {
             .ok_or_else(|| "rubato 状态缺失".to_string())?;
 
         while self.pending.len() >= self.chunk_size {
-            let chunk: Vec<f32> = self.pending.drain(..self.chunk_size).collect();
-            let out = resampler
-                .process(&[&chunk], None)
-                .map_err(|e| format!("rubato 重采样失败: {}", e))?;
-            output.extend(out[0].iter().map(|&sample| f32_to_i16(sample)));
+            let result = resampler.process_into_buffer(
+                &[&self.pending[..self.chunk_size]],
+                &mut [self.output_buffer.as_mut_slice()],
+                None,
+            );
+            self.pending.drain(..self.chunk_size);
+            let (_, written) = result.map_err(|e| format!("rubato 重采样失败: {}", e))?;
+            output.extend(
+                self.output_buffer[..written]
+                    .iter()
+                    .map(|&sample| f32_to_i16(sample)),
+            );
         }
         Ok(())
     }

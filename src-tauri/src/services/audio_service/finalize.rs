@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
-use super::resample::ChunkedResampler;
+use super::resample::ResamplerState;
 use super::wav::encode_wav;
 use super::{
     EDIT_GRAB_WAIT_MS, EMPTY_RESULT_HIDE_DELAY_MS, INTERIM_MAX_AUDIO_WINDOW_SEC,
@@ -948,34 +948,10 @@ async fn do_final_asr(
     sample_rate: u32,
 ) -> Result<funasr_service::TranscriptionResult, String> {
     let data = std::mem::take(&mut *samples.lock());
-    let (asr_audio, asr_sample_rate) = match ChunkedResampler::new(sample_rate) {
-        Ok(mut resampler) => {
-            let mut output = Vec::with_capacity(
-                ((data.len() as f64 * TARGET_SAMPLE_RATE as f64 / sample_rate as f64).ceil()
-                    as usize)
-                    + 8,
-            );
-            match resampler
-                .process_chunk(&data, &mut output)
-                .and_then(|_| resampler.finish(&mut output))
-            {
-                Ok(()) => {
-                    if sample_rate == TARGET_SAMPLE_RATE {
-                        (std::borrow::Cow::Borrowed(data.as_slice()), sample_rate)
-                    } else {
-                        (std::borrow::Cow::Owned(output), TARGET_SAMPLE_RATE)
-                    }
-                }
-                Err(err) => {
-                    log::warn!(
-                        "最终音频重采样失败，保留原始采样率 {}Hz: {}",
-                        sample_rate,
-                        err
-                    );
-                    (std::borrow::Cow::Borrowed(data.as_slice()), sample_rate)
-                }
-            }
-        }
+    let (asr_audio, asr_sample_rate) = match ResamplerState::new(sample_rate)
+        .and_then(|mut resampler| resampler.push_i16(&data))
+    {
+        Ok(output) => (output, TARGET_SAMPLE_RATE),
         Err(err) => {
             log::warn!(
                 "最终音频重采样失败，保留原始采样率 {}Hz: {}",

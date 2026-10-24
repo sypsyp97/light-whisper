@@ -1,5 +1,5 @@
 //! Official local OSS Sign in with ChatGPT flow.
-//! https://developers.openai.com/siwc/token-sharing-open-source/sign-in
+//! <https://developers.openai.com/siwc/token-sharing-open-source/sign-in>
 use super::*;
 use ring::signature::{RsaPublicKeyComponents, RSA_PKCS1_2048_8192_SHA256};
 
