@@ -1028,6 +1028,8 @@ describe("SettingsPage provider configuration saves", () => {
 });
 
 describe("SettingsPage model discovery refresh", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("automatically discovers polish models after the API key resolves", async () => {
     const keyRequest = deferred<string>();
     tauriMock.getAiPolishApiKey.mockReset().mockReturnValueOnce(keyRequest.promise);
@@ -1156,27 +1158,34 @@ describe("SettingsPage model discovery refresh", () => {
     const keyRequest = deferred<string>();
     tauriMock.getAiPolishApiKey.mockReset().mockReturnValueOnce(keyRequest.promise);
     await renderSettings();
+    // Keep discovery queued while DOM queries and assistant hydration complete.
+    vi.useFakeTimers();
 
     await act(async () => {
       keyRequest.resolve("polish-key");
       await keyRequest.promise;
     });
-    await waitFor(() => expect(screen.getByPlaceholderText("Cerebras API Key")).toHaveValue("polish-key"));
+    expect(screen.getByPlaceholderText("Cerebras API Key")).toHaveValue("polish-key");
 
-    fireEvent.click(screen.getByRole("switch", { name: "Assistant uses separate config" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open assistant model list" })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("switch", { name: "Assistant uses separate config" }));
+    });
     fireEvent.click(screen.getByRole("button", { name: "Open assistant model list" }));
+    expect(tauriMock.listAiModels).not.toHaveBeenCalled();
     tauriMock.listAiModels.mockResolvedValueOnce({
       models: [modelInfo("shared-manual-model")],
       sourceUrl: "https://models.test/shared",
     });
-    fireEvent.click(modelRefreshButton("Open assistant model list"));
-
-    await waitFor(() => {
-      expect(tauriMock.listAiModels).toHaveBeenCalledTimes(1);
-      expect(modelOption("shared-manual-model")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(modelRefreshButton("Open assistant model list"));
     });
-    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    expect(tauriMock.listAiModels).toHaveBeenCalledTimes(1);
+    expect(tauriMock.listAiModels.mock.calls[0].slice(0, 4)).toEqual([
+      "cerebras", "https://api.cerebras.ai", "polish-key", true,
+    ]);
+    expect(modelOption("shared-manual-model")).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(800); });
     expect(tauriMock.listAiModels).toHaveBeenCalledTimes(1);
   });
 });
