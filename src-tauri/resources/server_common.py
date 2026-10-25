@@ -6,24 +6,22 @@
 import base64
 import contextlib
 import io
+import json
 import logging
 import os
-import struct
+import signal
+import subprocess
 import sys
 import tempfile
 import threading
 import time
+import traceback
 from typing import Optional, Tuple
 from logging.handlers import RotatingFileHandler
 
 
 def _has_nvidia_gpu() -> bool:
-    """Quick probe for NVIDIA GPU without importing torch.
-
-    On Windows, loads nvcuda.dll (NVIDIA CUDA driver).
-    If absent, the machine has no NVIDIA GPU and we should prevent
-    PyTorch from initializing CUDA (which would crash on missing DLLs).
-    """
+    """Probe the NVIDIA driver; native model loading validates CUDA availability."""
     if sys.platform != "win32":
         # On Linux, just check for /dev/nvidia*
         import glob as _glob
@@ -34,26 +32,6 @@ def _has_nvidia_gpu() -> bool:
         return True
     except OSError:
         return False
-
-
-def ensure_safe_cuda_env() -> None:
-    """Hint CUDA runtime to skip GPU init when no NVIDIA GPU is present.
-
-    NOTE: On Windows, PyTorch eagerly loads ALL DLLs in torch/lib/ via
-    LoadLibraryExW at import time. CUDA_VISIBLE_DEVICES does NOT prevent
-    this. The real fix is to keep every CUDA DLL that torch_cuda.dll
-    directly imports, or ship a CPU-only torch build. Blindly stripping
-    cusolver/cusparse/cufft will crash import torch on CPU-only machines.
-
-    This function still helps by making torch.cuda.is_available() return
-    False, so our runtime code takes the CPU path instead of attempting
-    CUDA operations.
-    """
-    if not _has_nvidia_gpu():
-        os.environ["CUDA_VISIBLE_DEVICES"] = ""
-        logging.getLogger(__name__).info(
-            "未检测到 NVIDIA GPU，已设置 CUDA_VISIBLE_DEVICES='' 禁用 CUDA"
-        )
 
 
 def apply_hf_env_defaults() -> None:
@@ -124,25 +102,6 @@ class StdoutSuppressor:
                     self._stdout_original = None
 
 
-def get_wav_duration_seconds(audio_path: str, logger: logging.Logger) -> float:
-    """Read WAV duration from header quickly without decoding full audio."""
-    try:
-        with open(audio_path, "rb") as f:
-            riff = f.read(4)
-            if riff != b"RIFF":
-                raise ValueError("非 WAV 格式")
-            f.seek(28)
-            byte_rate = struct.unpack("<I", f.read(4))[0]
-            f.seek(40)
-            data_size = struct.unpack("<I", f.read(4))[0]
-        if byte_rate <= 0:
-            raise ValueError(f"无效的 byte rate: {byte_rate}")
-        return data_size / byte_rate
-    except Exception as e:
-        logger.warning(f"从 WAV header 获取音频时长失败: {e}")
-        return 0.0
-
-
 def decode_inline_audio(
     audio_base64: str,
     audio_format: Optional[str],
@@ -195,11 +154,6 @@ def wave_open(buffer: io.BytesIO):
     return wave.open(buffer, "rb")
 
 
-import json
-import signal
-import traceback
-
-
 CLEANUP_EVERY_N = 20
 
 
@@ -241,30 +195,15 @@ class BaseASRServer:
     # ------------------------------------------------------------------
 
     def _detect_device(self) -> str:
-        """Detect inference device. Override for engine-specific detection."""
-        try:
-            import torch
-            if torch.cuda.is_available():
-                gpu_name = torch.cuda.get_device_name(0)
-                gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                self.logger.info(f"检测到 NVIDIA GPU: {gpu_name} ({gpu_mem:.1f}GB)，使用 CUDA 加速")
-                return "cuda"
-            else:
-                self.logger.info("CUDA 不可用，使用 CPU 推理")
-                return "cpu"
-        except ImportError as e:
-            self.logger.warning(f"PyTorch 导入失败: {e}，使用 CPU 推理")
-            return "cpu"
-        except Exception as e:
-            self.logger.warning(f"GPU 检测失败: {e}，回退到 CPU 推理")
-            return "cpu"
+        return "cuda" if _has_nvidia_gpu() else "cpu"
 
     def _setup_runtime_environment(self) -> None:
         try:
             os.environ["HF_HUB_OFFLINE"] = "1"
-            cpu_count = os.cpu_count() or 4
-            thread_count = max(4, cpu_count - 2)
-            os.environ["OMP_NUM_THREADS"] = str(thread_count)
+            cpu_count = os.cpu_count() or 1
+            thread_count = os.environ.setdefault(
+                "OMP_NUM_THREADS", str(max(1, cpu_count - 2))
+            )
             self.logger.info(
                 f"运行时环境变量设置完成，HF_HUB_OFFLINE=1, OMP_NUM_THREADS={thread_count} (CPU核心数: {cpu_count})"
             )
@@ -275,41 +214,75 @@ class BaseASRServer:
         self.logger.info(f"收到信号 {signum}，准备退出...")
         self.running = False
 
-    def _get_audio_duration(self, audio_path: str) -> float:
-        duration = get_wav_duration_seconds(audio_path, self.logger)
-        self.total_audio_duration += duration
-        return duration
+    @staticmethod
+    def _read_mono_audio(source):
+        import numpy as np
+        import soundfile as sf
+
+        audio, source_rate = sf.read(source, dtype="float32", always_2d=True)
+        return audio.mean(axis=1, dtype=np.float32), source_rate
+
+    @staticmethod
+    def _resample(audio, source_rate):
+        import numpy as np
+
+        if source_rate == 16_000:
+            return np.asarray(audio, dtype=np.float32)
+        if not isinstance(source_rate, (int, float)) or source_rate <= 0:
+            raise ValueError("invalid sample rate")
+        target_length = int(round(len(audio) * 16_000 / source_rate))
+        if target_length <= 0:
+            return np.empty(0, dtype=np.float32)
+        return np.interp(
+            np.linspace(0, max(0, len(audio) - 1), target_length),
+            np.arange(len(audio), dtype=np.float64),
+            np.asarray(audio, dtype=np.float32),
+        ).astype(np.float32)
 
     def _cleanup_memory(self) -> None:
-        try:
-            import gc
-            gc.collect()
-            if self.device == "cuda":
-                import torch
-                torch.cuda.empty_cache()
-            self.logger.info("内存清理完成")
-        except Exception as e:
-            self.logger.warning(f"内存清理失败: {e}")
+        # Native runtimes own their model and CUDA allocations.
+        import gc
+
+        gc.collect()
 
     def _maybe_cleanup(self, duration: float) -> None:
         """Run periodic memory cleanup after transcription (in background thread)."""
         if self.transcription_count % CLEANUP_EVERY_N == 0 or duration > 120:
-            import threading
             threading.Thread(target=self._cleanup_memory, daemon=True).start()
             self.logger.info(f"已完成 {self.transcription_count} 次转录，后台执行内存清理")
 
-    def _get_gpu_device_info(self) -> dict:
-        """Return device/gpu_name/gpu_memory_total dict for status responses."""
+    def _get_gpu_device_info(self, *, include_memory=False) -> dict:
+        """Cache optional metadata for the native runtime's first GPU."""
         info = {"device": self.device}
-        if self.device == "cuda":
-            try:
-                import torch
-                info["gpu_name"] = torch.cuda.get_device_name(0)
-                info["gpu_memory_total"] = round(
-                    torch.cuda.get_device_properties(0).total_memory / (1024**3), 1
-                )
-            except Exception:
-                pass
+        if not include_memory:
+            info["gpu_name"] = None
+        if getattr(self, "backend", self.device) != "cuda":
+            return info
+        cached = getattr(self, "_gpu_device_info_cache", None)
+        if cached is not None:
+            return dict(cached)
+        try:
+            fields = "name,memory.total" if include_memory else "name"
+            query = subprocess.run(
+                ["nvidia-smi", "--id=0", f"--query-gpu={fields}",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=3 if include_memory else 1,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if query.returncode == 0 and query.stdout.strip():
+                first = query.stdout.strip().splitlines()[0]
+                if include_memory:
+                    name, memory_mb = [part.strip() for part in first.split(",", 1)]
+                    memory = round(float(memory_mb) / 1024, 1)
+                    info.update(gpu_name=name, gpu_memory_total=memory)
+                else:
+                    info["gpu_name"] = first.strip()
+        except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+            pass
+        self._gpu_device_info_cache = dict(info)
         return info
 
     # ------------------------------------------------------------------

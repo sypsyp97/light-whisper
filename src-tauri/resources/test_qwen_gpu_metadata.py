@@ -30,7 +30,7 @@ class QwenGpuMetadataTests(unittest.TestCase):
         self.enterContext(mock.patch.object(qwen3_asr_server, "QwenPreviewRuntime"))
         # Device detection and optional metadata must never reach host GPU tools.
         self.query = self.enterContext(mock.patch.object(
-            qwen3_asr_server.subprocess, "run",
+            subprocess, "run",
             return_value=self.probe_result("First GPU, 24576\n"),
         ))
 
@@ -117,6 +117,20 @@ class QwenGpuMetadataTests(unittest.TestCase):
             self.assert_cpu_metadata(server.check_status())
         self.query.assert_not_called()
         self.assertEqual(self.native_factory.call_args.kwargs["backend"], "cpu")
+
+    def test_failed_probe_does_not_publish_stdout_as_gpu_metadata(self):
+        self.query.return_value = subprocess.CompletedProcess(
+            ["nvidia-smi"], 1, stdout="Driver diagnostic, 24576\n", stderr="failed"
+        )
+        server = self.make_server()
+        initialized = server.initialize()
+        status = server.check_status()
+        for result in (initialized, status):
+            with self.subTest(response="status" if result is status else "initialize"):
+                self.assertTrue(result["success"])
+                self.assertEqual(result["device"], "cuda")
+                self.assertNotIn("gpu_name", result)
+                self.assertNotIn("gpu_memory_total", result)
 
     def test_metadata_results_cannot_be_poisoned_by_callers(self):
         server = self.make_server()

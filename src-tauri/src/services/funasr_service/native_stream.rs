@@ -122,6 +122,26 @@ impl NativeStreamClient {
         app: Option<&AppHandle>,
         samples: &[i16],
     ) -> Result<NativeStreamUpdate, AppError> {
+        self.feed_packets(state, app, samples, None).await
+    }
+
+    pub(crate) async fn feed_coalesced(
+        &mut self,
+        state: &AppState,
+        app: Option<&AppHandle>,
+        samples: &[i16],
+        preview: bool,
+    ) -> Result<NativeStreamUpdate, AppError> {
+        self.feed_packets(state, app, samples, Some(preview)).await
+    }
+
+    async fn feed_packets(
+        &mut self,
+        state: &AppState,
+        app: Option<&AppHandle>,
+        samples: &[i16],
+        preview: Option<bool>,
+    ) -> Result<NativeStreamUpdate, AppError> {
         if self.closed {
             return Err(stream_error("stream client is closed"));
         }
@@ -129,7 +149,8 @@ impl NativeStreamClient {
             return Ok(self.current_update());
         }
 
-        for chunk in samples.chunks(5120) {
+        let mut chunks = samples.chunks(5120);
+        while let Some(chunk) = chunks.next() {
             let expected_samples = self.sample_count + chunk.len();
             let response = send_command_to_server(
                 state,
@@ -139,6 +160,7 @@ impl NativeStreamClient {
                     audio_base64: super::encode_pcm16_base64(chunk),
                     audio_format: "pcm_s16le".to_string(),
                     sample_rate: 16_000,
+                    preview: preview.map(|enabled| enabled && chunks.len() == 0),
                 },
                 app,
             )

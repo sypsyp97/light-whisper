@@ -2,7 +2,6 @@
 
 import hashlib
 import os
-import subprocess
 import time
 from pathlib import Path
 
@@ -16,7 +15,6 @@ from r2t2_segmented import SegmentedR2T2
 from r2t2_stream import R2T2StreamSession
 from server_common import (
     BaseASRServer,
-    _has_nvidia_gpu,
     decode_inline_audio,
     setup_rotating_logger,
 )
@@ -44,34 +42,6 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
         self._last_load_error = None
         self._verified_model_path = None
         self._total_inference_ms = 0.0
-
-    def _detect_device(self):
-        return "cuda" if _has_nvidia_gpu() else "cpu"
-
-    def _get_gpu_device_info(self):
-        info = {"device": self.device, "gpu_name": None}
-        if getattr(self, "backend", self.device) != "cuda":
-            return info
-        cached = getattr(self, "_gpu_device_info_cache", None)
-        if cached is not None:
-            return dict(cached)
-        try:
-            query = subprocess.run(
-                ["nvidia-smi", "--id=0", "--query-gpu=name", "--format=csv,noheader"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=1,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            if query.returncode == 0 and query.stdout.strip():
-                info["gpu_name"] = query.stdout.strip().splitlines()[0].strip()
-        except (OSError, subprocess.SubprocessError):
-            pass
-        # Hardware metadata is stable for this loaded runtime. A missing probe
-        # must neither break recognition nor run again on every status poll.
-        self._gpu_device_info_cache = dict(info)
-        return info
 
     def _get_model_repos(self):
         return []
@@ -255,21 +225,6 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
                 "engine": self.engine,
             }
 
-    @staticmethod
-    def _resample(audio, source_rate):
-        if source_rate == 16_000:
-            return np.asarray(audio, dtype=np.float32)
-        if not isinstance(source_rate, (int, float)) or source_rate <= 0:
-            raise ValueError("invalid sample rate")
-        target_length = int(round(len(audio) * 16_000 / source_rate))
-        if target_length <= 0:
-            return np.empty(0, dtype=np.float32)
-        return np.interp(
-            np.linspace(0, max(0, len(audio) - 1), target_length),
-            np.arange(len(audio), dtype=np.float64),
-            np.asarray(audio, dtype=np.float32),
-        ).astype(np.float32)
-
     def _load_audio(self, audio_path, audio_base64, audio_format, sample_rate):
         if audio_base64:
             audio, duration = decode_inline_audio(
@@ -280,23 +235,13 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
                 source_rate = sample_rate or 16_000
                 audio = self._resample(audio, source_rate)
             else:
-                import soundfile as sf
-
-                audio, source_rate = sf.read(
-                    audio, dtype="float32", always_2d=True
-                )
-                audio = audio.mean(axis=1, dtype=np.float32)
+                audio, source_rate = self._read_mono_audio(audio)
                 audio = self._resample(audio, source_rate)
             return np.ascontiguousarray(audio, dtype=np.float32), duration, input_mode
 
         if not audio_path or not os.path.exists(audio_path):
             raise FileNotFoundError("audio file not found")
-        import soundfile as sf
-
-        audio, source_rate = sf.read(
-            audio_path, dtype="float32", always_2d=True
-        )
-        audio = audio.mean(axis=1, dtype=np.float32)
+        audio, source_rate = self._read_mono_audio(audio_path)
         duration = len(audio) / float(source_rate)
         return (
             np.ascontiguousarray(self._resample(audio, source_rate), dtype=np.float32),
@@ -415,11 +360,6 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
             "native_streaming": getattr(self, "native", None) is not None,
             "inline_audio": getattr(self, "native", None) is not None,
         }
-
-    def _cleanup_memory(self):
-        # Native allocations are owned by the resident model, not PyTorch.
-        import gc
-        gc.collect()
 
 
 if __name__ == "__main__":

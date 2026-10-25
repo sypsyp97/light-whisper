@@ -94,35 +94,66 @@ impl NativeRecording {
     }
 }
 
-struct AppSink {
-    app: tauri::AppHandle,
+struct AppSink<'a> {
+    state: &'a AppState,
+    app: Option<&'a tauri::AppHandle>,
     client: NativeStreamClient,
     chunk_samples: usize,
+    coalesce_feeds: bool,
 }
 
-impl NativeCaptureSink for AppSink {
+impl<'a> AppSink<'a> {
+    fn new(
+        state: &'a AppState,
+        app: Option<&'a tauri::AppHandle>,
+        client: NativeStreamClient,
+        engine: &str,
+    ) -> Self {
+        let qwen = engine == "qwen3-asr-0.6b";
+        Self {
+            state,
+            app,
+            client,
+            // Qwen owns its preview cadence; forward capture every 40 ms so
+            // its first hypothesis need not wait for an R2T2-sized batch.
+            chunk_samples: if qwen { 640 } else { 2560 },
+            coalesce_feeds: qwen,
+        }
+    }
+}
+
+impl NativeCaptureSink for AppSink<'_> {
+    fn coalesce_feeds(&self) -> bool {
+        self.coalesce_feeds
+    }
+
     fn chunk_samples(&self) -> usize {
         self.chunk_samples
     }
 
     async fn feed(&mut self, samples: &[i16]) -> Result<NativeStreamUpdate, AppError> {
-        self.client
-            .feed(
-                self.app.state::<AppState>().inner(),
-                Some(&self.app),
-                samples,
-            )
-            .await
+        if self.coalesce_feeds {
+            self.client
+                .feed_coalesced(self.state, self.app, samples, true)
+                .await
+        } else {
+            self.client.feed(self.state, self.app, samples).await
+        }
+    }
+    async fn feed_final(&mut self, samples: &[i16]) -> Result<NativeStreamUpdate, AppError> {
+        if self.coalesce_feeds {
+            self.client
+                .feed_coalesced(self.state, self.app, samples, false)
+                .await
+        } else {
+            self.feed(samples).await
+        }
     }
     async fn finish(&mut self) -> Result<TranscriptionResult, AppError> {
-        self.client
-            .finish(self.app.state::<AppState>().inner(), Some(&self.app))
-            .await
+        self.client.finish(self.state, self.app).await
     }
     async fn cancel(&mut self) -> Result<(), AppError> {
-        self.client
-            .cancel(self.app.state::<AppState>().inner(), Some(&self.app))
-            .await
+        self.client.cancel(self.state, self.app).await
     }
 }
 
@@ -136,13 +167,6 @@ pub(crate) fn spawn_native_recording(
     let owner = state.engine.native_asr_owner.clone();
     let engine = crate::utils::paths::read_engine_config();
     let config = state.with_profile(|profile| stream_config(&engine, &profile.r2t2));
-    // Qwen owns its preview cadence. Forward capture every 40 ms so its first
-    // hypothesis need not wait for an additional R2T2-sized audio batch.
-    let chunk_samples = if engine == "qwen3-asr-0.6b" {
-        640
-    } else {
-        2560
-    };
     let (sender, mut control) = oneshot::channel();
     let task = tokio::spawn(async move {
         // Preserve the mutex queue position if Finish arrives before ownership.
@@ -178,11 +202,8 @@ pub(crate) fn spawn_native_recording(
             config.language,
         )
         .await?;
-        let sink = AppSink {
-            app: app.clone(),
-            client,
-            chunk_samples,
-        };
+        let state = app.state::<AppState>();
+        let sink = AppSink::new(state.inner(), Some(&app), client, &engine);
         let previous_caption = parking_lot::Mutex::new(None);
         let caption_app = app.clone();
         let result = run_capture(sink, samples, sample_rate, control, move |update| {
@@ -272,5 +293,117 @@ mod preview_tests {
         assert_eq!(stable["text"], "明天去上班");
         assert_eq!(stable["stableText"], "明天");
         assert_eq!(stable["tentativeText"], "去上班");
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod capture_route_tests {
+    use super::*;
+    use crate::services::funasr_service::ipc_recovery_tests::{
+        assert_stream_packet_audit, test_process,
+    };
+
+    async fn check_app_sink_route(engine: &str, stop_after_live_feed: bool) {
+        let state = AppState::default();
+        *state.engine.funasr_process.lock().await = Some(test_process("native_stream_audit").await);
+        state.set_funasr_ready(true);
+        let client = NativeStreamClient::start(&state, None, 91, String::new(), None)
+            .await
+            .unwrap();
+        // Exercise the same constructor and adapter used by spawn_native_recording.
+        // The optional app handle only suppresses GUI error notifications.
+        let sink = AppSink::new(&state, None, client, engine);
+        let qwen = engine == "qwen3-asr-0.6b";
+        let chunk_samples = sink.chunk_samples();
+        let coalesces = sink.coalesce_feeds();
+        let pcm = (0..160_001)
+            .map(|index| (index as i16).wrapping_mul(17))
+            .collect::<Vec<_>>();
+        let captured = Arc::new(parking_lot::Mutex::new(if stop_after_live_feed {
+            pcm[..160_000].to_vec()
+        } else {
+            pcm.clone()
+        }));
+        let (control_tx, control_rx) = oneshot::channel();
+        let finish_control = parking_lot::Mutex::new(Some(control_tx));
+        if !stop_after_live_feed {
+            finish_control
+                .lock()
+                .take()
+                .unwrap()
+                .send(NativeCaptureControl::Finish)
+                .ok()
+                .unwrap();
+        }
+        let updates = parking_lot::Mutex::new(Vec::new());
+        let final_sample = pcm[160_000];
+        let result = run_capture(sink, captured.clone(), 16_000, control_rx, |update| {
+            updates.lock().push(update);
+            // A completed real IPC feed is the barrier. Append the final sample
+            // and request Stop before the capture loop can send another feed.
+            if let Some(sender) = finish_control.lock().take() {
+                captured.lock().push(final_sample);
+                sender.send(NativeCaptureControl::Finish).ok().unwrap();
+            }
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let updates = updates.lock();
+        let expected_updates = if qwen {
+            if stop_after_live_feed {
+                2
+            } else {
+                1
+            }
+        } else {
+            63 // 62 full 160 ms chunks, followed by the exact 1,281-sample tail.
+        };
+        assert_eq!(
+            updates.len(),
+            expected_updates,
+            "{engine}: capture feed policy"
+        );
+        assert_eq!(coalesces, qwen);
+        assert_eq!(chunk_samples, if qwen { 640 } else { 2560 });
+        let expected_modes = if qwen {
+            let mut modes = vec![Some(false); if stop_after_live_feed { 33 } else { 32 }];
+            if stop_after_live_feed {
+                modes[31] = Some(true);
+                assert_eq!(updates[0].sample_count, 160_000);
+            }
+            modes
+        } else {
+            assert_eq!(
+                updates
+                    .iter()
+                    .map(|update| update.sample_count)
+                    .collect::<Vec<_>>(),
+                (1..=62)
+                    .map(|index| index * 2560)
+                    .chain([160_001])
+                    .collect::<Vec<_>>()
+            );
+            vec![None; 63]
+        };
+        assert_stream_packet_audit(updates.last().unwrap(), &pcm, &expected_modes);
+        assert!(result.success);
+        assert_eq!(result.text, "finished");
+        assert_eq!(result.duration, Some(pcm.len() as f64 / 16_000.0));
+    }
+
+    #[tokio::test]
+    async fn production_qwen_sink_coalesces_live_backlog_then_disables_preview_for_stop_tail() {
+        check_app_sink_route("qwen3-asr-0.6b", true).await;
+    }
+
+    #[tokio::test]
+    async fn production_qwen_sink_stop_before_capture_never_requests_preview() {
+        check_app_sink_route("qwen3-asr-0.6b", false).await;
+    }
+
+    #[tokio::test]
+    async fn production_r2t2_sink_keeps_legacy_live_and_stop_packets() {
+        check_app_sink_route("confucius4-r2t2", true).await;
     }
 }

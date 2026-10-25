@@ -319,6 +319,22 @@ index 76cfe6b..a043008 100644
  AUDIOCPP_API audiocpp_status audiocpp_result_segment(const audiocpp_result * result,
                                                       size_t index,
                                                       int64_t * out_start_sample,
+diff --git a/include/engine/community_models/confucius4_r2t2/audio_encoder.h b/include/engine/community_models/confucius4_r2t2/audio_encoder.h
+index 4e3033a..7391dfe 100644
+--- a/include/engine/community_models/confucius4_r2t2/audio_encoder.h
++++ b/include/engine/community_models/confucius4_r2t2/audio_encoder.h
+@@ -24,9 +24,10 @@ public:
+ 
+     // Actual retained graph capacity, including capacity retained after shrink.
+     int64_t graph_capacity_frames() const noexcept { return graph_capacity_frames_; }
+ 
+-    R2T2ASRAudioEmbeddings encode(const R2T2ASRAudioFeatures & features, bool reuse_graph = false);
++    R2T2ASRAudioEmbeddings encode(const R2T2ASRAudioFeatures & features, bool reuse_graph = false,
++                                bool device_output = false);
+ 
+ private:
+     std::shared_ptr<const R2T2ASRAssets> assets_;
+     std::shared_ptr<const R2T2ASRAudioEncoderWeights> weights_;
 diff --git a/include/engine/community_models/confucius4_r2t2/frontend_whisper.h b/include/engine/community_models/confucius4_r2t2/frontend_whisper.h
 index 9b56577..c24a97c 100644
 --- a/include/engine/community_models/confucius4_r2t2/frontend_whisper.h
@@ -437,6 +453,34 @@ index dc0f525..e920924 100644
  
  /// Part before the <asr_text> tag (empty when the tag is absent).
  std::string text_before_asr_tag(const std::string & text);
+diff --git a/include/engine/community_models/confucius4_r2t2/types.h b/include/engine/community_models/confucius4_r2t2/types.h
+index 3b7e8b1..a728fa9 100644
+--- a/include/engine/community_models/confucius4_r2t2/types.h
++++ b/include/engine/community_models/confucius4_r2t2/types.h
+@@ -6,8 +6,11 @@
+ #include <stdexcept>
+ #include <string>
+ #include <vector>
+ 
++struct ggml_tensor;
++struct ggml_backend;
++
+ namespace engine::community_models::confucius4_r2t2 {
+ 
+ struct R2T2ASRGenerationOptions {
+     int64_t max_new_tokens = 512;
+@@ -46,8 +49,11 @@ struct R2T2ASRAudioFeatures {
+ struct R2T2ASRAudioEmbeddings {
+     std::vector<float> values;
+     int64_t tokens = 0;
+     int64_t hidden_size = 0;
++    // Borrowed until the encoder's next encode call; generation consumes it synchronously.
++    ggml_tensor * device_values = nullptr;
++    ggml_backend * device_backend = nullptr;
+ };
+ 
+ struct R2T2ASRGeneratedTokens {
+     std::vector<int32_t> token_ids;
 diff --git a/include/engine/framework/audio/dsp.h b/include/engine/framework/audio/dsp.h
 index 7a12f98..bd61595 100644
 --- a/include/engine/framework/audio/dsp.h
@@ -455,7 +499,7 @@ index 7a12f98..bd61595 100644
      WhisperLogMelConfig config_;
      SparseMelFilterbank filterbank_;
 diff --git a/include/engine/framework/modules/transformers/qwen_causal_decode_runtime.h b/include/engine/framework/modules/transformers/qwen_causal_decode_runtime.h
-index e48ce6b..9f50f5d 100644
+index e48ce6b..f329547 100644
 --- a/include/engine/framework/modules/transformers/qwen_causal_decode_runtime.h
 +++ b/include/engine/framework/modules/transformers/qwen_causal_decode_runtime.h
 @@ -28,8 +28,11 @@ struct QwenCausalDecodeRuntimeConfig {
@@ -485,7 +529,21 @@ index e48ce6b..9f50f5d 100644
  
  class QwenCausalDecodeRuntime {
  public:
-@@ -95,8 +104,11 @@ public:
+@@ -82,8 +91,13 @@ public:
+     // Prefill bounded blocks directly into the token-decode cache on the backend.
+     // No host KV export/import; subsequent decode_token calls continue this state.
+     QwenCausalDecodeStepResult prefill_embeddings_into_cache(
+         const std::vector<float> & embeddings, int64_t steps, int64_t cache_steps, int64_t chunk_steps);
++    // Backed contiguous F32 [hidden, steps, 1, 1] on this CPU/CUDA backend's
++    // default buffer type. Borrows input only for this call; retains an independent
++    // backend snapshot for exact prefix reuse and never transfers embeddings via host.
++    QwenCausalDecodeStepResult prefill_device_embeddings_into_cache(
++        ggml_tensor * embeddings, int64_t steps, int64_t cache_steps, int64_t chunk_steps);
+ 
+     QwenCausalBatchedPrefillResult prefill_tokens_batched(
+         const std::vector<int32_t> & token_ids,
+         int64_t batch_size,
+@@ -95,8 +109,11 @@ public:
  
      void start_decode_tokens(const runtime::TransformerKVState & state, int64_t required_cache_steps);
      void start_decode_embeddings(const runtime::TransformerKVState & state, int64_t required_cache_steps);
@@ -498,7 +556,7 @@ index e48ce6b..9f50f5d 100644
  
      void start_decode_tokens_batched(
 diff --git a/include/engine/framework/runtime/greedy_qwen_decoder.h b/include/engine/framework/runtime/greedy_qwen_decoder.h
-index 162532a..df2208f 100644
+index 162532a..d969fbf 100644
 --- a/include/engine/framework/runtime/greedy_qwen_decoder.h
 +++ b/include/engine/framework/runtime/greedy_qwen_decoder.h
 @@ -29,8 +29,10 @@ struct GreedyQwenDecoderSpec {
@@ -512,6 +570,18 @@ index 162532a..df2208f 100644
  
  // Greedy autoregressive decoding over a Qwen-style decoder stack: prefill
  // with optional audio-embedding injection (ggml_set_rows at prompt
+@@ -41,8 +43,11 @@ public:
+     struct Injection {
+         std::vector<float> values;        // tokens * hidden, token-major
+         int64_t tokens = 0;
+         std::vector<int32_t> positions;   // prompt positions to replace
++        // Optional borrowed F32 rows on the same backend, valid through generate().
++        ggml_tensor * device_values = nullptr;
++        ggml_backend_t device_backend = nullptr;
+     };
+ 
+     struct Prompt {
+         std::vector<int32_t> input_ids;
 diff --git a/include/engine/framework/runtime/kv_cache.h b/include/engine/framework/runtime/kv_cache.h
 index e8671e3..a6e10b8 100644
 --- a/include/engine/framework/runtime/kv_cache.h
@@ -555,6 +625,49 @@ index bdc03f2..3a8011c 100644
  
  struct TimeSpan {
      int64_t start_sample = 0;
+diff --git a/include/engine/models/qwen3_asr/audio_encoder.h b/include/engine/models/qwen3_asr/audio_encoder.h
+index 1ed784e..1fd569c 100644
+--- a/include/engine/models/qwen3_asr/audio_encoder.h
++++ b/include/engine/models/qwen3_asr/audio_encoder.h
+@@ -21,9 +21,9 @@ public:
+         size_t graph_arena_bytes,
+         assets::TensorStorageType weight_storage_type);
+     ~Qwen3ASRAudioEncoderRuntime();
+ 
+-    Qwen3ASRAudioEmbeddings encode(const Qwen3ASRAudioFeatures & features);
++    Qwen3ASRAudioEmbeddings encode(const Qwen3ASRAudioFeatures & features, bool device_output = false);
+ 
+ private:
+     std::shared_ptr<const Qwen3ASRAssets> assets_;
+     std::shared_ptr<const Qwen3ASRAudioEncoderWeights> weights_;
+diff --git a/include/engine/models/qwen3_asr/types.h b/include/engine/models/qwen3_asr/types.h
+index 032ca2c..4fb32d1 100644
+--- a/include/engine/models/qwen3_asr/types.h
++++ b/include/engine/models/qwen3_asr/types.h
+@@ -6,8 +6,11 @@
+ #include <stdexcept>
+ #include <string>
+ #include <vector>
+ 
++struct ggml_tensor;
++struct ggml_backend;
++
+ namespace engine::models::qwen3_asr {
+ 
+ struct Qwen3ASRGenerationOptions {
+     int64_t max_new_tokens = 512;
+@@ -45,8 +48,11 @@ struct Qwen3ASRAudioFeatures {
+ struct Qwen3ASRAudioEmbeddings {
+     std::vector<float> values;
+     int64_t tokens = 0;
+     int64_t hidden_size = 0;
++    // Borrowed until the encoder's next encode call; generation consumes it synchronously.
++    ggml_tensor * device_values = nullptr;
++    ggml_backend * device_backend = nullptr;
+ };
+ 
+ struct Qwen3ASRGeneratedTokens {
+     std::vector<int32_t> token_ids;
 diff --git a/model_specs/confucius4_r2t2.json b/model_specs/confucius4_r2t2.json
 index fdf8b33..e6a08f2 100644
 --- a/model_specs/confucius4_r2t2.json
@@ -607,6 +720,58 @@ index 1582084..9c3860e 100644
      return result != nullptr ? result->result.speech_segments.size() : 0;
  }
  
+diff --git a/src/community_models/confucius4_r2t2/audio_encoder.cpp b/src/community_models/confucius4_r2t2/audio_encoder.cpp
+index f850e03..17c9ff4 100644
+--- a/src/community_models/confucius4_r2t2/audio_encoder.cpp
++++ b/src/community_models/confucius4_r2t2/audio_encoder.cpp
+@@ -508,9 +508,9 @@ public:
+             (confucius4_r2t2_audio_encoder_token_count(frames) < 64) == (output_tokens_ < 64);
+         return weights_.get() == &weights && shape_matches && same_attention_kernel && backend_ == backend && compute_threads_ == std::max(1, threads);
+     }
+ 
+-    R2T2ASRAudioEmbeddings run(const R2T2ASRAudioFeatures & features) {
++    R2T2ASRAudioEmbeddings run(const R2T2ASRAudioFeatures & features, bool device_output) {
+         const auto & config = assets_->config.audio_encoder;
+         if (features.mel_bins != config.num_mel_bins || (reusable_ ? features.frames > frames_ || features.frames < chunk_frame_limit_ : features.frames != frames_)) {
+             throw std::runtime_error("R2T2 ASR audio encoder feature shape mismatch");
+         }
+@@ -558,8 +558,14 @@ public:
+         }
+         R2T2ASRAudioEmbeddings out;
+         out.tokens = features.encoder_tokens;
+         out.hidden_size = output_dim_;
++        if (device_output && backend_type_ == core::BackendType::Cuda) {
++            out.device_values = output_;
++            out.device_backend = backend_;
++            debug::timing_log_scalar("confucius4_r2t2.audio_encoder.output_read_ms", 0.0);
++            return out;
++        }
+         out.values.resize(static_cast<size_t>(out.tokens * out.hidden_size));
+         timing_start = Clock::now();
+         ggml_backend_tensor_get(output_, out.values.data(), 0, out.values.size() * sizeof(float));
+         debug::timing_log_scalar("confucius4_r2t2.audio_encoder.output_read_ms", engine::debug::elapsed_ms(timing_start, Clock::now()));
+@@ -610,9 +616,9 @@ R2T2ASRAudioEncoderRuntime::R2T2ASRAudioEncoderRuntime(
+ }
+ 
+ R2T2ASRAudioEncoderRuntime::~R2T2ASRAudioEncoderRuntime() = default;
+ 
+-R2T2ASRAudioEmbeddings R2T2ASRAudioEncoderRuntime::encode(const R2T2ASRAudioFeatures & features, bool reuse_graph) {
++R2T2ASRAudioEmbeddings R2T2ASRAudioEncoderRuntime::encode(const R2T2ASRAudioFeatures & features, bool reuse_graph, bool device_output) {
+     if (execution_ == nullptr) {
+         throw std::runtime_error("R2T2 ASR audio encoder execution context is null");
+     }
+     if (features.encoder_tokens != confucius4_r2t2_audio_encoder_token_count(features.frames)) {
+@@ -651,9 +657,9 @@ R2T2ASRAudioEmbeddings R2T2ASRAudioEncoderRuntime::encode(const R2T2ASRAudioFeat
+         debug::timing_log_scalar("confucius4_r2t2.audio_encoder.graph.build_ms", 0.0);
+ 
+     }
+     debug::trace_log_scalar("confucius4_r2t2.audio_encoder.input_frames", features.frames);
+-    auto out = graph_->run(features);
++    auto out = graph_->run(features, device_output);
+     if (out.tokens != features.encoder_tokens) {
+         throw std::runtime_error("R2T2 ASR audio encoder output token count mismatch");
+     }
+     return out;
 diff --git a/src/community_models/confucius4_r2t2/frontend_whisper.cpp b/src/community_models/confucius4_r2t2/frontend_whisper.cpp
 index e1b670e..23cced1 100644
 --- a/src/community_models/confucius4_r2t2/frontend_whisper.cpp
@@ -695,7 +860,7 @@ index e1b670e..23cced1 100644
      R2T2ASRAudioFeatures out;
      out.values = std::move(features.values);
 diff --git a/src/community_models/confucius4_r2t2/session.cpp b/src/community_models/confucius4_r2t2/session.cpp
-index 68853c0..e640c21 100644
+index 68853c0..d35bfea 100644
 --- a/src/community_models/confucius4_r2t2/session.cpp
 +++ b/src/community_models/confucius4_r2t2/session.cpp
 @@ -8,8 +8,9 @@
@@ -822,6 +987,17 @@ index 68853c0..e640c21 100644
      const std::string prefix = build_stream_prefix(final_flush);
  
      runtime::AudioBuffer accum;
+@@ -329,9 +405,9 @@ R2T2ASRSession::StreamOutcome R2T2ASRSession::decode_stream_chunk(bool final_flu
+     accum.channels = stream_channels_;
+     accum.samples = audio_accum_;
+     const auto features = frontend_.extract(accum);
+     const auto prompt = tokenizer_.build_raw_audio_prompt(prompt_raw_ + prefix, features.encoder_tokens);
+-    const auto embeddings = audio_encoder_.encode(features, /*reuse_graph=*/true);
++    const auto embeddings = audio_encoder_.encode(features, /*reuse_graph=*/true, /*device_output=*/true);
+     std::string generated = generate_text(prompt, embeddings);
+     generated = normalize_punct_by_context(generated);
+     generated = sanitize_utf8_lossy(generated);
+     // Remove U+FFFD replacement characters, mirroring .replace('\ufffd', '').
 @@ -388,8 +464,9 @@ R2T2ASRSession::StreamOutcome R2T2ASRSession::decode_stream_chunk(bool final_flu
      language_ = parsed.language;
      text_ = truncate_at_pipe(parsed.text);
@@ -854,7 +1030,7 @@ index 68853c0..e640c21 100644
 +    accum.samples = audio_accum_;
 +    const auto features = frontend_.extract(accum);
 +    const auto prompt = tokenizer_.build_raw_audio_prompt(prompt_raw_ + window_prefix, features.encoder_tokens);
-+    const auto embeddings = audio_encoder_.encode(features, /*reuse_graph=*/true);
++    const auto embeddings = audio_encoder_.encode(features, /*reuse_graph=*/true, /*device_output=*/true);
 +    std::string generated = generate_text(prompt, embeddings);
 +    generated = normalize_punct_by_context(generated);
 +    generated = sanitize_utf8_lossy(generated);
@@ -965,7 +1141,7 @@ index 68853c0..e640c21 100644
 +        const auto preview_features = frontend_.extract(accum);
 +        const auto preview_prompt = tokenizer_.build_raw_audio_prompt(
 +            prompt_raw_ + window_prefix, preview_features.encoder_tokens);
-+        const auto preview_embeddings = audio_encoder_.encode(preview_features, /*reuse_graph=*/true);
++        const auto preview_embeddings = audio_encoder_.encode(preview_features, /*reuse_graph=*/true, /*device_output=*/true);
 +        auto preview_raw = sanitize_utf8_lossy(normalize_punct_by_context(
 +            window_prefix + generate_text(preview_prompt, preview_embeddings)));
 +        for (size_t pos = 0; (pos = preview_raw.find(kReplacementChar, pos)) != std::string::npos;) {
@@ -1095,6 +1271,33 @@ index 0b3474f..82c8689 100644
      std::string out;
      out.reserve(text.size() + 16);
      size_t i = 0;
+diff --git a/src/community_models/confucius4_r2t2/thinker.cpp b/src/community_models/confucius4_r2t2/thinker.cpp
+index e6c9933..aa73f2a 100644
+--- a/src/community_models/confucius4_r2t2/thinker.cpp
++++ b/src/community_models/confucius4_r2t2/thinker.cpp
+@@ -96,9 +96,10 @@ R2T2ASRGeneratedTokens R2T2ASRThinkerRuntime::generate(
+     }
+     const auto & text = impl_->config.text_decoder;
+     if (audio_embeddings.hidden_size != text.hidden_size ||
+         audio_embeddings.tokens != static_cast<int64_t>(prompt.audio_token_positions.size()) ||
+-        static_cast<int64_t>(audio_embeddings.values.size()) != audio_embeddings.tokens * text.hidden_size) {
++        (!audio_embeddings.device_values &&
++         static_cast<int64_t>(audio_embeddings.values.size()) != audio_embeddings.tokens * text.hidden_size)) {
+         throw std::runtime_error("R2T2 ASR audio embeddings do not match the prompt placeholders");
+     }
+     for (const int32_t position : prompt.audio_token_positions) {
+         if (position < 0 || position >= static_cast<int32_t>(prompt.input_ids.size())) {
+@@ -109,8 +110,10 @@ R2T2ASRGeneratedTokens R2T2ASRThinkerRuntime::generate(
+     decoder_prompt.input_ids = prompt.input_ids;
+     decoder_prompt.injection.values = audio_embeddings.values;
+     decoder_prompt.injection.tokens = audio_embeddings.tokens;
+     decoder_prompt.injection.positions = prompt.audio_token_positions;
++    decoder_prompt.injection.device_values = audio_embeddings.device_values;
++    decoder_prompt.injection.device_backend = audio_embeddings.device_backend;
+ 
+     R2T2ASRGeneratedTokens out;
+     out.token_ids = impl_->runtime.generate(decoder_prompt, options.max_new_tokens, options.reuse_graphs);
+     return out;
 diff --git a/src/framework/audio/dsp.cpp b/src/framework/audio/dsp.cpp
 index 0397642..3ccc863 100644
 --- a/src/framework/audio/dsp.cpp
@@ -1156,7 +1359,7 @@ index 0397642..3ccc863 100644
  AudioTensor MelSpectrogram::compute(
      const std::vector<float> & waveform,
 diff --git a/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp b/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp
-index 37637bd..6c0adf3 100644
+index 37637bd..8bedfd3 100644
 --- a/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp
 +++ b/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp
 @@ -10,8 +10,9 @@
@@ -1174,7 +1377,7 @@ index 37637bd..6c0adf3 100644
      }
  
      QwenCausalPrefillResult prefill_tokens(const std::vector<int32_t> & token_ids) {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
          if (token_ids.empty()) {
              throw std::runtime_error("QwenCausalDecodeRuntime prefill requires tokens");
          }
@@ -1184,7 +1387,7 @@ index 37637bd..6c0adf3 100644
      QwenCausalPrefillIntoDecodeResult prefill_tokens_into_decode_cache(
          const std::vector<int32_t> & token_ids,
          int64_t required_cache_steps) {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
          if (token_ids.empty()) {
              throw std::runtime_error("QwenCausalDecodeRuntime prefill requires tokens");
          }
@@ -1194,7 +1397,7 @@ index 37637bd..6c0adf3 100644
      }
  
      QwenCausalPrefillResult prefill_embeddings(const std::vector<float> & embeddings, int64_t steps) {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
          if (steps <= 0) {
              throw std::runtime_error("QwenCausalDecodeRuntime prefill requires positive embedding steps");
          }
@@ -1204,7 +1407,7 @@ index 37637bd..6c0adf3 100644
          const std::vector<int32_t> & token_ids,
          int64_t batch_size,
          int64_t steps) {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
          if (batch_size <= 0 || steps <= 0) {
              throw std::runtime_error("QwenCausalDecodeRuntime batched prefill requires positive batch and steps");
          }
@@ -1214,26 +1417,64 @@ index 37637bd..6c0adf3 100644
          const std::vector<float> & embeddings,
          int64_t batch_size,
          int64_t steps) {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
          if (batch_size <= 0 || steps <= 0) {
              throw std::runtime_error("QwenCausalDecodeRuntime batched prefill requires positive batch and steps");
          }
          const size_t expected = static_cast<size_t>(batch_size * steps * config_.decoder.stack.hidden_size);
-@@ -613,8 +619,10 @@ public:
+@@ -613,73 +619,211 @@ public:
      }
  
      QwenCausalDecodeStepResult prefill_embeddings_into_cache(
          const std::vector<float> & embeddings, int64_t steps, int64_t cache_steps, int64_t chunk_steps) {
++        return prefill_embeddings_into_cache_impl(&embeddings, nullptr, steps, cache_steps, chunk_steps);
++    }
++
++    QwenCausalDecodeStepResult prefill_device_embeddings_into_cache(
++        ggml_tensor * embeddings, int64_t steps, int64_t cache_steps, int64_t chunk_steps) {
++        return prefill_embeddings_into_cache_impl(nullptr, embeddings, steps, cache_steps, chunk_steps);
++    }
++
++    QwenCausalDecodeStepResult prefill_embeddings_into_cache_impl(
++        const std::vector<float> * embeddings, ggml_tensor * device_embeddings,
++        int64_t steps, int64_t cache_steps, int64_t chunk_steps) {
 +        // A failed or interrupted prefill must not leave a reusable snapshot.
 +        auto previous_embeddings = std::move(cached_prefill_embeddings_);
++        const int64_t previous_device_steps = std::exchange(cached_device_prefill_steps_, 0);
++        const int64_t width = config_.decoder.stack.hidden_size;
          if (steps <= 0 || chunk_steps <= 0 || cache_steps < steps ||
-             embeddings.size() != static_cast<size_t>(steps * config_.decoder.stack.hidden_size)) {
+-            embeddings.size() != static_cast<size_t>(steps * config_.decoder.stack.hidden_size)) {
++            steps > std::numeric_limits<int64_t>::max() / width ||
++            (embeddings && embeddings->size() != static_cast<size_t>(steps * width))) {
              throw std::runtime_error("Qwen chunked prefill has invalid dimensions");
          }
-@@ -625,19 +633,39 @@ public:
++        if (!embeddings) {
++            auto * buffer = device_embeddings
++                ? (device_embeddings->view_src ? device_embeddings->view_src->buffer : device_embeddings->buffer)
++                : nullptr;
++            if (!device_embeddings || device_embeddings->type != GGML_TYPE_F32 ||
++                device_embeddings->ne[0] != width || device_embeddings->ne[1] != steps ||
++                device_embeddings->ne[2] != 1 || device_embeddings->ne[3] != 1 ||
++                !ggml_is_contiguous(device_embeddings) || !device_embeddings->data || !buffer) {
++                throw std::runtime_error("Qwen device prefill has invalid embeddings");
++            }
++            // A matching default buffer guarantees a same-device copy, with no
++            // generic backend fallback through host memory or a foreign device.
++            if ((backend_type_ != core::BackendType::Cpu && backend_type_ != core::BackendType::Cuda) ||
++                ggml_backend_buffer_get_type(buffer) != ggml_backend_get_default_buffer_type(backend_)) {
++                throw std::runtime_error("Qwen device prefill requires this backend's default buffer type");
++            }
++        }
+         if (config_.decoder.stack.runtime.static_cache.update_mode != QwenDecoderStaticCacheUpdateMode::DirectSetRows ||
+             config_.decoder.logits_mode != QwenCausalDecoderLogitsMode::LastStep ||
+             !config_.logits_readback_token_ids.empty()) {
+             throw std::runtime_error("Qwen chunked prefill requires DirectSetRows and full last-token readback");
          }
          const int64_t chunk = std::min(steps, chunk_steps);
          // Padding writes only unused future slots; those slots stay masked until overwritten.
++        if (steps > std::numeric_limits<int64_t>::max() - (chunk - 1)) {
++            throw std::runtime_error("Qwen chunked prefill capacity overflow");
++        }
          const int64_t capacity = std::max(cache_steps, ((steps + chunk - 1) / chunk) * chunk);
 +        const bool same_shape = config_.sliding_window == 0 && decode_graph_ != nullptr &&
 +            decode_input_kind_ == InputKind::Token && decode_cache_steps_ >= capacity &&
@@ -1244,77 +1485,176 @@ index 37637bd..6c0adf3 100644
              build_block_graph(chunk);
          }
 -        decode_cache_.clear_on_backend();
-         const int64_t width = config_.decoder.stack.hidden_size;
+-        const int64_t width = config_.decoder.stack.hidden_size;
+-        std::vector<float> input(static_cast<size_t>(chunk * width));
+-        std::vector<ggml_fp16_t> mask(static_cast<size_t>(chunk * decode_cache_steps_));
+-        const auto masked = ggml_fp32_to_fp16(-std::numeric_limits<float>::infinity());
+-        for (int64_t offset = 0; offset < steps; offset += chunk) {
+-            const int64_t count = std::min(chunk, steps - offset);
+-            std::fill(input.begin(), input.end(), 0.f);
+-            std::copy_n(embeddings.data() + offset * width, count * width, input.data());
+-            auto positions = qwen_position_ids(chunk, offset);
+-            std::fill(mask.begin(), mask.end(), masked);
+-            for (int64_t q = 0; q < chunk; ++q) {
+-                const int64_t begin = config_.sliding_window > 0
+-                    ? std::max<int64_t>(0, offset + q - config_.sliding_window + 1) : 0;
+-                std::fill(mask.begin() + q * decode_cache_steps_ + begin,
+-                          mask.begin() + q * decode_cache_steps_ + offset + q + 1,
+-                          ggml_fp32_to_fp16(0.f));
 +        int64_t reused_steps = 0;
-+        if (same_shape) {
++        if (embeddings && same_shape) {
 +            const int64_t previous_steps = static_cast<int64_t>(previous_embeddings.size() / width);
 +            const int64_t limit = std::min(steps - 1, previous_steps) / chunk * chunk;
 +            if (decode_cache_.valid_steps() >= previous_steps) {
 +                for (; reused_steps < limit; reused_steps += chunk) {
 +                    const size_t offset = static_cast<size_t>(reused_steps * width);
-+                    if (std::memcmp(embeddings.data() + offset, previous_embeddings.data() + offset,
++                    if (std::memcmp(embeddings->data() + offset, previous_embeddings.data() + offset,
 +                                    static_cast<size_t>(chunk * width) * sizeof(float)) != 0) {
 +                        break;
 +                    }
 +                }
-+            }
-+        }
-+        // Future V rows still take part in masked multiplication: clear them
-+        // even when an unchanged prefix can stay on device (0 * NaN is NaN).
-+        decode_cache_.clear_on_backend(backend_, reused_steps);
-+        debug::trace_log_scalar(config_.trace_name + ".prefill.reused_steps", reused_steps);
-         std::vector<float> input(static_cast<size_t>(chunk * width));
-         std::vector<ggml_fp16_t> mask(static_cast<size_t>(chunk * decode_cache_steps_));
-         const auto masked = ggml_fp32_to_fp16(-std::numeric_limits<float>::infinity());
--        for (int64_t offset = 0; offset < steps; offset += chunk) {
-+        for (int64_t offset = reused_steps; offset < steps; offset += chunk) {
-             const int64_t count = std::min(chunk, steps - offset);
-             std::fill(input.begin(), input.end(), 0.f);
-             std::copy_n(embeddings.data() + offset * width, count * width, input.data());
-             auto positions = qwen_position_ids(chunk, offset);
-@@ -649,37 +677,49 @@ public:
-                           mask.begin() + q * decode_cache_steps_ + offset + q + 1,
-                           ggml_fp32_to_fp16(0.f));
              }
-             const int32_t last = static_cast<int32_t>(count - 1);
+-            const int32_t last = static_cast<int32_t>(count - 1);
 -            ggml_backend_tensor_set(block_input_, input.data(), 0, input.size() * sizeof(float));
 -            ggml_backend_tensor_set(block_positions_, positions.data(), 0, positions.size() * sizeof(int32_t));
 -            ggml_backend_tensor_set(block_mask_, mask.data(), 0, mask.size() * sizeof(ggml_fp16_t));
 -            ggml_backend_tensor_set(block_last_, &last, 0, sizeof(last));
-+            // Input storage stays alive until the synchronous graph compute below.
-+            // Queue same-stream uploads together instead of waiting after each copy.
-+            ggml_backend_tensor_set_async(backend_, block_input_, input.data(), 0, input.size() * sizeof(float));
-+            ggml_backend_tensor_set_async(backend_, block_positions_, positions.data(), 0, positions.size() * sizeof(int32_t));
-+            ggml_backend_tensor_set_async(backend_, block_mask_, mask.data(), 0, mask.size() * sizeof(ggml_fp16_t));
-+            ggml_backend_tensor_set_async(backend_, block_last_, &last, 0, sizeof(last));
-             core::set_backend_threads(backend_, threads_);
+-            core::set_backend_threads(backend_, threads_);
 -            if (core::compute_backend_graph(backend_, block_graph_) != GGML_STATUS_SUCCESS) {
-+            auto * graph = offset + count < steps ? block_cache_graph_ : block_graph_;
-+            if (core::compute_backend_graph(backend_, graph) != GGML_STATUS_SUCCESS) {
-                 throw std::runtime_error("Qwen chunked prefill compute failed");
-             }
-             decode_cache_.advance_after_direct_append(count);
-         }
-         ggml_backend_synchronize(backend_);
-         QwenCausalDecodeStepResult result;
--        if (block_logits_) { result.logits = core::read_tensor_f32(block_logits_); }
-+        if (block_token_id_) {
-+            result.token_id.emplace();
-+            ggml_backend_tensor_get(block_token_id_, &*result.token_id, 0, sizeof(int32_t));
-+        } else if (block_logits_) {
-+            result.logits = core::read_tensor_f32(block_logits_);
+-                throw std::runtime_error("Qwen chunked prefill compute failed");
 +        }
-         if (block_hidden_) {
-             result.hidden = core::read_tensor_f32(block_hidden_);
-             round_readback(result.hidden, config_);
++        if (device_embeddings) {
++            ensure_device_prefill_storage();
++            if (same_shape && decode_cache_.valid_steps() >= previous_device_steps) {
++                const int64_t limit = std::min(steps - 1, previous_device_steps) / chunk * chunk;
++                reused_steps = matching_device_prefill_prefix(device_embeddings, limit);
+             }
+-            decode_cache_.advance_after_direct_append(count);
          }
-+        previous_embeddings.assign(embeddings.begin(), embeddings.end());
-+        cached_prefill_embeddings_ = std::move(previous_embeddings);
-         return result;
+-        ggml_backend_synchronize(backend_);
+-        QwenCausalDecodeStepResult result;
+-        if (block_logits_) { result.logits = core::read_tensor_f32(block_logits_); }
+-        if (block_hidden_) {
+-            result.hidden = core::read_tensor_f32(block_hidden_);
+-            round_readback(result.hidden, config_);
++        // Future V rows still take part in masked multiplication: clear them
++        // even when an unchanged prefix can stay on device (0 * NaN is NaN).
++        decode_cache_.clear_on_backend(backend_, reused_steps);
++        debug::trace_log_scalar(config_.trace_name + ".prefill.reused_steps", reused_steps);
++        const bool queue_graphs = backend_type_ == core::BackendType::Cuda;
++        const size_t blocks = static_cast<size_t>((steps - reused_steps + chunk - 1) / chunk);
++        const size_t block_host_bytes = (embeddings ? ggml_nbytes(block_input_) : 0) +
++            ggml_nbytes(block_positions_) + ggml_nbytes(block_mask_) + sizeof(int32_t);
++        // Bound retained upload storage to 32 MiB, allowing one oversized block.
++        constexpr size_t staging_budget = 32 * 1024 * 1024;
++        const size_t batch_capacity = queue_graphs
++            ? std::min(blocks, std::max<size_t>(1, staging_budget / block_host_bytes)) : 1;
++        struct BlockInputs {
++            std::vector<float> embeddings;
++            std::vector<ggml_fp16_t> mask;
++            std::vector<int32_t> positions;
++            int32_t last = 0;
++        };
++        std::vector<BlockInputs> staging(batch_capacity);
++        for (auto & input : staging) {
++            input.embeddings.resize(embeddings ? static_cast<size_t>(chunk * width) : 0);
++            input.mask.resize(static_cast<size_t>(chunk * decode_cache_steps_));
++            input.positions.resize(static_cast<size_t>(chunk));
++        }
++        std::unique_ptr<ggml_context, GgmlContextDeleter> copy_ctx;
++        ggml_tensor * device_input = nullptr;
++        if (device_embeddings) {
++            copy_ctx.reset(ggml_init({ggml_tensor_overhead() * (2 * batch_capacity + 3), nullptr, true}));
++            if (!copy_ctx) { throw std::runtime_error("Qwen device prefill copy context allocation failed"); }
++            device_input = device_prefill_leaf(copy_ctx.get(), device_embeddings);
++        }
++        const auto masked = ggml_fp32_to_fp16(-std::numeric_limits<float>::infinity());
++        // Keep upload storage and view metadata alive through exception-path synchronization.
++        try {
++            core::set_backend_threads(backend_, threads_);
++            size_t batch_size = 0;
++            for (int64_t offset = reused_steps; offset < steps; offset += chunk) {
++                const int64_t count = std::min(chunk, steps - offset);
++                auto & input = staging[batch_size];
++                if (embeddings) {
++                    std::fill(input.embeddings.begin(), input.embeddings.end(), 0.f);
++                    std::copy_n(embeddings->data() + offset * width, count * width, input.embeddings.data());
++                }
++                std::fill(input.mask.begin(), input.mask.end(), masked);
++                for (int64_t q = 0; q < chunk; ++q) {
++                    input.positions[static_cast<size_t>(q)] = static_cast<int32_t>(offset + q);
++                    const int64_t begin = config_.sliding_window > 0
++                        ? std::max<int64_t>(0, offset + q - config_.sliding_window + 1) : 0;
++                    std::fill(input.mask.begin() + q * decode_cache_steps_ + begin,
++                              input.mask.begin() + q * decode_cache_steps_ + offset + q + 1,
++                              ggml_fp32_to_fp16(0.f));
++                }
++                input.last = static_cast<int32_t>(count - 1);
++                // Copies and graphs share one stream. This slot remains immutable
++                // until the whole bounded batch has finished using its addresses.
++                if (device_input) {
++                    auto * source = device_prefill_view(copy_ctx.get(), device_input, count, offset);
++                    auto * target = device_prefill_view(copy_ctx.get(), block_input_, count, 0);
++                    if (count < chunk) {
++                        ggml_backend_tensor_copy_async(backend_, backend_, device_prefill_zero_, block_input_);
++                    }
++                    ggml_backend_tensor_copy_async(backend_, backend_, source, target);
++                } else {
++                    ggml_backend_tensor_set_async(backend_, block_input_, input.embeddings.data(), 0,
++                                                  input.embeddings.size() * sizeof(float));
++                }
++                ggml_backend_tensor_set_async(backend_, block_positions_, input.positions.data(), 0,
++                                              input.positions.size() * sizeof(int32_t));
++                ggml_backend_tensor_set_async(backend_, block_mask_, input.mask.data(), 0,
++                                              input.mask.size() * sizeof(ggml_fp16_t));
++                ggml_backend_tensor_set_async(backend_, block_last_, &input.last, 0, sizeof(input.last));
++                auto * graph = offset + count < steps ? block_cache_graph_ : block_graph_;
++                const auto status = queue_graphs ? ggml_backend_graph_compute_async(backend_, graph)
++                                                 : core::compute_backend_graph(backend_, graph);
++                if (status != GGML_STATUS_SUCCESS) {
++                    throw std::runtime_error("Qwen chunked prefill compute failed");
++                }
++                decode_cache_.advance_after_direct_append(count);
++                if (++batch_size == batch_capacity && offset + count < steps) {
++                    if (queue_graphs) { ggml_backend_synchronize(backend_); }
++                    batch_size = 0;
++                    if (copy_ctx) {
++                        ggml_reset(copy_ctx.get());
++                        device_input = device_prefill_leaf(copy_ctx.get(), device_embeddings);
++                    }
++                }
++            }
++            ggml_backend_synchronize(backend_);
++            QwenCausalDecodeStepResult result;
++            if (block_token_id_) {
++                result.token_id.emplace();
++                ggml_backend_tensor_get(block_token_id_, &*result.token_id, 0, sizeof(int32_t));
++            } else if (block_logits_) {
++                result.logits = core::read_tensor_f32(block_logits_);
++            }
++            if (block_hidden_) {
++                result.hidden = core::read_tensor_f32(block_hidden_);
++                round_readback(result.hidden, config_);
++            }
++            if (device_input) {
++                auto * snapshot = device_prefill_view(copy_ctx.get(), device_prefill_snapshot_, steps, 0);
++                ggml_backend_tensor_copy_async(backend_, backend_, device_input, snapshot);
++                ggml_backend_synchronize(backend_);
++                cached_device_prefill_steps_ = steps;
++            } else {
++                previous_embeddings.assign(embeddings->begin(), embeddings->end());
++                cached_prefill_embeddings_ = std::move(previous_embeddings);
++            }
++            return result;
++        } catch (...) {
++            ggml_backend_synchronize(backend_);
++            throw;
+         }
+-        return result;
      }
  
      void start_decode_tokens(const runtime::TransformerKVState & state, int64_t required_cache_steps) {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
          if (required_cache_steps <= 0) {
              throw std::runtime_error("QwenCausalDecodeRuntime decode requires positive cache capacity");
          }
@@ -1323,32 +1663,32 @@ index 37637bd..6c0adf3 100644
      }
  
      void start_decode_embeddings(const runtime::TransformerKVState & state, int64_t required_cache_steps) {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
          if (required_cache_steps <= 0) {
              throw std::runtime_error("QwenCausalDecodeRuntime decode requires positive cache capacity");
          }
          ensure_decode_embedding_graph(required_cache_steps);
-@@ -718,8 +758,9 @@ public:
+@@ -718,8 +862,9 @@ public:
  
      void start_decode_tokens_batched(
          const runtime::TransformerBatchedKVState & state,
          int64_t required_cache_steps) {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
          if (required_cache_steps <= 0) {
              throw std::runtime_error("QwenCausalDecodeRuntime batched decode requires positive cache capacity");
          }
          const bool variable_positions =
-@@ -734,8 +775,9 @@ public:
+@@ -734,8 +879,9 @@ public:
  
      void start_decode_embeddings_batched(
          const runtime::TransformerBatchedKVState & state,
          int64_t required_cache_steps) {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
          if (required_cache_steps <= 0) {
              throw std::runtime_error("QwenCausalDecodeRuntime batched decode requires positive cache capacity");
          }
          const bool variable_positions =
-@@ -772,8 +814,68 @@ public:
+@@ -772,8 +918,68 @@ public:
          ggml_backend_tensor_set(batched_decode_input_, embeddings.data(), 0, embeddings.size() * sizeof(float));
          return run_batched_decode_step();
      }
@@ -1417,11 +1757,98 @@ index 37637bd..6c0adf3 100644
          return decode_cache_steps_;
      }
  
-@@ -798,8 +900,16 @@ private:
+@@ -798,8 +1004,103 @@ private:
          Token,
          Embedding,
      };
  
++    void clear_prefill_embeddings() {
++        cached_prefill_embeddings_.clear();
++        cached_device_prefill_steps_ = 0;
++    }
++
++    // Treat an already computed encoder result as a leaf. Following its src
++    // links while expanding a comparison graph would rebuild the encoder.
++    ggml_tensor * device_prefill_leaf(ggml_context * ctx, ggml_tensor * tensor) {
++        auto * leaf = ggml_dup_tensor(ctx, tensor);
++        leaf->buffer = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
++        leaf->data = tensor->data;
++        leaf->extra = tensor->extra;
++        return leaf;
++    }
++
++    ggml_tensor * device_prefill_view(
++        ggml_context * ctx, ggml_tensor * tensor, int64_t steps, int64_t offset) {
++        const int64_t width = config_.decoder.stack.hidden_size;
++        auto * view = ggml_view_2d(ctx, tensor, width, steps, width * sizeof(float), offset * width * sizeof(float));
++        if (ggml_backend_view_init(view) != GGML_STATUS_SUCCESS) {
++            throw std::runtime_error("Qwen device prefill view initialization failed");
++        }
++        return view;
++    }
++
++    void ensure_device_prefill_storage() {
++        if (device_prefill_buffer_) { return; }
++        device_prefill_ctx_.reset(ggml_init({2 * ggml_tensor_overhead(), nullptr, true}));
++        if (!device_prefill_ctx_) { throw std::runtime_error("Qwen device prefill context allocation failed"); }
++        device_prefill_snapshot_ = ggml_new_tensor_2d(
++            device_prefill_ctx_.get(), GGML_TYPE_F32, config_.decoder.stack.hidden_size, decode_cache_steps_);
++        device_prefill_zero_ = ggml_new_tensor_2d(
++            device_prefill_ctx_.get(), GGML_TYPE_F32, config_.decoder.stack.hidden_size, block_steps_);
++        device_prefill_buffer_ = ggml_backend_alloc_ctx_tensors(device_prefill_ctx_.get(), backend_);
++        if (!device_prefill_buffer_) { throw std::runtime_error("Qwen device prefill buffer allocation failed"); }
++        ggml_backend_tensor_memset(device_prefill_zero_, 0, 0, ggml_nbytes(device_prefill_zero_));
++    }
++
++    int64_t matching_device_prefill_prefix(ggml_tensor * embeddings, int64_t limit) {
++        if (limit == 0) { return 0; }
++        const size_t blocks = static_cast<size_t>(limit / block_steps_);
++        const size_t graph_nodes = 3 * blocks;
++        const size_t arena_bytes = (1 + 3 * blocks) * ggml_tensor_overhead() +
++            ggml_graph_overhead_custom(graph_nodes, false);
++        std::unique_ptr<ggml_context, GgmlContextDeleter> ctx(ggml_init({arena_bytes, nullptr, true}));
++        if (!ctx) { throw std::runtime_error("Qwen device prefix context allocation failed"); }
++        auto * graph = ggml_new_graph_custom(ctx.get(), graph_nodes, false);
++        auto * input = device_prefill_leaf(ctx.get(), embeddings);
++        std::vector<ggml_tensor *> counts;
++        counts.reserve(blocks);
++        for (int64_t offset = 0; offset < limit; offset += block_steps_) {
++            auto * current = device_prefill_view(ctx.get(), input, block_steps_, offset);
++            auto * previous = device_prefill_view(ctx.get(), device_prefill_snapshot_, block_steps_, offset);
++            // F32 and I32 have identical storage widths. Compare bits, including
++            // signed zeros and NaN payloads, without a cast or floating equality.
++            current->type = previous->type = GGML_TYPE_I32;
++            auto * count = ggml_count_equal(ctx.get(), current, previous);
++            counts.push_back(count);
++            ggml_build_forward_expand(graph, count);
++        }
++        std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffer_free)> buffer(
++            ggml_backend_alloc_ctx_tensors(ctx.get(), backend_), ggml_backend_buffer_free);
++        if (!buffer) { throw std::runtime_error("Qwen device prefix buffer allocation failed"); }
++        int64_t reused_steps = 0;
++        try {
++            core::set_backend_threads(backend_, threads_);
++            if (core::compute_backend_graph(backend_, graph) != GGML_STATUS_SUCCESS) {
++                throw std::runtime_error("Qwen device prefix comparison failed");
++            }
++            for (auto * count : counts) {
++                int64_t equal = 0;
++                ggml_backend_tensor_get(count, &equal, 0, sizeof(equal));
++                if (equal != block_steps_ * config_.decoder.stack.hidden_size) { break; }
++                reused_steps += block_steps_;
++            }
++        } catch (...) {
++            ggml_backend_synchronize(backend_);
++            core::release_backend_graph_resources(backend_, graph, true);
++            throw;
++        }
++        ggml_backend_synchronize(backend_);
++        // This comparison graph is temporary; do not retain a CUDA graph keyed
++        // by tensor metadata that is about to be destroyed.
++        core::release_backend_graph_resources(backend_, graph, true);
++        return reused_steps;
++    }
++
 +    bool greedy_token_readback_enabled() const noexcept {
 +        return config_.greedy_token_readback &&
 +            config_.output_mode == QwenCausalDecodeOutputMode::Logits &&
@@ -1434,7 +1861,7 @@ index 37637bd..6c0adf3 100644
          if (prefill_graph_ != nullptr && prefill_input_kind_ == InputKind::Token && prefill_steps_ == steps &&
              prefill_populates_decode_cache_ == populate_decode_cache) {
              debug::trace_log_scalar(config_.trace_name + ".prefill.steps", steps);
-@@ -1341,13 +1451,19 @@ private:
+@@ -1341,13 +1642,19 @@ private:
                      config_,
                      logits,
                      wrap_logits_readback_token_ids(decode_logits_readback_token_ids_, config_));
@@ -1459,7 +1886,7 @@ index 37637bd..6c0adf3 100644
          if (config_.return_hidden || config_.output_mode == QwenCausalDecodeOutputMode::Hidden) {
              decode_hidden_ = ggml_cpy(
                  decode_ctx_.get(),
-@@ -1357,8 +1473,11 @@ private:
+@@ -1357,8 +1664,11 @@ private:
          }
          if (decode_logits_ != nullptr) {
              ggml_build_forward_expand(decode_graph_, decode_logits_);
@@ -1471,7 +1898,7 @@ index 37637bd..6c0adf3 100644
              ggml_build_forward_expand(decode_graph_, decode_hidden_);
          }
          decode_buffer_ = ggml_backend_alloc_ctx_tensors(decode_ctx_.get(), backend_);
-@@ -1564,8 +1683,12 @@ private:
+@@ -1564,8 +1874,12 @@ private:
          if (status != GGML_STATUS_SUCCESS) {
              throw std::runtime_error("QwenCausalDecodeRuntime decode graph compute failed");
          }
@@ -1484,7 +1911,7 @@ index 37637bd..6c0adf3 100644
              out.logits.resize(static_cast<size_t>(ggml_nelements(decode_logits_)));
              ggml_backend_tensor_get(decode_logits_, out.logits.data(), 0, out.logits.size() * sizeof(float));
          }
-@@ -1609,8 +1732,13 @@ private:
+@@ -1609,8 +1923,13 @@ private:
          ggml_backend_synchronize(backend_);
          if (status != GGML_STATUS_SUCCESS) {
              throw std::runtime_error("QwenCausalDecodeRuntime decode graph compute failed");
@@ -1498,7 +1925,7 @@ index 37637bd..6c0adf3 100644
              out.logits.resize(static_cast<size_t>(ggml_nelements(decode_logits_)));
              ggml_backend_tensor_get(decode_logits_, out.logits.data(), 0, out.logits.size() * sizeof(float));
          } else {
-@@ -1761,8 +1889,126 @@ private:
+@@ -1761,8 +2080,126 @@ private:
          batched_prefill_steps_ = 0;
          batched_prefill_input_kind_ = InputKind::None;
      }
@@ -1625,7 +2052,7 @@ index 37637bd..6c0adf3 100644
          const auto build_start = Clock::now();
          block_ctx_.reset(ggml_init({config_.prefill_graph_arena_bytes, nullptr, true}));
          if (!block_ctx_) { throw std::runtime_error("Qwen chunked prefill context allocation failed"); }
-@@ -1784,8 +2030,9 @@ private:
+@@ -1784,8 +2221,9 @@ private:
              hidden = layer.build_with_static_cache_block(ctx, block_graph_, hidden, positions,
                  weights_.stack.layers[i], decode_cache_.key_tensor(i), decode_cache_.value_tensor(i),
                  positions, mask).output;
@@ -1635,7 +2062,7 @@ index 37637bd..6c0adf3 100644
              core::TensorShape::from_dims({chunk, config_.decoder.stack.hidden_size}));
          hidden = core::wrap_tensor(ggml_get_rows(ctx.ggml, hidden.tensor, block_last_),
              core::TensorShape::from_dims({1, 1, config_.decoder.stack.hidden_size}), GGML_TYPE_F32);
-@@ -1803,33 +2050,56 @@ private:
+@@ -1803,33 +2241,61 @@ private:
              }
              block_logits_ = LinearModule({config_.decoder.stack.hidden_size, config_.decoder.logits_size,
                  config_.decoder.use_lm_head_bias, config_.decoder.lm_head_precision})
@@ -1685,16 +2112,21 @@ index 37637bd..6c0adf3 100644
          block_logits_ = block_hidden_ = nullptr;
 +        block_token_id_ = nullptr;
          block_steps_ = 0;
++        ggml_backend_buffer_free(device_prefill_buffer_);
++        device_prefill_buffer_ = nullptr;
++        device_prefill_ctx_.reset();
++        device_prefill_snapshot_ = device_prefill_zero_ = nullptr;
++        cached_device_prefill_steps_ = 0;
      }
  
      void release_decode_graph() {
-+        cached_prefill_embeddings_.clear();
++        clear_prefill_embeddings();
 +        release_verify_graph();
          release_block_graph();
          if (prefill_populates_decode_cache_) {
              release_prefill_graph();
          }
-@@ -1847,8 +2117,9 @@ private:
+@@ -1847,8 +2313,9 @@ private:
          decode_cache_slot_ = nullptr;
          decode_attention_mask_ = nullptr;
          decode_logits_readback_token_ids_ = nullptr;
@@ -1704,7 +2136,7 @@ index 37637bd..6c0adf3 100644
          decode_graph_ = nullptr;
          decode_cache_ = runtime::TransformerKVCache();
          decode_attention_mask_values_.clear();
-@@ -1933,19 +2204,31 @@ private:
+@@ -1933,19 +2400,36 @@ private:
      ggml_tensor * block_positions_ = nullptr;
      ggml_tensor * block_mask_ = nullptr;
      ggml_tensor * block_last_ = nullptr;
@@ -1716,6 +2148,11 @@ index 37637bd..6c0adf3 100644
      ggml_gallocr_t block_allocator_ = nullptr;
      int64_t block_steps_ = 0;
 +    std::vector<float> cached_prefill_embeddings_;
++    std::unique_ptr<ggml_context, GgmlContextDeleter> device_prefill_ctx_;
++    ggml_backend_buffer_t device_prefill_buffer_ = nullptr;
++    ggml_tensor * device_prefill_snapshot_ = nullptr;
++    ggml_tensor * device_prefill_zero_ = nullptr;
++    int64_t cached_device_prefill_steps_ = 0;
 +    static constexpr int64_t verify_steps_ = 4;
 +    std::unique_ptr<ggml_context, GgmlContextDeleter> verify_ctx_;
 +    ggml_tensor * verify_input_ = nullptr;
@@ -1736,7 +2173,21 @@ index 37637bd..6c0adf3 100644
      ggml_cgraph * decode_graph_ = nullptr;
      ggml_backend_buffer_t decode_buffer_ = nullptr;
      std::vector<ggml_fp16_t> decode_attention_mask_values_;
-@@ -2031,8 +2314,12 @@ void QwenCausalDecodeRuntime::start_decode_embeddings(
+@@ -2015,8 +2499,13 @@ QwenCausalDecodeStepResult QwenCausalDecodeRuntime::prefill_embeddings_into_cach
+     const std::vector<float> & embeddings, int64_t steps, int64_t cache_steps, int64_t chunk_steps) {
+     return impl_->prefill_embeddings_into_cache(embeddings, steps, cache_steps, chunk_steps);
+ }
+ 
++QwenCausalDecodeStepResult QwenCausalDecodeRuntime::prefill_device_embeddings_into_cache(
++    ggml_tensor * embeddings, int64_t steps, int64_t cache_steps, int64_t chunk_steps) {
++    return impl_->prefill_device_embeddings_into_cache(embeddings, steps, cache_steps, chunk_steps);
++}
++
+ void QwenCausalDecodeRuntime::start_decode_tokens(
+     const runtime::TransformerKVState & state,
+     int64_t required_cache_steps) {
+     impl_->start_decode_tokens(state, required_cache_steps);
+@@ -2031,8 +2520,12 @@ void QwenCausalDecodeRuntime::start_decode_embeddings(
  QwenCausalDecodeStepResult QwenCausalDecodeRuntime::decode_token(int32_t token) {
      return impl_->decode_token(token);
  }
@@ -1750,22 +2201,100 @@ index 37637bd..6c0adf3 100644
  }
  
 diff --git a/src/framework/runtime/greedy_qwen_decoder.cpp b/src/framework/runtime/greedy_qwen_decoder.cpp
-index bcbb5f5..124b4f5 100644
+index bcbb5f5..be9f0ef 100644
 --- a/src/framework/runtime/greedy_qwen_decoder.cpp
 +++ b/src/framework/runtime/greedy_qwen_decoder.cpp
-@@ -669,8 +669,11 @@ struct GreedyQwenDecoderRuntime::Impl {
+@@ -350,8 +350,76 @@ private:
+     ggml_cgraph * graph_ = nullptr;
+     std::unique_ptr<std::remove_pointer_t<ggml_gallocr_t>, GgmlGallocrDeleter> allocator_;
+ };
+ 
++// One bounded prompt allocation. Text stays cached on the host; encoded audio
++// rows are copied directly from the encoder on this same backend.
++class DevicePrompt {
++public:
++    DevicePrompt(ggml_backend_t backend, int64_t width, int64_t capacity)
++        : backend_(backend), width_(width), capacity_(capacity) {
++        context_.reset(ggml_init({ggml_tensor_overhead(), nullptr, true}));
++        if (!context_) { throw std::runtime_error("failed to allocate device prompt metadata"); }
++        values_ = ggml_new_tensor_2d(context_.get(), GGML_TYPE_F32, width, capacity);
++        buffer_ = ggml_backend_alloc_ctx_tensors(context_.get(), backend);
++        if (!buffer_) { throw std::runtime_error("failed to allocate device prompt"); }
++    }
++    ~DevicePrompt() {
++        ggml_backend_synchronize(backend_);
++        ggml_backend_buffer_free(buffer_);
++    }
++    int64_t capacity() const { return capacity_; }
++
++    ggml_tensor * prepare(const GreedyQwenDecoderRuntime::Prompt & prompt,
++                          const std::vector<bool> & injected, const std::vector<float> & text) {
++        const auto & injection = prompt.injection;
++        views_.reset(ggml_init({ggml_tensor_overhead() * (2 * injection.positions.size() + 2), nullptr, true}));
++        if (!views_) { throw std::runtime_error("failed to allocate device prompt views"); }
++        // Both cached text and borrowed encoder storage must outlive queued copies,
++        // including an exception before every row has been submitted.
++        struct Drain {
++            ggml_backend_t backend;
++            ~Drain() { ggml_backend_synchronize(backend); }
++        } drain{backend_};
++        const size_t row_bytes = static_cast<size_t>(width_) * sizeof(float);
++        size_t text_row = 0;
++        for (size_t row = 0; row < injected.size();) {
++            if (injected[row]) { ++row; continue; }
++            const size_t begin = row;
++            while (row < injected.size() && !injected[row]) { ++row; }
++            ggml_backend_tensor_set_async(backend_, values_, text.data() + text_row * width_,
++                                          begin * row_bytes, (row - begin) * row_bytes);
++            text_row += row - begin;
++        }
++        for (size_t row = 0; row < injection.positions.size();) {
++            const size_t begin = row++;
++            while (row < injection.positions.size() &&
++                   injection.positions[row] == injection.positions[row - 1] + 1) { ++row; }
++            auto * source = view(injection.device_values, begin, row - begin);
++            auto * destination = view(values_, injection.positions[begin], row - begin);
++            ggml_backend_tensor_copy_async(backend_, backend_, source, destination);
++        }
++        return view(values_, 0, prompt.input_ids.size());
++    }
++
++private:
++    ggml_tensor * view(ggml_tensor * tensor, size_t start, size_t count) {
++        auto * result = ggml_view_2d(views_.get(), tensor, width_, static_cast<int64_t>(count),
++                                    width_ * sizeof(float), start * width_ * sizeof(float));
++        if (ggml_backend_view_init(result) != GGML_STATUS_SUCCESS) {
++            throw std::runtime_error("failed to initialize device prompt view");
++        }
++        return result;
++    }
++    ggml_backend_t backend_;
++    int64_t width_;
++    int64_t capacity_;
++    std::unique_ptr<ggml_context, GgmlContextDeleter> context_;
++    ggml_backend_buffer_t buffer_ = nullptr;
++    ggml_tensor * values_ = nullptr;
++    std::unique_ptr<ggml_context, GgmlContextDeleter> views_;
++};
++
+ class PrefillGraph {
+ public:
+     PrefillGraph(
+         std::shared_ptr<ThinkerWeightsRuntime> runtime,
+@@ -669,8 +737,12 @@ struct GreedyQwenDecoderRuntime::Impl {
      std::unique_ptr<DecodeGraph> decode_graph;
      core::ExecutionContext * execution;
      std::unique_ptr<PromptEmbeddingGraph> embedding_graph;
      std::unique_ptr<modules::QwenCausalDecodeRuntime> reusable_decoder;
 +    std::vector<int32_t> embedded_text_ids;
 +    std::vector<float> text_embeddings;
++    std::unique_ptr<DevicePrompt> device_prompt;
 +    std::vector<int32_t> previous_tail_and_output;
  
      std::vector<int32_t> generate_reusing_graphs(const GreedyQwenDecoderRuntime::Prompt & prompt, int64_t max_new_tokens) {
          const auto & spec = weights->spec();
          if (!reusable_decoder) {
-@@ -679,8 +682,9 @@ struct GreedyQwenDecoderRuntime::Impl {
+@@ -679,8 +751,9 @@ struct GreedyQwenDecoderRuntime::Impl {
              config.decoder = spec.decoder;
              config.prefill_graph_arena_bytes = prefill_graph_arena_bytes;
              config.decode_graph_arena_bytes = decode_graph_arena_bytes;
@@ -1775,7 +2304,7 @@ index bcbb5f5..124b4f5 100644
              modules::QwenCausalDecodeRuntimeWeights bound_weights;
              bound_weights.token_embedding = weights->weights().token_embedding;
              bound_weights.stack = bound.stack;
-@@ -688,13 +692,39 @@ struct GreedyQwenDecoderRuntime::Impl {
+@@ -688,35 +761,105 @@ struct GreedyQwenDecoderRuntime::Impl {
              bound_weights.lm_head = bound.lm_head;
              reusable_decoder = std::make_unique<modules::QwenCausalDecodeRuntime>(
                  *execution, config, bound_weights);
@@ -1806,26 +2335,42 @@ index bcbb5f5..124b4f5 100644
          }
 -        auto embeddings = embedding_graph->run(prompt.input_ids);
          const int64_t width = spec.decoder.stack.hidden_size;
-+        std::vector<float> embeddings(prompt.input_ids.size() * width);
-+        size_t text_row = 0;
-+        for (size_t i = 0; i < prompt.input_ids.size(); ++i) {
-+            if (!injected[i]) {
-+                std::copy_n(text_embeddings.data() + text_row++ * width, width,
-+                            embeddings.data() + i * width);
-+            }
-+        }
-         for (size_t i = 0; i < prompt.injection.positions.size(); ++i) {
-             std::copy_n(prompt.injection.values.data() + i * width, width,
-                         embeddings.data() + prompt.injection.positions[i] * width);
-         }
-@@ -704,19 +734,53 @@ struct GreedyQwenDecoderRuntime::Impl {
+-        for (size_t i = 0; i < prompt.injection.positions.size(); ++i) {
+-            std::copy_n(prompt.injection.values.data() + i * width, width,
+-                        embeddings.data() + prompt.injection.positions[i] * width);
+-        }
+         const int64_t steps = static_cast<int64_t>(prompt.input_ids.size());
+         const int64_t required = steps + max_new_tokens;
+         // Grow in bounded capacity buckets, keeping only one decode and one
          // block-prefill graph. A new prompt clears KV on device, not via a
          // host export/import of every layer.
          const int64_t capacity = std::min(spec.max_position_embeddings, (required + 127) / 128 * 128);
          const auto start = Clock::now();
 -        auto logits = reusable_decoder->prefill_embeddings_into_cache(embeddings, steps, capacity, 64).logits;
-+        auto result = reusable_decoder->prefill_embeddings_into_cache(
-+            embeddings, steps, capacity, spec.prefill_chunk_steps);
++        modules::QwenCausalDecodeStepResult result;
++        if (prompt.injection.device_values) {
++            if (!device_prompt || device_prompt->capacity() < steps) {
++                device_prompt = std::make_unique<DevicePrompt>(weights->backend(), width, capacity);
++            }
++            auto * values = device_prompt->prepare(prompt, injected, text_embeddings);
++            result = reusable_decoder->prefill_device_embeddings_into_cache(
++                values, steps, capacity, spec.prefill_chunk_steps);
++        } else {
++            std::vector<float> embeddings(prompt.input_ids.size() * width);
++            size_t text_row = 0;
++            for (size_t i = 0; i < prompt.input_ids.size(); ++i) {
++                if (!injected[i]) {
++                    std::copy_n(text_embeddings.data() + text_row++ * width, width,
++                                embeddings.data() + i * width);
++                }
++            }
++            for (size_t i = 0; i < prompt.injection.positions.size(); ++i) {
++                std::copy_n(prompt.injection.values.data() + i * width, width,
++                            embeddings.data() + prompt.injection.positions[i] * width);
++            }
++            result = reusable_decoder->prefill_embeddings_into_cache(
++                embeddings, steps, capacity, spec.prefill_chunk_steps);
++        }
          debug::timing_log_scalar("greedy_qwen_decoder.reusable.prefill_ms", engine::debug::elapsed_ms(start));
 +        size_t tail_start = 0;
 +        for (const auto position : prompt.injection.positions) {
@@ -1877,6 +2422,30 @@ index bcbb5f5..124b4f5 100644
      }
  
  };
+@@ -754,11 +897,22 @@ std::vector<int32_t> GreedyQwenDecoderRuntime::generate(const Prompt & prompt, i
+     }
+     const auto & injection = prompt.injection;
+     if (injection.tokens < 0 || injection.tokens > prompt_steps ||
+         static_cast<int64_t>(injection.positions.size()) != injection.tokens ||
+-        static_cast<int64_t>(injection.values.size()) != injection.tokens * spec.decoder.stack.hidden_size) {
++        (!injection.device_values &&
++         static_cast<int64_t>(injection.values.size()) != injection.tokens * spec.decoder.stack.hidden_size)) {
+         throw std::runtime_error("greedy Qwen decoder injection shape does not match the prompt");
+     }
++    if (injection.device_values) {
++        const auto * values = injection.device_values;
++        if (!reuse_graphs || injection.device_backend != impl_->weights->backend() ||
++            values->type != GGML_TYPE_F32 || !ggml_is_contiguous(values) ||
++            values->ne[0] != spec.decoder.stack.hidden_size || values->ne[1] < injection.tokens ||
++            values->ne[2] != 1 || values->ne[3] != 1 || !values->data ||
++            (!values->buffer && !values->view_src)) {
++            throw std::runtime_error("greedy Qwen decoder device injection is incompatible with this backend");
++        }
++    }
+     for (const auto position : injection.positions) {
+         if (position < 0 || position >= prompt_steps) {
+             throw std::runtime_error("greedy Qwen decoder injection position is out of range");
+         }
 diff --git a/src/framework/runtime/kv_cache.cpp b/src/framework/runtime/kv_cache.cpp
 index 0ee1000..830568c 100644
 --- a/src/framework/runtime/kv_cache.cpp
@@ -1951,8 +2520,75 @@ index 0ee1000..830568c 100644
  
  void TransformerKVCache::import_state(const TransformerKVState & state) {
      current_end_ = state.current_end;
+diff --git a/src/models/qwen3_asr/audio_encoder.cpp b/src/models/qwen3_asr/audio_encoder.cpp
+index b2ada8a..b79bb79 100644
+--- a/src/models/qwen3_asr/audio_encoder.cpp
++++ b/src/models/qwen3_asr/audio_encoder.cpp
+@@ -504,9 +504,9 @@ public:
+     bool matches(const Qwen3ASRAudioEncoderWeights & weights, int64_t frames, ggml_backend_t backend, int threads) const {
+         return weights_.get() == &weights && frames_ == frames && backend_ == backend && compute_threads_ == std::max(1, threads);
+     }
+ 
+-    Qwen3ASRAudioEmbeddings run(const Qwen3ASRAudioFeatures & features) {
++    Qwen3ASRAudioEmbeddings run(const Qwen3ASRAudioFeatures & features, bool device_output) {
+         const auto & config = assets_->config.audio_encoder;
+         if (features.mel_bins != config.num_mel_bins || features.frames != frames_) {
+             throw std::runtime_error("Qwen3 ASR audio encoder feature shape mismatch");
+         }
+@@ -541,8 +541,14 @@ public:
+         }
+         Qwen3ASRAudioEmbeddings out;
+         out.tokens = output_tokens_;
+         out.hidden_size = output_dim_;
++        if (device_output && backend_type_ == core::BackendType::Cuda) {
++            out.device_values = output_;
++            out.device_backend = backend_;
++            debug::timing_log_scalar("qwen3_asr.audio_encoder.output_read_ms", 0.0);
++            return out;
++        }
+         out.values.resize(static_cast<size_t>(out.tokens * out.hidden_size));
+         timing_start = Clock::now();
+         ggml_backend_tensor_get(output_, out.values.data(), 0, out.values.size() * sizeof(float));
+         debug::timing_log_scalar("qwen3_asr.audio_encoder.output_read_ms", engine::debug::elapsed_ms(timing_start, Clock::now()));
+@@ -592,9 +598,9 @@ Qwen3ASRAudioEncoderRuntime::Qwen3ASRAudioEncoderRuntime(
+ }
+ 
+ Qwen3ASRAudioEncoderRuntime::~Qwen3ASRAudioEncoderRuntime() = default;
+ 
+-Qwen3ASRAudioEmbeddings Qwen3ASRAudioEncoderRuntime::encode(const Qwen3ASRAudioFeatures & features) {
++Qwen3ASRAudioEmbeddings Qwen3ASRAudioEncoderRuntime::encode(const Qwen3ASRAudioFeatures & features, bool device_output) {
+     if (execution_ == nullptr) {
+         throw std::runtime_error("Qwen3 ASR audio encoder execution context is null");
+     }
+     if (features.encoder_tokens != qwen3_asr_audio_encoder_token_count(features.frames)) {
+@@ -612,9 +618,9 @@ Qwen3ASRAudioEmbeddings Qwen3ASRAudioEncoderRuntime::encode(const Qwen3ASRAudioF
+     } else {
+         debug::timing_log_scalar("qwen3_asr.audio_encoder.graph.build_ms", 0.0);
+         debug::trace_log_scalar("qwen3_asr.audio_encoder.frames", features.frames);
+     }
+-    auto out = graph_->run(features);
++    auto out = graph_->run(features, device_output);
+     if (out.tokens != features.encoder_tokens) {
+         throw std::runtime_error("Qwen3 ASR audio encoder output token count mismatch");
+     }
+     return out;
+diff --git a/src/models/qwen3_asr/session.cpp b/src/models/qwen3_asr/session.cpp
+index 5358a9e..2c484e5 100644
+--- a/src/models/qwen3_asr/session.cpp
++++ b/src/models/qwen3_asr/session.cpp
+@@ -492,9 +492,9 @@ runtime::TaskResult Qwen3ASRSession::run_single(const Qwen3ASRRequest & asr_requ
+     const auto prompt_start = Clock::now();
+     const auto prompt = prompt_builder_.build(asr_request, features.encoder_tokens);
+     const auto prompt_end = Clock::now();
+     const auto encoder_start = Clock::now();
+-    const auto audio_embeddings = audio_encoder_.encode(features);
++    const auto audio_embeddings = audio_encoder_.encode(features, /*device_output=*/true);
+     const auto encoder_end = Clock::now();
+     const auto thinker_start = Clock::now();
+     const auto tokens = thinker_.generate(prompt, audio_embeddings, asr_request.generation);
+     const auto thinker_end = Clock::now();
 diff --git a/src/models/qwen3_asr/thinker.cpp b/src/models/qwen3_asr/thinker.cpp
-index 17a4fa3..15288fd 100644
+index 17a4fa3..5b46515 100644
 --- a/src/models/qwen3_asr/thinker.cpp
 +++ b/src/models/qwen3_asr/thinker.cpp
 @@ -12,9 +12,9 @@
@@ -2376,7 +3012,7 @@ index 17a4fa3..15288fd 100644
  
  struct Qwen3ASRThinkerRuntime::Impl {
      Impl(
-@@ -737,20 +429,38 @@ struct Qwen3ASRThinkerRuntime::Impl {
+@@ -737,27 +429,46 @@ struct Qwen3ASRThinkerRuntime::Impl {
          size_t prefill_graph_arena_bytes,
          size_t decode_graph_arena_bytes,
          size_t weight_context_bytes,
@@ -2422,7 +3058,16 @@ index 17a4fa3..15288fd 100644
              throw std::runtime_error("Qwen3 ASR audio embedding hidden size mismatch");
          }
          if (audio_embeddings.tokens != static_cast<int64_t>(prompt.audio_token_positions.size())) {
-@@ -769,9 +479,9 @@ struct Qwen3ASRThinkerRuntime::Impl {
+             throw std::runtime_error("Qwen3 ASR audio embedding token count does not match prompt placeholders");
+         }
+-        if (static_cast<int64_t>(audio_embeddings.values.size()) != audio_embeddings.tokens * config.hidden_size) {
++        if (!audio_embeddings.device_values &&
++            static_cast<int64_t>(audio_embeddings.values.size()) != audio_embeddings.tokens * config.hidden_size) {
+             throw std::runtime_error("Qwen3 ASR audio embedding value count mismatch");
+         }
+         for (const int32_t position : prompt.audio_token_positions) {
+             if (position < 0 || position >= static_cast<int32_t>(prompt.input_ids.size())) {
+@@ -769,9 +480,9 @@ struct Qwen3ASRThinkerRuntime::Impl {
      Qwen3ASRGeneratedTokens generate(
          const Qwen3ASRPrompt & prompt,
          const Qwen3ASRAudioEmbeddings & audio_embeddings,
@@ -2433,7 +3078,7 @@ index 17a4fa3..15288fd 100644
              throw std::runtime_error("Qwen3 ASR thinker prompt is empty");
          }
          if (options.max_new_tokens <= 0) {
-@@ -780,60 +490,23 @@ struct Qwen3ASRThinkerRuntime::Impl {
+@@ -780,60 +491,25 @@ struct Qwen3ASRThinkerRuntime::Impl {
          const int64_t prompt_steps = static_cast<int64_t>(prompt.input_ids.size());
          if (prompt_steps + options.max_new_tokens > config.max_position_embeddings) {
              throw std::runtime_error("Qwen3 ASR thinker request exceeds max_position_embeddings");
@@ -2476,6 +3121,8 @@ index 17a4fa3..15288fd 100644
 +        decoder_prompt.injection.values = audio_embeddings.values;
 +        decoder_prompt.injection.tokens = audio_embeddings.tokens;
 +        decoder_prompt.injection.positions = prompt.audio_token_positions;
++        decoder_prompt.injection.device_values = audio_embeddings.device_values;
++        decoder_prompt.injection.device_backend = audio_embeddings.device_backend;
          Qwen3ASRGeneratedTokens out;
 -        std::vector<float> logits = std::move(prefill.logits);
 -        timing_start = Clock::now();
@@ -2501,7 +3148,7 @@ index 17a4fa3..15288fd 100644
              throw std::runtime_error("Qwen3 ASR thinker classification prompt is empty");
          }
          const int64_t prompt_steps = static_cast<int64_t>(prompt.input_ids.size());
-@@ -842,8 +515,13 @@ struct Qwen3ASRThinkerRuntime::Impl {
+@@ -842,8 +518,13 @@ struct Qwen3ASRThinkerRuntime::Impl {
          }
          auto timing_start = Clock::now();
          validate_prompt_audio(prompt, audio_embeddings);
@@ -2515,7 +3162,7 @@ index 17a4fa3..15288fd 100644
              !classification_graph->matches(*weights, prompt_steps, audio_embeddings.tokens)) {
              classification_graph.reset();
              classification_graph = std::make_unique<PromptClassificationGraph>(
-@@ -863,13 +541,16 @@ struct Qwen3ASRThinkerRuntime::Impl {
+@@ -863,13 +544,16 @@ struct Qwen3ASRThinkerRuntime::Impl {
          debug::timing_log_scalar("qwen3_asr.thinker.classify_total_ms", engine::debug::elapsed_ms(timing_start, Clock::now()));
          return token_ids;
      }

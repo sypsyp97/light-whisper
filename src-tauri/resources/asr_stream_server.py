@@ -129,6 +129,11 @@ class ASRStreamServerMixin:
                     language=language,
                 )
             elif action == "stream_feed":
+                preview = command.get("preview", True)
+                if not isinstance(preview, bool):
+                    raise ValueError("preview must be a boolean")
+                if not preview and self.engine != "qwen3-asr-0.6b":
+                    raise ValueError("preview suppression requires Qwen3-ASR")
                 if command.get("sample_rate") != 16_000:
                     raise ValueError("sample_rate must be 16000")
                 if command.get("audio_format") != "pcm_s16le":
@@ -138,6 +143,7 @@ class ASRStreamServerMixin:
                     command.get("session_id"),
                     audio,
                     offset=command.get("offset"),
+                    preview=preview,
                 )
             elif action == "stream_finish":
                 response = self.stream.finish(command.get("session_id"))

@@ -1,5 +1,8 @@
+use super::native_stream::{NativeStreamClient, NativeStreamUpdate};
 use super::{send_command_to_server, ServerCommand};
 use crate::state::{AppState, FunasrProcess};
+use base64::Engine;
+use sha2::{Digest, Sha256};
 use std::io::{BufRead, Write};
 use std::os::windows::io::AsRawHandle;
 use std::process::Stdio;
@@ -33,8 +36,60 @@ fn ipc_test_server() {
             std::thread::park();
         }
     }
+    let mut stream_pcm = Vec::new();
+    let mut stream_packets = Vec::new();
+    let mut stream_session = 0;
     for line in std::io::stdin().lock().lines() {
         let request: serde_json::Value = serde_json::from_str(&line.unwrap()).unwrap();
+        if mode == "native_stream_audit" {
+            let action = request["action"].as_str().unwrap();
+            match action {
+                "stream_start" => {
+                    stream_session = request["session_id"].as_u64().unwrap();
+                    stream_pcm.clear();
+                    stream_packets.clear();
+                }
+                "stream_feed" => {
+                    let raw = base64::engine::general_purpose::STANDARD
+                        .decode(request["audio_base64"].as_str().unwrap())
+                        .unwrap();
+                    stream_packets.push(serde_json::json!({
+                        "offset": request["offset"],
+                        "count": raw.len() / 2,
+                        "preview": request.get("preview"),
+                        "audio_format": request["audio_format"],
+                        "sample_rate": request["sample_rate"],
+                    }));
+                    stream_pcm.extend_from_slice(&raw);
+                }
+                "stream_finish" | "stream_cancel" => {}
+                _ => panic!("unexpected stream audit action: {action}"),
+            }
+            let tentative = if action == "stream_feed" {
+                serde_json::json!({
+                    "packets": stream_packets,
+                    "pcm_sha256": format!("{:x}", Sha256::digest(&stream_pcm)),
+                })
+                .to_string()
+            } else {
+                String::new()
+            };
+            println!(
+                "{}",
+                serde_json::json!({
+                    "request_id": request["request_id"],
+                    "success": true,
+                    "session_id": stream_session,
+                    "sample_count": stream_pcm.len() / 2,
+                    "text": if action == "stream_finish" { "finished" } else { "" },
+                    "tentative_text": tentative,
+                    "language": "en",
+                    "final": matches!(action, "stream_finish" | "stream_cancel"),
+                })
+            );
+            std::io::stdout().flush().unwrap();
+            continue;
+        }
         println!(
             "{}",
             serde_json::json!({
@@ -47,7 +102,7 @@ fn ipc_test_server() {
     }
 }
 
-async fn test_process(mode: &str) -> FunasrProcess {
+pub(crate) async fn test_process(mode: &str) -> FunasrProcess {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
@@ -85,6 +140,103 @@ async fn test_process(mode: &str) -> FunasrProcess {
         stdin,
         stdout,
     }
+}
+
+pub(crate) fn assert_stream_packet_audit(
+    update: &NativeStreamUpdate,
+    samples: &[i16],
+    preview_modes: &[Option<bool>],
+) {
+    let audit: serde_json::Value = serde_json::from_str(&update.tentative_text).unwrap();
+    let packets = audit["packets"].as_array().unwrap();
+    assert_eq!(packets.len(), preview_modes.len());
+    let mut offset = 0;
+    for (packet, preview) in packets.iter().zip(preview_modes) {
+        let count = packet["count"].as_u64().unwrap() as usize;
+        assert!(
+            (1..=5120).contains(&count),
+            "protocol packet exceeded 320 ms"
+        );
+        assert_eq!(packet["offset"], serde_json::json!(offset));
+        assert_eq!(packet["preview"], serde_json::json!(preview));
+        assert_eq!(packet["audio_format"], "pcm_s16le");
+        assert_eq!(packet["sample_rate"], 16_000);
+        offset += count;
+    }
+    assert_eq!(offset, samples.len());
+    assert_eq!(update.sample_count, samples.len());
+    let expected_pcm = samples
+        .iter()
+        .flat_map(|sample| sample.to_le_bytes())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        audit["pcm_sha256"],
+        format!("{:x}", Sha256::digest(&expected_pcm)),
+        "all PCM bytes, including the last sample, must arrive once in order"
+    );
+}
+
+async fn check_coalesced_stream_packets(preview: bool) {
+    let state = AppState::default();
+    *state.engine.funasr_process.lock().await = Some(test_process("native_stream_audit").await);
+    state.set_funasr_ready(true);
+    let mut client =
+        NativeStreamClient::start(&state, None, 7, "context".into(), Some("en".into()))
+            .await
+            .unwrap();
+    let samples = (0..160_004)
+        .map(|index| (index % 65536) as i16)
+        .collect::<Vec<_>>();
+    client.feed(&state, None, &samples[..3]).await.unwrap();
+    let update = client
+        .feed_coalesced(&state, None, &samples[3..], preview)
+        .await
+        .unwrap();
+    let mut expected_modes = vec![None];
+    expected_modes.extend(std::iter::repeat_n(Some(false), 31));
+    expected_modes.push(Some(preview));
+    assert_stream_packet_audit(&update, &samples, &expected_modes);
+    let empty = client
+        .feed_coalesced(&state, None, &[], preview)
+        .await
+        .unwrap();
+    assert_eq!(empty.tentative_text, update.tentative_text);
+    assert_eq!(empty.sample_count, samples.len());
+    let final_result = client.finish(&state, None).await.unwrap();
+    assert_eq!(final_result.text, "finished");
+    assert_eq!(final_result.language.as_deref(), Some("en"));
+    assert_eq!(final_result.duration, Some(samples.len() as f64 / 16_000.0));
+    assert!(client
+        .feed_coalesced(&state, None, &[1], preview)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn native_stream_coalesced_live_packets_preview_only_the_latest_packet() {
+    check_coalesced_stream_packets(true).await;
+}
+
+#[tokio::test]
+async fn native_stream_coalesced_stop_packets_never_request_preview() {
+    check_coalesced_stream_packets(false).await;
+}
+
+#[tokio::test]
+async fn native_stream_ordinary_feed_keeps_every_r2t2_packet_in_order() {
+    let state = AppState::default();
+    *state.engine.funasr_process.lock().await = Some(test_process("native_stream_audit").await);
+    state.set_funasr_ready(true);
+    let mut client = NativeStreamClient::start(&state, None, 8, String::new(), None)
+        .await
+        .unwrap();
+    let samples = (0..10_241)
+        .map(|index| (index as i16).wrapping_mul(17))
+        .collect::<Vec<_>>();
+    let update = client.feed(&state, None, &samples).await.unwrap();
+    assert_stream_packet_audit(&update, &samples, &[None, None, None]);
+    client.cancel(&state, None).await.unwrap();
+    assert!(client.finish(&state, None).await.is_err());
 }
 
 #[tokio::test]
@@ -161,6 +313,7 @@ fn pipe_filling_command() -> ServerCommand {
         audio_base64: "A".repeat(8 * 1024 * 1024),
         audio_format: "pcm_f32le".to_string(),
         sample_rate: 16_000,
+        preview: None,
     }
 }
 

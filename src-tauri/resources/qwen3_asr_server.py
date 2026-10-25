@@ -5,7 +5,6 @@
 
 import os
 from pathlib import Path
-import subprocess
 import time
 import traceback
 from types import SimpleNamespace
@@ -17,15 +16,12 @@ from r2t2_stream import R2T2StreamSession
 
 from server_common import (
     BaseASRServer,
-    _has_nvidia_gpu,
     apply_hf_env_defaults,
     decode_inline_audio,
-    ensure_safe_cuda_env,
     setup_rotating_logger,
 )
 
 apply_hf_env_defaults()
-ensure_safe_cuda_env()
 logger = setup_rotating_logger(__name__, "qwen3_asr_server.log", "Qwen3-ASR服务器")
 
 from hf_cache_utils import QWEN3_ASR_MODELS, find_hf_snapshot_file
@@ -60,47 +56,8 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
         self._vad_calls = 0
         self._vad_rejected = 0
 
-    def _detect_device(self):
-        """Avoid importing the 2 GB PyTorch runtime just to probe one CUDA driver."""
-        if _has_nvidia_gpu():
-            logger.info("检测到 NVIDIA CUDA 驱动，Qwen3-ASR 优先使用 CUDA")
-            return "cuda"
-        logger.info("未检测到 NVIDIA CUDA 驱动，Qwen3-ASR 使用 CPU")
-        return "cpu"
-
     def _get_gpu_device_info(self):
-        info = {"device": self.device}
-        if self.backend != "cuda":
-            return info
-        if self._gpu_device_info_cache is not None:
-            return dict(self._gpu_device_info_cache)
-        try:
-            query = subprocess.run(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=name,memory.total",
-                    "--format=csv,noheader,nounits",
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=3,  # Optional metadata must not block model initialization.
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            name, memory_mb = [part.strip() for part in query.stdout.splitlines()[0].split(",", 1)]
-            info["gpu_name"] = name
-            info["gpu_memory_total"] = round(float(memory_mb) / 1024, 1)
-        except (OSError, subprocess.TimeoutExpired, IndexError, ValueError):
-            pass
-        self._gpu_device_info_cache = dict(info)
-        return info
-
-    def _cleanup_memory(self):
-        # Native runtimes own their CUDA allocations; torch.empty_cache() cannot
-        # release them and importing torch here would add substantial overhead.
-        import gc
-
-        gc.collect()
+        return super()._get_gpu_device_info(include_memory=True)
 
     def _get_model_repos(self):
         # Exact-file validation happens in initialize(); a repository may contain
@@ -276,21 +233,6 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
                 "engine": self.engine,
             }
 
-    @staticmethod
-    def _resample(audio, source_rate):
-        if source_rate == 16_000:
-            return audio
-        import numpy as np
-
-        target_length = int(round(len(audio) * 16_000 / source_rate))
-        if target_length <= 0:
-            return np.empty(0, dtype=np.float32)
-        return np.interp(
-            np.linspace(0, max(0, len(audio) - 1), target_length),
-            np.arange(len(audio), dtype=np.float64),
-            audio,
-        ).astype(np.float32)
-
     def _load_audio(self, audio_path, audio_base64, audio_format, sample_rate):
         import numpy as np
 
@@ -304,14 +246,7 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
 
         if not audio_path or not os.path.exists(audio_path):
             raise FileNotFoundError(f"音频文件不存在: {audio_path}")
-        import soundfile as sf
-
-        audio, source_rate = sf.read(
-            audio_path,
-            dtype="float32",
-            always_2d=True,
-        )
-        audio = audio.mean(axis=1, dtype=np.float32)
+        audio, source_rate = self._read_mono_audio(audio_path)
         audio = self._resample(audio, source_rate)
         return np.ascontiguousarray(audio), len(audio) / 16_000.0, "path"
 

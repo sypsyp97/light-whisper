@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from qwen3_native import QwenPreviewRuntime
+
 
 class R2T2StreamSession:
     """Own one contiguous native stream at a time."""
@@ -100,8 +102,12 @@ class R2T2StreamSession:
 
         return self._response(session_id, "", language, 0, False)
 
-    def feed(self, session_id: int, pcm: np.ndarray, *, offset: int) -> dict:
+    def feed(self, session_id: int, pcm: np.ndarray, *, offset: int, preview=True) -> dict:
         self._require_active(session_id)
+        if not isinstance(preview, bool):
+            raise ValueError("preview must be a boolean")
+        if not preview and not isinstance(self.runtime, QwenPreviewRuntime):
+            raise ValueError("preview suppression requires Qwen3-ASR")
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             raise ValueError("offset must be a non-negative integer")
         if (
@@ -117,7 +123,10 @@ class R2T2StreamSession:
 
         try:
             previous_text = self._text
-            text, language = self.runtime.feed(pcm.copy())
+            if preview:
+                text, language = self.runtime.feed(pcm.copy())
+            else:
+                text, language = self.runtime.feed(pcm.copy(), preview=False)
             if not isinstance(text, str) or not text.startswith(previous_text):
                 raise RuntimeError("native runtime text regressed")
             tentative_text = self._preview_suffix(text)

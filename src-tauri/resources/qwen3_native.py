@@ -93,9 +93,11 @@ class QwenPreviewRuntime:
         return self._transcribe(pcm, context=self._context,
                                 language=self._forced_language)
 
-    def feed(self, pcm):
+    def feed(self, pcm, *, preview=True):
         if not self._active:
             raise RuntimeError('No active Qwen3-ASR stream')
+        if not isinstance(preview, bool):
+            raise ValueError('preview must be a boolean')
         _validate_pcm(pcm)
         captured = pcm.copy()
         self._chunks.append(captured)
@@ -104,7 +106,7 @@ class QwenPreviewRuntime:
         self._window = window[-self._window_samples:].copy()
         self._new_samples += len(captured)
         threshold = self._preview_samples if self._has_preview else self._startup_preview_samples
-        if self._new_samples >= threshold:
+        if preview and self._new_samples >= threshold:
             try:
                 result = self._decode(self._window.copy())
                 self._preview_text = result.text

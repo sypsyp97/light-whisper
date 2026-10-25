@@ -31,6 +31,8 @@ pub enum ServerCommand {
         audio_base64: String,
         audio_format: String,
         sample_rate: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        preview: Option<bool>,
     },
     StreamFinish {
         session_id: u64,

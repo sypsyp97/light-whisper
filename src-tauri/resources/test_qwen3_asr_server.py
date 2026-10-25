@@ -77,7 +77,7 @@ class Qwen3ASRServerTests(unittest.TestCase):
                 mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_resolve_model_path", return_value="qwen3-asr-0.6b-q8_0.gguf"),
                 mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_warmup_inference"),
                 mock.patch.object(qwen3_asr_server, "FireRedVad", return_value=FakeVad([])),
-                mock.patch.object(qwen3_asr_server.subprocess, "run", side_effect=error) as query,
+                mock.patch.object(subprocess, "run", side_effect=error) as query,
             ):
                 server = qwen3_asr_server.Qwen3ASRServer(engine="qwen3-asr-0.6b")
                 self.assertTrue(server.initialize()["success"])

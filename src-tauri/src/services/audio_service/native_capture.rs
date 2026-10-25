@@ -18,6 +18,10 @@ pub(crate) enum NativeCaptureControl {
 }
 
 pub(super) trait NativeCaptureSink: Send {
+    fn coalesce_feeds(&self) -> bool {
+        false
+    }
+
     fn chunk_samples(&self) -> usize {
         NATIVE_CHUNK_SAMPLES
     }
@@ -26,6 +30,12 @@ pub(super) trait NativeCaptureSink: Send {
         &mut self,
         samples: &[i16],
     ) -> impl Future<Output = Result<NativeStreamUpdate, AppError>> + Send;
+    fn feed_final(
+        &mut self,
+        samples: &[i16],
+    ) -> impl Future<Output = Result<NativeStreamUpdate, AppError>> + Send {
+        self.feed(samples)
+    }
     fn finish(&mut self) -> impl Future<Output = Result<TranscriptionResult, AppError>> + Send;
     fn cancel(&mut self) -> impl Future<Output = Result<(), AppError>> + Send;
 }
@@ -207,8 +217,13 @@ async fn feed_ready<S: NativeCaptureSink, F: Fn(NativeStreamUpdate) + Send>(
             return Ok(None);
         }
 
-        let update = sink.feed(&pending.remaining()[..chunk_samples]).await?;
-        pending.consume(chunk_samples);
+        let count = if sink.coalesce_feeds() {
+            pending.remaining().len()
+        } else {
+            chunk_samples
+        };
+        let update = sink.feed(&pending.remaining()[..count]).await?;
+        pending.consume(count);
         on_update(update);
     }
 }
@@ -235,8 +250,12 @@ async fn feed_all<S: NativeCaptureSink, F: Fn(NativeStreamUpdate) + Send>(
 ) -> Result<(), AppError> {
     let chunk_samples = sink.chunk_samples().max(1);
     while !pending.remaining().is_empty() {
-        let count = pending.remaining().len().min(chunk_samples);
-        let update = sink.feed(&pending.remaining()[..count]).await?;
+        let count = if sink.coalesce_feeds() {
+            pending.remaining().len()
+        } else {
+            pending.remaining().len().min(chunk_samples)
+        };
+        let update = sink.feed_final(&pending.remaining()[..count]).await?;
         pending.consume(count);
         on_update(update);
     }
@@ -252,9 +271,11 @@ async fn finish_capture<S: NativeCaptureSink, F: Fn(NativeStreamUpdate) + Send>(
     pending: &mut PendingOutput,
     on_update: &mut F,
 ) -> Result<Option<TranscriptionResult>, AppError> {
-    if let Err(error) = feed_full(sink, pending, on_update).await {
-        let _ = sink.cancel().await;
-        return Err(error);
+    if !sink.coalesce_feeds() {
+        if let Err(error) = feed_full(sink, pending, on_update).await {
+            let _ = sink.cancel().await;
+            return Err(error);
+        }
     }
 
     let raw = match copy_new_samples(samples, raw_offset) {

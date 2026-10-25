@@ -75,6 +75,7 @@ fn stream_commands_serialize_as_flat_snake_case_without_null_options() {
         audio_base64: "AQID".to_string(),
         audio_format: "pcm_s16le".to_string(),
         sample_rate: 16_000,
+        preview: None,
     })
     .unwrap();
     assert_eq!(
@@ -97,6 +98,24 @@ fn stream_commands_serialize_as_flat_snake_case_without_null_options() {
         serde_json::to_value(ServerCommand::StreamCancel { session_id: 7 }).unwrap(),
         json!({"action": "stream_cancel", "session_id": 7})
     );
+}
+
+#[test]
+fn stream_feed_serializes_explicit_preview_modes_as_booleans() {
+    for preview in [false, true] {
+        let feed = serde_json::to_value(ServerCommand::StreamFeed {
+            session_id: 7,
+            offset: 5120,
+            audio_base64: "AQID".to_string(),
+            audio_format: "pcm_s16le".to_string(),
+            sample_rate: 16_000,
+            preview: Some(preview),
+        })
+        .unwrap();
+        assert_eq!(feed["preview"], json!(preview));
+        assert_eq!(feed["offset"], json!(5120));
+        assert_eq!(feed["action"], "stream_feed");
+    }
 }
 
 #[test]

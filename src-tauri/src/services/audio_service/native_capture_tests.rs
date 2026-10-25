@@ -24,6 +24,7 @@ enum Event {
 #[derive(Debug, Default)]
 struct FakeLog {
     feed_inputs: Vec<Vec<i16>>,
+    preview_modes: Vec<bool>,
     events: Vec<Event>,
     finish_count: usize,
     cancel_count: usize,
@@ -188,6 +189,250 @@ fn expected_resampled(input: &[i16], sample_rate: u32) -> Vec<i16> {
         .finish(&mut output)
         .expect("one-shot resampling flush should succeed");
     output
+}
+
+// Match the Qwen application sink's 40 ms input cadence and preview opt-out.
+// FakeSink itself keeps the default R2T2 chunk and feed_final behavior.
+struct QwenSink(FakeSink);
+
+impl NativeCaptureSink for QwenSink {
+    fn coalesce_feeds(&self) -> bool {
+        true
+    }
+
+    fn chunk_samples(&self) -> usize {
+        640
+    }
+
+    async fn feed(&mut self, samples: &[i16]) -> Result<NativeStreamUpdate, AppError> {
+        self.0.state.log.lock().preview_modes.push(true);
+        self.0.feed(samples).await
+    }
+
+    async fn feed_final(&mut self, samples: &[i16]) -> Result<NativeStreamUpdate, AppError> {
+        self.0.state.log.lock().preview_modes.push(false);
+        self.0.feed(samples).await
+    }
+
+    async fn finish(&mut self) -> Result<TranscriptionResult, AppError> {
+        self.0.finish().await
+    }
+
+    async fn cancel(&mut self) -> Result<(), AppError> {
+        self.0.cancel().await
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn qwen_stop_before_first_tick_coalesces_ten_seconds_and_one_sample_without_preview() {
+    let input = samples(160_001);
+    let captured = Arc::new(Mutex::new(input.clone()));
+    let state = FakeState::new();
+    let sink = QwenSink(FakeSink::new(state.clone(), false, false));
+    let (control_tx, control_rx) = oneshot::channel();
+    control_tx.send(NativeCaptureControl::Finish).ok().unwrap();
+    let (updates, on_update) = update_collector();
+
+    let result = run_capture(sink, captured, 16_000, control_rx, on_update)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let log = state.log.lock();
+    assert_eq!(
+        log.feed_inputs.len(),
+        1,
+        "Stop must coalesce the entire backlog"
+    );
+    assert_eq!(log.preview_modes, [false], "Stop must use feed_final");
+    assert_eq!(log.feed_inputs[0], input);
+    assert_eq!((log.finish_count, log.cancel_count), (1, 0));
+    assert!(matches!(log.events.last(), Some(Event::Finish)));
+    assert_eq!(result.text, "finished");
+    assert_eq!(updates.lock()[0].sample_count, 160_001);
+}
+
+#[tokio::test(start_paused = true)]
+async fn qwen_live_backlog_uses_one_latest_feed_before_a_final_tail() {
+    let input = samples(160_000);
+    let tail = [7001_i16, -7002, 7003];
+    let captured = Arc::new(Mutex::new(input.clone()));
+    let state = FakeState::new();
+    let sink = QwenSink(FakeSink::new(state.clone(), true, false));
+    let (control_tx, control_rx) = oneshot::channel();
+    let (updates, on_update) = update_collector();
+    let task = tokio::spawn(run_capture(
+        sink,
+        captured.clone(),
+        16_000,
+        control_rx,
+        on_update,
+    ));
+    wait_for_feed_start(&state).await;
+    captured.lock().extend_from_slice(&tail);
+    control_tx.send(NativeCaptureControl::Finish).ok().unwrap();
+    state.release_feed.notify_one();
+    task.await.unwrap().unwrap().unwrap();
+
+    let log = state.log.lock();
+    assert_eq!(log.feed_inputs.len(), 2);
+    assert_eq!(log.preview_modes, [true, false]);
+    assert_eq!(log.feed_inputs[0], input);
+    assert_eq!(log.feed_inputs[1], tail);
+    assert_eq!((log.finish_count, log.cancel_count), (1, 0));
+    assert_eq!(
+        updates
+            .lock()
+            .iter()
+            .map(|update| update.sample_count)
+            .collect::<Vec<_>>(),
+        [160_000, 160_003]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn qwen_stop_during_inflight_feed_sends_new_backlog_only_through_final_feed() {
+    let first = samples(640);
+    let backlog = samples(160_001);
+    let captured = Arc::new(Mutex::new(first.clone()));
+    let state = FakeState::new();
+    let sink = QwenSink(FakeSink::new(state.clone(), true, false));
+    let (control_tx, control_rx) = oneshot::channel();
+    let (updates, on_update) = update_collector();
+    let task = tokio::spawn(run_capture(
+        sink,
+        captured.clone(),
+        16_000,
+        control_rx,
+        on_update,
+    ));
+    wait_for_feed_start(&state).await;
+    captured.lock().extend_from_slice(&backlog);
+    control_tx.send(NativeCaptureControl::Finish).ok().unwrap();
+    state.release_feed.notify_one();
+    task.await.unwrap().unwrap().unwrap();
+
+    let log = state.log.lock();
+    assert_eq!(log.feed_inputs.len(), 2, "no preview catch-up after Stop");
+    assert_eq!(log.preview_modes, [true, false]);
+    assert_eq!(log.feed_inputs[0], first);
+    assert_eq!(log.feed_inputs[1], backlog);
+    assert_eq!((log.finish_count, log.cancel_count), (1, 0));
+    assert_eq!(updates.lock().last().unwrap().sample_count, 160_641);
+}
+
+#[tokio::test(start_paused = true)]
+async fn qwen_stop_combines_pending_pcm_new_capture_and_resampler_tail_once() {
+    let first = samples(480);
+    let backlog = samples(480_007);
+    let mut complete = first.clone();
+    complete.extend_from_slice(&backlog);
+    let expected = expected_resampled(&complete, 48_000);
+    let captured = Arc::new(Mutex::new(first));
+    let state = FakeState::new();
+    let sink = QwenSink(FakeSink::new(state.clone(), false, false));
+    let (control_tx, control_rx) = oneshot::channel();
+    let (updates, on_update) = update_collector();
+    let task = tokio::spawn(run_capture(
+        sink,
+        captured.clone(),
+        48_000,
+        control_rx,
+        on_update,
+    ));
+    settle_paused_capture().await;
+    assert!(state.log.lock().feed_inputs.is_empty());
+    captured.lock().extend_from_slice(&backlog);
+    control_tx.send(NativeCaptureControl::Finish).ok().unwrap();
+    task.await.unwrap().unwrap().unwrap();
+
+    let log = state.log.lock();
+    assert_eq!(log.feed_inputs.len(), 1);
+    assert_eq!(log.preview_modes, [false]);
+    assert_eq!(log.feed_inputs[0], expected);
+    assert_eq!((log.finish_count, log.cancel_count), (1, 0));
+    assert_eq!(updates.lock()[0].sample_count, expected.len());
+}
+
+#[tokio::test(start_paused = true)]
+async fn qwen_normal_capture_keeps_40ms_cadence_and_cancel_has_no_final_feed() {
+    let pcm = samples(1920);
+    let captured = Arc::new(Mutex::new(pcm[..639].to_vec()));
+    let state = FakeState::new();
+    let sink = QwenSink(FakeSink::new(state.clone(), false, false));
+    let (control_tx, control_rx) = oneshot::channel();
+    let (_, on_update) = update_collector();
+    let task = tokio::spawn(run_capture(
+        sink,
+        captured.clone(),
+        16_000,
+        control_rx,
+        on_update,
+    ));
+    settle_paused_capture().await;
+    assert!(state.log.lock().feed_inputs.is_empty());
+    for (start, end) in [(639, 640), (640, 1280), (1280, 1920)] {
+        captured.lock().extend_from_slice(&pcm[start..end]);
+        tokio::time::advance(CAPTURE_POLL_INTERVAL).await;
+        settle_paused_capture().await;
+        assert_eq!(state.log.lock().feed_inputs.len(), end / 640);
+    }
+    captured.lock().push(7001);
+    control_tx.send(NativeCaptureControl::Cancel).ok().unwrap();
+    assert!(task.await.unwrap().unwrap().is_none());
+
+    let log = state.log.lock();
+    assert_eq!(log.preview_modes, [true, true, true]);
+    assert_eq!(log.feed_inputs.concat(), pcm);
+    assert_eq!((log.finish_count, log.cancel_count), (0, 1));
+}
+
+#[tokio::test(start_paused = true)]
+async fn qwen_cancel_during_feed_discards_new_backlog_without_finalization() {
+    let first = samples(640);
+    let captured = Arc::new(Mutex::new(first.clone()));
+    let state = FakeState::new();
+    let sink = QwenSink(FakeSink::new(state.clone(), true, false));
+    let (control_tx, control_rx) = oneshot::channel();
+    let (_, on_update) = update_collector();
+    let task = tokio::spawn(run_capture(
+        sink,
+        captured.clone(),
+        16_000,
+        control_rx,
+        on_update,
+    ));
+    wait_for_feed_start(&state).await;
+    captured.lock().extend(samples(160_001));
+    control_tx.send(NativeCaptureControl::Cancel).ok().unwrap();
+    state.release_feed.notify_one();
+    assert!(task.await.unwrap().unwrap().is_none());
+
+    let log = state.log.lock();
+    assert_eq!(log.preview_modes, [true]);
+    assert_eq!(log.feed_inputs, [first]);
+    assert_eq!((log.finish_count, log.cancel_count), (0, 1));
+}
+
+#[tokio::test(start_paused = true)]
+async fn qwen_final_feed_error_cancels_without_retry_or_finish() {
+    let input = samples(160_001);
+    let captured = Arc::new(Mutex::new(input.clone()));
+    let state = FakeState::new();
+    let sink = QwenSink(FakeSink::new(state.clone(), false, true));
+    let (control_tx, control_rx) = oneshot::channel();
+    control_tx.send(NativeCaptureControl::Finish).ok().unwrap();
+    let (updates, on_update) = update_collector();
+    let error = run_capture(sink, captured, 16_000, control_rx, on_update)
+        .await
+        .expect_err("final-only feed error must propagate");
+
+    assert!(error.to_string().contains("feed sentinel"));
+    let log = state.log.lock();
+    assert_eq!(log.preview_modes, [false]);
+    assert_eq!(log.feed_inputs, [input]);
+    assert_eq!((log.finish_count, log.cancel_count), (0, 1));
+    assert!(updates.lock().is_empty());
 }
 
 #[tokio::test]

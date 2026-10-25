@@ -46,7 +46,7 @@ mod native_stream_tests;
 mod native_stream_hotword_tests;
 
 #[cfg(all(test, target_os = "windows"))]
-mod ipc_recovery_tests;
+pub(crate) mod ipc_recovery_tests;
 
 #[cfg(test)]
 use installation::{engine_install_fingerprint_matches, replace_engine_dir};

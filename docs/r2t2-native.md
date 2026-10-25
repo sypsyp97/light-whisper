@@ -4,7 +4,9 @@ Qwen 0.6B and R2T2 share a resident audio.cpp C ABI runtime and the same capture
 
 Qwen 0.6B now uses `audio-cpp/audio.cpp-gguf`, revision `f861648c0c1f4da9f18e9a0ce5e217b0679bb2f5`, file `Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf` (1,151,272,416 bytes, SHA-256 `6c44ec2fb4cee513892d7863c1fcc3ea6b699ffa4d899b0ef4ab19956d9544f7`). This download is separate from the former transcribe.cpp model; the original cache is preserved.
 
-Qwen capture forwards 40-ms blocks. Its first nonempty preview is attempted at 120-ms audio intervals, then previews use 200-ms intervals and at most the latest 12 seconds. Hypotheses remain revisable. Finish recognizes the entire captured recording, including residual samples; it never substitutes the latest window for the full recording. The shared protocol rejects stale session IDs and discontinuous sample offsets.
+Qwen capture polls every 40 ms. Its first nonempty preview is attempted at 120-ms audio intervals, then previews use 200-ms intervals and at most the latest 12 seconds. When inference falls behind, the capture task combines the waiting audio into one latest preview. Transport packets remain bounded to 5,120 samples; earlier packets append audio without decoding. Hypotheses remain revisable. The shared protocol rejects stale session IDs and discontinuous sample offsets.
+
+Stop appends all pending audio and the resampler tail with previews disabled, then recognizes the complete recording. A native call already in progress can finish first. The final result never substitutes the latest window for the full recording. Preview suppression is restricted to Qwen; R2T2 retains its streaming chunk order and complete 320-ms acoustic finish context.
 
 When a successful preview already processed the complete unchanged capture, finish reuses that result. Reuse requires the exact same captured sample count and a recording no longer than the preview window. Even one additional sample, or any earlier audio outside that window, requires the complete final decode. Reset and failed decoding discard the reusable result.
 
@@ -38,7 +40,7 @@ in [R2T2-MODEL-LICENSE.txt](../src-tauri/resources/R2T2-MODEL-LICENSE.txt).
 
 Follow [Development](development.md) to build the two native packages and the installer. Native builds require Visual Studio 2022 C++ tools, CMake and Ninja; CUDA builds were validated with CUDA 12.9 and MSVC 14.44.
 
-The build pins audio.cpp revision `6c70f32d0d90a29a9863e556bd9712ce622f868b` and requires an exact match to `scripts/patches/audio-cpp-r2t2-windows-streaming.patch`. Build `light-whisper-asr-12` writes libraries, licenses and SHA-256 manifests to ignored `src-tauri/resources/r2t2-native/{cpu,cuda}/`.
+The build pins audio.cpp revision `6c70f32d0d90a29a9863e556bd9712ce622f868b` and requires an exact match to `scripts/patches/audio-cpp-r2t2-windows-streaming.patch`. Build `light-whisper-asr-13` writes libraries, licenses and SHA-256 manifests to ignored `src-tauri/resources/r2t2-native/{cpu,cuda}/`.
 
 CUDA builds default to the pinned engine's portable architecture selection for the installed toolkit, independent of the build machine's GPU. CUDA 12 includes legacy PTX targets; newer targets are added when the toolkit supports them. CUDA 13 excludes Maxwell, Pascal and Volta. The builder clears stale architecture settings from its build cache and child environment, and records the concrete configured targets in `runtime-manifest.json`. An explicit `--cuda-architectures` overrides this default for experiments. A successful build establishes compiled coverage; performance and driver compatibility still need validation on the target hardware.
 
@@ -55,7 +57,163 @@ The engine builder validates both manifests and shares byte-identical CUDA/CRT D
 
 The shared greedy decoder retains KV data on the device and reuses bounded prefill/decode graphs. Qwen uses 1,024-token prefill blocks and attention views over existing KV storage; R2T2 retains its validated 64-token blocks. CPU/CUDA greedy generation reads one 4-byte token ID per step. The opt-in argmax retains generation's first-maximum tie rule; classification retains its existing backend tie behavior.
 
+Build `light-whisper-asr-13` keeps CUDA encoder audio embeddings on the device for Qwen and R2T2 streaming. The decoder uploads cached text rows and copies audio rows directly into one device prompt. The encoder output is borrowed only until prompt composition completes; the previous prompt has separate owned storage. CPU and the R2T2 offline path retain host embeddings.
+
+Exact prefix reuse compares the original F32 storage as integer bits on the GPU, including signed zeros and NaN payloads. Only equality counts return to the CPU. Changed shapes, alternate prefill APIs, failure and graph release invalidate reuse; the final block still recomputes. Prompt and snapshot buffers retain one current capacity, replacing the old allocation on growth. Temporary comparison graphs evict their CUDA graph-cache entries before their metadata is freed.
+
+CUDA prefill submits copies and block graphs on the same backend stream. Every block owns immutable host input, mask, position and last-token storage until a batch drains. Host payload staging is bounded to 32 MiB, or one oversized block; view metadata is bounded to the same batch. The implementation synchronizes before recycling storage, reading results, publishing a prefix snapshot, and freeing storage after an exception. CPU keeps one synchronous slot. Session reset preserves warm graph capacity; session destruction releases it.
+
 ## Validation and limits
+
+### asr13 Qwen Stop and backlog replay
+
+On 2026-10-25, an RTX 4070 SUPER ran eight separate resident-model workers in
+ABBA/BAAB order, with the production FireRedVAD callback and one complete-clip
+warmup per case. The 144 measured recordings provide twelve observations per
+version, fixture and scheduling scenario. All final texts, languages and captured
+PCM hashes match the original implementation. Values below are milliseconds,
+shown as **p50 / p95**; model loading is excluded.
+
+| Paced 40-ms arrivals | Previous | asr13 |
+|:--|--:|--:|
+| Chinese 4.20 s: first nonempty caption | 764.42 / 800.54 | 761.20 / 796.34 |
+| Chinese 4.20 s: Stop to final | 58.44 / 77.06 | 57.02 / 58.48 |
+| English 10.56 s: first nonempty caption | 1356.04 / 1427.58 | 1356.29 / 1365.67 |
+| English 10.56 s: Stop to final | 170.42 / 229.71 | 171.74 / 176.36 |
+
+| Entire clip queued when Stop arrives | Previous Stop to final | asr13 Stop to final |
+|:--|--:|--:|
+| Chinese 4.20 s | 896.03 / 1229.69 | 45.26 / 46.98 |
+| English 10.56 s | 3768.99 / 5124.96 | 104.61 / 106.53 |
+
+The backlogged Chinese/English cases execute 19/48 native decodes before the
+change and one final decode afterward. They represent an explicit backlog,
+not the normal no-backlog experience. Paced first-caption and Stop medians are
+largely unchanged. These measurements replay capture scheduling in Python,
+including in-flight work, but exclude microphone hardware, Rust IPC and display
+rendering; the real Rust adapter has separate subprocess protocol tests.
+
+The English phrase containing “25 to 30 years” and the Chinese sentence tail
+remain intact. A separate concatenated Chinese/English fixture produces the
+same incorrect transcript in both versions. Exact parity on that fixture is a
+regression check, not an accuracy success or a natural code-switch benchmark.
+
+A separate check used four natural mixed-language utterances from
+[CAiRE/ASCEND](https://huggingface.co/datasets/CAiRE/ASCEND), configuration `main`,
+test rows 9, 66, 68 and 81 (CC BY-SA 4.0), plus the existing English number and
+Chinese tail clips. Both models retain exact before/after final text, language
+and captured sample accounting on all six clips. R2T2 receives a separate
+13-sample last feed; Qwen passes the byte-identical complete clip through the
+production VAD callback and records any VAD trimming separately.
+
+The four mixed clips contain 84 reference characters after NFKC/lowercase and
+removal of spaces/punctuation. Qwen has 13 character edits before and after;
+R2T2 has 5 before and after. The English number sentence and Chinese tail have
+zero normalized edits in both versions. All four mixed clips share speaker 17,
+so these are limited coverage observations, not corpus CER/WER or an accuracy
+improvement. In particular, Qwen still recognizes only “language” in the clip
+whose reference is “computer languages是”.
+
+### asr13 native timing and attention experiment
+
+The original profiler reported about 0.10–0.12 ms per encoder output read on
+these clips, a small part of complete inference. A device-embeddings-only ABBA
+run changed accumulated native-call medians by +1.3%, -1.4% and -5.1% on Chinese,
+English and repeated 36-second Chinese respectively. No general speedup is
+attributed to removing that transfer alone.
+
+The combined device-input/queued-prefill candidate ran three four-process
+rounds, each with one warmup and three measured recordings per case per worker.
+All 108 measured and 36 warmup streams retain exact live/final text, language
+and sample traces. The table gives **candidate / baseline** ratios of accumulated
+native `start` + `feed` + `finish` median time; smaller is faster.
+
+| Recording | ABBA | BAAB | BAAB repeat |
+|:--|--:|--:|--:|
+| Chinese 4.20 s | 0.9757 | 1.0161 | 0.9669 |
+| English 10.56 s | 0.9604 | 0.9963 | 0.9756 |
+| Repeated Chinese 36 s | 0.9520 | 0.9694 | 0.9477 |
+
+The long case improves by 3.1–5.2% across these rounds. Short-case effects vary.
+One candidate process in the first BAAB round contains a 2.42-second feed
+outlier; English feed p95 rises 9.3% in that round. The repeat does not reproduce
+that regression (feed p95 ratios 0.924/0.940/0.968), but the earlier observations
+remain in the evidence. This does not establish a universal p95 improvement.
+First-caption audio positions stay at 960 ms for Chinese and 1760 ms for English.
+These are native-call measurements, not paced Stop-to-final or UI latency.
+
+The rebuilt packaged servers were also replayed in old/new/new/old order, one
+model process at a time, with one warmup and three paced 16-second recordings
+plus a thirteen-sample tail per process. All twelve measured streams preserve
+the same 256,013 captured samples, PCM hash, final text and language, and every
+process exits normally. This adds production VAD and stdio IPC, while still
+excluding microphone hardware, Rust capture and UI. Values are milliseconds:
+
+| Packaged R2T2 paced replay | Previous p50 / p95 | asr13 p50 / p95 |
+|:--|--:|--:|
+| First nonempty caption | 1025.71 / 1032.31 | 1023.51 / 1025.53 |
+| Stop to final | 117.54 / 120.95 | 116.03 / 118.26 |
+| Finish request alone | 62.56 / 63.81 | 61.32 / 62.82 |
+
+The roughly 1–2 ms median changes do not establish a substantial user-visible
+R2T2 latency improvement; reduced accumulated inference work is a separate result.
+
+The separate attention experiment uses synthetic post-projection Q/K/V with
+the actual R2T2 model dimensions: 16 heads of width 64 and 104-token attention
+windows. Eight boundary/padding cases ran dense, per-window explicit and window
+Flash attention on CPU and CUDA. CPU maximum absolute differences were about
+1.2e-7/3.0e-7 for explicit/Flash; CUDA differences reached 4.88e-4/1.15e-3.
+CUDA timings varied by shape and did not consistently favor a replacement.
+A deliberately wrong window changed all 212,992 outputs of its control case.
+Production attention remains dense; no model-quality equivalence is claimed.
+
+### asr13 resource lifetime checks
+
+Separate baseline/candidate processes each loaded and closed Qwen three times
+with eight measured recording cycles per load, and R2T2 three times with twelve
+cycles per load. Including warmups, these are 144 complete recording checks,
+plus short active recordings followed by cancellation or restart. No native
+handles remained after close, no cleanup call failed, and repeated same-input
+final text, language and sample counts matched. The complete 320-ms R2T2 finish
+context remained present.
+
+| Observation after each candidate model close + GC | Load 1 | Load 2 | Load 3 |
+|:--|--:|--:|--:|
+| Qwen process handles | 451 | 451 | 451 |
+| Qwen process threads | 71 | 71 | 72 |
+| Qwen private memory, MiB | 1831.19 | 1839.00 | 1848.19 |
+| R2T2 process handles | 448 | 448 | 448 |
+| R2T2 process threads | 72 | 69 | 69 |
+| R2T2 private memory, MiB | 1929.85 | 1941.74 | 1949.78 |
+
+The device query returned to the same post-close value in all three loads of
+each family, matching the baseline. Repeated 16-second recordings also reached
+the same device-query plateau within each load. Candidate plateaus were 8 MiB
+higher for Qwen and 6 MiB higher for R2T2, consistent with retaining device prompt
+and snapshot buffers; this attribution is an inference, not allocation tracing.
+Peak process private memory was 4728.75/5977.21 MiB for Qwen/R2T2 versus
+4708.14/5969.00 MiB before the change. Working set on the repeated long cases
+remained roughly 884–919 MiB across both versions.
+
+These short runs do not prove leak freedom. Both versions retain host allocations
+after model close, and the candidate's post-close private memory grows by about
+17/20 MiB across the three loads. The probe retains its own report; CUDA DLLs,
+driver state and context remain loaded. `cudaMemGetInfo` supplies current-context
+total and OS-reported free memory, not per-process VRAM or physical NVML usage;
+the legacy JSON field name `cuda_global` must not be read as a sum of all process
+allocations. See the [NVIDIA memory-query contract](https://docs.nvidia.com/cuda/archive/12.9.1/cuda-driver-api/group__CUDA__MEM.html).
+
+Final local verification passes 238 Python resource tests, 67 native-build and
+packaging-helper tests, 85 Rust native tests, and all three opt-in real
+Rust/Python/CUDA integration tests using the required restaurant fixture. The
+CPU/CUDA packages build from the exact reviewed patch applied to a fresh pinned
+checkout; native numerical, deferred-buffer, failure/retry and CPU fallback
+checks pass. Formatting and formal inventory/source bindings also pass.
+The rebuilt `engine.tar.xz` passes source/manifest verification and both extracted
+CUDA servers pass their protocol smoke. Packaged Qwen VAD counters are 0 before
+feeding, 0 after suppressed feeds, and 1 after final; all 67,263 samples and the
+separate thirteen-sample tail are retained. The old archive remains preserved.
+These are local build artifacts, not an installation or a published release.
 
 Q8 was tested on an RTX 4070 SUPER 12 GB. Checks covered five public clips, five short truncations, silence, a 126.6-second recording, exact final audio accounting, cancellation and restart. The packaged R2T2 process passed 31 requests; packaged Qwen CUDA and R2T2 CPU also passed smoke tests. This is limited regression coverage, not a broad accuracy benchmark or AMD validation.
 
@@ -259,6 +417,61 @@ python scripts/test_r2t2_logmel_cache.py --source build/r2t2/source --baseline-s
 
 This check compares complete binary feature traces and counts actual sparse-mel and FFT work. Its baseline must pass numerics and fail the work contract; `--no-build` also validates source, generated overlay and executable fingerprints. Neither model weights nor CUDA are needed.
 
+The asr13 queue guard uses the reviewed asr12 runtime from project commit
+`b1ee2e4db5ab319928c3fd532df0dd217946c36a`, applied to the pinned audio.cpp
+revision. Preserve that runtime before applying the current patch. Its raw
+SHA-256 is `e11f876d71d4da9971f507c36d8429bc6dd5b70f0b4bc52625c4c559c2048081`:
+
+```powershell
+python scripts/test_r2t2_prefill_queue.py --source build/r2t2/source --libraries build/r2t2/cpu --baseline build/r2t2/asr12-source/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp --baseline-sha256 e11f876d71d4da9971f507c36d8429bc6dd5b70f0b4bc52625c4c559c2048081 --mode all
+python scripts/test_device_embeddings.py --source build/r2t2/source --libraries build/r2t2/cpu --baseline build/r2t2/asr12-source/src/framework/modules/transformers/qwen_causal_decode_runtime.cpp --mode all
+```
+
+The device runner adds a small, hash-checked host-copy API scaffold to this
+baseline in its test build directory. This establishes the arithmetic oracle
+and a failing transfer-work control; it is not an older production device API.
+The queue guard checks deferred source-pointer lifetime, the staging limit,
+failure with work still queued, CPU fallback, exact KV bytes and continuations.
+Both runners support fingerprint-checked `--no-build` replay.
+
+`scripts/benchmark_qwen_backlog.py` compares preserved Python source directories
+and native DLLs in eight sequential ABBA/BAAB workers. Pass `--baseline-source`,
+`--candidate-source`, `--baseline-library`, `--candidate-library`, `--model`,
+`--dependencies`, `--zh-wav`, `--en-wav`, `--vad-model`, `--vad-cmvn` and a fresh
+`--output`. The default scope uses the production VAD callback. It measures
+40-ms paced arrivals and all-audio-queued-at-Stop separately, including an
+in-flight sink batch. It reports first nonempty caption and Stop-to-final
+p50/p95, callback work, exact final text and PCM hashes. Its mixed fixture is
+concatenated Chinese/English, not a natural code-switch recording. This is a
+Python scheduling replay; Rust capture/IPC has separate production-adapter tests.
+
+`scripts/benchmark_asr_quality.py` is a separate six-clip observation helper.
+Pass `--family qwen|r2t2`, `--model`, `--library`, `--dependencies`,
+`--source-dir`, `--manifest` and a fresh `--output`; add `--reference` for the
+candidate. Its explicit fixture manifest records official ASCEND row IDs,
+references, license, original metadata and WAV/PCM hashes. The local experiment
+keeps the manifest and provisioning script under
+`tmp/asr-opt-20261025/natural-quality/`. Run `--self-test` without models first.
+The helper reports human-reference character errors separately from exact
+before/after parity and does not turn unchanged model mistakes into successes.
+
+`scripts/benchmark_asr_resources.py` takes `--family qwen|r2t2`, `--model`,
+`--library`, `--dependencies`, an explicit matching `--cudart`, and a new
+`--output`. Use separate baseline/candidate processes, `--model-loads 3`,
+`--long-seconds 16` and `--tracemalloc`. It records warmup, growing/shrinking
+recordings, cancel/restart, finish, model close and GC, including process handle
+and thread counts. Missing counters remain
+unavailable. The CUDA device query is not per-process VRAM; process private memory and
+Python allocations include the probe's own report. Trends are observations,
+not a proof of no leaks. `--self-test` runs without a model or GPU.
+
+`scripts/benchmark_encoder_attention.py` is a separate, synthetic numerical
+experiment using dimensions read from `--gguf`. It compares dense masked,
+per-window explicit and optional `--include-flash` attention with partial
+windows and capacity padding. Use `--backend cpu|cuda`; `--no-build` verifies
+compiled fingerprints. These outputs and timings do not establish model
+quality or a lossless replacement. Production attention remains unchanged.
+
 The ignored Rust integration tests require these environment variables:
 
 - `LIGHT_WHISPER_R2T2_TEST_PYTHON`: Python executable
@@ -266,6 +479,13 @@ The ignored Rust integration tests require these environment variables:
 - `LIGHT_WHISPER_R2T2_TEST_CACHE`: isolated model cache
 - `LIGHT_WHISPER_R2T2_TEST_AUDIO`: mono 16-kHz PCM16 Chinese fixture matching the assertions in `native_integration_tests.rs`
 - `LIGHT_WHISPER_R2T2_TEST_DATA`: writable test-data directory
+
+The required integration clip is the upstream
+[restaurant sample](https://raw.githubusercontent.com/netease-youdao/Confucius4-R2T2/master/resources/test.wav),
+107,840 samples, SHA-256
+`b703174ef013bf7332ab74d4b65d568e2981cff2633cb620252bb4ba18ea7f67`.
+Its assertions expect “顾客自己带酒水” and the “带”/“喝” truncated endings;
+the shorter Qwen stock-market fixture cannot satisfy these assertions.
 
 Run sequentially with CUDA available; model downloads are disabled:
 
