@@ -462,6 +462,12 @@
     "commands::funasr::set_gpu_idle_seconds": [
       "gpu-idle"
     ],
+    "commands::funasr::get_audio_processing_enabled": [
+      "engine"
+    ],
+    "commands::funasr::set_audio_processing_enabled": [
+      "engine"
+    ],
     "commands::profile::get_profile_save_status": [
       "profile-save"
     ],
@@ -886,7 +892,12 @@
         "src/hooks/useModelStatus.ts",
         "src-tauri/resources/hf_cache_utils.py",
         "src-tauri/resources/download_models.py",
-        "src-tauri/src/utils/paths.rs#fn update_engine_json("
+        "src-tauri/src/utils/paths.rs#fn update_engine_json(",
+        "src-tauri/src/utils/paths.rs#fn read_audio_processing_enabled(",
+        "src-tauri/src/utils/paths.rs#fn write_audio_processing_enabled(",
+        "src-tauri/src/services/funasr_service.rs#fn sync_audio_processing_at_start(",
+        "src-tauri/src/services/funasr_service.rs#fn push_audio_processing_enabled(",
+        "src/components/settings/AudioProcessingControl.tsx"
       ],
       "evidence": [
         "src-tauri/src/commands/funasr.rs",
@@ -896,9 +907,13 @@
         "src-tauri/resources/test_async_ownership_replay.py",
         "src-tauri/resources/test_model_integrity_regression.py",
         "formal/evidence/async-ownership.md",
-        "src-tauri/src/utils/paths_concurrency_tests.rs"
+        "src-tauri/src/utils/paths_concurrency_tests.rs",
+        "src-tauri/src/commands/audio_processing_setting_tests.rs",
+        "src-tauri/src/services/funasr_service/audio_processing_start_tests.rs",
+        "src/components/settings/AudioProcessingControl.test.tsx",
+        "src-tauri/resources/test_audio_processing_lifecycle.py"
       ],
-      "assumptions": "Four engine classes; model output correctness and filesystem/driver/network primitives are outside proof. Ready/error values are environmental inputs. Cache integrity companion partitions absent/valid/invalid manifest and absent/large weights. A positive trace witness reaches repair completion; this reachability target is deliberately false and is not a safety proof. Actual replay calls cache resolvers and explicit download_model verification/atomic manifest publication on temporary local bytes; no GPU/model inference internals are claimed. Configuration writes are within one application process; four independent fields and atomic replacement success/failure are modeled. External writers and arbitrary filesystem durability are outside the mutex contract."
+      "assumptions": "Four engine classes; model output correctness and filesystem/driver/network primitives are outside proof. Ready/error values are environmental inputs. Cache integrity companion partitions absent/valid/invalid manifest and absent/large weights. A positive trace witness reaches repair completion; this reachability target is deliberately false and is not a safety proof. Actual replay calls cache resolvers and explicit download_model verification/atomic manifest publication on temporary local bytes; no GPU/model inference internals are claimed. Configuration writes are within one application process; four independent fields and atomic replacement success/failure are modeled. External writers and arbitrary filesystem durability are outside the mutex contract. Audio-processing reads observe engine.json; writes reuse the reviewed update_engine_json transaction helper. EngineConfigurationWrites retains exactly four writers with one update each; the additional enhancement field and its interleavings are implementation correspondence, not enumerated model states. Startup bootstrap/reconciliation, positive acknowledgement, persistence rollback, UI behavior and enhancer reconstruction are covered by implementation review and regression tests, not dedicated formal proofs. Python enhancement lifecycle regressions mock model/device/enhancer operations and do not independently establish dispatch-lock exclusion or DSP correctness."
     },
     "download": {
       "obligation": "A cancelled download retains ownership/configuration until worker termination; cleanup cannot release a newer task; cancellation/unmount revoke frontend timers and old asynchronous callbacks.",
@@ -2896,6 +2911,8 @@
     "commands::history::reprocess_transcription_history": "src-tauri/src/commands/history.rs#fn reprocess_transcription_history(",
     "commands::funasr::get_gpu_idle_seconds": "src-tauri/src/commands/funasr.rs#fn get_gpu_idle_seconds(",
     "commands::funasr::set_gpu_idle_seconds": "src-tauri/src/commands/funasr.rs#fn set_gpu_idle_seconds(",
+    "commands::funasr::get_audio_processing_enabled": "src-tauri/src/commands/funasr.rs#fn get_audio_processing_enabled(",
+    "commands::funasr::set_audio_processing_enabled": "src-tauri/src/commands/funasr.rs#fn set_audio_processing_enabled(",
     "commands::profile::get_profile_save_status": "src-tauri/src/commands/profile.rs#pub fn get_profile_save_status",
     "commands::profile::retry_profile_save": "src-tauri/src/commands/profile.rs#pub async fn retry_profile_save",
     "commands::audio::cancel_dictation_polish": "src-tauri/src/commands/audio.rs#fn cancel_dictation_polish("
