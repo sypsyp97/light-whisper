@@ -24,6 +24,7 @@ import tarfile
 import time
 from pathlib import Path
 from build_r2t2_runtime import BUILD_ID as R2T2_BUILD_ID, SOURCE_REVISION as R2T2_REVISION, PATCH as R2T2_PATCH
+from build_reuse_runtime import source_fingerprint as reuse_source_fingerprint
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESOURCES_DIR = PROJECT_ROOT / "src-tauri" / "resources"
@@ -51,11 +52,15 @@ ADD_DATA_FILES = [
     "server_common.py",
     "asr_stream_server.py",
     "gpu_idle.py",
+    "reuse_enhancement.py",
+    "RE-USE-LICENSE.txt",
+    "Real-time-RE-USE-LICENSE.txt",
     "hf_cache_utils.py",
 ]
 
 HIDDEN_IMPORTS = [
     "gpu_idle",
+    "reuse_enhancement",
     "ctypes",
     "requests",
     "certifi",
@@ -360,10 +365,11 @@ def validate_r2t2_runtime():
         patch_sha = hashlib.sha256(R2T2_PATCH.read_bytes()).hexdigest()
         if (manifest.get("build_id") != R2T2_BUILD_ID
                 or manifest.get("revision") != R2T2_REVISION
-                or manifest.get("patch_sha256") != patch_sha):
+                or manifest.get("patch_sha256") != patch_sha
+                or manifest.get("reuse_source_sha256") != reuse_source_fingerprint()):
             raise RuntimeError(f"Stale R2T2 {backend} runtime; rebuild the native package")
         files = manifest.get("files", {})
-        if manifest.get("backend") != backend or "audiocpp.dll" not in files:
+        if manifest.get("backend") != backend or not {"audiocpp.dll", "reuse.dll"} <= files.keys():
             raise RuntimeError(f"Invalid R2T2 runtime manifest: {manifest_path}")
         actual_names = {item.name for item in directory.iterdir()}
         if actual_names != set(files) | {"runtime-manifest.json"}:
@@ -391,7 +397,7 @@ def verify_archive_sources(archive: Path) -> None:
     native_paths = {
         f"_internal/r2t2-native/{backend}/{filename}"
         for backend in ("cpu", "cuda")
-        for filename in ("runtime-manifest.json", "audiocpp.dll")
+        for filename in ("runtime-manifest.json", "audiocpp.dll", "reuse.dll")
     }
     native_prefixes = tuple(f"_internal/r2t2-native/{backend}/" for backend in ("cpu", "cuda"))
     native = {}
@@ -451,7 +457,8 @@ def verify_archive_sources(archive: Path) -> None:
     if missing_native:
         raise RuntimeError(f"Missing bundled native files: {', '.join(sorted(missing_native))}; rebuild the engine")
     provenance = {"build_id": R2T2_BUILD_ID, "revision": R2T2_REVISION,
-                  "patch_sha256": hashlib.sha256(R2T2_PATCH.read_bytes()).hexdigest()}
+                  "patch_sha256": hashlib.sha256(R2T2_PATCH.read_bytes()).hexdigest(),
+                  "reuse_source_sha256": reuse_source_fingerprint()}
     for backend in ("cpu", "cuda"):
         prefix = f"_internal/r2t2-native/{backend}"
         manifest = native[f"{prefix}/runtime-manifest.json"]
@@ -460,7 +467,7 @@ def verify_archive_sources(archive: Path) -> None:
                 or any(manifest.get(key) != value for key, value in provenance.items())):
             raise RuntimeError(f"Stale bundled R2T2 {backend} runtime; rebuild the engine")
         files = manifest.get("files")
-        if not isinstance(files, dict) or "audiocpp.dll" not in files:
+        if not isinstance(files, dict) or not {"audiocpp.dll", "reuse.dll"} <= files.keys():
             raise RuntimeError(f"Invalid bundled R2T2 {backend} file table; rebuild the engine")
         for directory, entries in ((prefix, files), ("_internal", manifest.get("shared_files", {}))):
             if not isinstance(entries, dict):

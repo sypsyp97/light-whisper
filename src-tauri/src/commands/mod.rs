@@ -2,6 +2,8 @@ pub mod ai_polish;
 pub mod assistant;
 pub mod audio;
 #[cfg(test)]
+mod audio_processing_setting_tests;
+#[cfg(test)]
 mod audio_processing_tests;
 pub mod clipboard;
 pub mod codex_oauth;

@@ -417,6 +417,19 @@ pub fn read_gpu_idle_seconds() -> u64 {
     parse_gpu_idle_seconds(read_engine_json().get("gpu_idle_seconds"))
 }
 
+pub fn read_audio_processing_enabled() -> bool {
+    read_engine_json()
+        .get("audio_processing_enabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+pub fn write_audio_processing_enabled(enabled: bool) -> Result<(), std::io::Error> {
+    update_engine_json(|config| {
+        config["audio_processing_enabled"] = serde_json::json!(enabled);
+    })
+}
+
 fn gpu_idle_timeout_from_config(config: &serde_json::Value) -> u64 {
     let remembered = parse_gpu_idle_seconds(config.get("gpu_idle_timeout_seconds"));
     if remembered > 0 {

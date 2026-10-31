@@ -1,5 +1,98 @@
 # Shared Qwen3-ASR and R2T2 native backend
 
+## Optional RE-USE audio processing
+
+The default-off settings switch enables [NVIDIA Real-time RE-USE](https://huggingface.co/nvidia/Real-time_RE-USE)
+before either local recognizer. Online engines do not use it. The enhancer loads
+and unloads with the recognizer, including GPU idle suspension and resume.
+Disabling releases it and bypasses processing; downloaded weights stay cached.
+Changes during an active recording are rejected. Managed recognizer startup
+first disables enhancement, then applies the latest saved preference before
+reporting ready, so a toggle during loading does not use a stale preference.
+
+The original FP32 checkpoint is pinned to revision
+`4c0c186272ca853cd18d832fc5c28777b62f32d1`: 54,055,764 bytes, SHA-256
+`6eac4e8cc721f99a22cde7eac3c9f8e2826ced5dc8a4234fd1977de1ec0d3ade`.
+The driver independently implements the streaming graph using existing GGML
+CPU/CUDA operators and the shared safetensors reader. It does not copy NVIDIA's
+Python implementation or require PyTorch, Mamba packages, conversion or quantization.
+
+This model's **NVIDIA One-Way Noncommercial License** permits noncommercial
+research and education only. Its complete license is shipped as
+[Real-time-RE-USE-LICENSE.txt](../src-tauri/resources/Real-time-RE-USE-LICENSE.txt).
+These terms differ from the retained offline model's OpenMDW license.
+
+The 16-kHz stream uses a 640-sample periodic Hann window and 320-sample hop.
+The default runs 8 exit layers with one lookahead frame: 60 ms algorithmic delay
+before compute and capture polling. The native API also supports exit depths
+3 through 12 and lookahead 0 through 2 (40/60/80 ms algorithmic delay); these
+are driver options, not additional settings controls. Causal convolution and
+Mamba states persist between frames and reset between recordings. Flush supplies
+lookahead spectra, reconstructs the overlap and emits exactly the remaining
+real samples. A native error quarantines the stream until a successful reset.
+CUDA strict FP32 is configured only on this model's fresh backend handle;
+other models retain their existing backend precision policy.
+
+`scripts/benchmark_reuse_realtime.py` measures loading, first output, native-call
+wall time, complete waveform processing and Stop/flush separately. Its paced
+20-ms capture replay uses monotonic deadlines, including backlog when compute
+misses a deadline. Actual-DLL partition and reset guards require identical
+waveforms and sample counts. Timings are local measurements, not general
+speech-quality or hardware guarantees.
+
+### Retained offline driver
+
+The independent offline API and `scripts/benchmark_reuse.py` remain available
+for comparison with NVIDIA NemotronLabs RE-USE. They are not selected by the
+settings switch in this research build.
+
+The native adapter reads the original 30-layer, 9,607,747-parameter FP32
+safetensors checkpoint directly. Revision: `31f82f2efad1095034492f236e8dac9239ba713b`;
+38,592,940 bytes; SHA-256 `06badaf4029b297f97f7fe48d62990b48d5482608210df577354e0d4e0ed70e1`.
+It reuses audio.cpp's safetensors reader, GGML CPU/CUDA operators, existing gated
+Mamba scan fusion, and cached graphs. No new CUDA kernel, driver, PyTorch,
+WSL, or converted model is required. The OpenMDW-1.1 notice ships separately
+as `RE-USE-LICENSE.txt`; this is the offline model, not NVIDIA Real-time RE-USE.
+
+Audio uses 16 kHz mono, a centered reflect-padded 640-point periodic Hann STFT,
+hop 80, log1p magnitude, and the original output sweep-artifact suppression.
+One-second windows with 125 ms crossfades bound buffering. Cancellation clears
+pending audio, finish flushes the exact original sample count, and any model
+failure is reported rather than silently bypassing enabled processing.
+
+On 2026-10-30, Windows / RTX 4070 SUPER measured these complete waveform
+enhancement times on prefixes of NVIDIA's public `mic_test2.wav` (44.1 kHz,
+resampled to 16 kHz). Each row has one first invocation and five subsequent
+invocations; these times include STFT, inference, inverse STFT, overlap and tail
+processing, and exclude ASR, LLM processing, model loading and downloading.
+
+| Audio duration | Median | p95 |
+| --- | ---: | ---: |
+| 160 ms | 21.5 ms | 30.1 ms |
+| 500 ms | 40.7 ms | 50.3 ms |
+| 1 second | 102.8 ms | 105.1 ms |
+
+The one-second paced replay first delivered processed audio at approximately
+1,076 ms (1,000 ms capture plus processing; median of five replays), before
+recognition. Its median final tail flush was 32.5 ms. Shorter recordings flush
+when stopped. Model loading took approximately 64–69 ms with the file cached.
+These are measurements of this card and sample, not a general speech-quality
+or hardware guarantee. CPU and CUDA passed spectral/waveform comparisons with
+an independent ONNX export; CUDA uses the existing gated scan fusion because
+the unfused path showed unstable short-clip output in this pinned backend.
+
+`scripts/benchmark_reuse.py` reproduces native-core, waveform and paced-stream
+measurements. Supply the original checkpoint with `--model`, a WAV with
+`--audio`, `--backend cpu|cuda`, and a JSON `--output`; `--duration .16 .5 1
+--iterations 5 --streaming` selects the cases above. Defaults refer to ignored
+local investigation files, not bundled test fixtures. `scripts/smoke_reuse_server.py`
+checks actual Qwen/R2T2 on/off, idle unload and resume; `--engine-exe` checks a
+packaged engine. Both native packages and engine archives verify the enhancer
+DLL checksum and adapter-source fingerprint. The normal native/package build
+scripts include the adapter automatically.
+
+## Recognition runtime
+
 Qwen 0.6B and R2T2 share a resident audio.cpp C ABI runtime and the same capture, session and caption protocol. Model selection remains independent. Qwen and R2T2 support NVIDIA CUDA and CPU. No WSL, vLLM or PyTorch is required. The retired transcribe.cpp loader and provider packages are excluded from the engine. Saved Qwen 1.7B selections migrate to R2T2; existing model caches are preserved.
 
 Qwen 0.6B now uses `audio-cpp/audio.cpp-gguf`, revision `f861648c0c1f4da9f18e9a0ce5e217b0679bb2f5`, file `Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf` (1,151,272,416 bytes, SHA-256 `6c44ec2fb4cee513892d7863c1fcc3ea6b699ffa4d899b0ef4ab19956d9544f7`). This download is separate from the former transcribe.cpp model; the original cache is preserved.
@@ -40,7 +133,7 @@ in [R2T2-MODEL-LICENSE.txt](../src-tauri/resources/R2T2-MODEL-LICENSE.txt).
 
 Follow [Development](development.md) to build the two native packages and the installer. Native builds require Visual Studio 2022 C++ tools, CMake and Ninja; CUDA builds were validated with CUDA 12.9 and MSVC 14.44.
 
-The build pins audio.cpp revision `6c70f32d0d90a29a9863e556bd9712ce622f868b` and requires an exact match to `scripts/patches/audio-cpp-r2t2-windows-streaming.patch`. Build `light-whisper-asr-13` writes libraries, licenses and SHA-256 manifests to ignored `src-tauri/resources/r2t2-native/{cpu,cuda}/`.
+The build pins audio.cpp revision `6c70f32d0d90a29a9863e556bd9712ce622f868b` and requires an exact match to `scripts/patches/audio-cpp-r2t2-windows-streaming.patch`. Build `light-whisper-asr-14` writes libraries, licenses and SHA-256 manifests to ignored `src-tauri/resources/r2t2-native/{cpu,cuda}/`.
 
 CUDA builds default to the pinned engine's portable architecture selection for the installed toolkit, independent of the build machine's GPU. CUDA 12 includes legacy PTX targets; newer targets are added when the toolkit supports them. CUDA 13 excludes Maxwell, Pascal and Volta. The builder clears stale architecture settings from its build cache and child environment, and records the concrete configured targets in `runtime-manifest.json`. An explicit `--cuda-architectures` overrides this default for experiments. A successful build establishes compiled coverage; performance and driver compatibility still need validation on the target hardware.
 

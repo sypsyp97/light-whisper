@@ -56,6 +56,10 @@ class QwenSharedLoadingTests(unittest.TestCase):
             qwen3_asr_server, "QwenPreviewRuntime", create=True,
             return_value=self.preview,
         ))
+        self.pipeline_factory = self.enterContext(mock.patch.object(
+            qwen3_asr_server, "QwenPipelineRuntime", create=True,
+            return_value=self.preview,
+        ))
         self.vad = mock.Mock()
         self.vad.speech_timestamps.return_value = []
         self.enterContext(mock.patch.object(
@@ -222,9 +226,18 @@ class QwenSharedLoadingTests(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertIsInstance(server.stream, R2T2StreamSession)
-        self.preview_factory.assert_called_once()
+        self.pipeline_factory.assert_called_once_with(
+            server._run_inference, prepare_audio=mock.ANY,
+        )
+        self.preview_factory.assert_not_called()
         self.assertIs(server.stream.runtime, self.preview)
-        self.assertTrue(callable(self.preview_factory.call_args.args[0]))
+        prepare_audio = self.pipeline_factory.call_args.kwargs["prepare_audio"]
+        self.assertTrue(callable(prepare_audio))
+        audio = np.arange(13, dtype=np.float32)
+        self.vad.speech_timestamps.return_value = [{"start": 2, "end": 11}]
+        np.testing.assert_array_equal(prepare_audio(audio), audio[2:11])
+        self.vad.speech_timestamps.assert_called_once_with(audio)
+        self.assertEqual(self.native.inputs, [], "CPU preparation must not invoke native inference")
         self.assertTrue(server.initialized)
         self.legacy_factory.assert_not_called()
 

@@ -71,6 +71,7 @@ import PolishStructureControl from "@/components/settings/PolishStructureControl
 import ProcessingModeControl from "@/components/settings/ProcessingModeControl";
 import JevSettingsSection from "@/components/settings/JevSettingsSection";
 import GpuIdleUnloadControl from "@/components/settings/GpuIdleUnloadControl";
+import AudioProcessingControl from "@/components/settings/AudioProcessingControl";
 import { SettingsDisclosure, SettingsReveal } from "@/components/settings/SettingsReveal";
 import ScreenVisionModelPicker from "@/components/settings/ScreenVisionModelPicker";
 import R2T2SettingsSection from "@/components/settings/R2T2SettingsSection";
@@ -2502,6 +2503,7 @@ export default function SettingsPage({
               );
             })()}
             <GpuIdleUnloadControl />
+            {engine !== "glm-asr" && engine !== "alibaba-asr" && <AudioProcessingControl />}
             <SettingsReveal open={engine === "confucius4-r2t2" && !!profile} gap={10}>
               {profile && <R2T2SettingsSection profile={profile} onSaved={() => { void refreshProfile(); }} />}
             </SettingsReveal>

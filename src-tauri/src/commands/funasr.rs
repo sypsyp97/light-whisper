@@ -310,6 +310,31 @@ pub async fn set_gpu_idle_seconds(
 }
 
 #[tauri::command]
+pub async fn get_audio_processing_enabled() -> Result<bool, AppError> {
+    Ok(paths::read_audio_processing_enabled())
+}
+
+#[tauri::command]
+pub async fn set_audio_processing_enabled(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<bool, AppError> {
+    let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
+    let _asr_guard = lock_idle_asr(state.inner())?;
+    let previous = paths::read_audio_processing_enabled();
+    funasr_service::push_audio_processing_enabled(state.inner(), enabled).await?;
+    if let Err(error) = paths::write_audio_processing_enabled(enabled) {
+        if let Err(rollback) =
+            funasr_service::push_audio_processing_enabled(state.inner(), previous).await
+        {
+            log::error!("音频处理设置回滚失败: {rollback}");
+        }
+        return Err(AppError::Other(format!("保存音频处理设置失败: {error}")));
+    }
+    Ok(enabled)
+}
+
+#[tauri::command]
 pub async fn set_online_asr_api_key(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,

@@ -48,6 +48,9 @@ mod native_stream_hotword_tests;
 #[cfg(all(test, target_os = "windows"))]
 pub(crate) mod ipc_recovery_tests;
 
+#[cfg(all(test, target_os = "windows"))]
+mod audio_processing_start_tests;
+
 #[cfg(test)]
 use installation::{engine_install_fingerprint_matches, replace_engine_dir};
 pub use installation::{find_engine, EngineRuntime};
@@ -199,6 +202,9 @@ impl Drop for StartingFlagGuard<'_> {
 }
 
 const SERVER_INIT_TIMEOUT_SECS: u64 = 120;
+// Bootstrap ASR first, then apply the latest saved enhancement choice before
+// publishing readiness. A stale opt-in must not start an unwanted download.
+const AUDIO_PROCESSING_BOOTSTRAP_ENABLED: bool = false;
 const SERVER_RESPONSE_TIMEOUT_SECS: u64 = 60;
 const SERVER_EXIT_WRITE_TIMEOUT_MS: u64 = 300;
 const SERVER_EXIT_WAIT_TIMEOUT_SECS: u64 = 2;
@@ -290,6 +296,30 @@ fn report_model_repo_file_state(
 // 核心功能实现
 // ============================================================
 
+fn configure_server_environment(cmd: &mut Command, engine: &str, gpu_idle_seconds: u64) {
+    let data_dir = paths::strip_win_prefix(paths::get_data_dir());
+    let models_dir = paths::strip_win_prefix(&paths::get_effective_models_dir());
+    cmd.env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1")
+        .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
+        .env("LIGHT_WHISPER_ASR_ENGINE", engine)
+        .env(
+            "LIGHT_WHISPER_AUDIO_PROCESSING",
+            if AUDIO_PROCESSING_BOOTSTRAP_ENABLED {
+                "1"
+            } else {
+                "0"
+            },
+        )
+        .env("HF_HUB_CACHE", &models_dir);
+    if gpu_idle_seconds > 0 {
+        cmd.env(
+            "LIGHT_WHISPER_GPU_IDLE_SECONDS",
+            gpu_idle_seconds.to_string(),
+        );
+    }
+}
+
 /// 启动 FunASR Python 服务器
 pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Result<(), AppError> {
     let (ticket, mut starting_guard) = {
@@ -358,7 +388,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     }
 
     // 构建子进程命令
-    let data_dir = paths::strip_win_prefix(paths::get_data_dir());
     // 仅在用户开启时传入。0/缺省不设置环境变量，启动路径与以前相同。
     let gpu_idle_at_spawn = paths::read_gpu_idle_seconds();
     let mut cmd = match &runtime {
@@ -397,13 +426,8 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         }
     };
 
-    let models_dir = paths::strip_win_prefix(&paths::get_effective_models_dir());
-    cmd.env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUTF8", "1")
-        .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
-        .env("LIGHT_WHISPER_ASR_ENGINE", &ticket.engine)
-        .env("HF_HUB_CACHE", &models_dir)
-        .stdin(std::process::Stdio::piped())
+    configure_server_environment(&mut cmd, &ticket.engine, gpu_idle_at_spawn);
+    cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr({
             let log_path = paths::get_data_dir().join("funasr_stderr.log");
@@ -418,13 +442,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
                 }
             }
         });
-
-    if gpu_idle_at_spawn > 0 {
-        cmd.env(
-            "LIGHT_WHISPER_GPU_IDLE_SECONDS",
-            gpu_idle_at_spawn.to_string(),
-        );
-    }
 
     // Windows 上隐藏控制台窗口
     #[cfg(target_os = "windows")]
@@ -519,19 +536,26 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
             return Err(AppError::Asr("启动已被取消".to_string()));
         }
 
-        let Some(mut child) = take_starting_child(state, &ticket, &child_handle) else {
+        let Some(child) = take_starting_child(state, &ticket, &child_handle) else {
             return Err(AppError::Asr("启动已被取消".to_string()));
         };
-        let mut process_guard = state.engine.funasr_process.lock().await;
-        if process_guard.is_some() {
-            let _ = child.start_kill();
-            return Err(AppError::Asr("FunASR 服务器已由其他任务启动".to_string()));
-        }
-        *process_guard = Some(FunasrProcess {
+        let mut process = FunasrProcess {
             child,
             stdin,
             stdout: stdout_reader,
-        });
+        };
+        // Settings may change while the child initializes. Apply the latest
+        // choice before publishing readiness; the local owner kills the child
+        // if synchronization fails or this startup future is cancelled.
+        sync_audio_processing_at_start(&mut process, AUDIO_PROCESSING_BOOTSTRAP_ENABLED).await?;
+        if !start_ticket_is_current(state, &ticket) {
+            return Err(AppError::Asr("启动已被取消".to_string()));
+        }
+        let mut process_guard = state.engine.funasr_process.lock().await;
+        if process_guard.is_some() {
+            return Err(AppError::Asr("FunASR 服务器已由其他任务启动".to_string()));
+        }
+        *process_guard = Some(process);
         starting_guard.release_child();
         log::info!("FunASR 服务器初始化成功！");
         state.set_funasr_ready(true);
@@ -1004,6 +1028,50 @@ pub async fn push_gpu_idle_seconds(state: &AppState, seconds: u64) -> Result<(),
             response
                 .error
                 .unwrap_or_else(|| "设置 GPU 空闲卸载失败".to_string()),
+        ));
+    }
+    Ok(())
+}
+
+async fn sync_audio_processing_at_start(
+    process: &mut FunasrProcess,
+    enabled_at_spawn: bool,
+) -> Result<(), AppError> {
+    let enabled = paths::read_audio_processing_enabled();
+    if enabled == enabled_at_spawn {
+        return Ok(());
+    }
+    let response = tokio::time::timeout(
+        Duration::from_secs(SERVER_RESPONSE_TIMEOUT_SECS),
+        send_command_impl(process, &ServerCommand::SetAudioProcessing { enabled }),
+    )
+    .await
+    .map_err(|_| AppError::Asr("同步音频处理设置超时".into()))??;
+    if response.success == Some(true) {
+        Ok(())
+    } else {
+        Err(AppError::Asr(
+            response.error.unwrap_or_else(|| "音频处理设置失败".into()),
+        ))
+    }
+}
+
+pub async fn push_audio_processing_enabled(
+    state: &AppState,
+    enabled: bool,
+) -> Result<(), AppError> {
+    if state.engine.funasr_process.lock().await.is_none() {
+        return Ok(());
+    }
+    let response = send_command_to_server::<tauri::Wry>(
+        state,
+        &ServerCommand::SetAudioProcessing { enabled },
+        None,
+    )
+    .await?;
+    if response.success != Some(true) {
+        return Err(AppError::Asr(
+            response.error.unwrap_or_else(|| "音频处理设置失败".into()),
         ));
     }
     Ok(())

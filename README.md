@@ -45,6 +45,8 @@ Basic local dictation works without an LLM account. For rewriting, translation o
 
 Both local engines run on Windows without WSL. Models download separately and are cached; FireRedVAD is bundled. GPU acceleration is optional. R2T2's committed subtitle text does not roll back, while its preview can change. Streaming alone does not guarantee lower latency; see [measured behavior and limitations](docs/r2t2-native.md).
 
+Local engine settings offer optional **Audio processing (RE-USE)** using NVIDIA Real-time RE-USE before recognition. It is off by default, downloads a ~54 MB original checkpoint on first use, and loads/unloads with the speech model. The realtime model is licensed for noncommercial research and education only; see [RE-USE measurements and integration](docs/r2t2-native.md#optional-re-use-audio-processing).
+
 <details>
 <summary><strong>AI providers, automatic decisions and web search</strong></summary>
 

@@ -12,3 +12,5 @@ scripts/patches/*.patch text eol=lf whitespace=-blank-at-eol
 scripts/native_tests/device_embeddings_baseline_scaffold.cpp text eol=lf whitespace=-blank-at-eof
 # Preserve the upstream license verbatim.
 src-tauri/resources/R2T2-MODEL-LICENSE.txt whitespace=-blank-at-eol
+src-tauri/resources/RE-USE-LICENSE.txt whitespace=-blank-at-eof
+src-tauri/resources/Real-time-RE-USE-LICENSE.txt whitespace=-blank-at-eol

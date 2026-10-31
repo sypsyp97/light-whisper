@@ -85,6 +85,8 @@ beforeEach(() => {
   });
   vi.mocked(tauri.getAssistantApiKey).mockResolvedValue("");
   vi.mocked(tauri.getEngine).mockResolvedValue("qwen3-asr-0.6b");
+  vi.mocked(tauri.getAudioProcessingEnabled).mockResolvedValue(false);
+  vi.mocked(tauri.setAudioProcessingEnabled).mockImplementation(async (enabled) => enabled);
   vi.mocked(tauri.getGpuIdleSeconds).mockResolvedValue(0);
   vi.mocked(tauri.getLlmReasoningSupport).mockResolvedValue({
     strategy: null,

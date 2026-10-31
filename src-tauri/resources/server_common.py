@@ -185,6 +185,8 @@ class BaseASRServer:
         self._gpu_idle_thread = None
         self._last_activity_at = None
         self._gpu_suspended = False
+        self._audio_processing_enabled = os.environ.get("LIGHT_WHISPER_AUDIO_PROCESSING") == "1"
+        self._audio_processor = None
 
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -434,6 +436,27 @@ class BaseASRServer:
             self._gpu_idle_lock.release()
 
     def _execute_action(self, command, action):
+        if action == "set_audio_processing":
+            enabled = command.get("enabled")
+            if not isinstance(enabled, bool):
+                return {"success": False, "error": "enabled 必须为布尔值"}
+            if enabled != self._audio_processing_enabled:
+                if self._gpu_idle_stream_active():
+                    return {"success": False, "error": "请在录音结束后修改音频处理设置"}
+                try:
+                    if enabled and self.initialized:
+                        from reuse_enhancement import RealtimeReuseEnhancer
+
+                        self._audio_processor = RealtimeReuseEnhancer()
+                    elif not enabled:
+                        self._close_audio_processor()
+                    self._audio_processing_enabled = enabled
+                except Exception as exc:
+                    return {"success": False, "error": f"音频处理设置失败: {exc}"}
+            stream = getattr(self, "stream", None)
+            if stream is not None:
+                stream.audio_processor = self._audio_processor
+            return {"success": True, "audio_processing_enabled": enabled}
         if action == "transcribe":
             return self.transcribe_audio(
                 command.get("audio_path"),
@@ -459,11 +482,30 @@ class BaseASRServer:
             return self.handle_stream_command(command)
         return {"success": False, "error": f"未知命令: {action}"}
 
+    def _load_audio_processor(self):
+        if getattr(self, "_audio_processing_enabled", False) and self._audio_processor is None:
+            from reuse_enhancement import RealtimeReuseEnhancer
+
+            self._audio_processor = RealtimeReuseEnhancer()
+
+    def _close_audio_processor(self):
+        processor = getattr(self, "_audio_processor", None)
+        if processor is not None:
+            processor.close()
+            self._audio_processor = None
+
     # ------------------------------------------------------------------
     # Command dispatch loop
     # ------------------------------------------------------------------
 
     def run(self) -> None:
+        # Native inference may suppress global stdout on a background worker.
+        # Keep protocol replies on the original pipe, including their flush.
+        protocol_output = sys.stdout
+
+        def send(result):
+            print(json.dumps(result, ensure_ascii=False), file=protocol_output, flush=True)
+
         self.logger.info(f"{self.engine} 服务器启动")
 
         from hf_cache_utils import get_hf_cache_root, is_hf_repo_ready
@@ -486,8 +528,7 @@ class BaseASRServer:
                 "engine": self.engine,
             }
 
-        print(json.dumps(init_result, ensure_ascii=False))
-        sys.stdout.flush()
+        send(init_result)
 
         self._adopt_gpu_idle_from_env()
 
@@ -507,8 +548,7 @@ class BaseASRServer:
                 except json.JSONDecodeError:
                     # 无 request_id 可回传——JSON 解析就失败了。Rust 端按旧协议兼容。
                     result = {"success": False, "error": "无效的JSON命令"}
-                    print(json.dumps(result, ensure_ascii=False))
-                    sys.stdout.flush()
+                    send(result)
                     continue
 
                 # Rust 端给每条命令打的 request_id；所有响应必须原样回传，
@@ -525,8 +565,7 @@ class BaseASRServer:
                     result = {"success": True, "message": "服务器退出"}
                     if request_id is not None and isinstance(result, dict):
                         result["request_id"] = request_id
-                    print(json.dumps(result, ensure_ascii=False))
-                    sys.stdout.flush()
+                    send(result)
                     break
                 elif action == "set_gpu_idle":
                     result = self._handle_set_gpu_idle(command)
@@ -539,6 +578,7 @@ class BaseASRServer:
                     "status",
                     "stats",
                     "cleanup",
+                    "set_audio_processing",
                 ):
                     from gpu_idle import GPU_IDLE_ACTIVITY_ACTIONS
 
@@ -551,8 +591,7 @@ class BaseASRServer:
 
                 if request_id is not None and isinstance(result, dict):
                     result["request_id"] = request_id
-                print(json.dumps(result, ensure_ascii=False))
-                sys.stdout.flush()
+                send(result)
 
             except KeyboardInterrupt:
                 break
@@ -564,7 +603,11 @@ class BaseASRServer:
                 }
                 if request_id is not None:
                     error_result["request_id"] = request_id
-                print(json.dumps(error_result, ensure_ascii=False))
-                sys.stdout.flush()
+                send(error_result)
 
+        self._stop_gpu_idle_thread()
+        close_runtime = getattr(self, "_close_runtime", None)
+        if close_runtime is not None:
+            close_runtime()
+        self._close_audio_processor()
         self.logger.info(f"{self.engine} 服务器退出")

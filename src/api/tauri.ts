@@ -127,6 +127,12 @@ export function setGpuIdleSeconds(seconds: number, timeoutSeconds?: number): Pro
   return invokeCommand<number>("set_gpu_idle_seconds", timeoutSeconds === undefined ? { seconds } : { seconds, timeoutSeconds });
 }
 
+export const getAudioProcessingEnabled = createNoArgCommand<boolean>("get_audio_processing_enabled");
+
+export function setAudioProcessingEnabled(enabled: boolean): Promise<boolean> {
+  return invokeCommand<boolean>("set_audio_processing_enabled", { enabled });
+}
+
 export function copyToClipboard(text: string): Promise<string> {
   return invokeCommand<string>("copy_to_clipboard", { text });
 }

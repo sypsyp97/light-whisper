@@ -5,7 +5,7 @@ Backlog begins with all audio queued at Stop. Mixed means concatenated public
 ZH/EN clips, not a real code-switch recording. Exact text parity is not accuracy.
 """
 import argparse
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 import hashlib
 import importlib
@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 from types import SimpleNamespace
 
@@ -23,8 +24,117 @@ import numpy as np
 from test_r2t2_native_cache import ROOT, DEFAULT_ZH, DEFAULT_EN, read_wav, sha256
 
 
+FIXTURES = ("zh", "en", "mixed-derived")
+SCENARIOS = ("paced", "backlog")
+
+
 def pcm_info(pcm):
     return {"samples": len(pcm), "sha256": hashlib.sha256(pcm.tobytes()).hexdigest()}
+
+
+def timed_callback(events, stage, callback, clock=time.perf_counter):
+    def measured(pcm, *args, **kwargs):
+        event = {"stage": stage, "samples": len(pcm), "thread_id": threading.get_ident(),
+                 "start_s": clock(), "status": "running"}
+        events.append(event)
+        try:
+            result = callback(pcm, *args, **kwargs)
+            event["status"] = "pass"
+            return result
+        except BaseException as error:
+            event.update(status="failed", error=f"{type(error).__name__}: {error}")
+            raise
+        finally:
+            event["end_s"] = clock()
+            event["ms"] = (event["end_s"] - event["start_s"]) * 1000
+    return measured
+
+
+def merged_intervals(events, window=None):
+    intervals = []
+    for event in events:
+        start, end = event["start_s"], event["end_s"]
+        if end < start:
+            raise AssertionError("trace interval ends before it starts")
+        if window is not None:
+            start, end = max(start, window[0]), min(end, window[1])
+        if end > start:
+            intervals.append((start, end))
+    merged = []
+    for start, end in sorted(intervals):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def intersections(left, right):
+    result, i, j = [], 0, 0
+    while i < len(left) and j < len(right):
+        start, end = max(left[i][0], right[j][0]), min(left[i][1], right[j][1])
+        if end > start:
+            result.append((start, end))
+        if left[i][1] <= right[j][1]:
+            i += 1
+        else:
+            j += 1
+    return result
+
+
+def interval_ms(intervals):
+    return sum(end - start for start, end in intervals) * 1000
+
+
+def trace_summary(row, decodes, cpu_filters, callbacks, *, product_vad):
+    row.update(decodes=list(decodes), cpu_filters=list(cpu_filters), callbacks=list(callbacks),
+               decode_count=len(decodes), processed_audio_samples=sum(d["samples"] for d in decodes))
+    counted = cpu_filters if product_vad else callbacks
+    row.update(callback_count=len(counted), callback_audio_samples=sum(c["samples"] for c in counted))
+    if product_vad:
+        overlap = intersections(merged_intervals(cpu_filters), merged_intervals(decodes))
+        caller_filters = [c for c in cpu_filters if c["thread_id"] == row["caller_thread_id"]]
+        row.update(cpu_native_overlap_ms=interval_ms(overlap),
+                   caller_cpu_native_overlap_ms=interval_ms(intersections(
+                       merged_intervals(caller_filters), merged_intervals(decodes))),
+                   cpu_native_intersections=[{"start_s": start, "end_s": end, "ms": (end - start) * 1000}
+                                             for start, end in overlap])
+    if "finish_started_s" not in row:
+        return
+    window = row["finish_started_s"], row["finish_ended_s"]
+    cpu = merged_intervals(cpu_filters, window)
+    native = merged_intervals(decodes, window)
+    callback = merged_intervals(callbacks, window)
+    covered = merged_intervals(cpu_filters + callbacks + decodes, window)
+    row.update(finish_native_run_ms=interval_ms(native), finish_callback_ms=interval_ms(callback),
+               finish_unattributed_ms=max(0., row["finish_wall_ms"] - interval_ms(covered)),
+               finish_callback_stages_ms={stage: interval_ms(merged_intervals(
+                   [c for c in callbacks if c["stage"] == stage], window))
+                   for stage in sorted({c["stage"] for c in callbacks})})
+    if product_vad:
+        row.update(finish_cpu_filter_ms=interval_ms(cpu),
+                   finish_cpu_native_overlap_ms=interval_ms(intersections(cpu, native)))
+
+
+def create_preview_runtime(server, synchronous_runtime, callback):
+    factory = getattr(server, "_create_preview_runtime", None)
+    return factory() if callable(factory) else synchronous_runtime(callback)
+
+
+@contextmanager
+def closing_runtime(runtime):
+    try:
+        yield runtime
+    finally:
+        close = getattr(runtime, "close", None)
+        if close is not None:
+            close()
+
+
+def selected_cases(args):
+    return [(fixture, scenario)
+            for fixture in (FIXTURES if args.fixture == "all" else (args.fixture,))
+            for scenario in (SCENARIOS if args.scenario == "all" else (args.scenario,))]
 
 
 def replay(runtime, pcm, variant, scenario, clock=time.perf_counter, sleep=time.sleep, row=None):
@@ -69,8 +179,13 @@ def replay(runtime, pcm, variant, scenario, clock=time.perf_counter, sleep=time.
         feed_to(min(offset + 640, available) if variant == "A" else available, True)
     stop_observed = clock()
     feed_to(len(pcm), False)
-    final = runtime.finish()
-    done = clock()
+    finish_started = clock()
+    row.update(finish_started_s=finish_started, finish_started_wall_ms=(finish_started - start) * 1000)
+    try:
+        final = runtime.finish()
+    finally:
+        done = clock()
+        row.update(finish_ended_s=done, finish_wall_ms=(done - finish_started) * 1000)
     observed = np.concatenate(accepted)
     if not np.array_equal(observed, pcm):
         raise AssertionError("accepted PCM changed or dropped its tail")
@@ -89,13 +204,21 @@ def save(path, report):
 
 
 def fixtures(args):
-    zh, en = read_wav(args.zh_wav), read_wav(args.en_wav)
-    return {"zh": zh, "en": en, "mixed-derived": np.concatenate((zh, en))}
+    clips = {}
+    if args.fixture in ("all", "zh", "mixed-derived"):
+        clips["zh"] = read_wav(args.zh_wav)
+    if args.fixture in ("all", "en", "mixed-derived"):
+        clips["en"] = read_wav(args.en_wav)
+    if args.fixture in ("all", "mixed-derived"):
+        clips["mixed-derived"] = np.concatenate((clips["zh"], clips["en"]))
+    return {name: pcm for name, pcm in clips.items() if args.fixture in ("all", name)}
 
 
 def inputs(args, source, library):
-    paths = [args.model, library, args.zh_wav, args.en_wav, Path(__file__),
+    paths = [args.model, library, Path(__file__),
              ROOT / "scripts/test_r2t2_native_cache.py"]
+    paths.extend([args.zh_wav, args.en_wav] if args.fixture in ("all", "mixed-derived")
+                 else [args.zh_wav if args.fixture == "zh" else args.en_wav])
     if args.scope == "product-vad":
         paths.extend((args.vad_model, args.vad_cmvn))
     return {"files": {str(p.resolve()): sha256(p) for p in paths}, "source": str(source.resolve()),
@@ -107,7 +230,9 @@ def inputs(args, source, library):
 def worker(args, report):
     source = args.baseline_source if args.variant == "A" else args.candidate_source
     library = args.baseline_library if args.variant == "A" else args.candidate_library
-    native, decodes, callbacks = None, [], []
+    native, decodes, cpu_filters, callbacks = None, [], [], []
+    product_vad = args.scope == "product-vad"
+    schedule = args.schedule or args.variant
     try:
         report["inputs"] = inputs(args, source, library)
         os.environ["LIGHT_WHISPER_DATA_DIR"] = str(args.output.with_suffix("").resolve())
@@ -124,7 +249,7 @@ def worker(args, report):
         save(args.output, report)
         before = time.perf_counter()
         native = modules["qwen3_native"].QwenNativeRuntime(args.model, library, backend="cuda",
-                                                       dll_directories=args.dependencies, threads=1)
+                                                       dll_directories=args.dependencies, threads=args.threads)
         report.update(model_load_ms=(time.perf_counter() - before) * 1000, native_closed=False,
                       abi_version=native.functions["abi_version"]())
         native_run, session_handle = native.run, native.session.value
@@ -132,65 +257,82 @@ def worker(args, report):
         def decode(pcm, **kwargs):
             if native.session.value != session_handle or not session_handle:
                 raise AssertionError("resident native session changed")
-            event = {"samples": len(pcm), "status": "running"}
-            decodes.append(event)
-            before = time.perf_counter()
-            result = native_run(pcm, **kwargs)
-            event.update(status="pass", ms=(time.perf_counter() - before) * 1000)
-            return result
+            return native_run(pcm, **kwargs)
 
-        native.run = decode  # Count actual native decodes after VAD trimming/rejection.
-        callback = native.run
-        if args.scope == "product-vad":
+        native.run = timed_callback(decodes, "native.run", decode)
+        server = None
+        callback = timed_callback(callbacks, "native-wrapper callback", native.run)
+        if product_vad:
             server = modules["qwen3_asr_server"].Qwen3ASRServer.__new__(modules["qwen3_asr_server"].Qwen3ASRServer)
             server.session = native
+            server.backend = "cuda"
             server.vad_model = modules["firered_vad"].FireRedVad(args.vad_model, args.vad_cmvn)
             server.stdout_suppressor = SimpleNamespace(suppress=nullcontext)
             server._vad_calls = server._vad_rejected = 0
             server._total_vad_ms = 0
+            server._filter_speech = timed_callback(cpu_filters, "_filter_speech", server._filter_speech)
+            server._run_inference = timed_callback(callbacks, "_run_inference", server._run_inference)
+            server._transcribe_stream_audio = timed_callback(
+                callbacks, "_transcribe_stream_audio", server._transcribe_stream_audio)
             callback = server._transcribe_stream_audio
 
-        def transcribe(pcm, **kwargs):
-            callbacks.append(len(pcm))
-            return callback(pcm, **kwargs)
-
         QwenPreviewRuntime = modules["qwen3_native"].QwenPreviewRuntime
+        factory_present = callable(getattr(server, "_create_preview_runtime", None))
+        report.update(schedule=schedule,
+                      runtime_factory="server._create_preview_runtime" if factory_present else "QwenPreviewRuntime",
+                      callback_count_basis="_filter_speech calls before trimming" if product_vad else "native-wrapper callback",
+                      cpu_filter_instrumented=product_vad)
+
+        def new_preview():
+            preview = create_preview_runtime(server, QwenPreviewRuntime, callback)
+            pipeline_type = getattr(modules["qwen3_native"], "QwenPipelineRuntime", None)
+            if factory_present and (pipeline_type is None or not isinstance(preview, pipeline_type)):
+                with closing_runtime(preview):
+                    raise AssertionError("CUDA product factory did not return QwenPipelineRuntime")
+            return preview
+
         clips = fixtures(args)
         report["pcm"] = {key: pcm_info(pcm) for key, pcm in clips.items()}
         report["warmup"] = []
         for name, pcm in clips.items():
-            for scenario in ("paced", "backlog"):
+            for scenario in (SCENARIOS if args.scenario == "all" else (args.scenario,)):
                 # Complete-clip warmup through the same callback; excluded from rows.
-                decodes.clear()
+                for trace in (decodes, cpu_filters, callbacks):
+                    trace.clear()
                 report["stage"] = {"fixture": name, "scenario": scenario, "phase": "warmup"}
-                warmup = {"fixture": name, "scenario": scenario, "decodes": decodes}
+                warmup = {"fixture": name, "scenario": scenario, "caller_thread_id": threading.get_ident()}
                 report["warmup"].append(warmup)
                 save(args.output, report)
-                preview = QwenPreviewRuntime(transcribe)
-                preview.start()
-                if args.variant == "A":
-                    preview.feed(pcm)
-                else:
-                    preview.feed(pcm, preview=False)
-                preview.finish()
-                warmup["decodes"] = list(decodes)
+                try:
+                    with closing_runtime(new_preview()) as preview:
+                        warmup["runtime_class"] = f"{type(preview).__module__}.{type(preview).__qualname__}"
+                        preview.start()
+                        if schedule == "A":
+                            preview.feed(pcm)
+                        else:
+                            preview.feed(pcm, preview=False)
+                        preview.finish()
+                finally:
+                    trace_summary(warmup, decodes, cpu_filters, callbacks, product_vad=product_vad)
                 for repeat in range(args.repeats):
                     report["stage"] = {"fixture": name, "scenario": scenario, "repeat": repeat}
                     save(args.output, report)
-                    decodes.clear()
-                    callbacks.clear()
-                    row = {"fixture": name, "scenario": scenario, "repeat": repeat, "decodes": decodes}
+                    for trace in (decodes, cpu_filters, callbacks):
+                        trace.clear()
+                    row = {"fixture": name, "scenario": scenario, "repeat": repeat,
+                           "schedule": schedule, "caller_thread_id": threading.get_ident()}
                     report["rows"].append(row)
                     try:
-                        replay(QwenPreviewRuntime(transcribe), pcm, args.variant, scenario, row=row)
+                        with closing_runtime(new_preview()) as preview:
+                            row["runtime_class"] = f"{type(preview).__module__}.{type(preview).__qualname__}"
+                            replay(preview, pcm, schedule, scenario, row=row)
                         if not row["final"]["text"].strip():
                             raise AssertionError(f"{name}/{scenario}: complete speech returned no final text")
                     except BaseException as error:
                         row.update(status="failed", error=f"{type(error).__name__}: {error}")
                         raise
                     finally:
-                        row.update(decode_count=len(decodes), processed_audio_samples=sum(d["samples"] for d in decodes),
-                                   decodes=list(decodes), callback_count=len(callbacks), callback_audio_samples=sum(callbacks))
+                        trace_summary(row, decodes, cpu_filters, callbacks, product_vad=product_vad)
                     save(args.output, report)
         if inputs(args, source, library) != report["inputs"]:
             raise AssertionError("benchmark input files changed during worker")
@@ -216,7 +358,10 @@ def controller(args, report):
                    "--baseline-library", str(args.baseline_library), "--candidate-library", str(args.candidate_library),
                    "--model", str(args.model), "--output", str(path), "--repeats", str(args.repeats),
                    "--zh-wav", str(args.zh_wav), "--en-wav", str(args.en_wav), "--scope", args.scope,
-                   "--vad-model", str(args.vad_model), "--vad-cmvn", str(args.vad_cmvn)]
+                   "--vad-model", str(args.vad_model), "--vad-cmvn", str(args.vad_cmvn),
+                   "--fixture", args.fixture, "--scenario", args.scenario, "--threads", str(args.threads)]
+        if args.schedule is not None:
+            command.extend(["--schedule", args.schedule])
         for directory in args.dependencies:
             command.extend(["--dependencies", str(directory)])
         block = {"variant": variant, "round": index // 4, "output": str(path), "command": command,
@@ -250,24 +395,29 @@ def controller(args, report):
         raise AssertionError("shared benchmark input identity differs across A/B")
     rows = [(block["variant"], row) for block in report["workers"] for row in block["result"]["rows"]]
     report["summary"], parity = {}, {}
-    for fixture in ("zh", "en", "mixed-derived"):
-        for scenario in ("paced", "backlog"):
-            key = fixture + "/" + scenario
-            selected = [(v, r) for v, r in rows if r["fixture"] == fixture and r["scenario"] == scenario]
-            parity[key] = all(len({json.dumps(r[field], sort_keys=True, ensure_ascii=False)
-                                  for _, r in selected}) == 1 for field in ("final", "accepted_pcm"))
-            report["summary"][key] = {v: {metric: {
-                "p50": float(np.percentile([r[metric] for x, r in selected if x == v], 50)),
-                "p95": float(np.percentile([r[metric] for x, r in selected if x == v], 95))}
-                for metric in ("stop_to_final_ms", "decode_count", "processed_audio_samples")}
-                for v in "AB"}
-            for variant in "AB":
-                captions = [r["first_nonempty_caption"] for v, r in selected
-                            if v == variant and r["first_nonempty_caption"] is not None]
-                report["summary"][key][variant]["first_caption"] = {metric: {
-                    "p50": float(np.percentile([r[metric] for r in captions], 50)),
-                    "p95": float(np.percentile([r[metric] for r in captions], 95))}
-                    for metric in ("wall_ms", "audio_samples")} if captions else None
+    metrics = ["stop_to_final_ms", "finish_wall_ms", "decode_count", "processed_audio_samples",
+               "finish_native_run_ms", "finish_callback_ms", "finish_unattributed_ms"]
+    if args.scope == "product-vad":
+        metrics += ["cpu_native_overlap_ms", "caller_cpu_native_overlap_ms",
+                    "finish_cpu_filter_ms", "finish_cpu_native_overlap_ms"]
+    for fixture, scenario in selected_cases(args):
+        key = fixture + "/" + scenario
+        selected = [(v, r) for v, r in rows if r["fixture"] == fixture and r["scenario"] == scenario]
+        if any(not any(v == variant for v, _ in selected) for variant in "AB"):
+            raise AssertionError(f"missing selected A/B case: {key}")
+        parity[key] = all(len({json.dumps(r[field], sort_keys=True, ensure_ascii=False)
+                              for _, r in selected}) == 1 for field in ("final", "accepted_pcm"))
+        report["summary"][key] = {v: {metric: {
+            "p50": float(np.percentile([r[metric] for x, r in selected if x == v], 50)),
+            "p95": float(np.percentile([r[metric] for x, r in selected if x == v], 95))}
+            for metric in metrics} for v in "AB"}
+        for variant in "AB":
+            captions = [r["first_nonempty_caption"] for v, r in selected
+                        if v == variant and r["first_nonempty_caption"] is not None]
+            report["summary"][key][variant]["first_caption"] = {metric: {
+                "p50": float(np.percentile([r[metric] for r in captions], 50)),
+                "p95": float(np.percentile([r[metric] for r in captions], 95))}
+                for metric in ("wall_ms", "audio_samples")} if captions else None
     report.update(exact_final_parity=parity, status="pass" if all(parity.values()) else "failed")
 
 
@@ -297,6 +447,7 @@ def self_test():
             assert row["accepted_pcm"] == pcm_info(pcm)
             assert row["feeds"][-1]["samples"] > 0
             assert row["stop_to_final_ms"] >= 100 - 1e-6
+            assert abs(row["finish_wall_ms"] - 100) < 1e-6
             if scenario == "backlog":
                 assert row["first_nonempty_caption"] is None
                 assert len(row["feeds"]) == (26 if variant == "A" else 4)
@@ -322,7 +473,81 @@ def self_test():
     assert abs(row["stop_observed_ms"] - (1760 - len(pcm) / 16)) < 1e-6
     assert abs(row["stop_to_final_ms"] - (2860 - len(pcm) / 16)) < 1e-6
     assert abs(row["first_nonempty_caption"]["wall_ms"] - 650) < 1e-6
-    print("self-test PASS: paced/backlog A/B; exact PCM/tail; arrival bounds; in-flight sink batch; Stop wall latency")
+
+    caller = threading.get_ident()
+    def event(start, end, stage="callback"):
+        return {"start_s": start, "end_s": end, "stage": stage, "thread_id": caller, "samples": 7}
+    cpu = [event(0, 4), event(2, 6)]
+    native = [event(1, 3), event(5, 8)]
+    callback_events = [event(0, 8, "transcribe"), event(1, 3, "inference"), event(5, 8, "inference")]
+    assert merged_intervals(cpu) == [(0, 6)]
+    assert merged_intervals([event(0, 1), event(1, 2)]) == [(0, 2)]
+    assert intersections([(0, 2)], [(2, 3)]) == []
+    assert intersections(merged_intervals(cpu), merged_intervals(native)) == [(1, 3), (5, 6)]
+    traced = {"caller_thread_id": caller, "finish_started_s": 2., "finish_ended_s": 7., "finish_wall_ms": 5000.}
+    trace_summary(traced, native, cpu, callback_events, product_vad=True)
+    assert traced["cpu_native_overlap_ms"] == traced["caller_cpu_native_overlap_ms"] == 3000
+    assert traced["finish_cpu_filter_ms"] == 4000
+    assert traced["finish_native_run_ms"] == 3000
+    assert traced["finish_cpu_native_overlap_ms"] == 2000
+    assert traced["finish_callback_ms"] == 5000
+    assert traced["finish_unattributed_ms"] == 0
+    assert traced["finish_callback_stages_ms"] == {"inference": 3000, "transcribe": 5000}
+    assert traced["callback_count"] == 2 and traced["callback_audio_samples"] == 14
+    wrapper_row = {"caller_thread_id": caller}
+    trace_summary(wrapper_row, native, [], callback_events, product_vad=False)
+    assert "cpu_native_overlap_ms" not in wrapper_row
+    assert wrapper_row["callback_count"] == 3
+
+    clock, events = Clock(), []
+    def callback(pcm):
+        clock.sleep(.125)
+        return len(pcm)
+    assert timed_callback(events, "fake", callback, clock.now)(pcm) == len(pcm)
+    assert events[0] == {"stage": "fake", "samples": len(pcm), "thread_id": caller,
+                         "start_s": 0., "end_s": .125, "status": "pass", "ms": 125.}
+    def failed_callback(pcm):
+        clock.sleep(.125)
+        raise ValueError("injected callback failure")
+    try:
+        timed_callback(events, "failed", failed_callback, clock.now)(pcm)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("callback error was swallowed")
+    assert events[1]["status"] == "failed" and events[1]["ms"] == 125.
+
+    class Synchronous:
+        def __init__(self, callback):
+            self.callback = callback
+    marker = object()
+    product = SimpleNamespace(_create_preview_runtime=lambda: marker)
+    assert create_preview_runtime(product, Synchronous, callback) is marker
+    assert create_preview_runtime(SimpleNamespace(), Synchronous, callback).callback is callback
+    assert create_preview_runtime(None, Synchronous, callback).callback is callback
+    assert selected_cases(SimpleNamespace(fixture="zh", scenario="backlog")) == [("zh", "backlog")]
+    assert len(selected_cases(SimpleNamespace(fixture="all", scenario="all"))) == 6
+
+    closed = []
+    class Closeable:
+        def close(self):
+            closed.append("runtime.close")
+    for failed in (False, True):
+        closed.clear()
+        try:
+            with closing_runtime(Closeable()):
+                closed.append("body")
+                if failed:
+                    raise ValueError("injected replay failure")
+        except ValueError:
+            assert failed
+        finally:
+            closed.append("native.close")
+        assert closed == ["body", "runtime.close", "native.close"]
+    with closing_runtime(object()):  # Old synchronous runtimes have no close().
+        pass
+    print("self-test PASS: paced/backlog A/B; exact PCM/tail; arrival bounds; in-flight sink batch; "
+          "Stop/finish wall latency; interval unions/intersections; callback tracing; product factory; close on failure")
 
 
 def main():
@@ -330,6 +555,9 @@ def main():
     p.add_argument("--self-test", action="store_true")
     p.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--variant", choices=("A", "B"), default="B")
+    p.add_argument("--schedule", choices=("A", "B"), help="feed schedule independent of source variant")
+    p.add_argument("--fixture", choices=("all", *FIXTURES), default="all")
+    p.add_argument("--scenario", choices=("all", *SCENARIOS), default="all")
     p.add_argument("--baseline-source", type=Path, default=ROOT / "tmp/asr-opt-20261025/baseline/python")
     p.add_argument("--candidate-source", type=Path, default=ROOT / "src-tauri/resources")
     p.add_argument("--model", type=Path)
@@ -343,10 +571,13 @@ def main():
     p.add_argument("--vad-model", type=Path, default=ROOT / "src-tauri/resources/fireredvad_vad.onnx")
     p.add_argument("--vad-cmvn", type=Path, default=ROOT / "src-tauri/resources/fireredvad_cmvn.json")
     p.add_argument("--repeats", type=int, default=3)
+    p.add_argument("--threads", type=int, default=1)
     p.add_argument("--order", choices=("ABBA", "BAAB"), default="ABBA")
     p.add_argument("--timeout", type=float, default=3600)
     p.add_argument("--output", type=Path)
     args = p.parse_args()
+    if args.threads <= 0:
+        p.error("--threads must be a positive integer")
     if args.self_test:
         self_test()
         return
@@ -364,11 +595,17 @@ def main():
     report = {"schema": "qwen-backlog-v1", "status": "running", "scope": args.scope,
               "created_utc": datetime.now(timezone.utc).isoformat(), "pid": os.getpid(),
               "config": {"sample_rate": 16000, "capture_samples": 640, "candidate_packet_samples": 5120,
-                         "repeats": args.repeats, "backend": "cuda", "threads": 1,
+                         "repeats": args.repeats, "backend": "cuda", "threads": args.threads,
+                         "schedule": args.schedule or "source variant", "fixture": args.fixture,
+                         "scenario": args.scenario, "selected_cases": selected_cases(args),
+                         "runtime": "product factory when available; synchronous fallback for old source"
+                         if args.scope == "product-vad" else "synchronous QwenPreviewRuntime; product pipeline bypassed",
                          "warmup": "one complete-clip callback per case; excluded from measured rows",
                          "mixed_recipe": "concatenate zh then en without inserted silence; derived, not a code-switch recording"},
               "variant": args.variant if args.worker else None, "rows": [], "workers": [],
-              "limitations": "Python replay of Rust scheduling; no microphone/IPC; mixed fixture is concatenated; exact parity is not accuracy"}
+              "limitations": "Python replay of Rust scheduling; no microphone/IPC; mixed fixture is concatenated; "
+                              "exact parity is not accuracy; overlap measures CPU filter/native.run host intervals, "
+                              "not CUDA kernel utilization"}
     try:
         (worker if args.worker else controller)(args, report)
     except BaseException as error:

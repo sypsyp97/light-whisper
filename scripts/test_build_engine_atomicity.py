@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 import build_r2t2_runtime as native_builder
+from build_reuse_runtime import source_fingerprint
 
 
 BUILD_SCRIPT = Path(__file__).with_name("build_engine.py")
@@ -42,6 +43,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
         for backend in ("cpu", "cuda"):
             libraries = {
                 "audiocpp.dll": f"synthetic {backend} native library".encode(),
+                "reuse.dll": f"synthetic {backend} enhancement library".encode(),
                 "ggml-base.dll": f"synthetic {backend} dependency".encode(),
             }
             prefix = f"_internal/r2t2-native/{backend}"
@@ -49,6 +51,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                 "build_id": self.module.R2T2_BUILD_ID,
                 "revision": self.module.R2T2_REVISION,
                 "patch_sha256": hashlib.sha256(self.module.R2T2_PATCH.read_bytes()).hexdigest(),
+                "reuse_source_sha256": source_fingerprint(),
                 "backend": backend,
                 "files": {name: {
                     "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
@@ -396,13 +399,14 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
             backend = internal / "r2t2-native/cuda"
             backend.mkdir(parents=True)
             payloads = {"cublasLt64_12.dll": b"same cuda", "cublas64_12.dll": b"version A",
-                        "cudart64_12.dll": b"no shared copy", "audiocpp.dll": b"model library"}
+                        "cudart64_12.dll": b"no shared copy", "audiocpp.dll": b"model library",
+                        "reuse.dll": b"enhancement library"}
             for name, data in payloads.items():
                 (backend / name).write_bytes(data)
             (internal / "cublasLt64_12.dll").write_bytes(payloads["cublasLt64_12.dll"])
             (internal / "cublas64_12.dll").write_bytes(b"version B")
             (internal / "audiocpp.dll").write_bytes(payloads["audiocpp.dll"])
-            manifest = {"backend": "cuda", "files": {
+            manifest = {"backend": "cuda", "reuse_source_sha256": source_fingerprint(), "files": {
                 name: {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
                 for name, data in payloads.items()}}
             (backend / "runtime-manifest.json").write_text(json.dumps(manifest))
@@ -434,6 +438,13 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
 
         self.root = Path(self.temp_dir.name)
+        self.enterContext(mock.patch.object(native_builder, "ROOT", self.root))
+
+        def fake_reuse_build(backend, _source, _build, output):
+            output.mkdir(parents=True, exist_ok=True)
+            (output / "reuse.dll").write_bytes(f"synthetic {backend} enhancement library".encode())
+
+        self.enterContext(mock.patch("build_reuse_runtime.build", side_effect=fake_reuse_build))
         self.resources_dir = self.root / "resources"
         self.resources_dir.mkdir()
         self.entry_script = self.resources_dir / "engine.py"
@@ -453,11 +464,17 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
             directory.mkdir(parents=True)
             library = b"synthetic native library"
             (directory / "audiocpp.dll").write_bytes(library)
+            reuse_library = b"synthetic enhancement library"
+            (directory / "reuse.dll").write_bytes(reuse_library)
             (directory / "runtime-manifest.json").write_text(json.dumps({
                 "backend": backend, "build_id": self.module.R2T2_BUILD_ID,
                 "revision": self.module.R2T2_REVISION,
                 "patch_sha256": hashlib.sha256(self.module.R2T2_PATCH.read_bytes()).hexdigest(),
-                "files": {"audiocpp.dll": {"size": len(library), "sha256": hashlib.sha256(library).hexdigest()}},
+                "reuse_source_sha256": source_fingerprint(),
+                "files": {
+                    "audiocpp.dll": {"size": len(library), "sha256": hashlib.sha256(library).hexdigest()},
+                    "reuse.dll": {"size": len(reuse_library), "sha256": hashlib.sha256(reuse_library).hexdigest()},
+                },
             }), encoding="utf-8")
         # Freeze installed metadata without depending on a retired helper API.
         self.enterContext(mock.patch.object(importlib.metadata, "version", return_value="0.1.3"))

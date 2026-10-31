@@ -18,6 +18,7 @@ import unittest
 from unittest import mock
 
 import build_r2t2_runtime as builder
+from build_reuse_runtime import source_fingerprint
 from test_build_engine_atomicity import load_build_engine_module
 
 
@@ -67,6 +68,13 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        self.enterContext(mock.patch.object(builder, "ROOT", self.root))
+
+        def fake_reuse_build(backend, _source, _build, output):
+            output.mkdir(parents=True, exist_ok=True)
+            (output / "reuse.dll").write_bytes(f"synthetic {backend} enhancement library".encode())
+
+        self.enterContext(mock.patch("build_reuse_runtime.build", side_effect=fake_reuse_build))
         self.source, self.build, self.output, self.cuda, self.vulkan, redist = (
             self.root / name for name in ("source", "build", "output", "cuda", "vulkan", "redist")
         )
@@ -408,13 +416,19 @@ class CpuCudaPackageTests(unittest.TestCase):
 
     def native_members(self, backend, *, write_source=False):
         library = f"synthetic {backend} library".encode()
+        reuse_library = f"synthetic {backend} enhancement library".encode()
         manifest = {
             "backend": backend, "build_id": self.module.R2T2_BUILD_ID,
             "revision": self.module.R2T2_REVISION,
             "patch_sha256": hashlib.sha256(self.module.R2T2_PATCH.read_bytes()).hexdigest(),
-            "files": {"audiocpp.dll": {"size": len(library), "sha256": hashlib.sha256(library).hexdigest()}},
+            "reuse_source_sha256": source_fingerprint(),
+            "files": {
+                "audiocpp.dll": {"size": len(library), "sha256": hashlib.sha256(library).hexdigest()},
+                "reuse.dll": {"size": len(reuse_library), "sha256": hashlib.sha256(reuse_library).hexdigest()},
+            },
         }
-        files = {"audiocpp.dll": library, "runtime-manifest.json": json.dumps(manifest).encode()}
+        files = {"audiocpp.dll": library, "reuse.dll": reuse_library,
+                 "runtime-manifest.json": json.dumps(manifest).encode()}
         if write_source:
             directory = self.resources / "r2t2-native" / backend
             directory.mkdir(parents=True)

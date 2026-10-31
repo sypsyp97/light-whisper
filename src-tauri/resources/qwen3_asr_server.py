@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from asr_stream_server import ASRStreamServerMixin
 from firered_vad import FireRedVad
-from qwen3_native import QwenNativeRuntime, QwenPreviewRuntime
+from qwen3_native import QwenNativeRuntime, QwenPipelineRuntime, QwenPreviewRuntime
 from r2t2_stream import R2T2StreamSession
 
 from server_common import (
@@ -88,15 +88,22 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
                 stream.close()
             except Exception:
                 pass
-        session, self.session = self.session, None
-        model, self.model = self.model, None
-        for runtime in (session, model if model is not session else None):
-            if runtime is None:
-                continue
-            try:
-                runtime.close()
-            except Exception:
-                pass
+            finally:
+                close = getattr(stream.runtime, "close", None)
+                if close is not None:
+                    close()
+        try:
+            self._close_audio_processor()
+        finally:
+            session, self.session = self.session, None
+            model, self.model = self.model, None
+            for runtime in (session, model if model is not session else None):
+                if runtime is None:
+                    continue
+                try:
+                    runtime.close()
+                except Exception:
+                    pass
 
     def _load_runtime(self, model_path):
         self._gpu_device_info_cache = None
@@ -171,6 +178,13 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
             return SimpleNamespace(text="", language=language)
         return self._run_inference(audio, context=context, language=language)
 
+    def _create_preview_runtime(self):
+        if self.backend == "cuda":
+            return QwenPipelineRuntime(
+                self._run_inference, prepare_audio=lambda audio: self._filter_speech(audio)[0]
+            )
+        return QwenPreviewRuntime(self._transcribe_stream_audio)
+
     def initialize(self):
         if self.initialized:
             return {"success": True, "message": "模型已初始化", "engine": self.engine}
@@ -191,8 +205,10 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
             if self.vad_model is None:
                 self.vad_model = FireRedVad()
             self._warmup_inference()
+            self._load_audio_processor()
             self.stream = R2T2StreamSession(
-                QwenPreviewRuntime(self._transcribe_stream_audio)
+                self._create_preview_runtime(),
+                audio_processor=getattr(self, "_audio_processor", None),
             )
             self.initialized = True
             self._gpu_suspended = False
@@ -287,6 +303,9 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
                     "input_mode": input_mode,
                 }
 
+            processor = getattr(self, "_audio_processor", None)
+            if processor is not None:
+                audio = processor.enhance(audio)
             audio, vad_segments, vad_ms = self._filter_speech(audio)
             speech_duration = len(audio) / float(QWEN3_VAD_SAMPLE_RATE)
             if not vad_segments:

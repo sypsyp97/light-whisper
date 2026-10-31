@@ -8,8 +8,9 @@ from qwen3_native import QwenPreviewRuntime
 class R2T2StreamSession:
     """Own one contiguous native stream at a time."""
 
-    def __init__(self, runtime):
+    def __init__(self, runtime, *, audio_processor=None):
         self.runtime = runtime
+        self.audio_processor = audio_processor
         self._last_session_id = 0
         self._active_session_id = None
         self._text = ""
@@ -39,6 +40,8 @@ class R2T2StreamSession:
         self._text = ""
         self._language = None
         self._sample_count = 0
+        if self.audio_processor is not None:
+            self.audio_processor.reset()
 
     def _require_active(self, session_id):
         if not self._is_positive_int(session_id):
@@ -46,10 +49,17 @@ class R2T2StreamSession:
         if session_id != self._active_session_id:
             raise ValueError("session is not active")
 
-    def _invalidate_after_error(self):
-        self._clear_active()
+    def _reset_active(self):
+        # Processor cleanup must not leave the native session running after
+        # the stream has become inactive and permits another recording.
         try:
+            self._clear_active()
+        finally:
             self.runtime.reset()
+
+    def _invalidate_after_error(self):
+        try:
+            self._reset_active()
         except Exception:
             pass
 
@@ -87,14 +97,15 @@ class R2T2StreamSession:
 
         self._last_session_id = session_id
         if self._active_session_id is not None:
-            self._clear_active()
-            self.runtime.reset()
+            self._reset_active()
 
         self._active_session_id = session_id
         self._text = ""
         self._language = language
         self._sample_count = 0
         try:
+            if self.audio_processor is not None:
+                self.audio_processor.reset()
             self.runtime.start(context, language)
         except Exception:
             self._invalidate_after_error()
@@ -122,20 +133,13 @@ class R2T2StreamSession:
             raise ValueError("offset must equal the accepted sample count")
 
         try:
-            previous_text = self._text
-            if preview:
-                text, language = self.runtime.feed(pcm.copy())
-            else:
-                text, language = self.runtime.feed(pcm.copy(), preview=False)
-            if not isinstance(text, str) or not text.startswith(previous_text):
-                raise RuntimeError("native runtime text regressed")
-            tentative_text = self._preview_suffix(text)
+            processed = self.audio_processor.feed(pcm) if self.audio_processor is not None else pcm
+            self._feed_runtime(processed, preview=preview)
+            tentative_text = self._preview_suffix(self._text)
         except Exception:
             self._invalidate_after_error()
             raise
 
-        self._text = text
-        self._remember_language(language)
         self._sample_count += int(pcm.size)
         return self._response(
             session_id,
@@ -145,6 +149,21 @@ class R2T2StreamSession:
             False,
             tentative_text,
         )
+
+    def _feed_runtime(self, pcm, *, preview=True):
+        if (not isinstance(pcm, np.ndarray) or pcm.ndim != 1
+                or pcm.dtype != np.float32 or not np.isfinite(pcm).all()):
+            raise ValueError("processed PCM must be a finite float32 vector")
+        if not pcm.size:
+            return
+        if preview:
+            text, language = self.runtime.feed(pcm.copy())
+        else:
+            text, language = self.runtime.feed(pcm.copy(), preview=False)
+        if not isinstance(text, str) or not text.startswith(self._text):
+            raise RuntimeError("native runtime text regressed")
+        self._text = text
+        self._remember_language(language)
 
     def finish(self, session_id: int) -> dict:
         self._require_active(session_id)
@@ -156,8 +175,13 @@ class R2T2StreamSession:
             self.runtime.reset()
             return self._response(session_id, "", language, 0, True)
 
-        previous_text = self._text
         try:
+            if self.audio_processor is not None:
+                self._feed_runtime(
+                    self.audio_processor.flush(),
+                    preview=not isinstance(self.runtime, QwenPreviewRuntime),
+                )
+            previous_text = self._text
             text, native_language = self.runtime.finish()
         except Exception:
             self._invalidate_after_error()
@@ -176,13 +200,11 @@ class R2T2StreamSession:
         self._require_active(session_id)
         sample_count = self._sample_count
         language = self._language
-        self._clear_active()
-        self.runtime.reset()
+        self._reset_active()
         return self._response(session_id, "", language, sample_count, True)
 
     def close(self) -> None:
         if self._active_session_id is None:
             return None
-        self._clear_active()
-        self.runtime.reset()
+        self._reset_active()
         return None

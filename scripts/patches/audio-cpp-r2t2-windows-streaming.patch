@@ -114,7 +114,7 @@ index 6b3bb6e..8dc25e8 100644
  struct ggml_cuda_mm_fusion_args_host {
      const ggml_tensor * x_bias = nullptr;
 diff --git a/external/ggml/src/ggml-cuda/ggml-cuda.cu b/external/ggml/src/ggml-cuda/ggml-cuda.cu
-index d948e4e..e263acb 100644
+index d948e4e..c685963 100644
 --- a/external/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/external/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -77,8 +77,9 @@
@@ -247,7 +247,91 @@ index d948e4e..e263acb 100644
  
      // If src0 is a temporary compute buffer it may have some padding that needs to be cleared for mul_mat_vec_q or mul_mat_q.
      // But if src0 is also a view of another tensor then this cannot be done safely because it may overwrite valid tensor data.
-@@ -5172,8 +5283,19 @@ void * ggml_backend_cuda_get_stream(ggml_backend_t backend) {
+@@ -3999,8 +4110,52 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph *                cgraph,
+     if (!ggml_can_fuse(cgraph, node_idx, ops)) {
+         return false;
+     }
+ 
++    if ((ops.size() == 3 || ops.size() == 4) && ops.begin()[0] == GGML_OP_NORM &&
++        ops.begin()[1] == GGML_OP_MUL && ops.begin()[2] == GGML_OP_ADD &&
++        (ops.size() == 3 || ops.begin()[3] == GGML_OP_ADD)) {
++        const ggml_tensor * norm = cgraph->nodes[node_idx];
++        const ggml_tensor * mul  = cgraph->nodes[node_idx + 1];
++        const ggml_tensor * add  = cgraph->nodes[node_idx + 2];
++        const ggml_tensor * dst  = cgraph->nodes[node_idx + ops.size() - 1];
++        const ggml_tensor * scale = mul->src[mul->src[0] == norm ? 1 : 0];
++        const ggml_tensor * bias  = add->src[add->src[0] == mul ? 1 : 0];
++        const ggml_tensor * res = ops.size() == 4 ? dst->src[dst->src[0] == add ? 1 : 0] : nullptr;
++        auto affine_vector = [&](const ggml_tensor * tensor) {
++            return tensor->type == GGML_TYPE_F32 && ggml_is_contiguous(tensor) &&
++                tensor->ne[2] == 1 && tensor->ne[3] == 1 &&
++                ((tensor->ne[0] == norm->ne[0] && tensor->ne[1] == 1) ||
++                 (tensor->ne[0] == 1 && tensor->ne[1] == norm->ne[1]));
++        };
++        if (norm->src[0]->type != GGML_TYPE_F32 || norm->src[0]->nb[0] != sizeof(float) ||
++            norm->type != GGML_TYPE_F32 || mul->type != GGML_TYPE_F32 ||
++            add->type != GGML_TYPE_F32 || dst->type != GGML_TYPE_F32 || !ggml_is_contiguous(dst) ||
++            !affine_vector(scale) || !affine_vector(bias) ||
++            (res && (res->type != GGML_TYPE_F32 || !ggml_is_contiguous(res) || !ggml_are_same_shape(res, norm)))) {
++            return false;
++        }
++        const int output = node_idx + (int) ops.size() - 1;
++        if (!ggml_cuda_check_fusion_memory_ranges(cgraph, node_idx, (int) ops.size(), &output, 1)) {
++            return false;
++        }
++        // The generic range check skips leaves. They must also survive a fused write.
++        const uintptr_t dst_begin = (uintptr_t) dst->data;
++        const uintptr_t dst_end = dst_begin + ggml_nbytes(dst);
++        const ggml_tensor * inputs[] = { norm->src[0], scale, bias, res };
++        for (const ggml_tensor * input : inputs) {
++            if (!input) {
++                continue;
++            }
++            const uintptr_t begin = (uintptr_t) input->data;
++            const uintptr_t end = begin + ggml_nbytes(input);
++            if (begin < dst_end && dst_begin < end) {
++                return false;
++            }
++        }
++        return true;
++    }
++
+     if ((ops.size() == 2 || ops.size() == 3) && ops.begin()[0] == GGML_OP_RMS_NORM && ops.begin()[1] == GGML_OP_MUL) {
+         const ggml_tensor *rms_norm = cgraph->nodes[node_idx];
+         const ggml_tensor *mul      = cgraph->nodes[node_idx+1];
+         const ggml_tensor *add      = nullptr;
+@@ -4525,8 +4680,18 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+     if (fused_mul_mat_vec) {
+         return fused_node_count - 1;
+     }
+ 
++    if (ggml_cuda_can_fuse(cgraph, i, { GGML_OP_NORM, GGML_OP_MUL, GGML_OP_ADD, GGML_OP_ADD }, {})) {
++        ggml_cuda_op_norm_fused(*cuda_ctx, node, cgraph->nodes[i + 1], cgraph->nodes[i + 2], cgraph->nodes[i + 3]);
++        return 3;
++    }
++
++    if (ggml_cuda_can_fuse(cgraph, i, { GGML_OP_NORM, GGML_OP_MUL, GGML_OP_ADD }, {})) {
++        ggml_cuda_op_norm_fused(*cuda_ctx, node, cgraph->nodes[i + 1], cgraph->nodes[i + 2]);
++        return 2;
++    }
++
+     if (ggml_cuda_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL, GGML_OP_ADD }, {})) {
+         ggml_cuda_op_rms_norm_fused_add(*cuda_ctx, node, cgraph->nodes[i + 1], cgraph->nodes[i + 2]);
+         return 2;
+     }
+@@ -5168,12 +5333,31 @@ void * ggml_backend_cuda_get_stream(ggml_backend_t backend) {
+     ggml_cuda_set_device(cuda_ctx->device);
+     return (void *) cuda_ctx->stream();
+ }
+ 
++// Configure a new backend's device handle before any graph is computed.
++static void ggml_backend_cuda_use_fp32(ggml_backend_t backend) {
++    GGML_ASSERT(ggml_backend_is_cuda(backend));
++    auto * ctx = (ggml_backend_cuda_context *) backend->context;
++    ggml_cuda_set_device(ctx->device);
++    CUBLAS_CHECK(cublasSetMathMode(ctx->cublas_handle(), CUBLAS_DEFAULT_MATH));
++}
++
  bool ggml_backend_is_cuda(ggml_backend_t backend) {
      return backend != NULL && ggml_guid_matches(backend->guid, ggml_backend_cuda_guid());
  }
@@ -267,11 +351,14 @@ index d948e4e..e263acb 100644
      if (!ggml_backend_is_cuda(backend)) {
          return;
      }
-@@ -6049,8 +6171,11 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
+@@ -6049,8 +6233,14 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
      }
      if (strcmp(name, "ggml_backend_cuda_get_stream") == 0) {
          return (void *)ggml_backend_cuda_get_stream;
      }
++    if (strcmp(name, "ggml_backend_cuda_use_fp32") == 0) {
++        return (void *)ggml_backend_cuda_use_fp32;
++    }
 +    if (strcmp(name, "ggml_backend_cuda_memset_tensor_async") == 0) {
 +        return (void *)ggml_backend_cuda_memset_tensor_async;
 +    }
@@ -279,6 +366,128 @@ index d948e4e..e263acb 100644
  }
  
  static const ggml_backend_reg_i ggml_backend_cuda_reg_interface = {
+diff --git a/external/ggml/src/ggml-cuda/norm.cu b/external/ggml/src/ggml-cuda/norm.cu
+index e2387af..cdf0fde 100644
+--- a/external/ggml/src/ggml-cuda/norm.cu
++++ b/external/ggml/src/ggml-cuda/norm.cu
+@@ -1,11 +1,12 @@
+ #include "norm.cuh"
+ #include <cstdint>
+ 
+-template <int block_size>
++template <int block_size, bool do_affine = false, bool do_residual = false>
+ static __global__ void norm_f32(
+         const float * x, float * dst, const int ncols, const int64_t stride_row, const int64_t stride_channel,
+-        const int64_t stride_sample, const float eps) {
++        const int64_t stride_sample, const float eps, const float * mul = nullptr, const float * add = nullptr,
++        const float * residual = nullptr, const int2 mul_index = make_int2(0, 0), const int2 add_index = make_int2(0, 0)) {
+     const int nrows     = gridDim.x;
+     const int nchannels = gridDim.y;
+ 
+     const int row       = blockIdx.x;
+@@ -31,10 +32,22 @@ static __global__ void norm_f32(
+     const float mean = mean_var.x / ncols;
+     const float var = mean_var.y / ncols - mean * mean;
+     const float inv_std = rsqrtf(var + eps);
+ 
++    if constexpr (do_residual) {
++        residual += ((sample*nchannels + channel)*nrows + row)*ncols;
++    }
+     for (int col = tid; col < ncols; col += block_size) {
+-        dst[col] = (x[col] - mean) * inv_std;
++        float value = (x[col] - mean) * inv_std;
++        if constexpr (do_affine) {
++            // Match the separate F32 MUL and ADD stores; do not contract to FMA.
++            value = __fmul_rn(value, mul[col*mul_index.x + row*mul_index.y]);
++            value = __fadd_rn(value, add[col*add_index.x + row*add_index.y]);
++        }
++        if constexpr (do_residual) {
++            value = __fadd_rn(value, residual[col]);
++        }
++        dst[col] = value;
+     }
+ }
+ 
+ template <int block_size>
+@@ -380,18 +393,23 @@ static __global__ void l2_norm_f32(
+         dst[col] = scale * x[col];
+     }
+ }
+ 
++template <bool do_affine = false, bool do_residual = false>
+ static void norm_f32_cuda(
+         const float * x, float * dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
+-        const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample, const float eps, cudaStream_t stream) {
++        const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample, const float eps, cudaStream_t stream,
++        const float * mul = nullptr, const float * add = nullptr, const float * residual = nullptr,
++        const int2 mul_index = make_int2(0, 0), const int2 add_index = make_int2(0, 0)) {
+     const dim3 blocks_num(nrows, nchannels, nsamples);
+     if (ncols < 1024) {
+         const dim3 block_dims(WARP_SIZE, 1, 1);
+-        norm_f32<WARP_SIZE><<<blocks_num, block_dims, 0, stream>>>(x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
++        norm_f32<WARP_SIZE, do_affine, do_residual><<<blocks_num, block_dims, 0, stream>>>(
++            x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, add, residual, mul_index, add_index);
+     } else {
+         const dim3 block_dims(1024, 1, 1);
+-        norm_f32<1024><<<blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float2): 0, stream>>>(x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
++        norm_f32<1024, do_affine, do_residual><<<blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float2): 0, stream>>>(
++            x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, add, residual, mul_index, add_index);
+     }
+ }
+ 
+ static void group_norm_f32_cuda(
+@@ -540,8 +558,35 @@ void ggml_cuda_op_norm(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+ 
+     norm_f32_cuda(src0_d, dst_d, ne00, ne01, ne02, ne03, s01, s02, s03, eps, stream);
+ }
+ 
++void ggml_cuda_op_norm_fused(ggml_backend_cuda_context & ctx, ggml_tensor * norm,
++                             ggml_tensor * mul, ggml_tensor * add, ggml_tensor * residual) {
++    const ggml_tensor * src0 = norm->src[0];
++    const ggml_tensor * scale = mul->src[mul->src[0] == norm ? 1 : 0];
++    const ggml_tensor * bias = add->src[add->src[0] == mul ? 1 : 0];
++    const ggml_tensor * res = residual ? residual->src[residual->src[0] == add ? 1 : 0] : nullptr;
++    ggml_tensor * dst = residual ? residual : add;
++    float eps;
++    memcpy(&eps, norm->op_params, sizeof(float));
++    GGML_ASSERT(eps >= 0.0f);
++
++    const int2 mul_index = make_int2(scale->ne[0] > 1, scale->ne[1] > 1);
++    const int2 add_index = make_int2(bias->ne[0] > 1, bias->ne[1] > 1);
++    const int64_t s01 = src0->nb[1] / sizeof(float);
++    const int64_t s02 = src0->nb[2] / sizeof(float);
++    const int64_t s03 = src0->nb[3] / sizeof(float);
++    if (residual) {
++        norm_f32_cuda<true, true>((const float *) src0->data, (float *) dst->data,
++            src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3], s01, s02, s03, eps, ctx.stream(),
++            (const float *) scale->data, (const float *) bias->data, (const float *) res->data, mul_index, add_index);
++    } else {
++        norm_f32_cuda<true>((const float *) src0->data, (float *) dst->data,
++            src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3], s01, s02, s03, eps, ctx.stream(),
++            (const float *) scale->data, (const float *) bias->data, nullptr, mul_index, add_index);
++    }
++}
++
+ void ggml_cuda_op_group_norm(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+     const ggml_tensor * src0 = dst->src[0];
+     const float * src0_d = (const float *)src0->data;
+     float * dst_d = (float *)dst->data;
+diff --git a/external/ggml/src/ggml-cuda/norm.cuh b/external/ggml/src/ggml-cuda/norm.cuh
+index 2f997d0..414db2f 100644
+--- a/external/ggml/src/ggml-cuda/norm.cuh
++++ b/external/ggml/src/ggml-cuda/norm.cuh
+@@ -1,8 +1,11 @@
+ #include "common.cuh"
+ 
+ void ggml_cuda_op_norm(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
+ 
++void ggml_cuda_op_norm_fused(ggml_backend_cuda_context & ctx, ggml_tensor * norm,
++                             ggml_tensor * mul, ggml_tensor * add, ggml_tensor * residual = nullptr);
++
+ void ggml_cuda_op_group_norm(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
+ 
+ void ggml_cuda_op_rms_norm(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
+ 
 diff --git a/include/audiocpp.h b/include/audiocpp.h
 index 76cfe6b..a043008 100644
 --- a/include/audiocpp.h
@@ -336,34 +545,23 @@ index 4e3033a..7391dfe 100644
      std::shared_ptr<const R2T2ASRAssets> assets_;
      std::shared_ptr<const R2T2ASRAudioEncoderWeights> weights_;
 diff --git a/include/engine/community_models/confucius4_r2t2/frontend_whisper.h b/include/engine/community_models/confucius4_r2t2/frontend_whisper.h
-index 9b56577..c24a97c 100644
+index 9b56577..0b31b28 100644
 --- a/include/engine/community_models/confucius4_r2t2/frontend_whisper.h
 +++ b/include/engine/community_models/confucius4_r2t2/frontend_whisper.h
-@@ -4,8 +4,9 @@
- #include "engine/community_models/confucius4_r2t2/assets.h"
- #include "engine/community_models/confucius4_r2t2/types.h"
- 
- #include <memory>
-+#include <mutex>
- 
+@@ -9,14 +9,15 @@
  namespace engine::community_models::confucius4_r2t2 {
  
  class R2T2ASRWhisperFrontend {
-@@ -14,9 +15,17 @@ public:
+ public:
+-    explicit R2T2ASRWhisperFrontend(std::shared_ptr<const R2T2ASRAssets> assets);
++    explicit R2T2ASRWhisperFrontend(std::shared_ptr<const R2T2ASRAssets> assets, size_t threads = 0);
  
      R2T2ASRAudioFeatures extract(const runtime::AudioBuffer & audio) const;
  
  private:
-+    struct LogMelCache {
-+        std::mutex mutex;
-+        std::vector<float> samples;
-+        engine::audio::WhisperLogMelFeatures log_mel;
-+    };
-+
      std::shared_ptr<const R2T2ASRAssets> assets_;
++    size_t fft_threads_;
      engine::audio::WhisperLogMelExtractor extractor_;
-+    // Keep the frontend copyable; copies share only this synchronized cache.
-+    std::shared_ptr<LogMelCache> cache_ = std::make_shared<LogMelCache>();
  };
  
  }  // namespace engine::community_models::confucius4_r2t2
@@ -482,22 +680,47 @@ index 3b7e8b1..a728fa9 100644
  struct R2T2ASRGeneratedTokens {
      std::vector<int32_t> token_ids;
 diff --git a/include/engine/framework/audio/dsp.h b/include/engine/framework/audio/dsp.h
-index 7a12f98..bd61595 100644
+index 7a12f98..e19b08f 100644
 --- a/include/engine/framework/audio/dsp.h
 +++ b/include/engine/framework/audio/dsp.h
-@@ -131,8 +131,12 @@ public:
+@@ -1,8 +1,10 @@
+ #pragma once
+ 
+ #include <cstddef>
+ #include <cstdint>
++#include <memory>
++#include <mutex>
+ #include <vector>
+ 
+ namespace engine::audio {
+ 
+@@ -131,12 +133,26 @@ public:
      const WhisperLogMelConfig & config() const noexcept;
      WhisperLogMelFeatures compute(
          const std::vector<float> & samples,
          size_t threads = 0) const;
++    // Input is the frontend's normalized, resampled and padded PCM.
++    WhisperLogMelFeatures compute_cached(std::vector<float> samples, size_t threads = 0) const;
 +    WhisperLogMelFeatures compute_from_magnitude(const AudioTensor & magnitude) const;
 +    // Raw log energies precede the global floor and are reusable per STFT column.
 +    WhisperLogMelFeatures compute_log_from_magnitude(const AudioTensor & magnitude) const;
 +    static WhisperLogMelFeatures normalize_log_features(WhisperLogMelFeatures features);
  
  private:
++    struct LogMelCache {
++        std::mutex mutex;
++        std::vector<float> samples;
++        WhisperLogMelFeatures log_mel;
++    };
++
      WhisperLogMelConfig config_;
      SparseMelFilterbank filterbank_;
++    // Copies share the synchronized cache; independent extractors do not.
++    std::shared_ptr<LogMelCache> cache_ = std::make_shared<LogMelCache>();
+ };
+ 
+ class MelSpectrogram {
+ public:
 diff --git a/include/engine/framework/modules/transformers/qwen_causal_decode_runtime.h b/include/engine/framework/modules/transformers/qwen_causal_decode_runtime.h
 index e48ce6b..f329547 100644
 --- a/include/engine/framework/modules/transformers/qwen_causal_decode_runtime.h
@@ -640,6 +863,27 @@ index 1ed784e..1fd569c 100644
  private:
      std::shared_ptr<const Qwen3ASRAssets> assets_;
      std::shared_ptr<const Qwen3ASRAudioEncoderWeights> weights_;
+diff --git a/include/engine/models/qwen3_asr/frontend_whisper.h b/include/engine/models/qwen3_asr/frontend_whisper.h
+index c868ab8..81d57ea 100644
+--- a/include/engine/models/qwen3_asr/frontend_whisper.h
++++ b/include/engine/models/qwen3_asr/frontend_whisper.h
+@@ -9,14 +9,15 @@
+ namespace engine::models::qwen3_asr {
+ 
+ class Qwen3ASRWhisperFrontend {
+ public:
+-    explicit Qwen3ASRWhisperFrontend(std::shared_ptr<const Qwen3ASRAssets> assets);
++    explicit Qwen3ASRWhisperFrontend(std::shared_ptr<const Qwen3ASRAssets> assets, size_t threads = 0);
+ 
+     Qwen3ASRAudioFeatures extract(const runtime::AudioBuffer & audio) const;
+ 
+ private:
+     std::shared_ptr<const Qwen3ASRAssets> assets_;
++    size_t fft_threads_;
+     engine::audio::WhisperLogMelExtractor extractor_;
+ };
+ 
+ }  // namespace engine::models::qwen3_asr
 diff --git a/include/engine/models/qwen3_asr/types.h b/include/engine/models/qwen3_asr/types.h
 index 032ca2c..4fb32d1 100644
 --- a/include/engine/models/qwen3_asr/types.h
@@ -773,94 +1017,35 @@ index f850e03..17c9ff4 100644
      }
      return out;
 diff --git a/src/community_models/confucius4_r2t2/frontend_whisper.cpp b/src/community_models/confucius4_r2t2/frontend_whisper.cpp
-index e1b670e..23cced1 100644
+index e1b670e..a529f05 100644
 --- a/src/community_models/confucius4_r2t2/frontend_whisper.cpp
 +++ b/src/community_models/confucius4_r2t2/frontend_whisper.cpp
-@@ -7,8 +7,9 @@
+@@ -61,10 +61,11 @@ engine::audio::WhisperLogMelConfig make_extractor_config(const std::shared_ptr<c
+ }
  
- #include <algorithm>
- #include <chrono>
- #include <cmath>
-+#include <cstring>
- #include <stdexcept>
- #include <utility>
+ }  // namespace
  
- namespace engine::community_models::confucius4_r2t2 {
-@@ -75,9 +76,71 @@ R2T2ASRAudioFeatures R2T2ASRWhisperFrontend::extract(const runtime::AudioBuffer
+-R2T2ASRWhisperFrontend::R2T2ASRWhisperFrontend(std::shared_ptr<const R2T2ASRAssets> assets)
++R2T2ASRWhisperFrontend::R2T2ASRWhisperFrontend(std::shared_ptr<const R2T2ASRAssets> assets, size_t threads)
+     : assets_(std::move(assets)),
++      fft_threads_(threads),
+       extractor_(make_extractor_config(assets_)) {}
+ 
+ R2T2ASRAudioFeatures R2T2ASRWhisperFrontend::extract(const runtime::AudioBuffer & audio) const {
+     const auto normalize_start = Clock::now();
+@@ -75,9 +76,9 @@ R2T2ASRAudioFeatures R2T2ASRWhisperFrontend::extract(const runtime::AudioBuffer
      auto samples = normalize_audio(audio, config.sample_rate);
      const auto normalize_end = Clock::now();
  
      const auto feature_start = Clock::now();
 -    auto features = extractor_.compute(samples);
-+    engine::audio::WhisperLogMelFeatures features;
-+    {
-+        std::lock_guard<std::mutex> lock(cache_->mutex);
-+        const auto & dsp_config = extractor_.config();
-+        engine::audio::STFTConfig stft_config{
-+            dsp_config.n_fft, dsp_config.hop_length, dsp_config.n_fft, true,
-+            engine::audio::STFTPadMode::Reflect, dsp_config.stft_family,
-+        };
-+        const auto & window = engine::audio::get_cached_stft_window(stft_config);
-+        const int64_t previous_samples = static_cast<int64_t>(cache_->samples.size());
-+        const int64_t sample_count = static_cast<int64_t>(samples.size());
-+        const int64_t pad = dsp_config.n_fft / 2;
-+        const bool prefix_matches = previous_samples > 0 && sample_count >= previous_samples &&
-+            std::memcmp(samples.data(), cache_->samples.data(),
-+                        cache_->samples.size() * sizeof(float)) == 0;
-+        if (prefix_matches && sample_count == previous_samples) {
-+            features = extractor_.normalize_log_features(cache_->log_mel);
-+        } else {
-+            const int64_t frames = 1 + (sample_count + 2 * pad - dsp_config.n_fft) / dsp_config.hop_length;
-+            int64_t stable_frames = 0;
-+            // Longer FFTs may reflect repeatedly through the old input. Reuse
-+            // appended columns only after a complete FFT fits in the old PCM.
-+            if (prefix_matches && previous_samples >= dsp_config.n_fft) {
-+                stable_frames = std::min(cache_->log_mel.frames,
-+                    1 + (previous_samples - (dsp_config.n_fft - pad)) / dsp_config.hop_length);
-+            }
-+            engine::audio::WhisperLogMelFeatures log_mel;
-+            if (stable_frames == 0) {
-+                const auto magnitude = engine::audio::STFT().compute_magnitude(
-+                    samples, window, 1, sample_count, stft_config);
-+                log_mel = extractor_.compute_log_from_magnitude(magnitude);
-+            } else {
-+                log_mel.mel_bins = dsp_config.feature_size;
-+                log_mel.frames = frames - 1;
-+                log_mel.values.resize(static_cast<size_t>(log_mel.mel_bins * log_mel.frames));
-+                engine::audio::WhisperLogMelFeatures tail;
-+                if (log_mel.frames > stable_frames) {
-+                    const int64_t start = stable_frames * dsp_config.hop_length - pad;
-+                    std::vector<float> tail_samples(samples.begin() + start, samples.end());
-+                    for (int64_t i = 0; i < pad; ++i) {
-+                        tail_samples.push_back(samples[static_cast<size_t>(sample_count - i - 2)]);
-+                    }
-+                    stft_config.center = false;
-+                    const auto magnitude = engine::audio::STFT().compute_magnitude(
-+                        tail_samples, window, 1, static_cast<int64_t>(tail_samples.size()), stft_config);
-+                    tail = extractor_.compute_log_from_magnitude(magnitude);
-+                }
-+                for (int64_t mel = 0; mel < log_mel.mel_bins; ++mel) {
-+                    auto destination = log_mel.values.begin() + mel * log_mel.frames;
-+                    std::copy_n(cache_->log_mel.values.begin() + mel * cache_->log_mel.frames,
-+                                stable_frames, destination);
-+                    if (tail.frames > 0) {
-+                        std::copy_n(tail.values.begin() + mel * tail.frames, tail.frames, destination + stable_frames);
-+                    }
-+                }
-+            }
-+            // Loud appends can change the floor in every old column. Cache raw
-+            // log energies, then normalize a copy against the new global max.
-+            features = extractor_.normalize_log_features(log_mel);
-+            cache_->samples = std::move(samples);
-+            cache_->log_mel = std::move(log_mel);
-+        }
-+    }
++    auto features = extractor_.compute_cached(std::move(samples), fft_threads_);
      const auto feature_end = Clock::now();
  
      R2T2ASRAudioFeatures out;
      out.values = std::move(features.values);
 diff --git a/src/community_models/confucius4_r2t2/session.cpp b/src/community_models/confucius4_r2t2/session.cpp
-index 68853c0..d35bfea 100644
+index 68853c0..fa951b7 100644
 --- a/src/community_models/confucius4_r2t2/session.cpp
 +++ b/src/community_models/confucius4_r2t2/session.cpp
 @@ -8,8 +8,9 @@
@@ -873,6 +1058,17 @@ index 68853c0..d35bfea 100644
  #include <stdexcept>
  #include <utility>
  
+@@ -91,9 +92,9 @@ R2T2ASRSession::R2T2ASRSession(
+           options,
+           "confucius4_r2t2.thinker_weight_type",
+           option_weight_type(options, "confucius4_r2t2.weight_type", engine::assets::TensorStorageType::Native))),
+       tokenizer_(assets_),
+-      frontend_(assets_),
++      frontend_(assets_, static_cast<size_t>(std::max(1, execution_context().config().threads))),
+       audio_encoder_(assets_, execution_context(), audio_encoder_graph_arena_bytes_, audio_encoder_weight_storage_type_),
+       thinker_(
+           assets_,
+           execution_context(),
 @@ -124,8 +125,14 @@ R2T2ASRSession::R2T2ASRSession(
      }
      if (const auto value = runtime::parse_int_option(options.options, {"confucius4_r2t2.max_tokens"})) {
@@ -1299,10 +1495,20 @@ index e6c9933..aa73f2a 100644
      out.token_ids = impl_->runtime.generate(decoder_prompt, options.max_new_tokens, options.reuse_graphs);
      return out;
 diff --git a/src/framework/audio/dsp.cpp b/src/framework/audio/dsp.cpp
-index 0397642..3ccc863 100644
+index 0397642..bbb4333 100644
 --- a/src/framework/audio/dsp.cpp
 +++ b/src/framework/audio/dsp.cpp
-@@ -774,10 +774,19 @@ WhisperLogMelFeatures WhisperLogMelExtractor::compute(
+@@ -5,8 +5,9 @@
+ #include <algorithm>
+ #include <chrono>
+ #include <cmath>
+ #include <complex>
++#include <cstring>
+ #include <mutex>
+ #include <sstream>
+ #include <stdexcept>
+ #include <string>
+@@ -774,10 +775,89 @@ WhisperLogMelFeatures WhisperLogMelExtractor::compute(
          1,
          static_cast<int64_t>(samples.size()),
          stft_config,
@@ -1310,6 +1516,76 @@ index 0397642..3ccc863 100644
 -    if (magnitude.shape.size() != 3) {
 -        throw std::runtime_error("Whisper log-mel STFT returned unexpected rank");
 +    return compute_from_magnitude(magnitude);
++}
++
++WhisperLogMelFeatures WhisperLogMelExtractor::compute_cached(std::vector<float> samples, size_t threads) const {
++    if (config_.sample_rate <= 0 || config_.feature_size <= 0 || config_.hop_length <= 0 || config_.n_fft <= 0) {
++        throw std::runtime_error("Whisper log-mel config is invalid");
++    }
++    if (samples.empty()) {
++        throw std::runtime_error("Whisper log-mel input is empty");
++    }
++    std::lock_guard<std::mutex> lock(cache_->mutex);
++    const auto & dsp_config = config_;
++    STFTConfig stft_config{
++        dsp_config.n_fft, dsp_config.hop_length, dsp_config.n_fft, true,
++        STFTPadMode::Reflect, dsp_config.stft_family,
++    };
++    const auto & window = get_cached_stft_window(stft_config);
++    const int64_t previous_samples = static_cast<int64_t>(cache_->samples.size());
++    const int64_t sample_count = static_cast<int64_t>(samples.size());
++    const int64_t pad = dsp_config.n_fft / 2;
++    const bool prefix_matches = previous_samples > 0 && sample_count >= previous_samples &&
++        std::memcmp(samples.data(), cache_->samples.data(),
++                    cache_->samples.size() * sizeof(float)) == 0;
++    if (prefix_matches && sample_count == previous_samples) {
++        return normalize_log_features(cache_->log_mel);
++    } else {
++        const int64_t frames = 1 + (sample_count + 2 * pad - dsp_config.n_fft) / dsp_config.hop_length;
++        int64_t stable_frames = 0;
++        // Longer FFTs may reflect repeatedly through the old input. Reuse
++        // appended columns only after a complete FFT fits in the old PCM.
++        if (prefix_matches && previous_samples >= dsp_config.n_fft) {
++            stable_frames = std::min(cache_->log_mel.frames,
++                1 + (previous_samples - (dsp_config.n_fft - pad)) / dsp_config.hop_length);
++        }
++        WhisperLogMelFeatures log_mel;
++        if (stable_frames == 0) {
++            const auto magnitude = STFT().compute_magnitude(
++                samples, window, 1, sample_count, stft_config, threads);
++            log_mel = compute_log_from_magnitude(magnitude);
++        } else {
++            log_mel.mel_bins = dsp_config.feature_size;
++            log_mel.frames = frames - 1;
++            log_mel.values.resize(static_cast<size_t>(log_mel.mel_bins * log_mel.frames));
++            WhisperLogMelFeatures tail;
++            if (log_mel.frames > stable_frames) {
++                const int64_t start = stable_frames * dsp_config.hop_length - pad;
++                std::vector<float> tail_samples(samples.begin() + start, samples.end());
++                for (int64_t i = 0; i < pad; ++i) {
++                    tail_samples.push_back(samples[static_cast<size_t>(sample_count - i - 2)]);
++                }
++                stft_config.center = false;
++                const auto magnitude = STFT().compute_magnitude(
++                    tail_samples, window, 1, static_cast<int64_t>(tail_samples.size()), stft_config, threads);
++                tail = compute_log_from_magnitude(magnitude);
++            }
++            for (int64_t mel = 0; mel < log_mel.mel_bins; ++mel) {
++                auto destination = log_mel.values.begin() + mel * log_mel.frames;
++                std::copy_n(cache_->log_mel.values.begin() + mel * cache_->log_mel.frames,
++                            stable_frames, destination);
++                if (tail.frames > 0) {
++                    std::copy_n(tail.values.begin() + mel * tail.frames, tail.frames, destination + stable_frames);
++                }
++            }
++        }
++        // Loud appends can change the floor in every old column. Cache raw
++        // log energies, then normalize a copy against the new global max.
++        auto features = normalize_log_features(log_mel);
++        cache_->samples = std::move(samples);
++        cache_->log_mel = std::move(log_mel);
++        return features;
++    }
 +}
 +
 +WhisperLogMelFeatures WhisperLogMelExtractor::compute_from_magnitude(const AudioTensor & magnitude) const {
@@ -1324,7 +1600,7 @@ index 0397642..3ccc863 100644
      const int64_t freq_bins = magnitude.shape[1];
      const int64_t stft_frames = magnitude.shape[2];
      if (stft_frames <= 1) {
-@@ -795,19 +804,29 @@ WhisperLogMelFeatures WhisperLogMelExtractor::compute(
+@@ -795,19 +875,29 @@ WhisperLogMelFeatures WhisperLogMelExtractor::compute(
          filterbank_);
      if (mel.shape.size() != 3 || mel.shape[1] != out.mel_bins || mel.shape[2] != out.frames) {
          throw std::runtime_error("Whisper log-mel frontend returned unexpected shape");
@@ -2572,10 +2848,49 @@ index b2ada8a..b79bb79 100644
          throw std::runtime_error("Qwen3 ASR audio encoder output token count mismatch");
      }
      return out;
+diff --git a/src/models/qwen3_asr/frontend_whisper.cpp b/src/models/qwen3_asr/frontend_whisper.cpp
+index fdc708b..c3fdaa9 100644
+--- a/src/models/qwen3_asr/frontend_whisper.cpp
++++ b/src/models/qwen3_asr/frontend_whisper.cpp
+@@ -61,10 +61,11 @@ engine::audio::WhisperLogMelConfig make_extractor_config(const std::shared_ptr<c
+ }
+ 
+ }  // namespace
+ 
+-Qwen3ASRWhisperFrontend::Qwen3ASRWhisperFrontend(std::shared_ptr<const Qwen3ASRAssets> assets)
++Qwen3ASRWhisperFrontend::Qwen3ASRWhisperFrontend(std::shared_ptr<const Qwen3ASRAssets> assets, size_t threads)
+     : assets_(std::move(assets)),
++      fft_threads_(threads),
+       extractor_(make_extractor_config(assets_)) {}
+ 
+ Qwen3ASRAudioFeatures Qwen3ASRWhisperFrontend::extract(const runtime::AudioBuffer & audio) const {
+     const auto normalize_start = Clock::now();
+@@ -75,9 +76,9 @@ Qwen3ASRAudioFeatures Qwen3ASRWhisperFrontend::extract(const runtime::AudioBuffe
+     auto samples = normalize_audio(audio, config.sample_rate);
+     const auto normalize_end = Clock::now();
+ 
+     const auto feature_start = Clock::now();
+-    auto features = extractor_.compute(samples);
++    auto features = extractor_.compute_cached(std::move(samples), fft_threads_);
+     const auto feature_end = Clock::now();
+ 
+     Qwen3ASRAudioFeatures out;
+     out.values = std::move(features.values);
 diff --git a/src/models/qwen3_asr/session.cpp b/src/models/qwen3_asr/session.cpp
-index 5358a9e..2c484e5 100644
+index 5358a9e..070acee 100644
 --- a/src/models/qwen3_asr/session.cpp
 +++ b/src/models/qwen3_asr/session.cpp
+@@ -196,9 +196,9 @@ Qwen3ASRSession::Qwen3ASRSession(
+           options,
+           "qwen3_asr.thinker_weight_type",
+           option_weight_type(options, "qwen3_asr.weight_type", engine::assets::TensorStorageType::Native))),
+       tokenizer_(assets_),
+-      frontend_(assets_),
++      frontend_(assets_, static_cast<size_t>(std::max(1, execution_context().config().threads))),
+       audio_encoder_(assets_, execution_context(), audio_encoder_graph_arena_bytes_, audio_encoder_weight_storage_type_),
+       thinker_(
+           assets_,
+           execution_context(),
 @@ -492,9 +492,9 @@ runtime::TaskResult Qwen3ASRSession::run_single(const Qwen3ASRRequest & asr_requ
      const auto prompt_start = Clock::now();
      const auto prompt = prompt_builder_.build(asr_request, features.encoder_tokens);

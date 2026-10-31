@@ -24,6 +24,29 @@ Package-manager dependencies may carry additional licenses. Their inclusion in
 the source tree, Python engine, or application bundle does not change those
 licenses.
 
+## NVIDIA RE-USE audio processing
+
+The optional [NVIDIA NemotronLabs RE-USE](https://huggingface.co/nvidia/NVIDIA-NemotronLabs-RE-USE)
+model, copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES, uses OpenMDW-1.1.
+The original 30-layer FP32 checkpoint is downloaded separately, pinned to
+revision `31f82f2efad1095034492f236e8dac9239ba713b`. Its license is bundled in
+`src-tauri/resources/RE-USE-LICENSE.txt`. The native adapter reuses audio.cpp's
+safetensors loader and GGML CPU/CUDA operators; their notices remain with the
+native runtime. The retained offline API uses buffered windows; the settings switch in this
+research build selects the separate realtime model below.
+
+## NVIDIA Real-time RE-USE research audio processing
+
+The optional [NVIDIA Real-time RE-USE](https://huggingface.co/nvidia/Real-time_RE-USE)
+model, copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES, is separately downloaded
+at revision `4c0c186272ca853cd18d832fc5c28777b62f32d1`. It is subject to the
+NVIDIA One-Way Noncommercial License (NSCLv1), which limits use to noncommercial
+research and education. A complete copy is bundled as
+[`Real-time-RE-USE-LICENSE.txt`](src-tauri/resources/Real-time-RE-USE-LICENSE.txt).
+The project license does not replace the model's terms. The original GGML
+interface and streaming DSP implementation do not include NVIDIA's Python code;
+the shared native runtime retains its own notices.
+
 ## Shared audio.cpp native runtime and Confucius4-R2T2 model
 
 [audio.cpp](https://github.com/0xShug0/audio.cpp), copyright 2026 ShugoAI LLC,

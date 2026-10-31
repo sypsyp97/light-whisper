@@ -96,6 +96,7 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
         return True
 
     def _close_runtime(self):
+        self._close_audio_processor()
         runtime = getattr(self, "native", None)
         self.native = None
         if runtime is not None:
@@ -192,7 +193,10 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
                     chunk_samples=getattr(self.native, "chunk_samples", 5120),
                     max_segment_samples=None,
                 )
-                self.stream = R2T2StreamSession(self.segmented)
+                self._load_audio_processor()
+                self.stream = R2T2StreamSession(
+                    self.segmented, audio_processor=getattr(self, "_audio_processor", None)
+                )
             self.initialized = True
             self._gpu_suspended = False
             self._last_load_error = None
@@ -282,6 +286,9 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
             audio = np.ascontiguousarray(np.asarray(audio, dtype=np.float32).reshape(-1))
             if not np.isfinite(audio).all():
                 raise ValueError("audio contains non-finite samples")
+            processor = getattr(self, "_audio_processor", None)
+            if processor is not None:
+                audio = processor.enhance(audio)
 
             segmented = SegmentedR2T2(
                 self.native,

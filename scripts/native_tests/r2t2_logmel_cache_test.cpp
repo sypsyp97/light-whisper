@@ -1,4 +1,8 @@
+#ifdef LIGHT_WHISPER_QWEN_FRONTEND_TEST
+#include "engine/models/qwen3_asr/frontend_whisper.h"
+#else
 #include "engine/community_models/confucius4_r2t2/frontend_whisper.h"
+#endif
 #include "engine/framework/audio/conversion.h"
 #include "engine/framework/audio/fft.h"
 #include "engine/framework/audio/waveform_ops.h"
@@ -14,6 +18,12 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#ifdef LIGHT_WHISPER_QWEN_FRONTEND_TEST
+#include <condition_variable>
+#include <exception>
+#include <mutex>
+#include <thread>
+#endif
 
 namespace engine::audio {
 void r2t2_test_real_fft_forward(
@@ -23,11 +33,24 @@ void r2t2_test_real_fft_forward(
 
 namespace {
 namespace audio = engine::audio;
+#ifdef LIGHT_WHISPER_QWEN_FRONTEND_TEST
+namespace family = engine::models::qwen3_asr;
+using FrontendConfig = family::Qwen3ASRFrontendConfig;
+using FrontendAssets = family::Qwen3ASRAssets;
+using AudioFeatures = family::Qwen3ASRAudioFeatures;
+using WhisperFrontend = family::Qwen3ASRWhisperFrontend;
+constexpr auto encoder_token_count = family::qwen3_asr_audio_encoder_token_count;
+#else
 namespace r2t2 = engine::community_models::confucius4_r2t2;
+using FrontendConfig = r2t2::R2T2ASRFrontendConfig;
+using FrontendAssets = r2t2::R2T2ASRAssets;
+using AudioFeatures = r2t2::R2T2ASRAudioFeatures;
+using WhisperFrontend = r2t2::R2T2ASRWhisperFrontend;
+constexpr auto encoder_token_count = r2t2::confucius4_r2t2_audio_encoder_token_count;
+#endif
 using engine::runtime::AudioBuffer;
-using r2t2::R2T2ASRAudioFeatures;
-using r2t2::R2T2ASRWhisperFrontend;
-bool count_work = false;
+// Concurrent Qwen calls leave instrumentation disabled in their own threads.
+thread_local bool count_work = false;
 size_t fft_frames = 0, mel_frames = 0, mel_cells = 0, assertions = 0, observations = 0, work_failures = 0;
 std::ofstream trace;
 
@@ -70,18 +93,18 @@ std::vector<float> normalized(const AudioBuffer & input, int target_rate) {
 // Shared frontend copies receive the same ExpectedCache object.
 struct ExpectedCache { std::vector<float> samples; int64_t frames = 0; };
 struct Subject {
-    r2t2::R2T2ASRFrontendConfig config;
-    R2T2ASRWhisperFrontend frontend;
+    FrontendConfig config;
+    WhisperFrontend frontend;
     std::shared_ptr<ExpectedCache> cache = std::make_shared<ExpectedCache>();
-    static std::shared_ptr<r2t2::R2T2ASRAssets> assets(r2t2::R2T2ASRFrontendConfig config) {
-        auto out = std::make_shared<r2t2::R2T2ASRAssets>();
+    static std::shared_ptr<FrontendAssets> assets(FrontendConfig config) {
+        auto out = std::make_shared<FrontendAssets>();
         out->config.frontend = config;
         return out;
     }
-    explicit Subject(r2t2::R2T2ASRFrontendConfig value) : config(value), frontend(assets(value)) {}
+    explicit Subject(FrontendConfig value) : config(value), frontend(assets(value)) {}
 };
 
-R2T2ASRAudioFeatures check(Subject & subject, const AudioBuffer & input, const std::string & label, bool enforce_work) {
+AudioFeatures check(Subject & subject, const AudioBuffer & input, const std::string & label, bool enforce_work) {
     const auto & config = subject.config;
     auto samples = normalized(input, config.sample_rate);
     count_work = false;
@@ -107,13 +130,14 @@ R2T2ASRAudioFeatures check(Subject & subject, const AudioBuffer & input, const s
     const size_t needed_fft_frames = needed_mel_frames == 0 ? 0 : static_cast<size_t>(stft_frames - reusable);
     fft_frames = mel_frames = mel_cells = 0;
     count_work = true;
-    auto actual = subject.frontend.extract(input);
+    const WhisperFrontend & frontend = subject.frontend;
+    auto actual = frontend.extract(input);
     count_work = false;
     require(actual.frames == expected.frames && actual.frames == stft_frames - 1, label + ": frame count");
     require(actual.mel_bins == expected.mel_bins && actual.mel_bins == config.feature_size, label + ": mel bins");
     require(actual.values.size() == expected.values.size(), label + ": feature size");
     require(actual.attention_mask == std::vector<int32_t>(static_cast<size_t>(actual.frames), 1), label + ": mask");
-    require(actual.encoder_tokens == r2t2::confucius4_r2t2_audio_encoder_token_count(actual.frames), label + ": tokens");
+    require(actual.encoder_tokens == encoder_token_count(actual.frames), label + ": tokens");
     for (size_t i = 0; i < actual.values.size(); ++i) {
         require(std::isfinite(actual.values[i]), label + ": nonfinite feature");
         if (std::memcmp(&actual.values[i], &expected.values[i], sizeof(float)) != 0) {
@@ -146,7 +170,7 @@ R2T2ASRAudioFeatures check(Subject & subject, const AudioBuffer & input, const s
     return actual;
 }
 
-void changed_prefix(const R2T2ASRAudioFeatures & before, const R2T2ASRAudioFeatures & after, const std::string & label) {
+void changed_prefix(const AudioFeatures & before, const AudioFeatures & after, const std::string & label) {
     bool changed = false;
     for (int64_t mel = 0; mel < before.mel_bins; ++mel) {
         for (int64_t frame = 0; frame < before.frames - 2; ++frame) {
@@ -157,7 +181,83 @@ void changed_prefix(const R2T2ASRAudioFeatures & before, const R2T2ASRAudioFeatu
     require(changed, label + ": fixture failed to change old stable features");
 }
 
-void cases(r2t2::R2T2ASRFrontendConfig config, const std::string & name, bool enforce_work) {
+#ifdef LIGHT_WHISPER_QWEN_FRONTEND_TEST
+void concurrent_copies(FrontendConfig config, const std::string & name) {
+    constexpr size_t worker_count = 3, rounds = 6;
+    const auto samples = signal(64073);
+    const std::vector<AudioBuffer> inputs{
+        mono(samples, 64073), mono(samples, 16019),
+        {16000, 1, signal(48019, 0.7F, 997)},
+        {16000, 1, std::vector<float>(8000, 0.0F)},
+        {16000, 1, signal(32073, 1.0e-6F)}, mono(samples, 32073),
+    };
+    std::vector<audio::WhisperLogMelFeatures> expected;
+    for (const auto & input : inputs) {
+        expected.push_back(audio::WhisperLogMelExtractor({
+            config.sample_rate, config.n_fft, config.hop_length, config.feature_size,
+            audio::STFTFamily::Default,
+        }).compute(normalized(input, config.sample_rate), 1));
+    }
+    Subject original(config);
+    const std::vector<WhisperFrontend> owners(worker_count, original.frontend);
+    struct Result { AudioFeatures features; std::exception_ptr error; };
+    std::vector<Result> results(worker_count * rounds);
+    std::mutex mutex;
+    std::condition_variable ready;
+    size_t arrived = 0, generation = 0;
+    auto rendezvous = [&] {
+        std::unique_lock<std::mutex> lock(mutex);
+        const auto current = generation;
+        if (++arrived == worker_count) {
+            arrived = 0;
+            ++generation;
+            ready.notify_all();
+        } else {
+            ready.wait(lock, [&] { return generation != current; });
+        }
+    };
+    std::vector<std::thread> workers;
+    for (size_t worker = 0; worker < worker_count; ++worker) {
+        workers.emplace_back([&, worker] {
+            const WhisperFrontend & frontend = owners[worker];
+            for (size_t round = 0; round < rounds; ++round) {
+                auto & result = results[worker * rounds + round];
+                // Release all copied owners together for every call; no timing
+                // threshold or global work/trace mutation in worker threads.
+                rendezvous();
+                try { result.features = frontend.extract(inputs[(worker + round) % inputs.size()]); }
+                catch (...) { result.error = std::current_exception(); }
+            }
+        });
+    }
+    for (auto & worker : workers) worker.join();
+    for (size_t worker = 0; worker < worker_count; ++worker) {
+        for (size_t round = 0; round < rounds; ++round) {
+            const auto & result = results[worker * rounds + round];
+            if (result.error) std::rethrow_exception(result.error);
+            const auto & actual = result.features;
+            const auto & fresh = expected[(worker + round) % inputs.size()];
+            const auto label = name + "/concurrent-copy-" + std::to_string(worker) + "-" + std::to_string(round);
+            require(actual.frames == fresh.frames, label + ": frame count");
+            require(actual.mel_bins == fresh.mel_bins, label + ": mel bins");
+            require(actual.values.size() == fresh.values.size(), label + ": feature size");
+            require(std::memcmp(actual.values.data(), fresh.values.data(), fresh.values.size() * sizeof(float)) == 0,
+                    label + ": exact features");
+            require(actual.attention_mask == std::vector<int32_t>(static_cast<size_t>(fresh.frames), 1), label + ": mask");
+            require(actual.encoder_tokens == encoder_token_count(fresh.frames), label + ": tokens");
+            ++observations;
+            write(static_cast<uint64_t>(label.size()));
+            trace.write(label.data(), static_cast<std::streamsize>(label.size()));
+            write(actual.mel_bins); write(actual.frames); write(actual.encoder_tokens);
+            write_vector(actual.attention_mask); write_vector(actual.values);
+            require(trace.good(), label + ": trace write");
+        }
+    }
+    std::cout << "CONCURRENT_PASS " << name << " workers=" << worker_count << " rounds=" << rounds << '\n';
+}
+#endif
+
+void cases(FrontendConfig config, const std::string & name, bool enforce_work) {
     const auto samples = signal(40073);
     auto observe = [&](Subject & subject, const AudioBuffer & input, const std::string & label) {
         return check(subject, input, name + "/" + label, enforce_work);
@@ -226,6 +326,39 @@ void cases(r2t2::R2T2ASRFrontendConfig config, const std::string & name, bool en
     observe(first, mono(samples, 16019), "original-after-shared-shrink");
     Subject fresh(config);
     observe(fresh, mono(samples, 16019), "fresh-owner");
+#ifdef LIGHT_WHISPER_QWEN_FRONTEND_TEST
+    // A one-sample append can change reflected data without adding a frame;
+    // another can leave every available output column stable.
+    Subject reflected(config), stable(config);
+    observe(reflected, mono(samples, 8000), "boundary-8000");
+    observe(reflected, mono(samples, 8001), "boundary-8001");
+    observe(stable, mono(samples, 8047), "boundary-8047");
+    observe(stable, mono(samples, 8048), "boundary-8048");
+
+    // The cache key is the PCM after conversion, peak normalization and padding.
+    Subject canonical(config);
+    observe(canonical, mono(samples, 8000), "canonical-mono");
+    AudioBuffer stereo_identity{16000, 2, {}};
+    for (size_t i = 0; i < 8000; ++i) {
+        stereo_identity.samples.push_back(samples[i]);
+        stereo_identity.samples.push_back(samples[i]);
+    }
+    observe(canonical, stereo_identity, "canonical-stereo-identical");
+    observe(canonical, {16000, 1, std::vector<float>(8000, 1.0F)}, "canonical-unit");
+    observe(canonical, {16000, 1, std::vector<float>(8000, 2.0F)}, "canonical-peak-identical");
+    observe(canonical, {16000, 1, std::vector<float>(8000, 0.0F)}, "canonical-zero");
+    observe(canonical, {8000, 1, std::vector<float>(4000, 0.0F)}, "canonical-resampled-identical");
+
+    for (const auto & input : std::vector<AudioBuffer>{
+             {0, 1, {0.1F}}, {16000, 0, {0.1F}}, {16000, 1, {}}, {16000, 2, {0.1F}}}) {
+        bool rejected = false;
+        try { canonical.frontend.extract(input); }
+        catch (const std::runtime_error &) { rejected = true; }
+        require(rejected, name + ": invalid audio accepted");
+    }
+    observe(canonical, {16000, 1, std::vector<float>(8000, 0.0F)}, "canonical-after-invalid");
+    concurrent_copies(config, name);
+#endif
 }
 }  // namespace
 

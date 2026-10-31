@@ -45,6 +45,8 @@
 
 两个本地引擎均在 Windows 原生运行，无需 WSL。模型单独下载并缓存，FireRedVAD 已内置；GPU 加速不是必需条件。R2T2 的已确认字幕不会回退，预览仍可修订。流式并不保证在所有场景下延迟都更低，详见[实测表现与限制](docs/r2t2-native.md)。
 
+本地引擎的设置中可开启 **音频处理（RE-USE）**，使用 NVIDIA Real-time RE-USE 在识别前处理音频。默认关闭；首次开启下载约 54 MB 原始模型，与识别模型同步加载和空闲卸载。实时模型仅限非商业研究和教育用途；详见 [RE-USE 实测与接入方式](docs/r2t2-native.md#optional-re-use-audio-processing)。
+
 <details>
 <summary><strong>AI 服务商、自动判断与联网搜索</strong></summary>
 

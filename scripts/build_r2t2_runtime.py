@@ -16,7 +16,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_URL = "https://github.com/0xShug0/audio.cpp.git"
 SOURCE_REVISION = "6c70f32d0d90a29a9863e556bd9712ce622f868b"
-BUILD_ID = "light-whisper-asr-13"
+BUILD_ID = "light-whisper-asr-14"
 PATCH = ROOT / "scripts/patches/audio-cpp-r2t2-windows-streaming.patch"
 
 
@@ -104,6 +104,11 @@ def _assemble_runtime(source, build, output, backend, cuda_root, env, architectu
         raise RuntimeError(f"Native DLL missing: {library}")
     output.mkdir(parents=True, exist_ok=True)
     shutil.copy2(library, output / library.name)
+    from build_reuse_runtime import build as build_reuse, source_fingerprint
+
+    reuse_output = ROOT / "build/reuse" / backend
+    build_reuse(backend, source, build, reuse_output)
+    shutil.copy2(reuse_output / "reuse.dll", output / "reuse.dll")
     shutil.copy2(source / "LICENSE", output / "audio.cpp-LICENSE.txt")
     shutil.copy2(source / "external/ggml/LICENSE", output / "ggml-LICENSE.txt")
     shutil.copy2(source / "external/sentencepiece/LICENSE", output / "sentencepiece-LICENSE.txt")
@@ -127,6 +132,7 @@ def _assemble_runtime(source, build, output, backend, cuda_root, env, architectu
              for item in sorted(output.iterdir()) if item.is_file() and item.name != "runtime-manifest.json"}
     manifest = {"build_id": BUILD_ID, "source": SOURCE_URL, "revision": SOURCE_REVISION,
                 "patch_sha256": digest(PATCH), "backend": backend,
+                "reuse_source_sha256": source_fingerprint(),
                 "cuda_architectures": architectures if backend == "cuda" else None, "files": files}
     (output / "runtime-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 

@@ -16,3 +16,11 @@ trim_trailing_whitespace = unset
 [src-tauri/resources/R2T2-MODEL-LICENSE.txt]
 insert_final_newline = unset
 trim_trailing_whitespace = unset
+
+[src-tauri/resources/RE-USE-LICENSE.txt]
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+
+[src-tauri/resources/Real-time-RE-USE-LICENSE.txt]
+insert_final_newline = unset
+trim_trailing_whitespace = unset

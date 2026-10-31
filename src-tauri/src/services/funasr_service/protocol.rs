@@ -66,6 +66,9 @@ pub enum ServerCommand {
     SetGpuIdle {
         seconds: u64,
     },
+    SetAudioProcessing {
+        enabled: bool,
+    },
     /// 退出服务器
     Exit,
 }
