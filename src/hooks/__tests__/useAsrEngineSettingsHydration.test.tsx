@@ -14,9 +14,10 @@ const api = vi.hoisted(() => ({
   setOnlineAsrEndpoint: vi.fn(),
 }));
 const errorToast = vi.hoisted(() => vi.fn());
+const translate = vi.hoisted(() => (key: string) => key);
 vi.mock("@/api/tauri", () => api);
 vi.mock("sonner", () => ({ toast: { error: errorToast, success: vi.fn() } }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: translate }) }));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

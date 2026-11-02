@@ -456,9 +456,8 @@ pub async fn set_alibaba_asr_model(model: String) -> Result<serde_json::Value, A
 /// 调 DashScope `/compatible-mode/v1/models` 拉取账号可见模型列表，过滤出
 /// 能做语音转文字的 ASR / Omni 家族；抓取失败则回退到静态白名单。
 ///
-/// 返回：`{ models: [...], source: "live" | "fallback" }`。`source = "live"`
-/// 表示这份列表来自真实 API 响应，`"fallback"` 表示网络或鉴权失败，前端可据此
-/// 决定是否要提示用户。
+/// Return live or built-in models. Failed refreshes carry a user-visible warning;
+/// an initial built-in list without a configured key remains quiet.
 #[tauri::command]
 pub async fn list_alibaba_asr_models(
     app_handle: tauri::AppHandle,
@@ -484,21 +483,23 @@ pub async fn list_alibaba_asr_models(
         let api_key = app_handle
             .keyring()
             .get_password(llm_provider::KEYRING_SERVICE, key_slot)
-            .ok()
-            .flatten()
+            .map_err(|_| {
+                AppError::Other("读取语音识别 API Key 失败，请检查系统凭据后重试。".into())
+            })?
             .unwrap_or_default();
         (api_key, paths::read_alibaba_endpoint())
     };
 
-    let fallback = || {
+    let fallback = |failed: bool| {
         serde_json::json!({
             "models": paths::ALIBABA_FALLBACK_MODEL_IDS,
             "source": "fallback",
+            "warning": if failed { Some("语音识别模型目录刷新失败，当前显示内置列表，请检查连接或 API Key 后重试。") } else { None },
         })
     };
 
     if api_key.is_empty() {
-        return Ok(fallback());
+        return Ok(fallback(false));
     }
 
     let url = format!("{}/compatible-mode/v1/models", base);
@@ -515,7 +516,7 @@ pub async fn list_alibaba_asr_models(
             "抓取 DashScope 模型列表失败 (network)：{:?}",
             resp_result.err()
         );
-        return Ok(fallback());
+        return Ok(fallback(true));
     };
 
     let status = resp.status();
@@ -526,14 +527,14 @@ pub async fn list_alibaba_asr_models(
             status,
             body.chars().count()
         );
-        return Ok(fallback());
+        return Ok(fallback(true));
     }
 
     let parsed: ModelsResponse = match serde_json::from_str(&body) {
         Ok(p) => p,
         Err(e) => {
             log::warn!("解析 DashScope /v1/models 响应失败: {}", e);
-            return Ok(fallback());
+            return Ok(fallback(true));
         }
     };
 
@@ -546,7 +547,7 @@ pub async fn list_alibaba_asr_models(
         .collect();
 
     if ids.is_empty() {
-        return Ok(fallback());
+        return Ok(fallback(true));
     }
 
     // 稳定排序 + 去重，并把默认模型 qwen3-asr-flash 顶到第一位，其它按字典序。

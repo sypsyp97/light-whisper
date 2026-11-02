@@ -68,7 +68,7 @@ export function useModelDiscovery({
       if (requestId !== aiModelsRequestIdRef.current) return;
       setAiModels(payload.models);
       setAiModelsSourceUrl(payload.sourceUrl);
-      setAiModelsError(payload.models.length === 0 ? t("settings.modelListEmpty") : "");
+      setAiModelsError(payload.warning || (payload.models.length === 0 ? t("settings.modelListEmpty") : ""));
       aiModelsContextRef.current = requestContext;
     } catch (err) {
       if (requestId !== aiModelsRequestIdRef.current) return;
@@ -117,7 +117,7 @@ export function useModelDiscovery({
       const payload = await fetchAssistantModels(silent);
       if (requestId !== assistantModelsRequestIdRef.current) return;
       setAssistantModels(payload.models);
-      setAssistantModelsError(payload.models.length === 0 ? t("settings.modelListEmpty") : "");
+      setAssistantModelsError(payload.warning || (payload.models.length === 0 ? t("settings.modelListEmpty") : ""));
       assistantModelsContextRef.current = requestContext;
     } catch (err) {
       if (requestId !== assistantModelsRequestIdRef.current) return;

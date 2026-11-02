@@ -99,10 +99,9 @@ interface ConversationMessage extends AssistantConversationTurn {
 
 type Phase = "idle" | "starting" | "recording" | "processing" | "searching" | "polishing" | "result" | "outcome";
 const RESULT_FADE_DELAY_MS = 2000;
+const API_WARNING_FADE_DELAY_MS = 8000;
 // Fade animation is 160ms; keep a buffer before clearing the stale state and
-// backend hides the subtitle window at 2500ms, so we clear stale state in time
-// to prevent a one-frame flash of previous text on the next recording.
-const RESULT_CLEANUP_DELAY_MS = RESULT_FADE_DELAY_MS + 400;
+// Native hiding follows cleanup: 2500ms normally, 8500ms for API warnings.
 const OUTCOME_FADE_DELAY_MS = 1500;
 const OUTCOME_CLEANUP_DELAY_MS = OUTCOME_FADE_DELAY_MS + 400;
 const QUICK_CANCEL_CLEANUP_DELAY_MS = 400;
@@ -182,6 +181,8 @@ export default function SubtitleOverlay() {
   const [assistantSources, setAssistantSources] = useState<AssistantSource[]>([]);
   const [assistantGoogleSearchEntryPoint, setAssistantGoogleSearchEntryPoint] = useState("");
   const [assistantSearchError, setAssistantSearchError] = useState<string | null>(null);
+  const [apiWarning, setApiWarning] = useState<string | null>(null);
+  const apiWarningRef = useRef<string | null>(null);
   const [assistantSearchQuery, setAssistantSearchQuery] = useState("");
   const [assistantSearchProvider, setAssistantSearchProvider] = useState<string | null>(null);
   const [assistantSearchElapsedMs, setAssistantSearchElapsedMs] = useState<number | null>(null);
@@ -276,6 +277,8 @@ export default function SubtitleOverlay() {
       pairedOutcomeRevisionRef.current = null;
       terminalSessionIdRef.current = 0;
       setCapsuleSessionId(sessionId);
+      apiWarningRef.current = null;
+      setApiWarning(null);
       resetConversationState();
     }
     // Revision-less payloads exist only in legacy frontend tests. Once a real
@@ -301,6 +304,53 @@ export default function SubtitleOverlay() {
       cleanupTimerRef.current = null;
     }
   }, []);
+
+  const scheduleResultFade = useCallback((delay: number) => {
+    clearFadeTimer();
+    const expectedSessionId = latestSessionIdRef.current;
+    fadeTimerRef.current = setTimeout(() => {
+      if (latestSessionIdRef.current !== expectedSessionId) return;
+      setFadingOut(true);
+      fadeTimerRef.current = null;
+    }, delay);
+    cleanupTimerRef.current = setTimeout(() => {
+      if (latestSessionIdRef.current !== expectedSessionId) return;
+      setText("");
+      setInterimSegments(null);
+      setOutcome(null);
+      apiWarningRef.current = null;
+      setApiWarning(null);
+      updatePhase("idle");
+      setFadingOut(false);
+      setStreamTokens(0);
+      setWaveformBars(EMPTY_WAVEFORM_BARS);
+      cleanupTimerRef.current = null;
+    }, delay + 400);
+  }, [clearFadeTimer, updatePhase]);
+
+  const showApiWarning = useCallback((message: unknown, sessionId?: number) => {
+    if (typeof message !== "string" || !message.trim()) return;
+    if (sessionId !== undefined && (!isValidSessionId(sessionId) || sessionId < latestSessionIdRef.current)) return;
+    if (phaseRef.current === "idle") return;
+    apiWarningRef.current = message;
+    setApiWarning(message);
+    setFadingOut(false);
+    if (phaseRef.current === "result" || phaseRef.current === "outcome") {
+      scheduleResultFade(API_WARNING_FADE_DELAY_MS);
+    }
+  }, [scheduleResultFade]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{ message: string; sessionId?: number }>("api-warning", ({ payload }) => {
+      if (!disposed) showApiWarning(payload.message, payload.sessionId);
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
+    return () => { disposed = true; unlisten?.(); };
+  }, [showApiWarning]);
 
   // 主题同步：读取初始值 + 监听主窗口的 localStorage 变更
   useEffect(() => {
@@ -448,18 +498,19 @@ export default function SubtitleOverlay() {
     setFadingOut(false);
 
     const expectedSessionId = liveEvent.sessionId;
+    const fadeDelay = apiWarningRef.current ? API_WARNING_FADE_DELAY_MS : OUTCOME_FADE_DELAY_MS;
     fadeTimerRef.current = setTimeout(() => {
       if (latestSessionIdRef.current !== expectedSessionId) return;
       setFadingOut(true);
       fadeTimerRef.current = null;
-    }, OUTCOME_FADE_DELAY_MS);
+    }, fadeDelay);
     cleanupTimerRef.current = setTimeout(() => {
       if (latestSessionIdRef.current !== expectedSessionId) return;
       setText("");
       setOutcome(null);
       updatePhase("idle");
       cleanupTimerRef.current = null;
-    }, OUTCOME_CLEANUP_DELAY_MS);
+    }, apiWarningRef.current ? API_WARNING_FADE_DELAY_MS + 400 : OUTCOME_CLEANUP_DELAY_MS);
   }, [clearFadeTimer, prepareLiveEvent, updatePhase]);
 
   const hydrateRecordingSnapshot = useCallback((snapshot: RecordingSnapshot | null) => {
@@ -566,11 +617,13 @@ export default function SubtitleOverlay() {
 
     void (async () => {
       try {
-        unlisten = await listen<{ status: string; tokens?: number; sessionId?: number }>("ai-polish-status", (event) => {
+        unlisten = await listen<{ status: string; tokens?: number; sessionId?: number; error?: string; message?: string }>("ai-polish-status", (event) => {
           const { status, tokens, sessionId } = event.payload;
           if (typeof sessionId === "number" && sessionId < latestSessionIdRef.current) return;
           if (sessionId === terminalSessionIdRef.current) return;
-          if (status === "polishing") {
+          if (status === "error") {
+            showApiWarning(event.payload.error || event.payload.message, sessionId);
+          } else if (status === "polishing") {
             clearFadeTimer();
             setFadingOut(false);
             setStreamTokens(0);
@@ -598,7 +651,7 @@ export default function SubtitleOverlay() {
       disposed = true;
       unlisten?.();
     };
-  }, [clearFadeTimer, updatePhase]);
+  }, [clearFadeTimer, showApiWarning, updatePhase]);
 
   useEffect(() => {
     let disposed = false;
@@ -854,7 +907,11 @@ export default function SubtitleOverlay() {
           if (sessionId === terminalSessionIdRef.current) return;
           if (typeof sessionId === "number") {
             if (sessionId < latestSessionIdRef.current) return;
-            if (sessionId > latestSessionIdRef.current) finalTranscriptionSessionIdRef.current = 0;
+            if (sessionId > latestSessionIdRef.current) {
+              finalTranscriptionSessionIdRef.current = 0;
+              apiWarningRef.current = null;
+              setApiWarning(null);
+            }
             if (interim && sessionId === finalTranscriptionSessionIdRef.current) return;
             latestSessionIdRef.current = sessionId;
           }
@@ -892,26 +949,7 @@ export default function SubtitleOverlay() {
           }
 
           if (event.payload.mode !== "assistant") {
-            const expectedSessionId = latestSessionIdRef.current;
-            fadeTimerRef.current = setTimeout(() => {
-              if (latestSessionIdRef.current !== expectedSessionId) return;
-              setFadingOut(true);
-              fadeTimerRef.current = null;
-            }, RESULT_FADE_DELAY_MS);
-            // After the fade animation finishes, clear stale state so the next
-            // recording does not flash the previous result for one frame when
-            // the still-alive subtitle window is re-shown.
-            cleanupTimerRef.current = setTimeout(() => {
-              if (latestSessionIdRef.current !== expectedSessionId) return;
-              setText("");
-              setInterimSegments(null);
-              setOutcome(null);
-              updatePhase("idle");
-              setFadingOut(false);
-              setStreamTokens(0);
-              setWaveformBars(EMPTY_WAVEFORM_BARS);
-              cleanupTimerRef.current = null;
-            }, RESULT_CLEANUP_DELAY_MS);
+            scheduleResultFade(apiWarningRef.current ? API_WARNING_FADE_DELAY_MS : RESULT_FADE_DELAY_MS);
           }
         });
 
@@ -929,7 +967,7 @@ export default function SubtitleOverlay() {
       unlisten?.();
       clearFadeTimer();
     };
-  }, [clearFadeTimer, updatePhase]);
+  }, [clearFadeTimer, scheduleResultFade, updatePhase]);
 
   const isStreaming = !interimSegments && text.length > 0 && smoothText.length < text.length;
   const hasText = (interimSegments ? text : smoothText).length > 0;
@@ -1213,7 +1251,7 @@ export default function SubtitleOverlay() {
       <div
         key={capsuleSessionId}
         className={
-          `subtitle-capsule${fadingOut ? " subtitle-fade-out" : ""}${assistantPanelActive ? " subtitle-capsule-assistant" : ""}${assistantInteractive ? " subtitle-capsule-interactive" : ""}${conversationOpen ? " subtitle-capsule-conversation" : ""}`
+          `subtitle-capsule${apiWarning ? " subtitle-capsule-warning" : ""}${fadingOut ? " subtitle-fade-out" : ""}${assistantPanelActive ? " subtitle-capsule-assistant" : ""}${assistantInteractive ? " subtitle-capsule-interactive" : ""}${conversationOpen ? " subtitle-capsule-conversation" : ""}`
         }
         role="presentation"
         onClick={assistantInteractive ? (event) => event.stopPropagation() : undefined}
@@ -1431,6 +1469,7 @@ export default function SubtitleOverlay() {
             {!hasText && !outcomeText && hintText && <span key={phase} className="subtitle-hint">{hintText}</span>}
           </>
         )}
+        {apiWarning && <div className="subtitle-api-warning" role="status">{apiWarning}</div>}
       </div>
     </div>
   );

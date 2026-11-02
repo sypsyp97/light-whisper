@@ -1,6 +1,6 @@
 //! Shared Jev evaluation seams for the opt-in expansion features.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::state::user_profile::JevConfig;
 use reqwest::Client;
@@ -275,8 +275,39 @@ pub fn confident_choice(
     Some(choice.to_string())
 }
 
-/// Evaluate one generic Jev task, failing closed on all transport or payload errors.
-pub async fn evaluate(
+fn valid_answers(payload: &Value, questions: &Map<String, Value>) -> bool {
+    questions.iter().all(|(id, question)| {
+        let Some(criteria) = question.get("criteria").and_then(Value::as_object) else {
+            return false;
+        };
+        let Some(answer) = payload.get("answers").and_then(|answers| answers.get(id)) else {
+            return false;
+        };
+        let Some(choice) = answer.get("choice").and_then(Value::as_str) else {
+            return false;
+        };
+        let Some(probabilities) = answer.get("probabilities").and_then(Value::as_object) else {
+            return false;
+        };
+        if criteria.is_empty()
+            || answer.get("type").and_then(Value::as_str) != Some("choice")
+            || !criteria.contains_key(choice)
+            || probabilities.len() != criteria.len()
+            || probabilities.keys().any(|key| !criteria.contains_key(key))
+        {
+            return false;
+        }
+        let sum = probabilities.values().try_fold(0.0, |sum, value| {
+            finite_probability(Some(value)).map(|probability| sum + probability)
+        });
+        sum.is_some_and(|sum| {
+            (sum - 1.0).abs() <= PROBABILITY_SUM_TOLERANCE + PROBABILITY_BOUNDARY_EPSILON
+        })
+    })
+}
+
+/// Preserve service errors separately from valid low-confidence decisions.
+pub async fn evaluate_with_warning(
     client: &Client,
     config: &JevConfig,
     api_key: &str,
@@ -284,71 +315,51 @@ pub async fn evaluate(
     questions: Value,
     deadline: Duration,
     endpoint_override: Option<&str>,
-) -> Option<Value> {
-    let provider = config.provider;
-    let started = Instant::now();
-    if api_key.trim().is_empty()
-        || questions
-            .as_object()
-            .is_none_or(|questions| questions.is_empty())
-    {
-        return None;
+) -> Result<Option<Value>, String> {
+    let requested = questions
+        .as_object()
+        .ok_or_else(|| "Jev 决策请求格式无效，请检查配置后重试。".to_string())?
+        .clone();
+    if requested.is_empty() {
+        return Ok(None);
     }
-
-    let request = match crate::services::jev_service::build_evaluation_request(
+    if api_key.trim().is_empty() {
+        return Err("Jev 决策模型未配置 API Key，请在设置中补全后重试。".into());
+    }
+    let request = crate::services::jev_service::build_evaluation_request(
         client,
         config,
         api_key,
         state,
         questions,
         endpoint_override,
-    ) {
-        Ok(request) => request,
-        Err(_) => {
-            log::warn!(
-                "Decision model fallback: provider={:?}, reason=request_build",
-                provider
-            );
-            return None;
-        }
-    };
+    )
+    .map_err(|_| "Jev 决策请求无法构建，请检查模型和 API 配置后重试。".to_string())?;
 
-    let result = tokio::time::timeout(deadline, async {
+    tokio::time::timeout(deadline, async {
         let response = client
             .execute(request)
             .await
-            .map_err(|_| ("transport", None))?;
+            .map_err(|_| "Jev 决策服务连接失败，请检查网络和 API 地址后重试。".to_string())?;
         if !response.status().is_success() {
-            return Err(("http_status", Some(response.status().as_u16())));
+            return Err(format!(
+                "Jev 决策服务返回 HTTP {}，请检查 API Key、权限或服务状态后重试。",
+                response.status().as_u16()
+            ));
         }
         let body = response
             .bytes()
             .await
-            .map_err(|_| ("response_body", None))?;
-        serde_json::from_slice::<Value>(&body).map_err(|_| ("invalid_json", None))
+            .map_err(|_| "Jev 决策响应读取失败，请检查网络后重试。".to_string())?;
+        let payload: Value = serde_json::from_slice(&body)
+            .map_err(|_| "Jev 决策响应格式无效，请检查模型配置后重试。".to_string())?;
+        if !valid_answers(&payload, &requested) {
+            return Err("Jev 决策响应缺少有效的判断结果，请检查模型配置后重试。".into());
+        }
+        Ok(Some(payload))
     })
-    .await;
-    match result {
-        Ok(Ok(payload)) => Some(payload),
-        Ok(Err((reason, status))) => {
-            log::warn!(
-                "Decision model fallback: provider={:?}, reason={}, status={:?}, elapsed_ms={}",
-                provider,
-                reason,
-                status,
-                started.elapsed().as_millis()
-            );
-            None
-        }
-        Err(_) => {
-            log::warn!(
-                "Decision model fallback: provider={:?}, reason=timeout, elapsed_ms={}",
-                provider,
-                started.elapsed().as_millis()
-            );
-            None
-        }
-    }
+    .await
+    .map_err(|_| "Jev 决策服务响应超时，请检查网络或稍后重试。".to_string())?
 }
 
 /// Keep screen context disabled when it was not requested; otherwise only a

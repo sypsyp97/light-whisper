@@ -153,16 +153,17 @@ export function useAsrEngineSettings({
     try {
       const result = await listAlibabaAsrModels();
       if (!current()) return;
+      if (result.warning) toast.warning(result.warning);
       if (result.models.length > 0) {
         setAlibabaAsrModelsState(result.models);
         setAlibabaAsrModelsSource(result.source);
       }
     } catch {
-      // Keep the last fallback/live list when the refresh cannot reach the service.
+      if (current()) toast.error(t("settings.fetchModelsFailed"));
     } finally {
       if (current()) setAlibabaAsrModelsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const alibabaHasKey = engine === "alibaba-asr" && onlineAsrApiKey.trim().length > 0;
   useEffect(() => {

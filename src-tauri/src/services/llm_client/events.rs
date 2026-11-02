@@ -3,6 +3,22 @@ use tauri::{Emitter, Manager};
 
 use crate::state::AppState;
 
+/// Report recoverable feature loss without replacing the operation's result.
+pub(crate) fn emit_api_warning(
+    app_handle: &tauri::AppHandle,
+    message: &str,
+    session_id: Option<u64>,
+) {
+    let mut payload = serde_json::json!({ "message": message });
+    if let Some(session_id) = session_id {
+        if let Some(state) = app_handle.try_state::<AppState>() {
+            state.ui.mark_api_warning(session_id);
+        }
+        payload["sessionId"] = serde_json::json!(session_id);
+    }
+    let _ = app_handle.emit("api-warning", payload);
+}
+
 pub(crate) fn build_stream_event_payload(
     session_id: Option<u64>,
     chunk: Option<&str>,
@@ -59,6 +75,13 @@ pub(crate) fn emit_stream_error_event(
     message: &str,
 ) {
     if let (Some(app_handle), Some(event_name)) = (app_handle, event_name) {
+        if event_name == "ai-polish-status" {
+            if let (Some(state), Some(session_id)) =
+                (app_handle.try_state::<AppState>(), session_id)
+            {
+                state.ui.mark_api_warning(session_id);
+            }
+        }
         let payload = build_stream_error_payload(session_id, message);
         let _ = app_handle.emit(event_name, payload);
     }

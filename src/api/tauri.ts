@@ -656,6 +656,7 @@ export function setAlibabaAsrModel(model: string): Promise<{ model: string }> {
 }
 
 export interface AlibabaModelsPayload {
+  warning?: string;
   models: string[];
   source: "live" | "fallback";
 }

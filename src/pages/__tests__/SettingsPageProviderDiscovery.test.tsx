@@ -223,7 +223,7 @@ function resetMocks(profile: UserProfile = baseProfile) {
   });
   tauriMock.getModelsDir.mockResolvedValue({
     is_custom: false,
-    path: "C:\\Users\\sun\\.cache\\light-whisper-models",
+    path: "C:\\Users\\test\\.cache\\light-whisper-models",
   });
   tauriMock.getOnlineAsrApiKey.mockResolvedValue("");
   tauriMock.getOnlineAsrEndpoint.mockResolvedValue({
@@ -1628,4 +1628,33 @@ describe("TLC assistant credential replay", () => {
     expect(handled).toBe(events.length); expect(checkedLateRead).toBe(true);
   });
 
+});
+
+describe("SettingsPage cached catalog warning visibility", () => {
+  it.each(["polish", "assistant"])("shows the %s catalog warning while cached models remain selectable", async (target) => {
+    const profile: UserProfile = {
+      ...baseProfile,
+      llm_provider: {
+        ...baseProfile.llm_provider,
+        assistant_model: "cached-assistant",
+        assistant_provider: "deepseek",
+        assistant_use_separate_model: true,
+      },
+    };
+    tauriMock.getAiPolishApiKey.mockResolvedValue("synthetic-polish-key");
+    tauriMock.getAssistantApiKey.mockResolvedValue("synthetic-assistant-key");
+    tauriMock.listAiModels.mockImplementation(async (provider: string) => ({
+      models: [modelInfo(provider === "cerebras" ? "cached-polish" : "cached-assistant")],
+      sourceUrl: "https://example.test/models",
+      warning: provider === "cerebras" ? "Polish catalog refresh unavailable" : "Assistant catalog refresh unavailable",
+    }));
+    await renderSettings(profile);
+    await waitFor(() => expect(tauriMock.listAiModels).toHaveBeenCalledTimes(2), { timeout: 1500 });
+    fireEvent.click(screen.getByRole("button", { name: target === "polish" ? "Open model list" : "Open assistant model list" }));
+    const option = modelOption(`cached-${target}`);
+    expect(option).toBeVisible();
+    expect(screen.getByText(target === "polish" ? "Polish catalog refresh unavailable" : "Assistant catalog refresh unavailable")).toBeVisible();
+    fireEvent.click(option);
+    expect(screen.getByRole("textbox", { name: target === "polish" ? "Model name" : "Assistant model name" })).toHaveValue(`cached-${target}`);
+  });
 });

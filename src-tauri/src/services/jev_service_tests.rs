@@ -514,7 +514,7 @@ async fn evaluate_calls_the_selected_provider_and_accepts_a_valid_pass() {
     let response = br#"{"answers":{"route":{"type":"choice","choice":"pass","probabilities":{"pass":0.95,"polish":0.04,"uncertain":0.01}}}}"#;
     let (endpoint, server) = spawn_json_server("200 OK", response).await;
 
-    let should_skip = jev_service::evaluate(
+    let should_skip = jev_service::evaluate_with_warning(
         &reqwest::Client::new(),
         &default_config(JevProvider::OpenRouter),
         TEST_API_KEY,
@@ -526,7 +526,7 @@ async fn evaluate_calls_the_selected_provider_and_accepts_a_valid_pass() {
     let captured = server.await.expect("mock server should finish");
 
     assert!(
-        should_skip,
+        should_skip.unwrap(),
         "a confident pass should skip the polish request"
     );
     assert_eq!(captured.method, "POST");
@@ -539,7 +539,7 @@ async fn evaluate_calls_the_selected_provider_and_accepts_a_valid_pass() {
 }
 
 #[tokio::test]
-async fn evaluate_falls_back_for_http200_malformed_nonpass_and_uncertain_results() {
+async fn evaluate_reports_malformed_and_preserves_nonpass_and_uncertain_results() {
     let cases: [(&str, &'static [u8]); 3] = [
         ("malformed", br#"not json"#),
         (
@@ -554,7 +554,7 @@ async fn evaluate_falls_back_for_http200_malformed_nonpass_and_uncertain_results
 
     for (label, response) in cases {
         let (endpoint, server) = spawn_json_server("200 OK", response).await;
-        let should_skip = jev_service::evaluate(
+        let should_skip = jev_service::evaluate_with_warning(
             &reqwest::Client::new(),
             &default_config(JevProvider::TypeSafe),
             TEST_API_KEY,
@@ -565,20 +565,24 @@ async fn evaluate_falls_back_for_http200_malformed_nonpass_and_uncertain_results
         .await;
         let captured = server.await.expect("mock server should finish");
 
-        assert!(
-            !should_skip,
-            "{label} Jev response must continue normal polish"
-        );
+        if label == "malformed" {
+            assert!(
+                should_skip.is_err(),
+                "malformed response must report failure"
+            );
+        } else {
+            assert!(!should_skip.unwrap(), "{label} must continue normal polish");
+        }
         assert_eq!(captured.path, "/v1/systemone");
     }
 }
 
 #[tokio::test]
-async fn evaluate_returns_false_on_provider_http_errors() {
+async fn evaluate_reports_provider_http_errors() {
     let (endpoint, server) =
         spawn_json_server("503 Service Unavailable", br#"{"error":"busy"}"#).await;
 
-    let should_skip = jev_service::evaluate(
+    let should_skip = jev_service::evaluate_with_warning(
         &reqwest::Client::new(),
         &default_config(JevProvider::TypeSafe),
         TEST_API_KEY,
@@ -590,8 +594,8 @@ async fn evaluate_returns_false_on_provider_http_errors() {
     let captured = server.await.expect("mock server should finish");
 
     assert!(
-        !should_skip,
-        "HTTP errors must fall back to ordinary polish"
+        should_skip.is_err(),
+        "HTTP errors must reach the warning caller"
     );
     assert_eq!(captured.path, "/v1/systemone");
 }
@@ -647,7 +651,8 @@ async fn evaluate_polish_gate_requires_explicit_opt_in_and_preserves_exact_passt
         TEST_API_KEY,
         Some(endpoint),
     )
-    .await;
+    .await
+    .unwrap();
 
     assert!(
         default_result.is_none(),
@@ -671,7 +676,8 @@ async fn evaluate_polish_gate_requires_explicit_opt_in_and_preserves_exact_passt
         TEST_API_KEY,
         Some(endpoint),
     )
-    .await;
+    .await
+    .unwrap();
     assert!(result.is_none(), "a disabled profile gate must not run");
     assert_no_gate_request(&mut server, &count).await;
 
@@ -687,6 +693,7 @@ async fn evaluate_polish_gate_requires_explicit_opt_in_and_preserves_exact_passt
         Some(endpoint),
     )
     .await
+    .unwrap()
     .expect("a confident pass should produce a passthrough outcome");
     let captured = server.await.expect("mock server should finish");
 
@@ -699,7 +706,7 @@ async fn evaluate_polish_gate_requires_explicit_opt_in_and_preserves_exact_passt
 }
 
 #[tokio::test]
-async fn evaluate_polish_gate_bypasses_required_execution_provider_mismatch_and_empty_key() {
+async fn evaluate_polish_gate_bypasses_required_execution_and_provider_mismatch() {
     let state = gate_state(
         JevProvider::TypeSafe,
         true,
@@ -720,7 +727,6 @@ async fn evaluate_polish_gate_bypasses_required_execution_provider_mismatch_and_
             JevProvider::OpenRouter,
             TEST_API_KEY,
         ),
-        ("empty_key", false, JevProvider::TypeSafe, ""),
     ];
 
     for (label, require_execution, provider, api_key) in cases {
@@ -739,7 +745,8 @@ async fn evaluate_polish_gate_bypasses_required_execution_provider_mismatch_and_
             api_key,
             Some(endpoint),
         )
-        .await;
+        .await
+        .unwrap();
 
         assert!(result.is_none(), "{label} must bypass the Jev gate");
         assert_no_gate_request(&mut server, &count).await;
@@ -776,7 +783,8 @@ async fn evaluate_polish_gate_bypasses_all_effective_translation_modes() {
             TEST_API_KEY,
             Some(endpoint),
         )
-        .await;
+        .await
+        .unwrap();
 
         assert!(result.is_none(), "effective translation must bypass Jev");
         assert_no_gate_request(&mut server, &count).await;
@@ -808,7 +816,8 @@ async fn evaluate_polish_gate_allows_gate_when_translation_override_disables_glo
         TEST_API_KEY,
         Some(endpoint),
     )
-    .await;
+    .await
+    .unwrap();
     let result = result.expect("disabling global translation should leave Jev eligible");
     let captured = server.await.expect("mock server should finish");
 
@@ -844,6 +853,7 @@ async fn evaluate_polish_gate_includes_custom_strong_policy_and_app_context() {
         Some(endpoint),
     )
     .await
+    .unwrap()
     .expect("confident pass should produce a passthrough outcome");
     let captured = server.await.expect("mock server should finish");
     let policy = captured.body["state"]["polishing_policy"]
@@ -875,7 +885,7 @@ async fn evaluate_polish_gate_includes_custom_strong_policy_and_app_context() {
 }
 
 #[tokio::test]
-async fn evaluate_polish_gate_returns_none_for_low_confidence_and_http_errors() {
+async fn evaluate_polish_gate_preserves_low_confidence_and_reports_http_errors() {
     let cases: [(&str, &str, &'static [u8]); 2] = [
         (
             "low confidence",
@@ -895,7 +905,7 @@ async fn evaluate_polish_gate_returns_none_for_low_confidence_and_http_errors() 
         );
         let (endpoint, _count, server) = spawn_counting_json_server(status, response).await;
         let overrides = enabled_gate_overrides();
-        let result: Option<PolishOutcome> = evaluate_polish_gate(
+        let result = evaluate_polish_gate(
             &state,
             ORIGINAL,
             &overrides,
@@ -906,7 +916,17 @@ async fn evaluate_polish_gate_returns_none_for_low_confidence_and_http_errors() 
         .await;
         let _ = server.await.expect("mock server should finish");
 
-        assert!(result.is_none(), "{label} must continue normal polish");
+        if label == "HTTP error" {
+            assert!(
+                result.is_err(),
+                "HTTP failure must reach the warning caller"
+            );
+        } else {
+            assert!(
+                result.unwrap().is_none(),
+                "low confidence must continue normal polish"
+            );
+        }
     }
 }
 
@@ -914,9 +934,9 @@ async fn evaluate_polish_gate_returns_none_for_low_confidence_and_http_errors() 
 async fn evaluate_stalled_body_times_out_without_retrying() {
     let (endpoint, request_count, server) = spawn_stalled_server().await;
     let started = Instant::now();
-    let should_skip: bool = timeout(
+    let should_skip = timeout(
         Duration::from_secs(2),
-        jev_service::evaluate(
+        jev_service::evaluate_with_warning(
             &reqwest::Client::new(),
             &default_config(JevProvider::TypeSafe),
             TEST_API_KEY,
@@ -928,7 +948,7 @@ async fn evaluate_stalled_body_times_out_without_retrying() {
     .await
     .expect("stalled Jev evaluation must honor the bounded deadline");
 
-    assert!(!should_skip);
+    assert!(should_skip.is_err());
     assert!(started.elapsed() < Duration::from_millis(1_400));
     assert_eq!(
         request_count.load(Ordering::SeqCst),
@@ -1395,17 +1415,16 @@ async fn configured_custom_gate_sends_a_real_loopback_request_without_endpoint_o
     )
     .unwrap();
     assert_eq!(request.url().as_str(), format!("{endpoint}/Typed/Decision"));
-    assert!(
-        jev_service::evaluate(
-            &client,
-            &config,
-            TEST_API_KEY,
-            ORIGINAL,
-            POLICY_CONTEXT,
-            None
-        )
-        .await
-    );
+    assert!(jev_service::evaluate_with_warning(
+        &client,
+        &config,
+        TEST_API_KEY,
+        ORIGINAL,
+        POLICY_CONTEXT,
+        None
+    )
+    .await
+    .unwrap());
     let captured = timeout(Duration::from_secs(2), server)
         .await
         .unwrap()
@@ -1420,7 +1439,7 @@ async fn vercel_default_transport_sends_typed_state_and_accepts_a_choice_respons
     let response = br#"{"answers":{"route":{"type":"choice","choice":"pass","probabilities":{"pass":0.95,"polish":0.04,"uncertain":0.01}}}}"#;
     let (endpoint, server) = spawn_json_server("200 OK", response).await;
     let config = configured(JevProvider::Vercel, &endpoint, "");
-    let should_skip = jev_service::evaluate(
+    let should_skip = jev_service::evaluate_with_warning(
         &reqwest::Client::new(),
         &config,
         TEST_API_KEY,
@@ -1435,7 +1454,7 @@ async fn vercel_default_transport_sends_typed_state_and_accepts_a_choice_respons
         .expect("loopback server should finish");
 
     assert!(
-        should_skip,
+        should_skip.unwrap(),
         "typed Choice pass should retain the skip decision"
     );
     assert_eq!(captured.method, "POST");
@@ -1459,4 +1478,28 @@ async fn vercel_default_transport_sends_typed_state_and_accepts_a_choice_respons
     ] {
         assert!(header_value(&captured.headers, name).is_none());
     }
+}
+
+#[tokio::test]
+async fn evaluate_polish_gate_reports_missing_key_for_an_eligible_request() {
+    let state = gate_state(
+        JevProvider::TypeSafe,
+        true,
+        None,
+        None,
+        PolishStructureLevel::Off,
+    );
+    let result = evaluate_polish_gate(
+        &state,
+        ORIGINAL,
+        &enabled_gate_overrides(),
+        &default_config(JevProvider::TypeSafe),
+        "",
+        None,
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "eligible missing-key decision must report an error, got {result:?}"
+    );
 }

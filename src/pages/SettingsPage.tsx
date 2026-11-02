@@ -3271,7 +3271,7 @@ export default function SettingsPage({
                             <div className="picker-empty">
                               {aiModelsLoading
                                 ? t("settings.fetchModelsFromApi")
-                                : aiModelsError || t(llmProvider === "xai" ? "settings.fillApiKeyOrGrokLogin" : "settings.fillApiKeyOrLogin")}
+                                : t(llmProvider === "xai" ? "settings.fillApiKeyOrGrokLogin" : "settings.fillApiKeyOrLogin")}
                             </div>
                           )}
                         </div>
@@ -3279,6 +3279,8 @@ export default function SettingsPage({
                     )}
                   </div>
                 </div>
+
+                {aiModelsError && <p className="settings-error" role="status">{aiModelsError}</p>}
 
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">{t("settings.polishReasoningMode")}</span>
@@ -3842,8 +3844,7 @@ export default function SettingsPage({
                                 ? t("settings.fetchModelsFromApi")
                                 : (assistantProviderDiffers && !assistantHasAuth)
                                   ? t(effectiveAssistantProvider === "xai" ? "settings.fillApiKeyOrGrokLogin" : "settings.fillAssistantApiKeyOrLogin")
-                                  : (assistantProviderDiffers ? assistantModelsError : aiModelsError)
-                                    || t((assistantProviderDiffers ? effectiveAssistantProvider : llmProvider) === "xai"
+                                  : t((assistantProviderDiffers ? effectiveAssistantProvider : llmProvider) === "xai"
                                       ? "settings.fillApiKeyOrGrokLogin"
                                       : "settings.fillApiKeyOrLogin")}
                             </div>
@@ -3853,6 +3854,9 @@ export default function SettingsPage({
                     )}
                   </div>
                 </div>
+                {(assistantProviderDiffers ? assistantModelsError : aiModelsError) && (
+                  <p className="settings-error" role="status">{assistantProviderDiffers ? assistantModelsError : aiModelsError}</p>
+                )}
               </SettingsReveal>
               <SettingsReveal open={!assistantUseSeparateModel} gap={10}>
                 <p className="settings-hint" style={{ margin: 0 }}>

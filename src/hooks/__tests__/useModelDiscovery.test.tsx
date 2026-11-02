@@ -11,7 +11,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 const payload = (id: string) => ({ models: [{ id }], sourceUrl: `https://${id}.example/models` });
-type Payload = ReturnType<typeof payload>;
+type Payload = ReturnType<typeof payload> & { warning?: string };
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -29,6 +29,30 @@ function setup(assistantSharesPolishModels = false) {
 }
 
 describe("model discovery publication contracts", () => {
+  it.each(["polish", "assistant"] as const)("shows a %s fallback warning while keeping usable models", async (catalog) => {
+    const hook = setup();
+    const fetchModels = catalog === "polish" ? hook.fetchPolishModels : hook.fetchAssistantModels;
+    const modelsKey = catalog === "polish" ? "aiModels" : "assistantModels";
+    const errorKey = catalog === "polish" ? "aiModelsError" : "assistantModelsError";
+    fetchModels.mockResolvedValueOnce({ ...payload("cached"), warning: "Catalog refresh unavailable" });
+    await act(async () => {
+      await (catalog === "polish" ? hook.result.current.refreshAiModelsNow() : hook.result.current.refreshAssistantModelsNow());
+    });
+    expect(hook.result.current[modelsKey]).toEqual(payload("cached").models);
+    expect(hook.result.current[errorKey]).toBe("Catalog refresh unavailable");
+  });
+
+  it("does not publish a stale catalog warning after a newer successful refresh", async () => {
+    const hook = setup();
+    const old = deferred<Payload>();
+    hook.fetchPolishModels.mockReturnValueOnce(old.promise);
+    let pending!: Promise<void>;
+    act(() => { pending = hook.result.current.refreshAiModelsNow(); });
+    await act(async () => { await hook.result.current.refreshAiModelsNow(); });
+    await act(async () => { old.resolve({ ...payload("old"), warning: "Retired warning" }); await pending; });
+    expect(hook.result.current.aiModelsError).toBe("");
+    expect(hook.result.current.aiModels).toEqual(payload("initial").models);
+  });
   it("keeps the newer catalog when an older fetch completes later", async () => {
     const hook = setup();
     const old = deferred<Payload>();

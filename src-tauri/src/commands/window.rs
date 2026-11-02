@@ -371,6 +371,10 @@ pub(crate) fn schedule_subtitle_hide(
     mode: RecordingMode,
     delay_ms: u64,
 ) {
+    let delay_ms = app_handle
+        .state::<AppState>()
+        .ui
+        .subtitle_hide_delay_ms(session_id, delay_ms);
     let app = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;

@@ -14,6 +14,7 @@ use super::protocol::{
     looks_like_output_token_limit_unsupported_error, remember_output_token_limit_unsupported,
     responses_api_url, strip_output_token_limits, uses_codex_chatgpt_backend,
     uses_deepseek_v4_responses, uses_grok_build_oauth_backend, uses_responses_api,
+    validate_response_completion,
 };
 use super::request::LlmRequestOptions;
 use super::stream::{
@@ -674,6 +675,7 @@ pub async fn send_llm_request(
             .await
             .map_err(|_| "响应读取超时".to_string())?
             .map_err(|e| format!("响应解析失败: {}", e))?;
+        validate_response_completion(&json)?;
         ensure_non_empty_llm_content(
             extract_content(endpoint, &json).unwrap_or_default(),
             endpoint,

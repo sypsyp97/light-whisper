@@ -44,7 +44,7 @@ pub fn schedule_polish_audit(
     let evidence = json!({"original":original,"polished":polished,"polishing_policy":policy});
     let admitted = spawn_audit_job(async move {
         let key = jev_service::load_api_key_for_provider(&app, config.provider).unwrap_or_default();
-        let result = jev_tasks::evaluate(
+        let result = jev_tasks::evaluate_with_warning(
             &client,
             &config,
             &key,
@@ -53,7 +53,11 @@ pub fn schedule_polish_audit(
             REVIEW_TIMEOUT,
             None,
         )
-        .await;
+        .await
+        .unwrap_or_else(|warning| {
+            super::llm_client::emit_api_warning(&app, &warning, Some(session_id));
+            None
+        });
         if let Some(report) = result
             .as_ref()
             .and_then(|response| audit_report(session_id, response))
@@ -131,10 +135,10 @@ pub async fn review_corrections(
 ) -> Option<HashSet<(String, String)>> {
     let mut invalid = HashSet::new();
     for batch in rules.chunks(CORRECTION_BATCH_SIZE) {
-        let response = jev_tasks::evaluate(client, config, key,
+        let response = jev_tasks::evaluate_with_warning(client, config, key,
             json!({"rules":batch.iter().map(|(original,corrected)| json!({"original":original,"corrected":corrected})).collect::<Vec<_>>(),
                 "evidence_limit":"Only learned word pairs are available, not audio or original sentences. Context-dependent substitutions are uncertain."}),
-            jev_tasks::correction_questions(batch.len()), REVIEW_TIMEOUT, endpoint_override).await?;
+            jev_tasks::correction_questions(batch.len()), REVIEW_TIMEOUT, endpoint_override).await.ok().flatten()?;
         invalid.extend(invalid_corrections(&response, batch)?);
     }
     Some(invalid)

@@ -494,7 +494,7 @@ async fn run_llm_action(
         let jev_config = state.with_profile(|profile| profile.jev.clone());
         let key = jev_service::load_api_key_for_provider(app_handle, jev_config.provider)
             .unwrap_or_default();
-        let decision = jev_tasks::evaluate(
+        let decision = jev_tasks::evaluate_with_warning(
             &state.http_client,
             &jev_config,
             &key,
@@ -508,7 +508,11 @@ async fn run_llm_action(
             std::time::Duration::from_secs(1),
             None,
         )
-        .await;
+        .await
+        .unwrap_or_else(|warning| {
+            crate::services::llm_client::emit_api_warning(app_handle, &warning, None);
+            None
+        });
         let choice = decision.as_ref().and_then(|payload| {
             jev_tasks::confident_choice(
                 payload,

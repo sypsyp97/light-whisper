@@ -7,7 +7,7 @@ use crate::services::llm_provider::LlmEndpoint;
 use super::events::{emit_stream_citations, emit_stream_error_event, emit_stream_event};
 use super::protocol::{
     ensure_non_empty_llm_content, extract_content, extract_openai_compat_error_message,
-    finalize_responses_sse_accumulated,
+    finalize_responses_sse_accumulated, validate_response_completion,
 };
 use super::request::LlmRequestOptions;
 
@@ -105,6 +105,29 @@ fn anthropic_output_tokens(json: &Value) -> Option<usize> {
         .map(|value| value as usize)
 }
 
+fn parse_stream_json(
+    data: &str,
+    app_handle: Option<&tauri::AppHandle>,
+    event_name: Option<&str>,
+    session_id: Option<u64>,
+) -> Result<Value, String> {
+    serde_json::from_str(data).map_err(|_| {
+        let message = "服务返回了无效的流式数据，无法确认响应完整，请重试。".to_string();
+        emit_stream_error_event(app_handle, event_name, session_id, &message);
+        message
+    })
+}
+
+fn incomplete_stream_error(
+    app_handle: Option<&tauri::AppHandle>,
+    event_name: Option<&str>,
+    session_id: Option<u64>,
+) -> String {
+    let message = "流式连接在响应完成前中断，请重试。".to_string();
+    emit_stream_error_event(app_handle, event_name, session_id, &message);
+    message
+}
+
 pub async fn read_sse_stream(
     endpoint: &LlmEndpoint,
     response: reqwest::Response,
@@ -118,6 +141,7 @@ pub async fn read_sse_stream(
     use tokio_stream::StreamExt;
 
     let mut accumulated = String::new();
+    let mut completed = false;
     let mut token_count: usize = 0;
     let event_timeout = Duration::from_secs(STREAM_EVENT_TIMEOUT_SECS);
     let started_at = tokio::time::Instant::now();
@@ -141,6 +165,9 @@ pub async fn read_sse_stream(
         match tokio::time::timeout(read_budget, stream.next()).await {
             Ok(Some(Ok(event))) => {
                 let data = event.data.trim();
+                if data.is_empty() {
+                    continue;
+                }
                 if data == "[DONE]" {
                     return ensure_non_empty_llm_content(
                         accumulated,
@@ -148,9 +175,14 @@ pub async fn read_sse_stream(
                         "openai_chat_sse_done",
                     );
                 }
-                if let Ok(json) = serde_json::from_str::<Value>(data) {
+                {
+                    let json = parse_stream_json(data, app_handle, event_name, session_id)?;
                     emit_stream_citations(app_handle, event_name, session_id, &json);
-                    if let Some(message) = json["error"]["message"].as_str() {
+                    if json.get("error").is_some_and(|error| !error.is_null())
+                        || json["type"].as_str() == Some("error")
+                    {
+                        let message = extract_openai_compat_error_message(data)
+                            .unwrap_or_else(|| "服务报告错误，请检查服务设置后重试。".to_string());
                         let message = format!("OpenAI 流式错误: {}", message);
                         emit_stream_error_event(app_handle, event_name, session_id, &message);
                         return Err(message);
@@ -170,6 +202,10 @@ pub async fn read_sse_stream(
                             token_count,
                         );
                     }
+                    validate_response_completion(&json).inspect_err(|message| {
+                        emit_stream_error_event(app_handle, event_name, session_id, message);
+                    })?;
+                    completed |= json["choices"][0]["finish_reason"].as_str() == Some("stop");
                 }
             }
             Ok(Some(Err(e))) => {
@@ -177,9 +213,10 @@ pub async fn read_sse_stream(
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
                 return Err(message);
             }
-            Ok(None) => {
-                return ensure_non_empty_llm_content(accumulated, endpoint, "openai_chat_sse_eos")
+            Ok(None) if completed => {
+                return ensure_non_empty_llm_content(accumulated, endpoint, "openai_chat_sse_stop");
             }
+            Ok(None) => return Err(incomplete_stream_error(app_handle, event_name, session_id)),
             Err(_) => {
                 let message = stream_timeout_error(
                     started_at,
@@ -254,9 +291,15 @@ pub async fn read_openai_responses_sse_stream(
                     );
                 }
 
-                let Ok(json) = serde_json::from_str::<Value>(data) else {
-                    continue;
-                };
+                let json = parse_stream_json(data, app_handle, event_name, session_id)?;
+
+                if json.get("error").is_some_and(|error| !error.is_null()) {
+                    let detail = extract_openai_compat_error_message(data)
+                        .unwrap_or_else(|| "服务报告错误，请检查服务设置后重试。".to_string());
+                    let message = format!("Responses 流式错误: {detail}");
+                    emit_stream_error_event(app_handle, event_name, session_id, &message);
+                    return Err(message);
+                }
 
                 emit_stream_citations(app_handle, event_name, session_id, &json);
 
@@ -302,6 +345,9 @@ pub async fn read_openai_responses_sse_stream(
                         }
                     }
                     Some("response.completed") => {
+                        validate_response_completion(&json).inspect_err(|message| {
+                            emit_stream_error_event(app_handle, event_name, session_id, message);
+                        })?;
                         if require_completed
                             && json["response"]["status"].as_str() != Some("completed")
                         {
@@ -324,7 +370,13 @@ pub async fn read_openai_responses_sse_stream(
                                 .or_else(|| extract_openai_compat_error_message(data));
                         let message = response_error.unwrap_or_else(|| {
                             let reason = json["response"]["incomplete_details"]["reason"].as_str();
-                            reason.map_or_else(|| data.to_string(), |r| format!("响应未完成: {r}"))
+                            match reason {
+                                Some("max_output_tokens") => {
+                                    "响应达到输出长度上限，未完成生成。".to_string()
+                                }
+                                Some("content_filter") => "响应因内容过滤未完成。".to_string(),
+                                _ => "服务未完成响应，请检查服务状态后重试。".to_string(),
+                            }
                         });
                         let prefix = if require_completed {
                             "CHATGPT_PLAN_ERROR: "
@@ -347,12 +399,7 @@ pub async fn read_openai_responses_sse_stream(
                 if require_completed {
                     return Err(incomplete_error());
                 }
-                return finalize_responses_sse_accumulated(
-                    accumulated,
-                    fallback_content,
-                    endpoint,
-                    "openai_responses_sse_eos",
-                );
+                return Err(incomplete_stream_error(app_handle, event_name, session_id));
             }
             Err(_) => {
                 let message = stream_timeout_error(
@@ -404,40 +451,41 @@ pub async fn read_anthropic_sse_stream(
         match tokio::time::timeout(read_budget, stream.next()).await {
             Ok(Some(Ok(event))) => match event.event.as_str() {
                 "message_start" | "message_delta" => {
-                    if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
-                        if let Some(tokens) = anthropic_output_tokens(&json) {
-                            if tokens > output_tokens {
-                                output_tokens = tokens;
-                                last_progress_at = tokio::time::Instant::now();
-                                emit_stream_event(
-                                    app_handle,
-                                    event_name,
-                                    session_id,
-                                    None,
-                                    output_tokens,
-                                );
-                            }
+                    let json = parse_stream_json(&event.data, app_handle, event_name, session_id)?;
+                    validate_response_completion(&json).inspect_err(|message| {
+                        emit_stream_error_event(app_handle, event_name, session_id, message);
+                    })?;
+                    if let Some(tokens) = anthropic_output_tokens(&json) {
+                        if tokens > output_tokens {
+                            output_tokens = tokens;
+                            last_progress_at = tokio::time::Instant::now();
+                            emit_stream_event(
+                                app_handle,
+                                event_name,
+                                session_id,
+                                None,
+                                output_tokens,
+                            );
                         }
                     }
                 }
                 "content_block_delta" => {
-                    if let Ok(json) = serde_json::from_str::<Value>(&event.data) {
-                        let delta_type = json["delta"]["type"].as_str();
-                        if matches!(delta_type, Some("text_delta") | None) {
-                            if let Some(text) = json["delta"]["text"]
-                                .as_str()
-                                .filter(|text| !text.is_empty())
-                            {
-                                accumulated.push_str(text);
-                                last_progress_at = tokio::time::Instant::now();
-                                emit_stream_event(
-                                    app_handle,
-                                    event_name,
-                                    session_id,
-                                    Some(text),
-                                    output_tokens,
-                                );
-                            }
+                    let json = parse_stream_json(&event.data, app_handle, event_name, session_id)?;
+                    let delta_type = json["delta"]["type"].as_str();
+                    if matches!(delta_type, Some("text_delta") | None) {
+                        if let Some(text) = json["delta"]["text"]
+                            .as_str()
+                            .filter(|text| !text.is_empty())
+                        {
+                            accumulated.push_str(text);
+                            last_progress_at = tokio::time::Instant::now();
+                            emit_stream_event(
+                                app_handle,
+                                event_name,
+                                session_id,
+                                Some(text),
+                                output_tokens,
+                            );
                         }
                     }
                 }
@@ -453,7 +501,7 @@ pub async fn read_anthropic_sse_stream(
                     let message = serde_json::from_str::<Value>(&event.data)
                         .ok()
                         .and_then(|json| json["error"]["message"].as_str().map(String::from))
-                        .unwrap_or_else(|| event.data.clone());
+                        .unwrap_or_else(|| "服务报告错误，请检查服务设置后重试。".to_string());
                     let message = format!("Anthropic 流式错误: {}", message);
                     emit_stream_error_event(app_handle, event_name, session_id, &message);
                     return Err(message);
@@ -465,9 +513,7 @@ pub async fn read_anthropic_sse_stream(
                 emit_stream_error_event(app_handle, event_name, session_id, &message);
                 return Err(message);
             }
-            Ok(None) => {
-                return ensure_non_empty_llm_content(accumulated, endpoint, "anthropic_sse_eos")
-            }
+            Ok(None) => return Err(incomplete_stream_error(app_handle, event_name, session_id)),
             Err(_) => {
                 let message = stream_timeout_error(
                     started_at,

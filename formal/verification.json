@@ -480,6 +480,10 @@
     ]
   },
   "events": {
+    "api-warning": [
+      "recording",
+      "transport"
+    ],
     "ai-polish-status": [
       "recording",
       "transport"

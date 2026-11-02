@@ -104,7 +104,7 @@ export default function ScreenVisionModelPicker({
       if (requestId !== requestIdRef.current) return;
       setModels(payload.models);
       setSourceUrl(payload.sourceUrl);
-      setError(payload.models.length === 0 ? t("settings.modelListEmpty") : "");
+      setError(payload.warning || (payload.models.length === 0 ? t("settings.modelListEmpty") : ""));
       contextRef.current = requestContext;
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
@@ -258,7 +258,7 @@ export default function ScreenVisionModelPicker({
         </div>
       )}
           <p className="settings-hint" style={{ margin: "4px 0 0" }}>
-            {selectedModel?.ownedBy
+            {error || selectedModel?.ownedBy
               || (models.length > 0
                 ? t("settings.availableModels", { count: models.length })
                 : error || t("settings.canInputModelName"))}

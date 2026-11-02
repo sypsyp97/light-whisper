@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod api_warning_tests;
 pub mod app_state;
 pub mod oauth_session;
 pub mod user_profile;

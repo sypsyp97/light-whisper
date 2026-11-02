@@ -52,6 +52,7 @@ async fn auto_polish_accepts_eighty_percent_and_falls_back_below_either_threshol
             Some(endpoint.as_str()),
         )
         .await
+        .unwrap()
         .expect("automatic mode must yield a decision");
         finish_json_server(server).await;
         assert_eq!(
@@ -64,7 +65,7 @@ async fn auto_polish_accepts_eighty_percent_and_falls_back_below_either_threshol
 }
 
 #[tokio::test]
-async fn unavailable_vercel_or_liquid_keeps_polish_and_screen_without_retry() {
+async fn unavailable_vercel_or_liquid_reports_error_without_retry() {
     for (provider, status, path) in [
         (
             JevProvider::Vercel,
@@ -90,14 +91,12 @@ async fn unavailable_vercel_or_liquid_keeps_polish_and_screen_without_retry() {
             TEST_API_KEY,
             Some(endpoint.as_str()),
         )
-        .await
-        .expect("automatic mode must retain a fallback decision");
+        .await;
         let captured = finish_json_server(server).await;
         assert!(
-            !decision.skip_polish,
-            "{provider:?} must not fabricate a pass"
+            decision.is_err(),
+            "provider failures must reach the warning caller"
         );
-        assert_eq!(decision.screen_allowed, None);
         assert_eq!(count.load(Ordering::SeqCst), 1);
         assert_eq!(captured.path, path);
         assert_eq!(question_ids(&captured.body), vec!["route", "screen"]);
@@ -350,7 +349,7 @@ fn question_ids(body: &Value) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn partial_screen_answer_cannot_bypass_polishing() {
+async fn missing_required_screen_answer_returns_an_error() {
     let state = expansion_state(true, true);
     let overrides = expansion_overrides(true, false);
     let response = br#"{"answers":{"route":{"type":"choice","choice":"pass","probabilities":{"pass":0.95,"polish":0.04,"uncertain":0.01}}}}"#;
@@ -363,11 +362,9 @@ async fn partial_screen_answer_cannot_bypass_polishing() {
         TEST_API_KEY,
         Some(endpoint.as_str()),
     )
-    .await
-    .expect("eligible routing should return a fallback decision");
+    .await;
     finish_json_server(server).await;
-    assert!(!decision.skip_polish);
-    assert_eq!(decision.screen_allowed, None);
+    assert!(decision.is_err());
     assert_eq!(count.load(Ordering::SeqCst), 1);
 }
 
@@ -387,6 +384,7 @@ async fn auto_route_and_screen_share_one_request_and_preserve_policy() {
         Some(endpoint.as_str()),
     )
     .await
+    .unwrap()
     .expect("eligible auto routing should return a decision");
     let captured = finish_json_server(server).await;
 
@@ -413,6 +411,7 @@ async fn route_pass_with_screen_needed_keeps_normal_processing_and_screen_contex
         Some(endpoint.as_str()),
     )
     .await
+    .unwrap()
     .expect("eligible routing should return a decision");
     let captured = finish_json_server(server).await;
 
@@ -438,6 +437,7 @@ async fn polish_on_with_screen_auto_asks_only_screen_and_never_skips() {
         Some(endpoint.as_str()),
     )
     .await
+    .unwrap()
     .expect("screen auto should return a decision when polish is on");
     let captured = finish_json_server(server).await;
 
@@ -463,6 +463,7 @@ async fn translation_auto_asks_only_screen_and_never_skips_polish() {
         Some(endpoint.as_str()),
     )
     .await
+    .unwrap()
     .expect("translation screen auto should return a decision");
     let captured = finish_json_server(server).await;
 
@@ -487,6 +488,7 @@ async fn screen_request_false_omits_screen_question_and_all_gates_skip_network()
         Some(endpoint.as_str()),
     )
     .await
+    .unwrap()
     .expect("route auto should remain eligible without a requested screen");
     let captured = finish_json_server(server).await;
 
@@ -505,7 +507,8 @@ async fn screen_request_false_omits_screen_question_and_all_gates_skip_network()
         TEST_API_KEY,
         Some(endpoint.as_str()),
     )
-    .await;
+    .await
+    .unwrap();
 
     assert!(decision.is_none());
     assert_eq!(request_count.load(Ordering::SeqCst), 0);
@@ -531,6 +534,7 @@ async fn explicit_screen_request_keeps_screen_enabled_after_unneeded_answer() {
         Some(endpoint.as_str()),
     )
     .await
+    .unwrap()
     .expect("explicit screen request should remain eligible");
     let captured = finish_json_server(server).await;
 
@@ -541,7 +545,7 @@ async fn explicit_screen_request_keeps_screen_enabled_after_unneeded_answer() {
 }
 
 #[tokio::test]
-async fn malformed_or_stalled_response_falls_back_without_skip_or_duplicate_call() {
+async fn malformed_or_stalled_response_reports_error_without_duplicate_call() {
     let cases = [("malformed", "200 OK", br#"not json"#.as_slice())];
     for (label, status, response) in cases {
         let state = expansion_state(true, true);
@@ -555,15 +559,10 @@ async fn malformed_or_stalled_response_falls_back_without_skip_or_duplicate_call
             TEST_API_KEY,
             Some(endpoint.as_str()),
         )
-        .await
-        .expect("eligible malformed response should preserve baseline decision");
+        .await;
         let _captured = finish_json_server(server).await;
 
-        assert!(
-            !decision.skip_polish,
-            "{label} response must not skip polish"
-        );
-        assert_eq!(decision.screen_allowed, None);
+        assert!(decision.is_err(), "{label} must report failure");
         assert_eq!(request_count.load(Ordering::SeqCst), 1);
     }
 
@@ -583,15 +582,13 @@ async fn malformed_or_stalled_response_falls_back_without_skip_or_duplicate_call
         ),
     )
     .await
-    .expect("stalled body should honor the bounded expansion deadline")
-    .expect("eligible stalled response should preserve baseline decision");
+    .expect("stalled body should honor the bounded expansion deadline");
     timeout(Duration::from_millis(250), request_seen)
         .await
         .expect("stalled server should observe one request")
         .expect("stalled request notification should arrive");
 
-    assert!(!decision.skip_polish);
-    assert_eq!(decision.screen_allowed, None);
+    assert!(decision.is_err(), "timeout must reach the warning caller");
     assert_eq!(request_count.load(Ordering::SeqCst), 1);
     assert!(started.elapsed() < Duration::from_millis(1_800));
     server.abort();
@@ -627,6 +624,7 @@ async fn configured_jev_polish_and_screen_route_use_the_captured_connection() {
         Some(&endpoint),
     )
     .await
+    .unwrap()
     .unwrap();
     let captured = finish_json_server(server).await;
     assert_eq!(captured.body["model"], "future-polish-decider");
@@ -634,4 +632,37 @@ async fn configured_jev_polish_and_screen_route_use_the_captured_connection() {
     assert!(decision.skip_polish);
     assert_eq!(decision.screen_allowed, Some(false));
     assert_eq!(count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn eligible_expansion_reports_missing_key_but_opt_out_stays_inert() {
+    let state = expansion_state(true, true);
+    let mut overrides = expansion_overrides(true, false);
+    let result = evaluate_polish_expansion(
+        &state,
+        ORIGINAL,
+        &overrides,
+        &default_config(JevProvider::TypeSafe),
+        "",
+        None,
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "eligible routing must report missing authentication"
+    );
+    overrides.allow_jev_gate = false;
+    let result = evaluate_polish_expansion(
+        &state,
+        ORIGINAL,
+        &overrides,
+        &default_config(JevProvider::TypeSafe),
+        "",
+        None,
+    )
+    .await;
+    assert!(
+        result.unwrap().is_none(),
+        "opt-out must not report an unused key"
+    );
 }

@@ -161,10 +161,12 @@ async fn transcribe_via_dashscope_asr(
                         .into_iter()
                         .next()?
                         .message
-                        .map(|m| m.content_text())
+                        .and_then(|m| m.content_text())
                 })
         })
-        .unwrap_or_default();
+        .ok_or_else(|| {
+            AppError::Asr("DashScope ASR 响应缺少转写文本，请重试或检查模型配置".into())
+        })?;
 
     if text_out.is_empty() {
         log::warn!(
@@ -240,31 +242,30 @@ async fn transcribe_via_omni_chat(
     let mut stream = resp.bytes_stream().eventsource();
     let mut collected = String::new();
     let mut stream_error: Option<String> = None;
-    let mut logged_parse_failure = false;
+    let mut completed = false;
 
     while let Some(event) = stream.next().await {
         let event =
             event.map_err(|e| AppError::Asr(format!("DashScope Omni 流式读取失败: {}", e)))?;
         let data = event.data.trim();
-        if data.is_empty() || data == "[DONE]" {
+        if data.is_empty() {
             continue;
         }
-        let parsed = match serde_json::from_str::<OmniStreamChunk>(data) {
-            Ok(p) => p,
-            Err(e) => {
-                // 对第一个 parse-fail 留一条日志，后续的保持安静——否则一条损坏
-                // 会淹没日志。HTTP 层错误已经在主路径上显式处理过，这里只兜底。
-                if !logged_parse_failure {
-                    log::warn!(
-                        "DashScope Omni 流中跳过无法解析的 chunk: {} (err={})",
-                        data,
-                        e
-                    );
-                    logged_parse_failure = true;
-                }
-                continue;
-            }
-        };
+        if data == "[DONE]" {
+            completed = true;
+            break;
+        }
+        let parsed: OmniStreamChunk = serde_json::from_str(data)
+            .map_err(|_| AppError::Asr("DashScope Omni 流式响应格式无效，请重试".into()))?;
+        if parsed
+            .code
+            .as_deref()
+            .is_some_and(|code| !code.is_empty() && code != "Success")
+        {
+            return Err(AppError::Asr(
+                "DashScope Omni 返回服务错误，请检查 API Key、模型权限或额度后重试".into(),
+            ));
+        }
         if let Some(err_obj) = parsed.error {
             stream_error = Some(
                 err_obj
@@ -274,6 +275,14 @@ async fn transcribe_via_omni_chat(
         }
         if let Some(choices) = parsed.choices {
             for choice in choices {
+                if let Some(reason) = choice.finish_reason.as_deref() {
+                    if reason != "stop" {
+                        return Err(AppError::Asr(
+                            "DashScope Omni 转写未正常完成，请重试".into(),
+                        ));
+                    }
+                    completed = true;
+                }
                 if let Some(delta) = choice.delta {
                     if let Some(content) = delta.content_as_string() {
                         collected.push_str(&content);
@@ -287,6 +296,9 @@ async fn transcribe_via_omni_chat(
         return Err(AppError::Asr(format!("DashScope Omni 返回错误: {}", err)));
     }
 
+    if !completed {
+        return Err(AppError::Asr("DashScope Omni 响应提前结束，请重试".into()));
+    }
     let collected = collected.trim().to_string();
     if collected.is_empty() {
         // 空流没有 [DONE] 以外的任何内容，通常意味着上游模型拒绝或配额耗尽，
@@ -330,15 +342,16 @@ struct DashScopeAsrMessage {
 }
 
 impl DashScopeAsrMessage {
-    fn content_text(self) -> String {
-        match self.content {
-            Some(DashScopeAsrContentField::Text(s)) => s,
-            Some(DashScopeAsrContentField::List(items)) => items
-                .into_iter()
-                .filter_map(|i| i.text)
-                .collect::<Vec<_>>()
-                .join(""),
-            None => String::new(),
+    fn content_text(self) -> Option<String> {
+        match self.content? {
+            DashScopeAsrContentField::Text(s) => Some(s),
+            DashScopeAsrContentField::List(items) => {
+                let texts = items
+                    .into_iter()
+                    .filter_map(|item| item.text)
+                    .collect::<Vec<_>>();
+                (!texts.is_empty()).then(|| texts.join(""))
+            }
         }
     }
 }
@@ -359,12 +372,14 @@ struct DashScopeAsrContent {
 
 #[derive(Deserialize)]
 struct OmniStreamChunk {
+    code: Option<String>,
     choices: Option<Vec<OmniStreamChoice>>,
     error: Option<OmniStreamError>,
 }
 
 #[derive(Deserialize)]
 struct OmniStreamChoice {
+    finish_reason: Option<String>,
     delta: Option<OmniStreamDelta>,
 }
 
@@ -426,9 +441,17 @@ mod tests {
         status: &str,
         response: Value,
     ) -> (Result<TranscriptionResult, AppError>, CapturedRequest) {
+        transcribe_at_raw_capture_server(model, status, response.to_string(), false).await
+    }
+
+    async fn transcribe_at_raw_capture_server(
+        model: &str,
+        status: &str,
+        response: String,
+        omni: bool,
+    ) -> (Result<TranscriptionResult, AppError>, CapturedRequest) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
-        let response = response.to_string();
         let status = status.to_string();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
@@ -467,8 +490,13 @@ mod tests {
             let body_start = header_end + 4;
             let body = serde_json::from_slice(&request[body_start..body_start + content_length])
                 .expect("request body must be JSON");
+            let content_type = if omni {
+                "text/event-stream"
+            } else {
+                "application/json"
+            };
             let response = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
                 response.len(),
             );
             socket.write_all(response.as_bytes()).await.unwrap();
@@ -480,10 +508,14 @@ mod tests {
         });
         let mut state = AppState::new();
         state.http_client = reqwest::Client::builder().no_proxy().build().unwrap();
-        let result = tokio::time::timeout(
-            Duration::from_secs(5),
-            transcribe_via_dashscope_asr(&state, &base, model, "test-api-key", AUDIO.to_vec()),
-        )
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            if omni {
+                transcribe_via_omni_chat(&state, &base, model, "test-api-key", AUDIO.to_vec()).await
+            } else {
+                transcribe_via_dashscope_asr(&state, &base, model, "test-api-key", AUDIO.to_vec())
+                    .await
+            }
+        })
         .await
         .expect("loopback transcription must finish");
         let request = tokio::time::timeout(Duration::from_secs(5), server)
@@ -491,6 +523,139 @@ mod tests {
             .expect("capture server must finish")
             .expect("capture server must not panic");
         (result, request)
+    }
+
+    #[tokio::test]
+    async fn missing_transcript_fields_are_asr_errors() {
+        let mut accepted = Vec::new();
+        for response in [
+            json!({}),
+            json!({"output": null}),
+            json!({"output": {}}),
+            json!({"output": {"text": null}}),
+            json!({"output": {"output": {"sentence": {}}}}),
+            json!({"output": {"output": {"sentence": {"text": null}}}}),
+            json!({"output": {"choices": []}}),
+            json!({"output": {"choices": [{"message": {}}]}}),
+            json!({"output": {"choices": [{"message": {"content": null}}]}}),
+            json!({"output": {"choices": [{"message": {"content": []}}]}}),
+            json!({"output": {"choices": [{"message": {"content": [{}]}}]}}),
+        ] {
+            let (result, _) =
+                transcribe_at_capture_server(NATIVE_MODEL, "200 OK", response.clone()).await;
+            if !matches!(result, Err(AppError::Asr(_))) {
+                accepted.push(response);
+            }
+        }
+        assert!(
+            accepted.is_empty(),
+            "missing transcript accepted: {accepted:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_empty_transcripts_remain_successful_silence() {
+        for response in [
+            json!({"output": {"text": ""}}),
+            json!({"output": {"output": {"sentence": {"text": ""}}}}),
+            json!({"output": {"choices": [{"message": {"content": ""}}]}}),
+            json!({"output": {"choices": [{"message": {"content": [{"text": ""}]}}]}}),
+        ] {
+            let (result, _) =
+                transcribe_at_capture_server(NATIVE_MODEL, "200 OK", response.clone()).await;
+            let result =
+                result.unwrap_or_else(|error| panic!("explicit silence {response}: {error:?}"));
+            assert!(result.success);
+            assert!(result.text.is_empty());
+            assert!(result.error.is_none());
+        }
+    }
+
+    const OMNI_CONTENT: &str =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"spoken words\"}}]}\n\n";
+
+    #[tokio::test]
+    async fn omni_provider_error_code_after_content_is_an_asr_error() {
+        let (result, _) = transcribe_at_raw_capture_server(
+            "qwen3-omni-flash",
+            "200 OK",
+            format!("{OMNI_CONTENT}data: {{\"code\":\"InvalidApiKey\",\"message\":\"synthetic-provider-error\"}}\n\ndata: [DONE]\n\n"),
+            true,
+        )
+        .await;
+        assert!(
+            matches!(result, Err(AppError::Asr(_))),
+            "provider error must fail instead of returning partial text: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn omni_success_code_metadata_preserves_completed_transcript() {
+        let (result, _) = transcribe_at_raw_capture_server(
+            "qwen3-omni-flash",
+            "200 OK",
+            format!("data: {{\"code\":\"Success\"}}\n\n{OMNI_CONTENT}data: [DONE]\n\n"),
+            true,
+        )
+        .await;
+        let result = result.expect("Success metadata must not reject a valid transcription");
+        assert!(result.success);
+        assert_eq!(result.text, "spoken words");
+        assert!(result.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn omni_malformed_event_after_content_is_an_asr_error() {
+        let (result, _) = transcribe_at_raw_capture_server(
+            "qwen3-omni-flash",
+            "200 OK",
+            format!("{OMNI_CONTENT}data: {{broken-json\n\ndata: [DONE]\n\n"),
+            true,
+        )
+        .await;
+        assert!(
+            matches!(result, Err(AppError::Asr(_))),
+            "malformed event must fail: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn omni_content_without_completion_is_an_asr_error() {
+        let (result, _) = transcribe_at_raw_capture_server(
+            "qwen3-omni-flash",
+            "200 OK",
+            OMNI_CONTENT.to_string(),
+            true,
+        )
+        .await;
+        assert!(
+            matches!(result, Err(AppError::Asr(_))),
+            "truncated stream must fail: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn omni_accepts_done_or_stop_completion() {
+        for completion in [
+            "data: [DONE]\n\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+        ] {
+            let (result, request) = transcribe_at_raw_capture_server(
+                "qwen3-omni-flash",
+                "200 OK",
+                format!("{OMNI_CONTENT}{completion}"),
+                true,
+            )
+            .await;
+            assert_eq!(
+                request.request_line,
+                "POST /compatible-mode/v1/chat/completions HTTP/1.1"
+            );
+            let result = result.unwrap();
+            assert!(result.success);
+            assert_eq!(result.text, "spoken words");
+            assert!(result.error.is_none());
+        }
     }
 
     #[tokio::test]

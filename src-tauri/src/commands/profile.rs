@@ -859,6 +859,11 @@ pub async fn run_correction_validation(
             return Ok(removed);
         }
         log::debug!("Jev correction review unavailable; using configured LLM reviewer");
+        crate::services::llm_client::emit_api_warning(
+            app_handle,
+            "Jev 纠错审核不可用，已改用配置的语言模型。请检查决策模型的 API 配置或网络后重试。",
+            None,
+        );
     }
 
     let config = state.llm_provider_config();

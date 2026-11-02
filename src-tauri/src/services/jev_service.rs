@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{json, Value};
@@ -258,6 +258,7 @@ pub fn build_evaluation_request(
 ///
 /// `text` and `polishing_policy` are inserted as JSON values rather than into
 /// a prompt string, so untrusted ASR content cannot change the request shape.
+#[cfg(test)]
 pub fn build_request(
     client: &reqwest::Client,
     config: &JevConfig,
@@ -329,83 +330,24 @@ pub fn parse_decision(response: &str) -> bool {
         && pass >= uncertain
 }
 
-/// Evaluate one ordinary-dictation input. Any transport, status, timeout, or
-/// parsing problem returns false so the caller continues its normal polish path.
-pub async fn evaluate(
+/// Evaluate the gate while preserving optional-service failure diagnostics.
+pub async fn evaluate_with_warning(
     client: &reqwest::Client,
     config: &JevConfig,
     api_key: &str,
     text: &str,
     polishing_policy: &str,
     endpoint_override: Option<String>,
-) -> bool {
-    let provider = config.provider;
-    let started = Instant::now();
-    let request = match build_request(
+) -> Result<bool, String> {
+    let payload = super::jev_tasks::evaluate_with_warning(
         client,
         config,
         api_key,
-        text,
-        polishing_policy,
+        json!({"text": text, "polishing_policy": polishing_policy}),
+        route_questions(),
+        REQUEST_TIMEOUT,
         endpoint_override.as_deref(),
-    ) {
-        Ok(request) => request,
-        Err(_) => {
-            log::warn!(
-                "Jev gate skipped: provider={:?}, reason=request_build, elapsed_ms={}",
-                provider,
-                started.elapsed().as_millis()
-            );
-            return false;
-        }
-    };
-
-    let result = tokio::time::timeout(REQUEST_TIMEOUT, async {
-        let response = client.execute(request).await.map_err(|_| None)?;
-        if !response.status().is_success() {
-            return Err(Some(response.status().as_u16()));
-        }
-        let body = response.bytes().await.map_err(|_| None)?;
-        Ok(parse_decision(
-            std::str::from_utf8(&body).unwrap_or_default(),
-        ))
-    })
-    .await;
-
-    let elapsed_ms = started.elapsed().as_millis();
-    match result {
-        Ok(Ok(true)) => {
-            log::info!(
-                "Jev gate decision: provider={:?}, reason=pass, elapsed_ms={}",
-                provider,
-                elapsed_ms
-            );
-            true
-        }
-        Ok(Ok(false)) => {
-            log::info!(
-                "Jev gate decision: provider={:?}, reason=nonpass_or_invalid, elapsed_ms={}",
-                provider,
-                elapsed_ms
-            );
-            false
-        }
-        Ok(Err(status)) => {
-            log::warn!(
-                "Jev gate skipped: provider={:?}, reason=http_or_body_error, status={:?}, elapsed_ms={}",
-                provider,
-                status,
-                elapsed_ms
-            );
-            false
-        }
-        Err(_) => {
-            log::warn!(
-                "Jev gate skipped: provider={:?}, reason=timeout, elapsed_ms={}",
-                provider,
-                elapsed_ms
-            );
-            false
-        }
-    }
+    )
+    .await?;
+    Ok(payload.is_some_and(|payload| parse_decision(&payload.to_string())))
 }

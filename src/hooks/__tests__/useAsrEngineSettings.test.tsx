@@ -4,9 +4,11 @@ import { useAsrEngineSettings } from "../useAsrEngineSettings";
 
 const api = vi.hoisted(() => ({ getEngine: vi.fn(), getOnlineAsrApiKey: vi.fn(), getOnlineAsrEndpoint: vi.fn(), getAlibabaAsrConfig: vi.fn(), listAlibabaAsrModels: vi.fn(), setAlibabaAsrModel: vi.fn(), setEngine: vi.fn(), setOnlineAsrApiKey: vi.fn(), setOnlineAsrEndpoint: vi.fn() }));
 const errorToast = vi.hoisted(() => vi.fn());
+const warningToast = vi.hoisted(() => vi.fn());
+const translate = vi.hoisted(() => (key: string) => key);
 vi.mock("@/api/tauri", () => api);
-vi.mock("sonner", () => ({ toast: { error: errorToast, success: vi.fn() } }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("sonner", () => ({ toast: { error: errorToast, warning: warningToast, success: vi.fn() } }));
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: translate }) }));
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => { resolve = done; });
@@ -28,6 +30,46 @@ beforeEach(() => {
   api.setOnlineAsrEndpoint.mockResolvedValue({ region: "domestic", url: "https://new.example" });
 });
 describe("online ASR credential ownership", () => {
+  it("shows fallback catalog warnings and preserves the supplied models", async () => {
+    const { result } = await setup("alibaba-asr");
+    api.listAlibabaAsrModels.mockResolvedValueOnce({ models: ["cached-model"], source: "fallback", warning: "Catalog refresh unavailable" });
+    await act(async () => { await result.current.refreshAlibabaModels(); });
+    expect(result.current.alibabaAsrModels).toEqual(["cached-model"]);
+    expect(warningToast).toHaveBeenCalledWith("Catalog refresh unavailable");
+  });
+
+  it("reports a rejected refresh while retaining the last usable catalog", async () => {
+    const { result } = await setup("alibaba-asr");
+    api.listAlibabaAsrModels.mockResolvedValueOnce({ models: ["retained"], source: "live" });
+    await act(async () => { await result.current.refreshAlibabaModels(); });
+    api.listAlibabaAsrModels.mockRejectedValueOnce(new Error("catalog offline"));
+    await act(async () => { await result.current.refreshAlibabaModels(); });
+    expect(result.current.alibabaAsrModels).toEqual(["retained"]);
+    expect(errorToast).toHaveBeenCalled();
+  });
+
+  it("ignores a retired refresh warning after a newer catalog succeeds", async () => {
+    const { result } = await setup("alibaba-asr");
+    const old = deferred<{ models: string[]; source: string; warning: string }>();
+    api.listAlibabaAsrModels.mockReturnValueOnce(old.promise);
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.refreshAlibabaModels(); });
+    api.listAlibabaAsrModels.mockResolvedValueOnce({ models: ["current"], source: "live" });
+    await act(async () => { await result.current.refreshAlibabaModels(); });
+    await act(async () => { old.resolve({ models: ["retired"], source: "fallback", warning: "Retired warning" }); await pending; });
+    expect(warningToast).not.toHaveBeenCalled();
+    expect(result.current.alibabaAsrModels).toEqual(["current"]);
+  });
+
+  it("keeps a no-key fallback catalog quiet", async () => {
+    api.getOnlineAsrApiKey.mockResolvedValue("");
+    const { result } = await setup("alibaba-asr");
+    api.listAlibabaAsrModels.mockResolvedValueOnce({ models: ["fallback-model"], source: "fallback" });
+    await act(async () => { await result.current.refreshAlibabaModels(); });
+    expect(result.current.alibabaAsrModels).toEqual(["fallback-model"]);
+    expect(warningToast).not.toHaveBeenCalled();
+    expect(errorToast).not.toHaveBeenCalled();
+  });
   it("keeps a newer selected model when the initial config read arrives late", async () => {
     const initial = deferred<{model: string; models: string[]}>();
     api.getAlibabaAsrConfig.mockReturnValueOnce(initial.promise);

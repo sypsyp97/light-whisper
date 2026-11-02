@@ -855,6 +855,7 @@ async fn evaluate_assistant_jev_routing(
     search_enabled: bool,
     search_routing: bool,
     config: &JevConfig,
+    warning_session_id: Option<u64>,
 ) -> AssistantJevRouting {
     let include_screen = screen_routing && screen_requested;
     let include_search = search_routing && search_enabled;
@@ -880,7 +881,7 @@ async fn evaluate_assistant_jev_routing(
     });
     let jev_key =
         jev_service::load_api_key_for_provider(app_handle, config.provider).unwrap_or_default();
-    let payload = jev_tasks::evaluate(
+    let payload = jev_tasks::evaluate_with_warning(
         &state.http_client,
         config,
         &jev_key,
@@ -889,7 +890,15 @@ async fn evaluate_assistant_jev_routing(
         std::time::Duration::from_secs(1),
         None,
     )
-    .await;
+    .await
+    .unwrap_or_else(|_| {
+        llm_client::emit_api_warning(
+            app_handle,
+            "助手决策服务不可用，已按当前设置继续处理。请检查决策服务的连接与 API Key。",
+            warning_session_id,
+        );
+        None
+    });
 
     let baseline_search = if search_enabled {
         decide_assistant_web_search(asr_text, selected_text)
@@ -934,6 +943,7 @@ async fn generate_content_inner(
     request_context: AssistantRequestContext,
 ) -> Result<AssistantOutcome, AppError> {
     let request_started = Instant::now();
+    let warning_session_id = request_context.bound_to_recording.then_some(session_id);
     let config = state.llm_provider_config();
     let endpoint = llm_provider::assistant_endpoint_for_config(&config);
     let assistant_provider = endpoint.provider.clone();
@@ -988,6 +998,7 @@ async fn generate_content_inner(
         effective_ws.enabled,
         jev_config.search_routing,
         &jev_config,
+        warning_session_id,
     )
     .await;
     let screen_context_enabled = jev_routing
@@ -1158,6 +1169,11 @@ async fn generate_content_inner(
                 }
                 Err(err) => {
                     log::warn!("截取屏幕上下文失败，继续纯文本助手请求: {}", err);
+                    llm_client::emit_api_warning(
+                        app_handle,
+                        "助手屏幕截图失败，已继续回答，但未使用屏幕上下文。",
+                        warning_session_id,
+                    );
                     Vec::new()
                 }
             }
@@ -1191,6 +1207,11 @@ async fn generate_content_inner(
                 }
                 Err(err) => {
                     log::warn!("助手视觉代理读取失败，继续无屏幕上下文请求: {}", err);
+                    llm_client::emit_api_warning(
+                        app_handle,
+                        "助手视觉服务失败，已继续回答，但未使用屏幕上下文。请检查视觉服务设置。",
+                        warning_session_id,
+                    );
                     images.clear();
                     None
                 }
@@ -1307,6 +1328,11 @@ async fn generate_content_inner(
                     }
                     Err(vision_err) => {
                         log::warn!("助手视觉代理不可用，继续无屏幕上下文请求: {}", vision_err);
+                        llm_client::emit_api_warning(
+                        app_handle,
+                        "助手视觉服务失败，已继续回答，但未使用屏幕上下文。请检查视觉服务设置。",
+                            warning_session_id,
+                    );
                         screen_vision_service::without_screen_context(&user_content)
                     }
                 };
@@ -1342,9 +1368,15 @@ async fn generate_content_inner(
                 err
             );
             let fallback_options = LlmRequestOptions {
+                // The answer can continue, but the requested search was unavailable.
                 web_search: false,
                 ..request_options
             };
+            llm_client::emit_api_warning(
+                app_handle,
+                "当前模型不支持联网搜索，已继续回答，但未查询网络。请更换搜索服务或模型。",
+                warning_session_id,
+            );
             let fallback_body = llm_client::build_llm_body(
                 &endpoint,
                 &system_prompt,

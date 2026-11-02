@@ -4,6 +4,8 @@ mod request;
 mod stream;
 mod transport;
 
+pub(crate) use events::emit_api_warning;
+
 pub use request::{build_llm_body, LlmImageInput, LlmRequestOptions, LlmUserInput};
 #[cfg(test)]
 pub use stream::{read_anthropic_sse_stream, read_openai_responses_sse_stream, read_sse_stream};

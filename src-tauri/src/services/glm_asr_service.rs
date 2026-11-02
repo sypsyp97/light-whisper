@@ -113,7 +113,11 @@ pub async fn transcribe(
         return Err(AppError::Asr(format!("GLM-ASR HTTP {}: {}", status, body)));
     }
 
-    let parsed: GlmResponse = serde_json::from_str(&body)
+    parse_response(&body)
+}
+
+fn parse_response(body: &str) -> Result<TranscriptionResult, AppError> {
+    let parsed: GlmResponse = serde_json::from_str(body)
         .map_err(|e| AppError::Asr(format!("解析 GLM-ASR 响应失败: {}", e)))?;
 
     if let Some(code) = parsed.code {
@@ -129,7 +133,9 @@ pub async fn transcribe(
     }
 
     Ok(TranscriptionResult {
-        text: parsed.text.unwrap_or_default(),
+        text: parsed.text.ok_or_else(|| {
+            AppError::Asr("GLM-ASR 响应缺少转写文本，请重试或检查模型配置".into())
+        })?,
         duration: None,
         success: true,
         error: None,
@@ -142,6 +148,25 @@ mod tests {
     use super::*;
 
     const SAMPLE_RATE: u32 = 16_000;
+
+    #[test]
+    fn missing_transcript_is_an_asr_error() {
+        for body in [r#"{}"#, r#"{"text":null}"#, r#"{"code":0}"#] {
+            let result = parse_response(body);
+            assert!(
+                matches!(result, Err(AppError::Asr(_))),
+                "missing transcript must fail for {body}: {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_empty_transcript_remains_successful_silence() {
+        let result = parse_response(r#"{"text":""}"#).unwrap();
+        assert!(result.success);
+        assert!(result.text.is_empty());
+        assert!(result.error.is_none());
+    }
 
     fn wav_with_duration_secs(seconds: u32) -> Vec<u8> {
         let spec = hound::WavSpec {

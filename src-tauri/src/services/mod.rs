@@ -30,6 +30,8 @@ mod deepseek_native_web_search_tests;
 #[cfg(test)]
 mod grok_build_oauth_tests;
 #[cfg(test)]
+mod jev_error_visibility_tests;
+#[cfg(test)]
 mod jev_service_tests;
 #[cfg(test)]
 mod jev_tasks_tests;

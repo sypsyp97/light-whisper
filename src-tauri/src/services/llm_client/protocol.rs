@@ -285,6 +285,35 @@ pub(crate) fn extract_content(endpoint: &LlmEndpoint, json: &Value) -> Option<St
     }
 }
 
+pub(super) fn validate_response_completion(json: &Value) -> Result<(), String> {
+    let response = json
+        .get("response")
+        .filter(|value| value.is_object())
+        .unwrap_or(json);
+    if json.get("error").is_some_and(|error| !error.is_null())
+        || response.get("error").is_some_and(|error| !error.is_null())
+    {
+        return Err("服务返回错误，无法使用本次响应。请检查服务配置后重试。".into());
+    }
+    if matches!(
+        response["status"].as_str(),
+        Some("incomplete" | "failed" | "cancelled" | "in_progress")
+    ) {
+        return Err("服务响应未完成，请重试。".into());
+    }
+    let reason = json["choices"][0]["finish_reason"]
+        .as_str()
+        .or_else(|| json["stop_reason"].as_str())
+        .or_else(|| json["delta"]["stop_reason"].as_str());
+    match reason {
+        Some("length" | "max_tokens" | "model_context_window_exceeded") => {
+            Err("服务响应因长度限制而截断，请缩短输入或提高输出上限后重试。".into())
+        }
+        Some("content_filter") => Err("服务因内容过滤未返回完整响应，请检查请求后重试。".into()),
+        _ => Ok(()),
+    }
+}
+
 pub(crate) fn extract_openai_compat_error_message(body_text: &str) -> Option<String> {
     let json = serde_json::from_str::<Value>(body_text).ok()?;
     let error = json.get("error").unwrap_or(&json);

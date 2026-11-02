@@ -24,6 +24,8 @@ pub struct AiModelInfo {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiModelListPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
     pub models: Vec<AiModelInfo>,
     pub source_url: String,
 }
@@ -402,6 +404,9 @@ fn cached_codex_fallback(
     let models = cache_key.and_then(|key| cached_codex_models(key, now))?;
     log::warn!("Codex 模型目录刷新失败，继续使用最近成功目录: {error}");
     Some(AiModelListPayload {
+        warning: Some(
+            "模型目录刷新失败，当前显示最近成功获取的列表，请检查连接或登录状态后重试。".into(),
+        ),
         models,
         source_url: source_url.to_string(),
     })
@@ -486,11 +491,13 @@ pub async fn list_ai_models(
     if source_url.is_empty() {
         if is_anthropic {
             return Ok(AiModelListPayload {
+                warning: None,
                 models: anthropic_models(),
                 source_url,
             });
         }
         return Ok(AiModelListPayload {
+            warning: None,
             models: vec![],
             source_url,
         });
@@ -505,7 +512,11 @@ pub async fn list_ai_models(
             .as_deref()
             .and_then(|key| cached_codex_models(key, Instant::now()))
         {
-            return Ok(AiModelListPayload { models, source_url });
+            return Ok(AiModelListPayload {
+                models,
+                source_url,
+                warning: None,
+            });
         }
     }
 
@@ -575,8 +586,11 @@ pub async fn list_ai_models(
     let response = match result {
         Ok(r) if r.status().is_success() => r,
         _ if is_anthropic => {
-            // Anthropic API 查询失败（代理不支持等），回退硬编码
+            // Keep the built-in catalog available while reporting the failed refresh.
             return Ok(AiModelListPayload {
+                warning: Some(
+                    "模型目录刷新失败，当前显示内置列表，请检查连接或 API 配置后重试。".into(),
+                ),
                 models: anthropic_models(),
                 source_url,
             });
@@ -673,7 +687,11 @@ pub async fn list_ai_models(
         store_codex_models(cache_key, &models);
     }
 
-    Ok(AiModelListPayload { models, source_url })
+    Ok(AiModelListPayload {
+        models,
+        source_url,
+        warning: None,
+    })
 }
 
 #[cfg(test)]
@@ -938,6 +956,14 @@ mod tests {
         )
         .expect("a recent successful catalog should remain available");
         assert_eq!(fallback.models, models);
+        let serialized = serde_json::to_value(&fallback).unwrap();
+        let warning = serialized["warning"]
+            .as_str()
+            .expect("cached fallback must expose its refresh failure");
+        assert!(!warning.trim().is_empty());
+        assert!(!warning.contains("temporary failure"));
+        assert!(!warning.contains(&api_key));
+        assert!(!warning.contains(codex_oauth_service::CHATGPT_CODEX_MODELS_URL));
         store_codex_models(&chatgpt_key, &fallback.models);
         remove_cached_codex_models_for_identity(&codex_models_cache_identity(&token));
         assert_eq!(cached_codex_models(&api_key, Instant::now()), None);

@@ -69,6 +69,7 @@ export interface AiModelInfo {
 }
 
 export interface AiModelListPayload {
+  warning?: string;
   models: AiModelInfo[];
   sourceUrl: string;
 }

@@ -2350,3 +2350,331 @@ async fn anthropic_sse_loopback_surfaces_error_event() {
         "Anthropic 流式错误: anthropic provider failed"
     );
 }
+
+// Exercise the same public readers as transport, using only the loopback SSE server.
+async fn read_sse_visibility(protocol: &str, body: &str) -> Result<String, String> {
+    let (response, server) = open_sse_response(body).await;
+    let endpoint = streaming_test_endpoint(
+        if protocol == "anthropic" {
+            ApiFormat::Anthropic
+        } else {
+            ApiFormat::OpenaiCompat
+        },
+        "visibility-test",
+    );
+    let timeout = std::time::Duration::from_secs(5);
+    let result = match protocol {
+        "chat" => {
+            llm_client::read_sse_stream(&endpoint, response, None, None, None, None, timeout).await
+        }
+        "responses" => {
+            llm_client::read_openai_responses_sse_stream(
+                response, &endpoint, None, None, None, None, timeout, false,
+            )
+            .await
+        }
+        "anthropic" => {
+            llm_client::read_anthropic_sse_stream(
+                &endpoint, response, None, None, None, None, timeout,
+            )
+            .await
+        }
+        _ => unreachable!(),
+    };
+    server.await.expect("SSE server should finish");
+    result
+}
+
+fn sse_visibility_frames(protocol: &str) -> (&'static str, &'static str) {
+    match protocol {
+        "chat" => (
+            "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+            "data: [DONE]\n\n",
+        ),
+        "responses" => (
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+        ),
+        "anthropic" => (
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n",
+            "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        ),
+        _ => unreachable!(),
+    }
+}
+
+#[tokio::test]
+async fn sse_visibility_malformed_json_cannot_be_hidden_by_partial_text() {
+    for protocol in ["chat", "responses", "anthropic"] {
+        let (delta, completed) = sse_visibility_frames(protocol);
+        let event = if protocol == "anthropic" {
+            "event: content_block_delta\n"
+        } else {
+            ""
+        };
+        let body = format!("{delta}{event}data: {{broken secret-payload-marker\n\n{completed}");
+        let result = read_sse_visibility(protocol, &body).await;
+        assert!(
+            result.is_err(),
+            "{protocol} accepted malformed JSON: {result:?}"
+        );
+        let error = result.unwrap_err();
+        assert!(!error.is_empty());
+        assert!(
+            !error.contains("secret-payload-marker"),
+            "raw malformed payload leaked: {error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sse_visibility_error_without_message_cannot_be_hidden_by_partial_text() {
+    for protocol in ["chat", "responses", "anthropic"] {
+        for error in [
+            r#""provider rejected request""#,
+            r#"{"code":"permission_denied"}"#,
+        ] {
+            let (delta, completed) = sse_visibility_frames(protocol);
+            let event = if protocol == "anthropic" {
+                "event: error\n"
+            } else {
+                ""
+            };
+            let body = format!(
+                "{delta}{event}data: {{\"type\":\"error\",\"error\":{error}}}\n\n{completed}"
+            );
+            let result = read_sse_visibility(protocol, &body).await;
+            assert!(
+                result.is_err(),
+                "{protocol} ignored explicit error {error}: {result:?}"
+            );
+            assert!(!result.unwrap_err().is_empty());
+        }
+    }
+}
+
+#[tokio::test]
+async fn sse_visibility_premature_eof_cannot_return_partial_success() {
+    for protocol in ["chat", "responses", "anthropic"] {
+        let (delta, _) = sse_visibility_frames(protocol);
+        let result = read_sse_visibility(protocol, delta).await;
+        assert!(
+            result.is_err(),
+            "{protocol} accepted an unterminated stream: {result:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sse_visibility_heartbeats_and_complete_streams_remain_accepted() {
+    for protocol in ["chat", "responses", "anthropic"] {
+        let (delta, completed) = sse_visibility_frames(protocol);
+        let body = format!(": heartbeat\n\ndata: \n\n{delta}: heartbeat\n\ndata: \n\n{completed}");
+        assert_eq!(
+            read_sse_visibility(protocol, &body).await.as_deref(),
+            Ok("partial"),
+            "{protocol}"
+        );
+    }
+    let (delta, _) = sse_visibility_frames("responses");
+    assert_eq!(
+        read_sse_visibility("responses", &format!("{delta}data: [DONE]\n\n"))
+            .await
+            .as_deref(),
+        Ok("partial")
+    );
+}
+
+#[tokio::test]
+async fn terminal_reason_visibility_chat_stop_accepts_eof_without_done() {
+    let (delta, _) = sse_visibility_frames("chat");
+    let body =
+        format!("{delta}data: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\n");
+    assert_eq!(
+        read_sse_visibility("chat", &body).await.as_deref(),
+        Ok("partial")
+    );
+}
+
+#[tokio::test]
+async fn terminal_reason_visibility_chat_rejects_truncation_and_filtering() {
+    for reason in ["length", "content_filter"] {
+        let (delta, done) = sse_visibility_frames("chat");
+        let body = format!("{delta}data: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"{reason}\"}}],\"debug\":\"secret-terminal-marker\"}}\n\n{done}");
+        let error = read_sse_visibility("chat", &body).await.expect_err(reason);
+        assert!(!error.is_empty());
+        assert!(!error.contains("secret-terminal-marker"));
+    }
+}
+
+#[tokio::test]
+async fn terminal_reason_visibility_anthropic_rejects_exhausted_limits() {
+    for reason in ["max_tokens", "model_context_window_exceeded"] {
+        let (delta, done) = sse_visibility_frames("anthropic");
+        let body = format!("{delta}event: message_delta\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"{reason}\"}},\"debug\":\"secret-terminal-marker\"}}\n\n{done}");
+        let error = read_sse_visibility("anthropic", &body)
+            .await
+            .expect_err(reason);
+        assert!(!error.is_empty());
+        assert!(!error.contains("secret-terminal-marker"));
+    }
+}
+
+#[tokio::test]
+async fn terminal_reason_visibility_anthropic_end_turn_remains_successful() {
+    let (delta, done) = sse_visibility_frames("anthropic");
+    let body = format!("{delta}event: message_delta\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"end_turn\"}}}}\n\n{done}");
+    assert_eq!(
+        read_sse_visibility("anthropic", &body).await.as_deref(),
+        Ok("partial")
+    );
+}
+
+#[tokio::test]
+async fn terminal_reason_visibility_responses_completed_cannot_hide_failed_status() {
+    for status in ["incomplete", "failed", "cancelled"] {
+        let (delta, _) = sse_visibility_frames("responses");
+        let body = format!("{delta}data: {{\"type\":\"response.completed\",\"response\":{{\"status\":\"{status}\",\"debug\":\"secret-terminal-marker\"}}}}\n\n");
+        let error = read_sse_visibility("responses", &body)
+            .await
+            .expect_err(status);
+        assert!(!error.is_empty());
+        assert!(!error.contains("secret-terminal-marker"));
+    }
+}
+
+#[tokio::test]
+async fn terminal_reason_visibility_responses_error_does_not_echo_raw_payload() {
+    for event in ["response.incomplete", "response.failed"] {
+        let (delta, _) = sse_visibility_frames("responses");
+        let body = format!("{delta}data: {{\"type\":\"{event}\",\"response\":{{\"debug\":\"secret-terminal-marker\"}}}}\n\n");
+        let error = read_sse_visibility("responses", &body)
+            .await
+            .expect_err(event);
+        assert!(!error.is_empty());
+        assert!(
+            !error.contains("secret-terminal-marker"),
+            "raw provider payload leaked: {error}"
+        );
+    }
+}
+
+fn terminal_reason_visibility_payload(protocol: &str, reason: Option<&str>) -> Value {
+    let mut payload = match protocol {
+        "chat" => json!({"choices":[{"message":{"content":"partial"}}]}),
+        "anthropic" => json!({"content":[{"type":"text","text":"partial"}]}),
+        "responses" => {
+            json!({"output":[{"type":"message","content":[{"type":"output_text","text":"partial"}]}]})
+        }
+        _ => unreachable!(),
+    };
+    if let Some(reason) = reason {
+        match protocol {
+            "chat" => payload["choices"][0]["finish_reason"] = json!(reason),
+            "anthropic" => payload["stop_reason"] = json!(reason),
+            "responses" => payload["status"] = json!(reason),
+            _ => unreachable!(),
+        }
+    }
+    payload["debug"] = json!("secret-terminal-marker");
+    payload
+}
+
+async fn send_terminal_reason_visibility_json(
+    protocol: &str,
+    payload: Value,
+) -> Result<String, String> {
+    let path = match protocol {
+        "chat" => "/v1/chat/completions",
+        "anthropic" => "/v1/messages",
+        "responses" => "/v1/responses",
+        _ => unreachable!(),
+    };
+    let (url, server) = spawn_scripted_server(path, vec![("200 OK", payload)]).await;
+    let endpoint = if protocol == "anthropic" {
+        native_anthropic_endpoint(&url)
+    } else {
+        unknown_openai_compat_endpoint("terminal-visibility", &url, "test-model")
+    };
+    let options = LlmRequestOptions {
+        stream: false,
+        ..LlmRequestOptions::default()
+    };
+    let body = build_llm_body(
+        &endpoint,
+        "polish",
+        &LlmUserInput::from("original"),
+        options,
+    );
+    let result = llm_client::send_llm_request(
+        &reqwest::Client::new(),
+        &endpoint,
+        "synthetic-key",
+        &body,
+        5,
+        None,
+        options,
+    )
+    .await;
+    assert_eq!(server.await.unwrap().len(), 1);
+    result
+}
+
+#[tokio::test]
+async fn terminal_reason_visibility_nonstream_rejects_incomplete_results() {
+    for (protocol, reasons) in [
+        ("chat", vec!["length", "content_filter"]),
+        (
+            "anthropic",
+            vec!["max_tokens", "model_context_window_exceeded"],
+        ),
+        ("responses", vec!["incomplete", "failed", "cancelled"]),
+    ] {
+        for reason in reasons {
+            let result = send_terminal_reason_visibility_json(
+                protocol,
+                terminal_reason_visibility_payload(protocol, Some(reason)),
+            )
+            .await;
+            let error = result.expect_err(&format!("{protocol}: {reason}"));
+            assert!(!error.is_empty());
+            assert!(!error.contains("secret-terminal-marker"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn terminal_reason_visibility_nonstream_explicit_error_overrides_content() {
+    for protocol in ["chat", "anthropic", "responses"] {
+        for error in [
+            json!("provider rejected request"),
+            json!({"code":"permission_denied"}),
+        ] {
+            let mut payload = terminal_reason_visibility_payload(protocol, None);
+            payload["error"] = error;
+            let error = send_terminal_reason_visibility_json(protocol, payload)
+                .await
+                .expect_err(protocol);
+            assert!(!error.is_empty());
+            assert!(!error.contains("secret-terminal-marker"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn terminal_reason_visibility_nonstream_preserves_success_and_legacy_absence() {
+    for (protocol, success) in [
+        ("chat", "stop"),
+        ("anthropic", "end_turn"),
+        ("responses", "completed"),
+    ] {
+        for reason in [None, Some(success)] {
+            let result = send_terminal_reason_visibility_json(
+                protocol,
+                terminal_reason_visibility_payload(protocol, reason),
+            )
+            .await;
+            assert_eq!(result.as_deref(), Ok("partial"), "{protocol}: {reason:?}");
+        }
+    }
+}

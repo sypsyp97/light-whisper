@@ -91,7 +91,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> CapturedRequest {
 
 async fn spawn_json_server(
     status: &str,
-    response: &'static [u8],
+    response: &[u8],
 ) -> (String, tokio::task::JoinHandle<CapturedRequest>) {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .await
@@ -100,6 +100,7 @@ async fn spawn_json_server(
         .local_addr()
         .expect("mock server should expose an address");
     let status = status.to_string();
+    let response = response.to_vec();
 
     let handle = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.expect("mock server should accept");
@@ -113,7 +114,7 @@ async fn spawn_json_server(
             .await
             .expect("mock server should write response headers");
         stream
-            .write_all(response)
+            .write_all(&response)
             .await
             .expect("mock server should write response body");
         captured
@@ -630,7 +631,7 @@ async fn evaluate_uses_selected_provider_transport_and_returns_json_payload() {
         let (endpoint, server) = spawn_json_server("200 OK", response).await;
         let state = json!({"text": TEST_STATE, "app": "test"});
         let questions = jev_tasks::screen_questions();
-        let result = jev_tasks::evaluate(
+        let result = jev_tasks::evaluate_with_warning(
             &reqwest::Client::new(),
             &default_config(provider),
             TEST_API_KEY,
@@ -640,6 +641,7 @@ async fn evaluate_uses_selected_provider_transport_and_returns_json_payload() {
             Some(endpoint.as_str()),
         )
         .await
+        .expect("valid provider response should not warn")
         .expect("valid provider response should parse");
         let captured = server.await.expect("mock server should finish");
 
@@ -671,7 +673,7 @@ async fn evaluate_fails_closed_for_malformed_json_and_http_errors() {
         ("503 Service Unavailable", br#"{"error":"busy"}"#.as_slice()),
     ] {
         let (endpoint, server) = spawn_json_server(status, response).await;
-        let result = jev_tasks::evaluate(
+        let result = jev_tasks::evaluate_with_warning(
             &reqwest::Client::new(),
             &default_config(JevProvider::TypeSafe),
             TEST_API_KEY,
@@ -686,7 +688,7 @@ async fn evaluate_fails_closed_for_malformed_json_and_http_errors() {
             .expect("evaluation should contact the local mock server")
             .expect("mock server should finish");
 
-        assert!(result.is_none(), "{status} must fail closed");
+        assert!(result.is_err(), "{status} must preserve failure metadata");
         assert_eq!(captured.path, "/v1/systemone");
     }
 }
@@ -695,7 +697,7 @@ async fn evaluate_fails_closed_for_malformed_json_and_http_errors() {
 async fn evaluate_skips_network_for_empty_key_or_questions() {
     let (endpoint, count, mut request_seen, mut server) =
         spawn_counting_server("200 OK", br#"{}"#).await;
-    let result = jev_tasks::evaluate(
+    let result = jev_tasks::evaluate_with_warning(
         &reqwest::Client::new(),
         &default_config(JevProvider::TypeSafe),
         "",
@@ -705,12 +707,12 @@ async fn evaluate_skips_network_for_empty_key_or_questions() {
         Some(endpoint.as_str()),
     )
     .await;
-    assert!(result.is_none());
+    assert!(result.is_err());
     assert_no_request(&mut server, &count, &mut request_seen).await;
 
     let (endpoint, count, mut request_seen, mut server) =
         spawn_counting_server("200 OK", br#"{}"#).await;
-    let result = jev_tasks::evaluate(
+    let result = jev_tasks::evaluate_with_warning(
         &reqwest::Client::new(),
         &default_config(JevProvider::TypeSafe),
         TEST_API_KEY,
@@ -720,7 +722,7 @@ async fn evaluate_skips_network_for_empty_key_or_questions() {
         Some(endpoint.as_str()),
     )
     .await;
-    assert!(result.is_none());
+    assert_eq!(result, Ok(None));
     assert_no_request(&mut server, &count, &mut request_seen).await;
 }
 
@@ -730,7 +732,7 @@ async fn evaluate_bounds_the_entire_stalled_body_without_retrying() {
     let started = Instant::now();
     let result = timeout(
         Duration::from_secs(1),
-        jev_tasks::evaluate(
+        jev_tasks::evaluate_with_warning(
             &reqwest::Client::new(),
             &default_config(JevProvider::TypeSafe),
             TEST_API_KEY,
@@ -743,7 +745,7 @@ async fn evaluate_bounds_the_entire_stalled_body_without_retrying() {
     .await
     .expect("bounded Jev evaluation should return before the outer test timeout");
 
-    assert!(result.is_none());
+    assert!(result.is_err());
     assert!(started.elapsed() < Duration::from_millis(900));
     timeout(Duration::from_millis(250), request_seen)
         .await
@@ -795,7 +797,6 @@ fn default_config(provider: JevProvider) -> JevConfig {
 #[tokio::test]
 async fn configured_jev_tasks_send_custom_models_for_screen_search_audit_and_correction_questions()
 {
-    let response = br#"{"answers":{"screen":{"type":"choice","choice":"needed","probabilities":{"needed":0.95,"unneeded":0.04,"uncertain":0.01}}}}"#;
     for (provider, questions) in [
         (JevProvider::TypeSafe, jev_tasks::screen_questions()),
         (JevProvider::OpenRouter, jev_tasks::search_questions()),
@@ -806,7 +807,30 @@ async fn configured_jev_tasks_send_custom_models_for_screen_search_audit_and_cor
             jev_tasks::routing_questions(true, true),
         ),
     ] {
-        let (endpoint, server) = spawn_json_server("200 OK", response).await;
+        let answers: Map<String, Value> = questions
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(id, question)| {
+                let criteria = question["criteria"].as_object().unwrap();
+                let selected = criteria.keys().next().unwrap();
+                let probabilities: Map<String, Value> = criteria
+                    .keys()
+                    .map(|choice| {
+                        (
+                            choice.clone(),
+                            json!(if choice == selected { 1.0 } else { 0.0 }),
+                        )
+                    })
+                    .collect();
+                (
+                    id.clone(),
+                    json!({"type":"choice", "choice":selected, "probabilities":probabilities}),
+                )
+            })
+            .collect();
+        let response = serde_json::to_vec(&json!({"answers": answers})).unwrap();
+        let (endpoint, server) = spawn_json_server("200 OK", &response).await;
         let mut config = default_config(provider);
         config.connections.insert(
             provider,
@@ -816,7 +840,7 @@ async fn configured_jev_tasks_send_custom_models_for_screen_search_audit_and_cor
             },
         );
         let client = crate::state::AppState::new().http_client.clone();
-        let result = jev_tasks::evaluate(
+        let result = jev_tasks::evaluate_with_warning(
             &client,
             &config,
             TEST_API_KEY,
@@ -830,7 +854,7 @@ async fn configured_jev_tasks_send_custom_models_for_screen_search_audit_and_cor
             .await
             .unwrap()
             .unwrap();
-        assert!(result.is_some());
+        assert!(matches!(result, Ok(Some(_))));
         assert_eq!(captured.body["questions"], questions);
         assert_eq!(
             header_value(&captured.headers, "authorization").as_deref(),
@@ -864,7 +888,7 @@ async fn configured_custom_jev_task_uses_its_stored_endpoint_without_override() 
     )
     .unwrap();
     assert_eq!(request.url().as_str(), format!("{endpoint}/Task/Decision"));
-    let result = jev_tasks::evaluate(
+    let result = jev_tasks::evaluate_with_warning(
         &client,
         &config,
         TEST_API_KEY,
@@ -878,7 +902,7 @@ async fn configured_custom_jev_task_uses_its_stored_endpoint_without_override() 
         .await
         .unwrap()
         .unwrap();
-    assert!(result.is_some());
+    assert!(matches!(result, Ok(Some(_))));
     assert_eq!(captured.path, "/Task/Decision");
     assert_eq!(captured.body["model"], "local-task-model");
 }
@@ -895,7 +919,7 @@ async fn incomplete_custom_jev_task_falls_back_without_contacting_the_configured
             model: String::new(),
         },
     );
-    let result = jev_tasks::evaluate(
+    let result = jev_tasks::evaluate_with_warning(
         &crate::state::AppState::new().http_client,
         &config,
         TEST_API_KEY,
@@ -905,6 +929,6 @@ async fn incomplete_custom_jev_task_falls_back_without_contacting_the_configured
         None,
     )
     .await;
-    assert!(result.is_none());
+    assert!(result.is_err());
     assert_no_request(&mut server, &count, &mut request_seen).await;
 }

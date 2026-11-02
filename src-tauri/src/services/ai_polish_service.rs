@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -707,25 +707,30 @@ async fn send_llm_request_with_fallback(
                 );
             }
 
-            let fallback_text =
-                match screen_vision_service::describe_images(state, app_handle, &user_input.images)
-                    .await
-                {
-                    Ok(description) => {
-                        log::info!("AI 润色已通过视觉代理保留屏幕上下文");
-                        screen_vision_service::with_screen_description(
-                            &user_input.text,
-                            &description,
-                        )
-                    }
-                    Err(vision_err) => {
-                        log::warn!(
-                            "AI 润色视觉代理不可用，继续无屏幕上下文请求: {}",
-                            vision_err
+            let fallback_text = match screen_vision_service::describe_images(
+                state,
+                app_handle,
+                &user_input.images,
+            )
+            .await
+            {
+                Ok(description) => {
+                    log::info!("AI 润色已通过视觉代理保留屏幕上下文");
+                    screen_vision_service::with_screen_description(&user_input.text, &description)
+                }
+                Err(vision_err) => {
+                    log::warn!(
+                        "AI 润色视觉代理不可用，继续无屏幕上下文请求: {}",
+                        vision_err
+                    );
+                    llm_client::emit_api_warning(
+                            app_handle,
+                            "AI 润色视觉服务失败，已继续处理文字，但未使用屏幕上下文。请检查视觉服务设置。",
+                            Some(session_id),
                         );
-                        screen_vision_service::without_screen_context(&user_input.text)
-                    }
-                };
+                    screen_vision_service::without_screen_context(&user_input.text)
+                }
+            };
             let fallback_input = llm_client::LlmUserInput {
                 text: fallback_text,
                 images: Vec::new(),
@@ -845,9 +850,9 @@ pub(crate) async fn evaluate_polish_gate(
     config: &JevConfig,
     api_key: &str,
     endpoint_override: Option<String>,
-) -> Option<PolishOutcome> {
-    if !overrides.allow_jev_gate || overrides.require_execution || api_key.trim().is_empty() {
-        return None;
+) -> Result<Option<PolishOutcome>, String> {
+    if !overrides.allow_jev_gate || overrides.require_execution {
+        return Ok(None);
     }
 
     let (enabled, configured_provider, profile_translation_target) =
@@ -859,7 +864,7 @@ pub(crate) async fn evaluate_polish_gate(
             )
         });
     if !enabled || configured_provider != config.provider {
-        return None;
+        return Ok(None);
     }
 
     let translation_enabled = match overrides.translation_target.as_ref() {
@@ -868,7 +873,7 @@ pub(crate) async fn evaluate_polish_gate(
         None => profile_translation_target.is_some(),
     };
     if translation_enabled {
-        return None;
+        return Ok(None);
     }
 
     let policy = build_jev_policy(
@@ -878,7 +883,7 @@ pub(crate) async fn evaluate_polish_gate(
         overrides.custom_prompt.as_deref(),
         overrides.app_context.as_deref(),
     );
-    jev_service::evaluate(
+    let skip = jev_service::evaluate_with_warning(
         &state.http_client,
         config,
         api_key,
@@ -886,8 +891,8 @@ pub(crate) async fn evaluate_polish_gate(
         &policy,
         endpoint_override,
     )
-    .await
-    .then(|| PolishOutcome::passthrough(text.to_string()))
+    .await?;
+    Ok(skip.then(|| PolishOutcome::passthrough(text.to_string())))
 }
 
 struct JevPolishDecision {
@@ -905,9 +910,9 @@ async fn evaluate_polish_expansion(
     config: &JevConfig,
     api_key: &str,
     endpoint_override: Option<&str>,
-) -> Option<JevPolishDecision> {
-    if !overrides.allow_jev_gate || overrides.require_execution || api_key.trim().is_empty() {
-        return None;
+) -> Result<Option<JevPolishDecision>, String> {
+    if !overrides.allow_jev_gate || overrides.require_execution {
+        return Ok(None);
     }
 
     let (route_enabled, screen_routing, configured_provider, profile_translation_target) = state
@@ -920,7 +925,7 @@ async fn evaluate_polish_expansion(
             )
         });
     if configured_provider != config.provider {
-        return None;
+        return Ok(None);
     }
 
     let translation_enabled = match overrides.translation_target.as_ref() {
@@ -936,7 +941,7 @@ async fn evaluate_polish_expansion(
         || crate::services::jev_tasks::contains_explicit_screen_request(text);
     let screen_question_enabled = screen_routing && requested_screen;
     if !route_enabled_for_request && !screen_question_enabled {
-        return None;
+        return Ok(None);
     }
 
     let policy = build_jev_policy(
@@ -969,7 +974,7 @@ async fn evaluate_polish_expansion(
         "app_context": overrides.app_context.as_deref(),
         "screen_requested": requested_screen,
     });
-    let payload = crate::services::jev_tasks::evaluate(
+    let payload = crate::services::jev_tasks::evaluate_with_warning(
         &state.http_client,
         config,
         api_key,
@@ -978,7 +983,7 @@ async fn evaluate_polish_expansion(
         std::time::Duration::from_secs(1),
         endpoint_override,
     )
-    .await;
+    .await?;
 
     let route = route_enabled_for_request.then(|| {
         payload.as_ref().and_then(|payload| {
@@ -1030,10 +1035,10 @@ async fn evaluate_polish_expansion(
         "Decision model routing: provider={:?}, route={:?}, pass_probability={:?}, screen={:?}, unneeded_probability={:?}, explicit_screen={}, skip_polish={}",
         config.provider, route.as_deref(), pass_probability, screen_choice, unneeded_probability, explicit_screen, skip_polish
     );
-    Some(JevPolishDecision {
+    Ok(Some(JevPolishDecision {
         skip_polish,
         screen_allowed,
-    })
+    }))
 }
 
 pub async fn polish_text_with_overrides_detailed(
@@ -1079,27 +1084,42 @@ async fn polish_text_inner(
     if overrides.allow_jev_gate && jev_config.screen_routing {
         let jev_api_key = jev_service::load_api_key_for_provider(app_handle, jev_config.provider)
             .unwrap_or_default();
-        if let Some(decision) =
-            evaluate_polish_expansion(state, text, &overrides, &jev_config, &jev_api_key, None)
-                .await
+        match evaluate_polish_expansion(state, text, &overrides, &jev_config, &jev_api_key, None)
+            .await
         {
-            expansion_applied = true;
-            if let Some(screen_allowed) = decision.screen_allowed {
-                overrides.screen_context_enabled = Some(screen_allowed);
+            Ok(Some(decision)) => {
+                expansion_applied = true;
+                if let Some(screen_allowed) = decision.screen_allowed {
+                    overrides.screen_context_enabled = Some(screen_allowed);
+                }
+                if decision.skip_polish {
+                    log::info!("Decision model skipped AI polish (session {})", session_id);
+                    return Ok(PolishOutcome::passthrough(text.to_string()));
+                }
             }
-            if decision.skip_polish {
-                log::info!("Decision model skipped AI polish (session {})", session_id);
-                return Ok(PolishOutcome::passthrough(text.to_string()));
+            Ok(None) => {}
+            Err(_) => {
+                // One failed decision request is enough; continue with the configured polish path.
+                expansion_applied = true;
+                llm_client::emit_api_warning(
+                    app_handle,
+                    "润色决策服务不可用，已按当前设置继续润色。请检查决策服务的连接与 API Key。",
+                    Some(session_id),
+                );
             }
         }
     }
     if overrides.allow_jev_gate && jev_config.enabled && !expansion_applied {
         let jev_api_key = jev_service::load_api_key_for_provider(app_handle, jev_config.provider)
             .unwrap_or_default();
-        if let Some(outcome) =
-            evaluate_polish_gate(state, text, &overrides, &jev_config, &jev_api_key, None).await
-        {
-            return Ok(outcome);
+        match evaluate_polish_gate(state, text, &overrides, &jev_config, &jev_api_key, None).await {
+            Ok(Some(outcome)) => return Ok(outcome),
+            Ok(None) => {}
+            Err(_) => llm_client::emit_api_warning(
+                app_handle,
+                "润色决策服务不可用，已按当前设置继续润色。请检查决策服务的连接与 API Key。",
+                Some(session_id),
+            ),
         }
     }
     if emit_status {
@@ -1134,16 +1154,16 @@ async fn polish_text_inner(
     );
 
     if api_key.is_empty() {
+        let error = "AI 润色认证不可用，请在设置中重新登录当前服务，或配置该服务的 API Key。";
         log::warn!(
-            "AI 润色已启用但未配置 API Key，也未完成 OpenAI Codex / Grok Build 登录，跳过润色 (auth{}ms)",
+            "AI 润色认证不可用: provider={}, auth{}ms",
+            active_provider,
             auth_elapsed_ms
         );
-        return passthrough_unless_required(
-            text,
-            overrides.require_execution,
-            "未配置 AI 润色 API Key，且未完成 OpenAI Codex 或 Grok Build 登录",
-        )
-        .map(PolishOutcome::passthrough);
+        if emit_status {
+            emit_polish_status(app_handle, "error", text, text, error, session_id);
+        }
+        return Err(error.to_string());
     }
 
     if emit_status {
@@ -1175,6 +1195,7 @@ async fn polish_text_inner(
         overrides.screen_context_enabled,
         overrides.screen_context_foreground.as_ref(),
         overrides.app_context.as_deref(),
+        session_id,
     )
     .await;
     let user_input = prepared_user_input.input;
@@ -1253,6 +1274,16 @@ async fn polish_text_inner(
                 "AI 润色 JSON 解析失败，回退到字符 diff (响应{}字符)",
                 raw_content.chars().count()
             );
+            if matches!(
+                normalize_structured_payload(raw_content).chars().next(),
+                Some('{' | '[')
+            ) {
+                llm_client::emit_api_warning(
+                    app_handle,
+                    "润色服务返回的结构化结果格式无效，已保留返回文本，但本次未学习纠错或术语。",
+                    Some(session_id),
+                );
+            }
             (raw_content.to_string(), None, None)
         }
     };
@@ -1490,6 +1521,7 @@ async fn build_polish_user_input(
     screen_context_override: Option<bool>,
     screen_context_foreground: Option<&ForegroundApp>,
     app_context_override: Option<&str>,
+    session_id: u64,
 ) -> PreparedPolishUserInput {
     let screen_context_enabled = screen_context_override
         .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
@@ -1580,6 +1612,11 @@ async fn build_polish_user_input(
             }
             Err(err) => {
                 log::warn!("截取 AI 润色屏幕上下文失败，继续纯文本请求: {}", err);
+                llm_client::emit_api_warning(
+                    app_handle,
+                    "AI 润色屏幕截图失败，已继续处理文字，但未使用屏幕上下文。",
+                    Some(session_id),
+                );
                 Vec::new()
             }
         }
@@ -1615,6 +1652,11 @@ async fn build_polish_user_input(
             },
             Err(err) => {
                 log::warn!("AI 润色视觉代理读取失败，继续无屏幕上下文请求: {}", err);
+                llm_client::emit_api_warning(
+                    app_handle,
+                    "AI 润色视觉服务失败，已继续处理文字，但未使用屏幕上下文。请检查视觉服务设置。",
+                    Some(session_id),
+                );
                 PreparedPolishUserInput {
                     input: llm_client::LlmUserInput {
                         text: screen_vision_service::without_screen_context(&base_text),
@@ -1779,6 +1821,11 @@ fn emit_polish_status(
     error: &str,
     session_id: u64,
 ) {
+    if status == "error" {
+        if let Some(state) = app_handle.try_state::<AppState>() {
+            state.ui.mark_api_warning(session_id);
+        }
+    }
     let _ = app_handle.emit(
         "ai-polish-status",
         serde_json::json!({
@@ -1977,3 +2024,7 @@ mod tests {
 #[cfg(test)]
 #[path = "jev_polish_routing_tests.rs"]
 mod jev_routing_tests;
+
+#[cfg(test)]
+#[path = "ai_polish_auth_tests.rs"]
+mod ai_polish_auth_tests;

@@ -449,6 +449,7 @@ pub struct ProfileState {
 
 /// UI / 交互类偏好 + 诊断
 pub struct UiState {
+    api_warning_session: AtomicU64,
     pub input_method: Arc<parking_lot::Mutex<String>>,
     pub sound_enabled: Arc<AtomicBool>,
     pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
@@ -471,6 +472,7 @@ pub struct SelectionTask {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            api_warning_session: AtomicU64::new(0),
             input_method: Arc::new(parking_lot::Mutex::new("sendInput".into())),
             sound_enabled: Arc::new(AtomicBool::new(true)),
             hotkey_diagnostic: Default::default(),
@@ -478,6 +480,24 @@ impl Default for UiState {
             assistant_chat_cancel: Default::default(),
             selection_generation: AtomicU64::new(0),
             selection_cancel: Default::default(),
+        }
+    }
+}
+
+impl UiState {
+    pub fn mark_api_warning(&self, session_id: u64) {
+        if session_id > 0 {
+            self.api_warning_session
+                .fetch_max(session_id, Ordering::AcqRel);
+        }
+    }
+
+    pub fn subtitle_hide_delay_ms(&self, session_id: u64, delay_ms: u64) -> u64 {
+        if session_id > 0 && self.api_warning_session.load(Ordering::Acquire) == session_id {
+            // Eight seconds to read, plus the overlay fade/cleanup buffer.
+            delay_ms.max(8500)
+        } else {
+            delay_ms
         }
     }
 }

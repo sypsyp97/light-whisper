@@ -344,6 +344,19 @@ body,
   gap: 8px;
 }
 
+.subtitle-capsule-warning {
+  flex-wrap: wrap;
+}
+
+.subtitle-api-warning {
+  flex: 1 0 100%;
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .subtitle-search-warning button {
   flex: 0 0 auto;
   border: 0;

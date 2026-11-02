@@ -1974,3 +1974,60 @@ describe("SubtitleOverlay assistant rich text", () => {
     });
   });
 });
+
+describe("SubtitleOverlay API warning visibility", () => {
+  it.each([
+    ["api-warning", "message"],
+    ["ai-polish-status", "error"],
+    ["ai-polish-status", "message"],
+  ])("API warning from %s/%s survives the final raw result for eight seconds without taking focus", async (event, field) => {
+    const { container } = render(<><input aria-label="Focus target" /><SubtitleOverlay /></>);
+    await flushAsyncListeners();
+    const input = screen.getByRole("textbox", { name: "Focus target" });
+    input.focus();
+    const warning = "Provider unavailable; original dictation retained.";
+    const raw = "This is the original dictated text.";
+    act(() => {
+      tauriEvents.emit("recording-state", { sessionId: 800, isRecording: false, isProcessing: true });
+      tauriEvents.emit(event, { sessionId: 800, status: "error", [field]: warning });
+    });
+    expect(screen.getAllByRole("status").some((node) => node.textContent?.includes(warning))).toBe(true);
+    expect(document.activeElement).toBe(input);
+    act(() => {
+      tauriEvents.emit("transcription-result", { sessionId: 800, text: raw, originalText: raw, interim: false, mode: "dictation" });
+    });
+    expect(readSubtitleText(container)).toBe(raw);
+    expect(screen.getByText(warning)).toBeVisible();
+    await advance(7999);
+    expect(screen.getByText(warning)).toBeVisible();
+    expect(readSubtitleText(container)).toBe(raw);
+    expect(container.querySelector(".subtitle-fade-out")).toBeNull();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("API warning ignores stale sessions and clears an old warning when a new recording starts", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    act(() => {
+      tauriEvents.emit("recording-state", { sessionId: 810, isRecording: true, isProcessing: false });
+      tauriEvents.emit("api-warning", { sessionId: 809, message: "Stale provider warning" });
+      tauriEvents.emit("ai-polish-status", { sessionId: 809, status: "error", error: "Stale polish warning" });
+    });
+    expect(screen.queryByText("Stale provider warning")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stale polish warning")).not.toBeInTheDocument();
+    act(() => tauriEvents.emit("api-warning", { sessionId: 810, message: "Current provider warning" }));
+    expect(screen.getByText("Current provider warning")).toBeVisible();
+    act(() => tauriEvents.emit("recording-state", { sessionId: 811, isRecording: true, isProcessing: false }));
+    expect(screen.queryByText("Current provider warning")).not.toBeInTheDocument();
+  });
+
+  it("API warning accepts a sessionless message while the overlay is active", async () => {
+    render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    act(() => {
+      tauriEvents.emit("recording-state", { sessionId: 820, isRecording: false, isProcessing: true, mode: "assistant" });
+      tauriEvents.emit("api-warning", { message: "Interactive request failed; retry available." });
+    });
+    expect(screen.getAllByRole("status").some((node) => node.textContent?.includes("Interactive request failed; retry available."))).toBe(true);
+  });
+});

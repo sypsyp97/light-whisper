@@ -232,9 +232,16 @@ export function useRecording(): UseRecordingReturn {
     }
   });
 
-  useTauriEvent<{ status: string; error: string }>("ai-polish-status", ({ status, error: errMsg }) => {
+  useTauriEvent<{ message: string; sessionId?: number }>("api-warning", ({ message, sessionId }) => {
+    if (typeof message !== "string" || !message.trim()) return;
+    if (sessionId !== undefined && (!Number.isSafeInteger(sessionId) || sessionId < 0
+      || (sessionId > 0 && sessionId < latestSessionIdRef.current))) return;
+    toast.warning(message, { id: `api-warning-${sessionId ?? "global"}-${message}`, duration: 8000 });
+  });
+
+  useTauriEvent<{ status: string; error?: string; message?: string }>("ai-polish-status", ({ status, error: errMsg, message }) => {
     if (status === "applied") toast.success(i18n.t("toast.aiPolishApplied"), { duration: 1500 });
-    else if (status === "error") toast.error(i18n.t("toast.aiPolishFailed", { error: errMsg }), { duration: 2500 });
+    else if (status === "error") toast.error(i18n.t("toast.aiPolishFailed", { error: errMsg || message }), { duration: 8000 });
   });
 
   const startRecording = useCallback(async () => {
