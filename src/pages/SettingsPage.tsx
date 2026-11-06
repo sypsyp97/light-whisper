@@ -56,6 +56,8 @@ import {
   getWebSearchApiKey,
   hideMainWindow,
 } from "@/api/tauri";
+import type { ModelConnectionRequest } from "@/api/tauri";
+import ModelConnectionTest from "@/components/settings/ModelConnectionTest";
 import type { ContextMode, CustomProvider, UserProfile, ApiFormat, GrokBuildOauthDeviceCodeChallenge, GrokBuildOauthStatus, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, PolishStructureLevel, WebSearchProvider, XaiAuthMode } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
@@ -515,6 +517,7 @@ export default function SettingsPage({
     grokBuildOauthStatus.accountId ?? "",
     grokBuildOauthStatus.email ?? "",
   ].join(":");
+  const modelTestAuthIdentity = JSON.stringify([oauthModelIdentity, grokOauthModelIdentity]);
   const polishModelsContext = JSON.stringify([
     llmProvider,
     customBaseUrl.trim(),
@@ -2017,6 +2020,13 @@ export default function SettingsPage({
     polishReasoningProbeTarget,
   ]);
 
+  const polishConnection: ModelConnectionRequest = {
+    target: "polish", provider: llmProvider,
+    baseUrl: polishReasoningProbeTarget.baseUrl, model: polishReasoningProbeTarget.model,
+    apiKey: polishManualApiKey, reasoningMode: polishReasoningMode,
+    openaiAuthMode: effectiveOpenaiAuthMode, xaiAuthMode: effectiveXaiAuthModeValue,
+  };
+
   useEffect(() => {
     let cancelled = false;
     setPolishReasoningSupportState({
@@ -2503,6 +2513,13 @@ export default function SettingsPage({
               );
             })()}
             <GpuIdleUnloadControl />
+            <ModelConnectionTest
+              disabled={engineLoading || onlineAsrRegionLoading || isRecording
+                || (isOnlineEngineKey(engine) && !onlineAsrKeyReady)}
+              request={{ target: "asr", engine,
+                model: engine === "alibaba-asr" ? alibabaAsrModel : engine,
+                ...(isOnlineEngineKey(engine) ? { baseUrl: onlineAsrUrl, apiKey: onlineAsrApiKey } : {}),
+              }} />
             {engine !== "glm-asr" && engine !== "alibaba-asr" && <AudioProcessingControl />}
             <SettingsReveal open={engine === "confucius4-r2t2" && !!profile} gap={10}>
               {profile && <R2T2SettingsSection profile={profile} onSaved={() => { void refreshProfile(); }} />}
@@ -3281,6 +3298,7 @@ export default function SettingsPage({
                 </div>
 
                 {aiModelsError && <p className="settings-error" role="status">{aiModelsError}</p>}
+                <ModelConnectionTest request={polishConnection} contextKey={modelTestAuthIdentity} disabled={!profile} />
 
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">{t("settings.polishReasoningMode")}</span>
@@ -3407,7 +3425,7 @@ export default function SettingsPage({
                         baseUrl={screenVisionBaseUrl}
                         apiKey={screenVisionApiKey}
                         loggedIn={openaiPlanReady}
-                        authIdentity={oauthModelIdentity}
+                        authIdentity={modelTestAuthIdentity}
                         openaiAuthMode={screenVisionProvider === "openai"
                           ? effectiveOpenaiAuthMode
                           : undefined}
@@ -3863,6 +3881,13 @@ export default function SettingsPage({
                   {t("settings.sharedProviderAndModel", { provider: currentLlmPreset.label, model: customModel || currentLlmPreset.defaultModel })}
                 </p>
               </SettingsReveal>
+              <ModelConnectionTest disabled={!profile} contextKey={modelTestAuthIdentity}
+                request={{ target: "assistant", provider: effectiveAssistantProvider,
+                  baseUrl: assistantReasoningProbeTarget.baseUrl, model: assistantReasoningProbeTarget.model,
+                  apiKey: assistantUseSeparateModel ? assistantManualApiKey : polishManualApiKey,
+                  reasoningMode: assistantReasoningMode, openaiAuthMode: effectiveOpenaiAuthMode,
+                  xaiAuthMode: effectiveXaiAuthModeValue,
+                }} />
 
               <div className="settings-column" style={{ gap: 6 }}>
                 <span className="settings-option-desc">{t("settings.assistantReasoningMode")}</span>
@@ -3941,6 +3966,8 @@ export default function SettingsPage({
 
           <SelectionAssistantSettingsSection
             profile={profile}
+            polishConnection={polishConnection}
+            authIdentity={modelTestAuthIdentity}
             onConfigureJev={configureJev}
             onSaved={() => { void refreshProfile(); }}
             openaiAuthMode={effectiveOpenaiAuthMode}
@@ -4141,6 +4168,8 @@ export default function SettingsPage({
         <Suspense fallback={null}>
           <CorrectionRulesModal
             profile={profile}
+            polishConnection={polishConnection}
+            authIdentity={modelTestAuthIdentity}
             allProviderOptions={allProviderOptions}
             validationEnabled={validationEnabled}
             setValidationEnabled={setValidationEnabled}

@@ -7,9 +7,10 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 use tokio::time::timeout;
 
 const ORIGINAL: &str = "原始听写内容，不应被 gate 改写";
@@ -94,6 +95,14 @@ pub(super) async fn spawn_json_server(
     status: &str,
     response: &'static [u8],
 ) -> (String, tokio::task::JoinHandle<CapturedRequest>) {
+    spawn_delayed_json_server(status, response, Duration::ZERO).await
+}
+
+async fn spawn_delayed_json_server(
+    status: &str,
+    response: &'static [u8],
+    response_delay: Duration,
+) -> (String, tokio::task::JoinHandle<CapturedRequest>) {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .await
         .expect("mock server should bind");
@@ -105,6 +114,9 @@ pub(super) async fn spawn_json_server(
     let handle = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.expect("mock server should accept");
         let captured = read_request(&mut stream).await;
+        if !response_delay.is_zero() {
+            tokio::time::sleep(response_delay).await;
+        }
         let headers = format!(
             "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             response.len()
@@ -166,7 +178,12 @@ async fn spawn_counting_json_server(
     (format!("http://{address}"), request_count, handle)
 }
 
-async fn spawn_stalled_server() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+async fn spawn_stalled_server() -> (
+    String,
+    Arc<AtomicUsize>,
+    oneshot::Receiver<()>,
+    tokio::task::JoinHandle<()>,
+) {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .await
         .expect("stalled mock server should bind");
@@ -175,21 +192,30 @@ async fn spawn_stalled_server() -> (String, Arc<AtomicUsize>, tokio::task::JoinH
         .expect("stalled mock server should expose an address");
     let request_count = Arc::new(AtomicUsize::new(0));
     let request_count_for_task = Arc::clone(&request_count);
+    let (request_seen_tx, request_seen_rx) = oneshot::channel();
 
     let handle = tokio::spawn(async move {
+        let mut request_seen_tx = Some(request_seen_tx);
+        let mut connections = Vec::new();
         loop {
-            let Ok((stream, _)) = listener.accept().await else {
+            let Ok((mut stream, _)) = listener.accept().await else {
                 break;
             };
             request_count_for_task.fetch_add(1, Ordering::SeqCst);
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                drop(stream);
-            });
+            let _ = read_request(&mut stream).await;
+            connections.push(stream);
+            if let Some(request_seen_tx) = request_seen_tx.take() {
+                let _ = request_seen_tx.send(());
+            }
         }
     });
 
-    (format!("http://{address}"), request_count, handle)
+    (
+        format!("http://{address}"),
+        request_count,
+        request_seen_rx,
+        handle,
+    )
 }
 
 fn gate_state(
@@ -536,6 +562,30 @@ async fn evaluate_calls_the_selected_provider_and_accepts_a_valid_pass() {
         Some("Bearer jev-test-key")
     );
     assert_eq!(captured.body["model"], json!("~typesafe/jev-latest"));
+}
+
+#[tokio::test]
+async fn evaluate_accepts_a_valid_response_after_one_second() {
+    let response = br#"{"answers":{"route":{"type":"choice","choice":"pass","probabilities":{"pass":0.95,"polish":0.04,"uncertain":0.01}}}}"#;
+    let (endpoint, server) =
+        spawn_delayed_json_server("200 OK", response, Duration::from_millis(1_100)).await;
+
+    let should_skip = jev_service::evaluate_with_warning(
+        &reqwest::Client::builder().no_proxy().build().unwrap(),
+        &default_config(JevProvider::OpenRouter),
+        TEST_API_KEY,
+        ORIGINAL,
+        POLICY_CONTEXT,
+        Some(endpoint),
+    )
+    .await;
+
+    assert_eq!(
+        should_skip,
+        Ok(true),
+        "a valid decision after 1.1 seconds must remain within the interactive budget"
+    );
+    server.await.expect("delayed mock server should finish");
 }
 
 #[tokio::test]
@@ -932,10 +982,8 @@ async fn evaluate_polish_gate_preserves_low_confidence_and_reports_http_errors()
 
 #[tokio::test]
 async fn evaluate_stalled_body_times_out_without_retrying() {
-    let (endpoint, request_count, server) = spawn_stalled_server().await;
-    let started = Instant::now();
-    let should_skip = timeout(
-        Duration::from_secs(2),
+    let (endpoint, request_count, request_seen, server) = spawn_stalled_server().await;
+    let mut evaluation = tokio::spawn(async move {
         jev_service::evaluate_with_warning(
             &reqwest::Client::new(),
             &default_config(JevProvider::TypeSafe),
@@ -943,13 +991,27 @@ async fn evaluate_stalled_body_times_out_without_retrying() {
             ORIGINAL,
             POLICY_CONTEXT,
             Some(endpoint),
-        ),
-    )
-    .await
-    .expect("stalled Jev evaluation must honor the bounded deadline");
+        )
+        .await
+    });
+    timeout(Duration::from_secs(1), request_seen)
+        .await
+        .expect("stalled server should observe one request")
+        .expect("stalled request notification should arrive");
+    tokio::time::pause();
+
+    assert!(
+        timeout(Duration::from_secs(4), &mut evaluation)
+            .await
+            .is_err(),
+        "the interactive budget must not expire before five seconds"
+    );
+    let should_skip = timeout(Duration::from_secs(1), evaluation)
+        .await
+        .expect("stalled Jev evaluation must expire by five seconds")
+        .expect("evaluation task should finish");
 
     assert!(should_skip.is_err());
-    assert!(started.elapsed() < Duration::from_millis(1_400));
     assert_eq!(
         request_count.load(Ordering::SeqCst),
         1,

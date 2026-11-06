@@ -8,6 +8,7 @@ import { shouldUseGrokBuildOauth } from "@/lib/grokBuildAuth";
 import { resolveModelId } from "@/lib/llmModelOptions";
 import type { AiModelInfo, OpenaiAuthMode, XaiAuthMode } from "@/types";
 import ScreenVisionAuth from "@/components/settings/ScreenVisionAuth";
+import ModelConnectionTest from "./ModelConnectionTest";
 
 interface ScreenVisionModelPickerProps {
   model: string;
@@ -274,6 +275,8 @@ export default function ScreenVisionModelPicker({
         apiKey={apiKey}
         onChange={onApiKeyChange}
       />
+      <ModelConnectionTest contextKey={authIdentity}
+        request={{ target: "vision", provider, baseUrl, model, apiKey, openaiAuthMode, xaiAuthMode }} />
     </div>
   );
 }

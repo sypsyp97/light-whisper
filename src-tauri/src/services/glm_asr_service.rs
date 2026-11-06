@@ -7,7 +7,7 @@ use crate::state::AppState;
 use crate::utils::{paths, AppError};
 
 const GLM_ASR_PATH: &str = "/api/paas/v4/audio/transcriptions";
-const GLM_ASR_MODEL: &str = "glm-asr-2512";
+pub(crate) const GLM_ASR_MODEL: &str = "glm-asr-2512";
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 const MAX_AUDIO_BYTES: usize = 25 * 1024 * 1024;
 const MAX_AUDIO_DURATION_SECS: f64 = 30.0;
@@ -87,6 +87,15 @@ pub async fn transcribe(
             format!("{}{}", paths::read_online_asr_endpoint(), GLM_ASR_PATH),
         )
     };
+    transcribe_request(state, audio_data, &url, &api_key).await
+}
+
+pub(crate) async fn transcribe_request(
+    state: &AppState,
+    audio_data: Vec<u8>,
+    url: &str,
+    api_key: &str,
+) -> Result<TranscriptionResult, AppError> {
     if api_key.is_empty() {
         return Err(AppError::Asr("GLM-ASR API Key 未配置".into()));
     }
@@ -95,8 +104,8 @@ pub async fn transcribe(
 
     let resp = state
         .http_client
-        .post(&url)
-        .bearer_auth(&api_key)
+        .post(url)
+        .bearer_auth(api_key)
         .multipart(form)
         .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .send()

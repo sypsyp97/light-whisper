@@ -64,7 +64,7 @@ fn b64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-async fn transcribe_via_dashscope_asr(
+pub(crate) async fn transcribe_via_dashscope_asr(
     state: &AppState,
     base: &str,
     model: &str,
@@ -146,6 +146,22 @@ async fn transcribe_via_dashscope_asr(
         }
     }
 
+    if parsed
+        .output
+        .as_ref()
+        .and_then(|output| output.choices.as_ref())
+        .is_some_and(|choices| {
+            choices.iter().any(|choice| {
+                choice
+                    .finish_reason
+                    .as_deref()
+                    .is_some_and(|reason| reason != "stop")
+            })
+        })
+    {
+        return Err(AppError::Asr("DashScope ASR 转写未正常完成，请重试".into()));
+    }
+
     let text_out = parsed
         .output
         .and_then(|o| {
@@ -184,7 +200,7 @@ async fn transcribe_via_dashscope_asr(
     })
 }
 
-async fn transcribe_via_omni_chat(
+pub(crate) async fn transcribe_via_omni_chat(
     state: &AppState,
     base: &str,
     model: &str,
@@ -333,6 +349,7 @@ struct DashScopeAsrOutput {
 
 #[derive(Deserialize)]
 struct DashScopeAsrChoice {
+    finish_reason: Option<String>,
     message: Option<DashScopeAsrMessage>,
 }
 

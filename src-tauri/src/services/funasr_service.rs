@@ -620,6 +620,40 @@ pub async fn transcribe(
     transcribe_wav_bytes_via_path(state, audio_data, hot_words, app_handle).await
 }
 
+/// Exercise the selected local model without recording, history or private hot words.
+pub(crate) async fn probe_model(
+    state: &AppState,
+    engine: &str,
+    app_handle: &tauri::AppHandle,
+) -> Result<TranscriptionResult, AppError> {
+    let _asr_guard = state
+        .engine
+        .native_asr_owner
+        .try_lock()
+        .map_err(|_| AppError::Asr("语音识别正在进行，请稍后测试。".into()))?;
+    if state.recording.recording.lock().is_some()
+        || state
+            .recording
+            .snapshot()
+            .is_some_and(|snapshot| snapshot.phase == crate::state::RecordingPhase::Processing)
+    {
+        return Err(AppError::Asr("语音识别正在进行，请稍后测试。".into()));
+    }
+    {
+        let _configuration = state.engine.funasr_lifecycle_op.lock().await;
+        if paths::read_engine_config() != engine {
+            return Err(AppError::Asr("语音引擎已切换，请重新测试。".into()));
+        }
+    }
+    transcribe_wav_bytes_via_path(
+        state,
+        super::model_connection::TEST_AUDIO.to_vec(),
+        None,
+        app_handle,
+    )
+    .await
+}
+
 pub async fn transcribe_pcm16(
     state: &AppState,
     samples: &[i16],

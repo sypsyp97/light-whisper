@@ -138,6 +138,7 @@ cache/
 
 # Audio files
 *.wav
+!src-tauri/resources/model_connection.wav
 *.mp3
 *.m4a
 *.aac

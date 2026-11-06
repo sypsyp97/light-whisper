@@ -9,7 +9,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -188,6 +188,18 @@ async fn spawn_json_server(
     Arc<AtomicUsize>,
     tokio::task::JoinHandle<CapturedRequest>,
 ) {
+    spawn_delayed_json_server(status, response, Duration::ZERO).await
+}
+
+async fn spawn_delayed_json_server(
+    status: &str,
+    response: impl AsRef<[u8]>,
+    response_delay: Duration,
+) -> (
+    String,
+    Arc<AtomicUsize>,
+    tokio::task::JoinHandle<CapturedRequest>,
+) {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .await
         .expect("local routing server should bind");
@@ -206,6 +218,9 @@ async fn spawn_json_server(
             .expect("local routing server should accept");
         request_count_for_task.fetch_add(1, Ordering::SeqCst);
         let captured = read_request(&mut stream).await;
+        if !response_delay.is_zero() {
+            tokio::time::sleep(response_delay).await;
+        }
         let response_headers = format!(
             "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             response.len()
@@ -366,6 +381,36 @@ async fn missing_required_screen_answer_returns_an_error() {
     finish_json_server(server).await;
     assert!(decision.is_err());
     assert_eq!(count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn auto_route_and_screen_accept_a_valid_response_after_one_second() {
+    let state = expansion_state(true, true);
+    let overrides = expansion_overrides(true, false);
+    let (endpoint, request_count, server) = spawn_delayed_json_server(
+        "200 OK",
+        PASS_AND_SCREEN_UNNEEDED,
+        Duration::from_millis(1_100),
+    )
+    .await;
+
+    let decision = evaluate_polish_expansion(
+        &state,
+        ORIGINAL,
+        &overrides,
+        &default_config(JevProvider::TypeSafe),
+        TEST_API_KEY,
+        Some(endpoint.as_str()),
+    )
+    .await
+    .expect("a valid route and screen decision after 1.1 seconds must succeed")
+    .expect("automatic routing should yield a decision");
+    let captured = finish_json_server(server).await;
+
+    assert!(decision.skip_polish);
+    assert_eq!(decision.screen_allowed, Some(false));
+    assert_eq!(question_ids(&captured.body), vec!["route", "screen"]);
+    assert_eq!(request_count.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -569,9 +614,7 @@ async fn malformed_or_stalled_response_reports_error_without_duplicate_call() {
     let state = expansion_state(true, true);
     let overrides = expansion_overrides(true, false);
     let (endpoint, request_count, request_seen, server) = spawn_stalled_body_server().await;
-    let started = Instant::now();
-    let decision = timeout(
-        Duration::from_secs(2),
+    let mut evaluation = tokio::spawn(async move {
         evaluate_polish_expansion(
             &state,
             ORIGINAL,
@@ -579,18 +622,28 @@ async fn malformed_or_stalled_response_reports_error_without_duplicate_call() {
             &default_config(JevProvider::TypeSafe),
             TEST_API_KEY,
             Some(endpoint.as_str()),
-        ),
-    )
-    .await
-    .expect("stalled body should honor the bounded expansion deadline");
-    timeout(Duration::from_millis(250), request_seen)
+        )
+        .await
+    });
+    timeout(Duration::from_secs(1), request_seen)
         .await
         .expect("stalled server should observe one request")
         .expect("stalled request notification should arrive");
+    tokio::time::pause();
+
+    assert!(
+        timeout(Duration::from_secs(4), &mut evaluation)
+            .await
+            .is_err(),
+        "the expansion budget must not expire before five seconds"
+    );
+    let decision = timeout(Duration::from_secs(1), evaluation)
+        .await
+        .expect("stalled body should exhaust the five-second expansion budget")
+        .expect("expansion task should finish");
 
     assert!(decision.is_err(), "timeout must reach the warning caller");
     assert_eq!(request_count.load(Ordering::SeqCst), 1);
-    assert!(started.elapsed() < Duration::from_millis(1_800));
     server.abort();
 }
 

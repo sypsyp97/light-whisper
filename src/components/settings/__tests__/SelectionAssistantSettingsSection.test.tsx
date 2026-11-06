@@ -3,12 +3,14 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserProfile } from "@/types";
+import type { ModelConnectionRequest } from "@/api/tauri";
 
 const api = vi.hoisted(() => ({
   getSelectionApiKey: vi.fn(),
   listAiModels: vi.fn(),
   setSelectionApiKey: vi.fn(),
   setSelectionAssistantConfig: vi.fn(),
+  testModelConnection: vi.fn(),
 }));
 const i18n = vi.hoisted(() => ({
   t: (key: string) => key,
@@ -42,10 +44,11 @@ const profile: UserProfile = {
   },
 };
 
-function section(profileValue: UserProfile) {
+function section(profileValue: UserProfile, polishConnection?: ModelConnectionRequest) {
   return (
     <SelectionAssistantSettingsSection
       profile={profileValue}
+      polishConnection={polishConnection}
       openaiAuthMode="api_key"
       openaiOauthLoggedIn={false}
       openaiControls={null}
@@ -65,12 +68,35 @@ function selectCustomTarget(value: string) {
   fireEvent.keyDown(input, { key: "Enter" });
 }
 
+async function renderSelectionWithPendingProviderKey() {
+  let resolve!: (key: string) => void;
+  const pendingKey = new Promise<string>((next) => { resolve = next; });
+  api.getSelectionApiKey.mockImplementation((provider: string) => (
+    provider === "deepseek" ? pendingKey : Promise.resolve("provider-a-key")
+  ));
+  await act(async () => {
+    render(section({ ...profile, llm_provider: {
+      ...profile.llm_provider, selection_use_separate_model: true,
+      selection_provider: "openai", selection_model: "provider-a-model",
+    } }));
+  });
+  expect(screen.getByLabelText("settings.selectionApiKey")).toHaveValue("provider-a-key");
+  return { pendingKey, resolve };
+}
+
+async function selectDeepSeek() {
+  fireEvent.click(screen.getByRole("button", { name: "settings.selectionProvider" }));
+  await act(async () => { fireEvent.click(screen.getByRole("option", { name: /^DeepSeek/ })); });
+  expect(api.getSelectionApiKey).toHaveBeenLastCalledWith("deepseek");
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   api.getSelectionApiKey.mockResolvedValue("");
   api.listAiModels.mockResolvedValue({ models: [], sourceUrl: "" });
   api.setSelectionApiKey.mockResolvedValue(undefined);
   api.setSelectionAssistantConfig.mockResolvedValue(undefined);
+  api.testModelConnection.mockResolvedValue({ model: "tested-model", elapsedMs: 12 });
   vi.useFakeTimers();
 });
 
@@ -79,6 +105,88 @@ afterEach(() => {
 });
 
 describe("SelectionAssistantSettingsSection", () => {
+  describe("connection credential isolation", () => {
+    it("invalidates the old success and never tests a new provider with the previous provider key", async () => {
+      const read = await renderSelectionWithPendingProviderKey();
+      try {
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" })); });
+        expect(screen.getByText("settings.modelConnectionSuccess")).toBeVisible();
+        await selectDeepSeek();
+        expect(screen.queryByText("settings.modelConnectionSuccess")).not.toBeInTheDocument();
+
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" })); });
+
+        expect(api.testModelConnection).not.toHaveBeenCalledWith(expect.objectContaining({
+          provider: "deepseek", apiKey: "provider-a-key",
+        }));
+      } finally {
+        await act(async () => { read.resolve("stored-provider-b-key"); await read.pendingKey; });
+      }
+    });
+
+    it("tests a new provider's local key draft and preserves it when its stored key arrives late", async () => {
+      const read = await renderSelectionWithPendingProviderKey();
+      await selectDeepSeek();
+      fireEvent.change(screen.getByLabelText("settings.selectionApiKey"), { target: { value: "provider-b-draft-key" } });
+      const button = screen.getByRole("button", { name: "settings.testModelConnection" });
+      expect(button).not.toBeDisabled();
+      await act(async () => { fireEvent.click(button); });
+      expect(api.testModelConnection).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        target: "selection", provider: "deepseek", apiKey: "provider-b-draft-key",
+      }));
+
+      await act(async () => { read.resolve("stored-provider-b-key"); await read.pendingKey; });
+
+      expect(screen.getByLabelText("settings.selectionApiKey")).toHaveValue("provider-b-draft-key");
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" })); });
+      expect(api.testModelConnection).toHaveBeenLastCalledWith(expect.objectContaining({
+        provider: "deepseek", apiKey: "provider-b-draft-key",
+      }));
+    });
+  });
+
+  it("tests the supplied polish draft when selection follows polish", async () => {
+    const polishConnection: ModelConnectionRequest = {
+      target: "polish", provider: "custom-polish", baseUrl: "https://polish.example/v1",
+      model: "draft-polish-model", apiKey: "draft-polish-key", reasoningMode: "deep",
+      openaiAuthMode: "api_key", xaiAuthMode: "api_key",
+    };
+    await act(async () => { render(section(profile, polishConnection)); });
+    expect(api.testModelConnection).not.toHaveBeenCalled();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" })); });
+
+    expect(api.testModelConnection).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      ...polishConnection, target: "selection",
+    }));
+  });
+
+  it("tests the independent selection model with its current model and key drafts", async () => {
+    api.getSelectionApiKey.mockResolvedValue("saved-selection-key");
+    await act(async () => {
+      render(section({
+        ...profile,
+        llm_provider: {
+          ...profile.llm_provider,
+          custom_providers: [{ id: "selection-test", name: "Selection Test", base_url: "https://selection.example/v1", model: "provider-default", api_format: "openai_compat" }],
+          selection_use_separate_model: true, selection_provider: "selection-test",
+          selection_model: "saved-selection-model", selection_reasoning_mode: "balanced",
+        },
+      }, { target: "polish", provider: "openai", model: "other-model", apiKey: "polish-only-key" }));
+    });
+    expect(screen.getByLabelText("settings.selectionApiKey")).toHaveValue("saved-selection-key");
+    fireEvent.change(screen.getByRole("textbox", { name: "settings.assistantModelLabel" }), { target: { value: "draft-selection-model" } });
+    fireEvent.change(screen.getByLabelText("settings.selectionApiKey"), { target: { value: "draft-selection-key" } });
+    expect(api.testModelConnection).not.toHaveBeenCalled();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" })); });
+
+    expect(api.testModelConnection).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      target: "selection", provider: "selection-test", baseUrl: "https://selection.example/v1",
+      model: "draft-selection-model", apiKey: "draft-selection-key", reasoningMode: "balanced", openaiAuthMode: "api_key",
+    }));
+  });
+
   it("saves xAI config and key, restores the separate model, and can disable it", async () => {
     const rendered = render(section(profile));
     await act(async () => {

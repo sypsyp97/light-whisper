@@ -1077,6 +1077,21 @@
   margin: 0;
 }
 
+.model-connection-test {
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.model-connection-test-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-connection-test-row button {
+  flex-shrink: 0;
+}
+
 .settings-column.history-settings-column,
 .settings-column.app-rules-column {
   gap: 12px;

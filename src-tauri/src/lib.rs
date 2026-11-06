@@ -308,6 +308,7 @@ pub fn run() {
             commands::ai_polish::set_ai_polish_screen_context_enabled,
             commands::ai_polish::set_screen_context_enabled,
             commands::ai_polish::list_ai_models,
+            commands::model_connection::test_model_connection,
             commands::ai_polish::set_assistant_api_key,
             commands::ai_polish::get_assistant_api_key,
             commands::jev::set_jev_config,

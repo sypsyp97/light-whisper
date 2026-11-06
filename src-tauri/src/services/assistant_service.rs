@@ -887,14 +887,14 @@ async fn evaluate_assistant_jev_routing(
         &jev_key,
         state_payload,
         questions,
-        std::time::Duration::from_secs(1),
+        jev_service::REQUEST_TIMEOUT,
         None,
     )
     .await
-    .unwrap_or_else(|_| {
+    .unwrap_or_else(|warning| {
         llm_client::emit_api_warning(
             app_handle,
-            "助手决策服务不可用，已按当前设置继续处理。请检查决策服务的连接与 API Key。",
+            &format!("助手决策未完成，已按当前设置继续处理。{warning}"),
             warning_session_id,
         );
         None

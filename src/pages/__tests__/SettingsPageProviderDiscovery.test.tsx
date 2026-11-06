@@ -75,6 +75,7 @@ const tauriMock = vi.hoisted(() => ({
   startOpenaiCodexOauthDeviceCode: vi.fn(),
   stopMicrophoneLevelMonitor: vi.fn(),
   testMicrophone: vi.fn(),
+  testModelConnection: vi.fn(),
   validateCorrections: vi.fn(),
 }));
 
@@ -203,6 +204,7 @@ function resetMocks(profile: UserProfile = baseProfile) {
     mock.mockResolvedValue(undefined);
   }
   tauriMock.getUserProfile.mockResolvedValue(profile);
+  tauriMock.testModelConnection.mockResolvedValue({ model: "tested-model", elapsedMs: 12 });
   tauriMock.getAiPolishApiKey.mockResolvedValue("");
   tauriMock.getAssistantApiKey.mockResolvedValue("");
   tauriMock.getSelectionApiKey.mockResolvedValue("");
@@ -341,6 +343,127 @@ function modelInfo(id: string, ownedBy = "test-owner"): AiModelInfo {
 
 beforeEach(() => resetMocks());
 afterEach(() => vi.clearAllMocks());
+
+describe("SettingsPage model connection buttons", () => {
+  it.each(["polish", "assistant"] as const)("tests %s with the current shared polish drafts only after a click", async (target) => {
+    tauriMock.getAiPolishApiKey.mockResolvedValue("stored-polish-key");
+    await renderSettings({
+      ...baseProfile,
+      llm_provider: {
+        ...baseProfile.llm_provider,
+        active: "custom-test",
+        custom_providers: [{ id: "custom-test", name: "Connection Test", base_url: "https://stored.example/v1", model: "stored-polish-model", api_format: "openai_compat" }],
+        custom_base_url: "https://stored.example/v1",
+        custom_model: "stored-polish-model",
+        polish_reasoning_mode: "balanced",
+        assistant_reasoning_mode: "deep",
+        openai_auth_mode: "api_key",
+        xai_auth_mode: "api_key",
+      },
+    });
+    const polish = screen.getByRole("heading", { name: "settings.aiPolish" }).closest("section")!;
+    expect(within(polish).getByRole("button", { name: "Select LLM Provider" })).toHaveTextContent("Connection Test");
+    const key = within(polish).getByPlaceholderText(/API Key/);
+    await waitFor(() => expect(key).toHaveValue("stored-polish-key"));
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: "Base URL" }), { target: { value: "https://draft.example/v1" } });
+      fireEvent.change(screen.getByRole("textbox", { name: "Model name" }), { target: { value: "draft-polish-model" } });
+      fireEvent.change(key, { target: { value: "draft-polish-key" } });
+    });
+    expect(tauriMock.testModelConnection).not.toHaveBeenCalled();
+    const section = target === "polish" ? polish
+      : screen.getByRole("heading", { name: "settings.assistant" }).closest("section")!;
+
+    fireEvent.click(within(section).getByRole("button", { name: "settings.testModelConnection" }));
+
+    await waitFor(() => expect(tauriMock.testModelConnection).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      target, provider: "custom-test", baseUrl: "https://draft.example/v1",
+      model: "draft-polish-model", apiKey: "draft-polish-key",
+      reasoningMode: target === "polish" ? "balanced" : "deep",
+      openaiAuthMode: "api_key", xaiAuthMode: "api_key",
+    })));
+  });
+
+  it("tests the independent assistant with its own model and credential drafts", async () => {
+    tauriMock.getAiPolishApiKey.mockResolvedValue("polish-only-key");
+    tauriMock.getAssistantApiKey.mockResolvedValue("stored-assistant-key");
+    await renderSettings({
+      ...baseProfile,
+      llm_provider: {
+        ...baseProfile.llm_provider,
+        custom_providers: [{ id: "assistant-test", name: "Assistant Test", base_url: "https://assistant.example/v1", model: "provider-default", api_format: "openai_compat" }],
+        assistant_use_separate_model: true,
+        assistant_provider: "assistant-test",
+        assistant_model: "saved-assistant-model",
+        assistant_reasoning_mode: "balanced",
+      },
+    });
+    const section = screen.getByRole("heading", { name: "settings.assistant" }).closest("section")!;
+    await waitFor(() => expect(screen.getByLabelText("Assistant API Key")).toHaveValue("stored-assistant-key"));
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: "Assistant model name" }), { target: { value: "draft-assistant-model" } });
+      fireEvent.change(screen.getByLabelText("Assistant API Key"), { target: { value: "draft-assistant-key" } });
+    });
+    expect(tauriMock.testModelConnection).not.toHaveBeenCalled();
+
+    fireEvent.click(within(section).getByRole("button", { name: "settings.testModelConnection" }));
+
+    await waitFor(() => expect(tauriMock.testModelConnection).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      target: "assistant", provider: "assistant-test", baseUrl: "https://assistant.example/v1",
+      model: "draft-assistant-model", apiKey: "draft-assistant-key", reasoningMode: "balanced",
+    })));
+  });
+});
+
+describe("SettingsPage Grok connection identity", () => {
+  const grokProfile: UserProfile = {
+    ...baseProfile,
+    llm_provider: {
+      ...baseProfile.llm_provider, active: "xai", custom_model: "grok-polish-test", xai_auth_mode: "oauth",
+      assistant_use_separate_model: true, assistant_provider: "xai", assistant_model: "grok-assistant-test",
+    },
+  };
+
+  it("clears a completed polish connection result after Grok logout", async () => {
+    tauriMock.getGrokBuildOauthStatus.mockResolvedValue({ loggedIn: true, accountId: "grok-account-a" });
+    await renderSettings(grokProfile);
+    const section = screen.getByRole("heading", { name: "settings.aiPolish" }).closest("section")!;
+    await waitFor(() => expect(within(section).getByRole("button", { name: "settings.grokBuildOauthLogout" })).toBeEnabled());
+    await act(async () => { fireEvent.click(within(section).getByRole("button", { name: "settings.testModelConnection" })); });
+    expect(tauriMock.testModelConnection).toHaveBeenCalledWith(expect.objectContaining({ target: "polish", provider: "xai", xaiAuthMode: "oauth" }));
+    expect(within(section).getByText("settings.modelConnectionSuccess")).toBeVisible();
+
+    await act(async () => { fireEvent.click(within(section).getByRole("button", { name: "settings.grokBuildOauthLogout" })); });
+
+    expect(tauriMock.logoutGrokBuildOauth).toHaveBeenCalledTimes(1);
+    expect(within(section).getByRole("button", { name: "settings.grokBuildOauthLogin" })).toBeEnabled();
+    expect(within(section).queryByText("settings.modelConnectionSuccess")).not.toBeInTheDocument();
+  });
+
+  it("ignores an assistant probe completing after Grok reauthentication changes the account", async () => {
+    const pending = deferred<{ model: string; elapsedMs: number }>();
+    tauriMock.getGrokBuildOauthStatus.mockResolvedValue({ loggedIn: true, accountId: "grok-account-a" });
+    tauriMock.testModelConnection.mockReturnValueOnce(pending.promise);
+    await renderSettings(grokProfile);
+    const section = screen.getByRole("heading", { name: "settings.assistant" }).closest("section")!;
+    const authSection = screen.getByRole("heading", { name: "settings.aiPolish" }).closest("section")!;
+    await waitFor(() => expect(within(authSection).getByRole("button", { name: "settings.grokBuildOauthReauth" })).toBeEnabled());
+    await act(async () => { fireEvent.click(within(section).getByRole("button", { name: "settings.testModelConnection" })); });
+    expect(tauriMock.testModelConnection).toHaveBeenCalledWith(expect.objectContaining({ target: "assistant", provider: "xai", xaiAuthMode: "oauth" }));
+    expect(within(section).getByRole("button", { name: "settings.modelConnectionTesting" })).toBeDisabled();
+    tauriMock.loginGrokBuildOauth.mockResolvedValue({ loggedIn: true, accountId: "grok-account-b" });
+    tauriMock.getGrokBuildOauthStatus.mockResolvedValue({ loggedIn: true, accountId: "grok-account-b" });
+
+    await act(async () => { fireEvent.click(within(authSection).getByRole("button", { name: "settings.grokBuildOauthReauth" })); });
+    expect(tauriMock.loginGrokBuildOauth).toHaveBeenCalledTimes(1);
+    expect(tauriMock.getGrokBuildOauthStatus).toHaveBeenCalledTimes(2);
+    expect(toastMock.success).toHaveBeenCalledWith("toast.grokBuildOauthLoginSuccess");
+    await act(async () => { pending.resolve({ model: "grok-assistant-test", elapsedMs: 12 }); await pending.promise; });
+
+    expect(within(section).queryByText("settings.modelConnectionSuccess")).not.toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: "settings.testModelConnection" })).toBeEnabled();
+  });
+});
 
 describe("SettingsPage polish credential ownership", () => {
   function installCredentialStore(initialProvider = "cerebras") {

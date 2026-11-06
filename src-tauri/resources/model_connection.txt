@@ -1,0 +1,6 @@
+Built-in speech for the user-initiated model connection test.
+Text: "Hello. This is a model connection test."
+Generated on 2026-11-06 using Windows System.Speech, Microsoft Zira Desktop.
+Format: mono, 16 kHz, signed 16-bit PCM WAV.
+This is synthesized test speech, not a recording of a person or user content.
+Embedded in the executable; no microphone, history or external asset download needed.

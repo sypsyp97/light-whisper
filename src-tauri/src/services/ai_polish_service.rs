@@ -980,7 +980,7 @@ async fn evaluate_polish_expansion(
         api_key,
         state_payload,
         Value::Object(questions),
-        std::time::Duration::from_secs(1),
+        jev_service::REQUEST_TIMEOUT,
         endpoint_override,
     )
     .await?;
@@ -1098,12 +1098,12 @@ async fn polish_text_inner(
                 }
             }
             Ok(None) => {}
-            Err(_) => {
+            Err(warning) => {
                 // One failed decision request is enough; continue with the configured polish path.
                 expansion_applied = true;
                 llm_client::emit_api_warning(
                     app_handle,
-                    "润色决策服务不可用，已按当前设置继续润色。请检查决策服务的连接与 API Key。",
+                    &format!("润色决策未完成，已按当前设置继续润色。{warning}"),
                     Some(session_id),
                 );
             }
@@ -1115,9 +1115,9 @@ async fn polish_text_inner(
         match evaluate_polish_gate(state, text, &overrides, &jev_config, &jev_api_key, None).await {
             Ok(Some(outcome)) => return Ok(outcome),
             Ok(None) => {}
-            Err(_) => llm_client::emit_api_warning(
+            Err(warning) => llm_client::emit_api_warning(
                 app_handle,
-                "润色决策服务不可用，已按当前设置继续润色。请检查决策服务的连接与 API Key。",
+                &format!("润色决策未完成，已按当前设置继续润色。{warning}"),
                 Some(session_id),
             ),
         }

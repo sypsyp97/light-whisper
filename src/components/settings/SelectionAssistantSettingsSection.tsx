@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import SecretInput from "@/components/SecretInput";
+import ModelConnectionTest from "./ModelConnectionTest";
+import type { ModelConnectionRequest } from "@/api/tauri";
 import TranslationLanguagePicker from "@/components/settings/TranslationLanguagePicker";
 import ProcessingModeControl from "@/components/settings/ProcessingModeControl";
 import { SettingsDisclosure, SettingsReveal } from "@/components/settings/SettingsReveal";
@@ -30,6 +32,8 @@ import type { AiModelInfo, LlmReasoningMode, OpenaiAuthMode, UserProfile, XaiAut
 
 interface SelectionAssistantSettingsSectionProps {
   profile: UserProfile | null;
+  polishConnection?: ModelConnectionRequest;
+  authIdentity?: string;
   openaiAuthMode: OpenaiAuthMode;
   openaiOauthLoggedIn: boolean;
   xaiAuthMode?: XaiAuthMode;
@@ -43,6 +47,8 @@ interface SelectionAssistantSettingsSectionProps {
 
 export default function SelectionAssistantSettingsSection({
   profile,
+  polishConnection,
+  authIdentity,
   openaiAuthMode,
   openaiOauthLoggedIn,
   xaiAuthMode = "api_key",
@@ -68,6 +74,9 @@ export default function SelectionAssistantSettingsSection({
   const [model, setModel] = useState(findLlmPreset("openai").defaultModel);
   const [reasoning, setReasoning] = useState<LlmReasoningMode>("provider_default");
   const [apiKey, setApiKey] = useState("");
+  const [apiKeyOwner, setApiKeyOwner] = useState<string | null>(null);
+  const [keyReadFailed, setKeyReadFailed] = useState(false);
+  const keyReadVersion = useRef(0);
   const [providerSearch, setProviderSearch] = useState("");
   const [modelSearch, setModelSearch] = useState("");
   const [availableModels, setAvailableModels] = useState<AiModelInfo[]>([]);
@@ -201,15 +210,21 @@ export default function SelectionAssistantSettingsSection({
   }, [profileSelectionConfig]);
 
   useEffect(() => {
+    const version = ++keyReadVersion.current;
+    setApiKey("");
+    setApiKeyOwner(null);
+    setKeyReadFailed(false);
     if (!profile || !separate) {
-      setApiKey("");
       return;
     }
     let disposed = false;
     void getSelectionApiKey(provider).then((value) => {
-      if (!disposed) setApiKey(value);
+      if (!disposed && keyReadVersion.current === version) {
+        setApiKey(value);
+        setApiKeyOwner(provider);
+      }
     }).catch(() => {
-      if (!disposed) setApiKey("");
+      if (!disposed && keyReadVersion.current === version) setKeyReadFailed(true);
     });
     return () => { disposed = true; };
   }, [Boolean(profile), provider, separate]);
@@ -363,6 +378,9 @@ export default function SelectionAssistantSettingsSection({
                         data-active={provider === item.key}
                         onClick={() => {
                           void selectionKeySave.flush();
+                          keyReadVersion.current += 1;
+                          setApiKey("");
+                          setApiKeyOwner(null);
                           setProvider(item.key);
                           setModel(item.defaultModel);
                           setProviderSearch("");
@@ -391,6 +409,9 @@ export default function SelectionAssistantSettingsSection({
               <SecretInput
                 value={apiKey}
                 onChange={(value) => {
+                  keyReadVersion.current += 1;
+                  setApiKeyOwner(provider);
+                  setKeyReadFailed(false);
                   setApiKey(value);
                   selectionKeySave.schedule(provider, value);
                 }}
@@ -542,6 +563,16 @@ export default function SelectionAssistantSettingsSection({
             </div>
           </div>
         </SettingsReveal>
+
+        {separate && keyReadFailed && <p className="settings-error" role="alert">{t("settings.modelConnectionKeyReadFailed")}</p>}
+        <ModelConnectionTest disabled={!profile || (separate && apiKeyOwner !== provider
+          && !(provider === "openai" && openaiAuthMode === "oauth")
+          && !(provider === "xai" && xaiAuthMode === "oauth"))} contextKey={authIdentity}
+          request={separate ? {
+            target: "selection", provider, baseUrl: currentProvider.baseUrl, model,
+            apiKey: apiKeyOwner === provider ? apiKey : "",
+            reasoningMode: reasoning, openaiAuthMode, xaiAuthMode,
+          } : { ...polishConnection, target: "selection" }} />
 
         <div className="settings-column" style={{ gap: 4 }}>
           <span className="settings-option-desc">{t("settings.selectionTranslationTarget")}</span>

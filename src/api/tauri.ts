@@ -37,6 +37,27 @@ import type { RecordingSnapshot } from "@/types/generated/ipc";
 
 type InvokeArgs = Record<string, unknown>;
 
+export interface ModelConnectionRequest {
+  target: "decision" | "polish" | "assistant" | "selection" | "vision" | "validation" | "asr";
+  provider?: string;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  reasoningMode?: LlmReasoningMode;
+  openaiAuthMode?: OpenaiAuthMode;
+  xaiAuthMode?: XaiAuthMode;
+  engine?: string;
+}
+
+export interface ModelConnectionResult {
+  model: string;
+  elapsedMs: number;
+}
+
+export function testModelConnection(request: ModelConnectionRequest): Promise<ModelConnectionResult> {
+  return invokeCommand<ModelConnectionResult>("test_model_connection", { request });
+}
+
 export type { RecordingOutcomeKind, RecordingSnapshot } from "@/types/generated/ipc";
 
 export class IpcError extends Error {

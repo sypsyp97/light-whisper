@@ -72,6 +72,7 @@ const tauriMock = vi.hoisted(() => ({
   startOpenaiCodexOauthDeviceCode: vi.fn(),
   stopMicrophoneLevelMonitor: vi.fn(),
   testMicrophone: vi.fn(),
+  testModelConnection: vi.fn(),
   validateCorrections: vi.fn(),
 }));
 
@@ -86,6 +87,7 @@ const eventMock = vi.hoisted(() => ({
 const eventDisposers = vi.hoisted(() => [] as Array<ReturnType<typeof vi.fn>>);
 
 const recordingContextMock = vi.hoisted(() => ({
+  isRecording: false,
   retryModel: vi.fn(),
   setHotkey: vi.fn(),
 }));
@@ -112,7 +114,7 @@ vi.mock("@/contexts/RecordingContext", () => ({
     hotkeyDiagnostic: null,
     hotkeyDisplay: "F2",
     hotkeyError: null,
-    isRecording: false,
+    isRecording: recordingContextMock.isRecording,
     retryModel: recordingContextMock.retryModel,
     setHotkey: recordingContextMock.setHotkey,
   }),
@@ -239,6 +241,7 @@ function resetMocks(profile: UserProfile = baseProfile) {
     mock.mockResolvedValue(undefined);
   }
   tauriMock.getUserProfile.mockResolvedValue(profile);
+  tauriMock.testModelConnection.mockResolvedValue({ model: "tested-asr-model", elapsedMs: 12 });
   tauriMock.getAiPolishApiKey.mockResolvedValue("");
   tauriMock.getAssistantApiKey.mockResolvedValue("");
   tauriMock.getAlibabaAsrConfig.mockResolvedValue({
@@ -292,6 +295,7 @@ function resetMocks(profile: UserProfile = baseProfile) {
     return Promise.resolve(disposer);
   });
   recordingContextMock.retryModel.mockReset();
+  recordingContextMock.isRecording = false;
   recordingContextMock.setHotkey.mockReset();
   recordingContextMock.setHotkey.mockResolvedValue(undefined);
   storageMock.readLocalStorage.mockReset();
@@ -330,6 +334,76 @@ beforeEach(() => resetMocks());
 afterEach(() => vi.clearAllMocks());
 
 describe("SettingsPage ASR and device settings", () => {
+  it("tests the selected local ASR model only after a click", async () => {
+    await renderSettings();
+    const section = screen.getByRole("heading", { name: "ASR Engine" }).closest("section")!;
+    await waitFor(() => expect(within(section).getByRole("button", { name: "ASR Engine" })).not.toBeDisabled());
+    expect(tauriMock.testModelConnection).not.toHaveBeenCalled();
+
+    fireEvent.click(within(section).getByRole("button", { name: "settings.testModelConnection" }));
+
+    await waitFor(() => expect(tauriMock.testModelConnection).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      target: "asr", engine: "qwen3-asr-0.6b", model: "qwen3-asr-0.6b",
+    })));
+  });
+
+  it("tests online ASR with the visible endpoint, selected model, and unsaved key", async () => {
+    tauriMock.getEngine.mockResolvedValue("alibaba-asr");
+    tauriMock.getOnlineAsrApiKey.mockResolvedValue("saved-online-key");
+    tauriMock.getOnlineAsrEndpoint.mockResolvedValue({ region: "international", url: "https://asr.example/v1" });
+    tauriMock.getAlibabaAsrConfig.mockResolvedValue({
+      model: "qwen3-asr-flash", models: ["qwen3-asr-flash", "qwen3-asr-flash-latest"],
+      region: "international", url: "https://asr.example/v1",
+    });
+    tauriMock.listAlibabaAsrModels.mockResolvedValue({ models: ["qwen3-asr-flash", "qwen3-asr-flash-latest"], source: "fallback" });
+    tauriMock.setAlibabaAsrModel.mockResolvedValue("qwen3-asr-flash-latest");
+    await renderSettings();
+    const section = screen.getByRole("heading", { name: "ASR Engine" }).closest("section")!;
+    await waitFor(() => expect(screen.getByPlaceholderText("Alibaba API Key")).toHaveValue("saved-online-key"));
+    fireEvent.click(screen.getByRole("button", { name: "settings.alibabaModelLabel" }));
+    fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "qwen3-asr-flash-latest" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "settings.alibabaModelLabel" })).toHaveTextContent("qwen3-asr-flash-latest"));
+    fireEvent.change(screen.getByPlaceholderText("Alibaba API Key"), { target: { value: "draft-online-key" } });
+    expect(tauriMock.testModelConnection).not.toHaveBeenCalled();
+
+    fireEvent.click(within(section).getByRole("button", { name: "settings.testModelConnection" }));
+
+    await waitFor(() => expect(tauriMock.testModelConnection).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      target: "asr", engine: "alibaba-asr", baseUrl: "https://asr.example/v1",
+      model: "qwen3-asr-flash-latest", apiKey: "draft-online-key",
+    })));
+  });
+
+  it("disables the ASR connection test while recording", async () => {
+    recordingContextMock.isRecording = true;
+    await renderSettings();
+    const section = screen.getByRole("heading", { name: "ASR Engine" }).closest("section")!;
+    const button = within(section).getByRole("button", { name: "settings.testModelConnection" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(tauriMock.testModelConnection).not.toHaveBeenCalled();
+  });
+
+  it("disables the ASR connection test until an engine transition finishes", async () => {
+    const transition = deferred<string>();
+    tauriMock.setEngine.mockReturnValue(transition.promise);
+    await renderSettings();
+    const section = screen.getByRole("heading", { name: "ASR Engine" }).closest("section")!;
+    const trigger = within(section).getByRole("button", { name: "ASR Engine" });
+    await waitFor(() => expect(trigger).not.toBeDisabled());
+    fireEvent.click(trigger);
+    fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: /GLM-ASR/ }));
+    try {
+      await waitFor(() => expect(tauriMock.setEngine).toHaveBeenCalledWith("glm-asr"));
+      const button = within(section).getByRole("button", { name: "settings.testModelConnection" });
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+      expect(tauriMock.testModelConnection).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => { transition.resolve("glm-asr"); await transition.promise; });
+    }
+  });
+
   it("selects the final navigation section when manually scrolling to the bottom", async () => {
     const { container } = await renderSettings();
     const content = container.querySelector<HTMLElement>(".settings-content")!;

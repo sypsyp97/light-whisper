@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { getJevApiKey, getJevConnection, setJevApiKey, setJevConnection, setJevProvider, setJevFeatures, validateCorrections } from "@/api/tauri";
 import SecretInput from "@/components/SecretInput";
+import ModelConnectionTest from "./ModelConnectionTest";
 import { SettingsReveal } from "./SettingsReveal";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import type { JevConnection, JevFeatures, JevProvider, UserProfile } from "@/types";
@@ -397,6 +398,8 @@ export default function JevSettingsSection({ profile, onSaved, polishEnabled = t
               )}
             </div>
           </fieldset>
+          <ModelConnectionTest disabled={configSaving || keyLoadError || connectionLoadError}
+            request={{ target: "decision", provider, baseUrl: connection.base_url, model: connection.model, apiKey }} />
         </div>
       </SettingsReveal>
     </div>

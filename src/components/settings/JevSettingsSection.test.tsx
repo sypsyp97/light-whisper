@@ -9,6 +9,7 @@ const tauriMock = vi.hoisted(() => ({
   setJevFeatures: vi.fn(),
   getJevConnection: vi.fn(),
   setJevConnection: vi.fn(),
+  testModelConnection: vi.fn(),
   validateCorrections: vi.fn(),
 }));
 
@@ -151,6 +152,8 @@ beforeEach(() => {
   tauriMock.getJevConnection.mockImplementation((provider: JevProvider) => Promise.resolve({ ...connections[provider] }));
   tauriMock.setJevConnection.mockReset();
   tauriMock.setJevConnection.mockResolvedValue(undefined);
+  tauriMock.testModelConnection.mockReset();
+  tauriMock.testModelConnection.mockResolvedValue({ model: "jev-1.13.0", elapsedMs: 12 });
   tauriMock.validateCorrections.mockReset();
   tauriMock.validateCorrections.mockResolvedValue(0);
   toastMock.error.mockReset();
@@ -162,6 +165,114 @@ afterEach(() => {
 });
 
 describe("JevSettingsSection", () => {
+  describe("model connection test", () => {
+    it("tests the current unsaved drafts once and reports success only after the response", async () => {
+      vi.useFakeTimers();
+      const response = deferred<{ model: string; elapsedMs: number }>();
+      tauriMock.testModelConnection.mockReturnValue(response.promise);
+      tauriMock.getJevApiKey.mockResolvedValue("saved-key");
+      let view: ReturnType<typeof render> | undefined;
+      try {
+        await act(async () => {
+          view = render(<JevSettingsSection profile={{ ...baseProfile,
+            jev: { enabled: true, provider: "typesafe" },
+          }} onSaved={vi.fn()} />);
+        });
+        expect(getModelInput()).toHaveValue(connections.typesafe.model);
+        expect(getApiKeyInput()).toHaveValue("saved-key");
+
+        fireEvent.change(getUrlInput(), { target: { value: "https://draft.example/Decision" } });
+        fireEvent.change(getModelInput(), { target: { value: "draft-decision-model" } });
+        fireEvent.change(getApiKeyInput(), { target: { value: "draft-test-key" } });
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" }));
+        });
+
+        expect(tauriMock.testModelConnection).toHaveBeenCalledExactlyOnceWith({
+          target: "decision",
+          provider: "typesafe",
+          baseUrl: "https://draft.example/Decision",
+          model: "draft-decision-model",
+          apiKey: "draft-test-key",
+        });
+        expect(tauriMock.setJevConnection).not.toHaveBeenCalled();
+        expect(tauriMock.setJevApiKey).not.toHaveBeenCalled();
+        const testingButton = screen.getByRole("button", { name: "settings.modelConnectionTesting" });
+        expect(testingButton).toBeDisabled();
+        fireEvent.click(testingButton);
+        expect(tauriMock.testModelConnection).toHaveBeenCalledTimes(1);
+        expect(screen.queryByText("settings.modelConnectionSuccess")).not.toBeInTheDocument();
+
+        await act(async () => {
+          response.resolve({ model: "draft-decision-model", elapsedMs: 12 });
+          await response.promise;
+        });
+        expect(screen.getByRole("status")).toHaveTextContent("settings.modelConnectionSuccess");
+        expect(screen.getByRole("button", { name: "settings.testModelConnection" })).not.toBeDisabled();
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      } finally {
+        await act(async () => { view?.unmount(); });
+        vi.clearAllTimers();
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows the rejected connection reason inline and allows a retry", async () => {
+      tauriMock.getJevApiKey.mockResolvedValue("test-key");
+      tauriMock.testModelConnection.mockRejectedValueOnce(new Error("HTTP 401: invalid API key"));
+      renderSection({ ...baseProfile, jev: { enabled: true, provider: "typesafe" } });
+      await expectConnection("typesafe");
+      await waitFor(() => expect(getApiKeyInput()).toHaveValue("test-key"));
+
+      fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" }));
+
+      const error = await screen.findByRole("alert");
+      expect(error).toHaveTextContent("settings.modelConnectionFailed");
+      expect(error).toHaveTextContent("HTTP 401: invalid API key");
+      expect(screen.queryByText("settings.modelConnectionSuccess")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" }));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("settings.modelConnectionSuccess"));
+      expect(tauriMock.testModelConnection).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it.each([
+      { field: "model", input: getModelInput, first: "first-model", second: "second-model" },
+      { field: "URL", input: getUrlInput, first: "https://first.example/v1", second: "https://second.example/v1" },
+      { field: "API key", input: getApiKeyInput, first: "first-test-key", second: "second-test-key" },
+      { field: "provider", input: getProviderSelect, first: "openrouter", second: "liquid" },
+    ])("invalidates success and ignores a late response after editing the $field", async ({ input, first, second }) => {
+      const pending = deferred<{ model: string; elapsedMs: number }>();
+      tauriMock.getJevApiKey.mockResolvedValue("saved-key");
+      tauriMock.testModelConnection
+        .mockResolvedValueOnce({ model: connections.typesafe.model, elapsedMs: 12 })
+        .mockReturnValueOnce(pending.promise);
+      renderSection({ ...baseProfile, jev: { enabled: true, provider: "typesafe" } });
+      await expectConnection("typesafe");
+      await waitFor(() => expect(getApiKeyInput()).toHaveValue("saved-key"));
+
+      fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" }));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("settings.modelConnectionSuccess"));
+      await act(async () => { fireEvent.change(input(), { target: { value: first } }); });
+      expect(input()).toHaveValue(first);
+      expect(screen.queryByText("settings.modelConnectionSuccess")).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "settings.testModelConnection" }));
+      await waitFor(() => expect(tauriMock.testModelConnection).toHaveBeenCalledTimes(2));
+      expect(screen.getByRole("button", { name: "settings.modelConnectionTesting" })).toBeDisabled();
+      await act(async () => { fireEvent.change(input(), { target: { value: second } }); });
+      expect(input()).toHaveValue(second);
+      await act(async () => {
+        pending.resolve({ model: "stale-tested-model", elapsedMs: 24 });
+        await pending.promise;
+      });
+
+      expect(screen.queryByText("settings.modelConnectionSuccess")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "settings.testModelConnection" })).not.toBeDisabled();
+    });
+  });
+
   it("shows the shared JEV connection when selection screenshots use Auto", async () => {
     await act(async () => {
       render(<JevSettingsSection profile={{

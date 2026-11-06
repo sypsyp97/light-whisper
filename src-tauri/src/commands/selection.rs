@@ -505,7 +505,7 @@ async fn run_llm_action(
                 "screen_requested": true,
             }),
             jev_tasks::screen_questions(),
-            std::time::Duration::from_secs(1),
+            jev_service::REQUEST_TIMEOUT,
             None,
         )
         .await

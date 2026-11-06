@@ -10,9 +10,14 @@ import {
 } from "@/api/tauri";
 import type { CorrectionPattern, UserProfile } from "@/types";
 import { prefersReducedMotion } from "@/lib/motion";
+import type { ModelConnectionRequest } from "@/api/tauri";
+import { findLlmPreset } from "@/lib/llmModelOptions";
+import ModelConnectionTest from "./ModelConnectionTest";
 
 interface CorrectionRulesModalProps {
   profile: UserProfile | null;
+  polishConnection?: ModelConnectionRequest;
+  authIdentity?: string;
   allProviderOptions: { key: string; label: string }[];
   validationEnabled: boolean;
   setValidationEnabled: (value: boolean) => void;
@@ -39,6 +44,8 @@ const correctionSourceColors: Record<string, string> = {
 
 export default function CorrectionRulesModal({
   profile,
+  polishConnection,
+  authIdentity,
   allProviderOptions,
   validationEnabled,
   setValidationEnabled,
@@ -125,6 +132,17 @@ export default function CorrectionRulesModal({
   }, [handleDialogKeyDown]);
 
   const patterns: CorrectionPattern[] = profile?.correction_patterns ?? [];
+  const probeProvider = validationProvider || polishConnection?.provider || profile?.llm_provider.active || "";
+  const probeCustom = profile?.llm_provider.custom_providers?.find((item) => item.id === probeProvider);
+  const followsPolishProvider = probeProvider === polishConnection?.provider;
+  const probeRequest: ModelConnectionRequest = validationUseSeparateModel ? {
+    target: "validation", provider: probeProvider,
+    baseUrl: followsPolishProvider ? polishConnection?.baseUrl : probeCustom?.base_url ?? findLlmPreset(probeProvider).baseUrl,
+    model: validationModel.trim() || (followsPolishProvider ? polishConnection?.model : probeCustom?.model ?? findLlmPreset(probeProvider).defaultModel),
+    apiKey: followsPolishProvider ? polishConnection?.apiKey : undefined,
+    reasoningMode: polishConnection?.reasoningMode,
+    openaiAuthMode: polishConnection?.openaiAuthMode, xaiAuthMode: polishConnection?.xaiAuthMode,
+  } : { ...polishConnection, target: "validation" };
 
   const filtered = patterns.filter((pattern) => {
     if (sourceFilter !== "all" && pattern.source !== sourceFilter) return false;
@@ -354,6 +372,8 @@ export default function CorrectionRulesModal({
                   />
                 </div>
               )}
+
+              <ModelConnectionTest request={probeRequest} contextKey={authIdentity} disabled={!profile || validationRunning} />
 
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <button

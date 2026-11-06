@@ -9,7 +9,8 @@ use crate::state::user_profile::{JevConfig, JevConnection};
 
 use crate::services::llm_provider::KEYRING_SERVICE;
 
-const REQUEST_TIMEOUT: Duration = Duration::from_millis(1000);
+// Include connection setup and body reading; share the interactive budget across callers.
+pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const LEGACY_VERCEL_PATH: &str = "/v4/ai/evaluation-model";
 /// Minimum probability for auto-polish bypass and its automatic screen route.
 pub const POLISH_ROUTING_MIN_PROBABILITY: f64 = 0.80;
