@@ -15,6 +15,58 @@ PATHS = {
 }
 
 
+def check_cloud_asr_snapshot(source: str, engine: str) -> None:
+    def function(signature: str) -> str:
+        start = source.find(signature)
+        if start < 0:
+            raise ValueError(f"{engine}: missing {signature}")
+        return " ".join(source[start:source.index("\n}", start)].split())
+
+    glm = engine == "glm-asr"
+    fields = "api_key, url" if glm else "api_key, base, model, region"
+    endpoints = ('format!("{}{}", paths::read_online_asr_endpoint(), GLM_ASR_PATH)' if glm else
+                 'paths::read_alibaba_endpoint(), paths::read_alibaba_model(), paths::read_alibaba_region()')
+    entry = function("pub async fn transcribe(")
+    before, _, rest = entry.partition(f"let ({fields}) = {{")
+    snapshot, end, request = rest.partition("};")
+    lock = "let _configuration = state.engine.funasr_lifecycle_op.lock().await;"
+    if ("let _asr_guard = state.engine.native_asr_owner.lock().await;" not in before or not end
+            or "drop(_asr_guard)" in entry or "drop(_configuration)" in snapshot
+            or not snapshot.strip().startswith(f'{lock} if paths::read_engine_config() != "{engine}" {{ return Err(')
+            or not snapshot.strip().endswith(f"( state.read_online_asr_api_key(), {endpoints}, )")):
+        raise ValueError(f"{engine}: ASR ownership, engine check and locked credential snapshot required")
+
+    def reject_live_reads(body: str) -> None:
+        if "read_online_asr_" in body or "read_alibaba_" in body:
+            raise ValueError(f"{engine}: live credential or endpoint read after snapshot")
+
+    reject_live_reads(request)
+    if glm and "fn transcribe_request(" not in source:
+        # Earlier revisions sent directly from transcribe with owned strings.
+        if ".post(&url) .bearer_auth(&api_key)" not in request:
+            raise ValueError(f"{engine}: inline request must use the captured URL and API key")
+        return
+
+    transports = ["transcribe_request"] if glm else ["transcribe_via_omni_chat", "transcribe_via_dashscope_asr"]
+    for name in transports:
+        args = "state, audio_data, &url, &api_key" if glm else "state, &base, &model, &api_key, audio_wav"
+        if f"{name}({args}).await" not in request:
+            raise ValueError(f"{engine}: {name} must receive the captured endpoint and API key")
+        transport = function(f"fn {name}(")
+        reject_live_reads(transport)
+        if glm:
+            binding = "audio_data: Vec<u8>, url: &str, api_key: &str,"
+            post = ".post(url)"
+        else:
+            binding = "base: &str, model: &str, api_key: &str, audio_wav: Vec<u8>,"
+            suffix = "OMNI_CHAT_PATH" if name == "transcribe_via_omni_chat" else "ASR_PATH"
+            if f'let url = format!("{{}}{{}}", base, {suffix});' not in transport:
+                raise ValueError(f"{engine}: {name} must build the URL from the captured base")
+            post = ".post(&url)"
+        if binding not in transport or f"{post} .bearer_auth(api_key)" not in transport:
+            raise ValueError(f"{engine}: {name} must POST using the captured endpoint and API key")
+
+
 def check(revision: str | None = None) -> None:
     for path, functions in PATHS.items():
         source = subprocess.check_output(["git", "show", f"{revision}:{path}"], cwd=ROOT,
@@ -51,13 +103,7 @@ def check(revision: str | None = None) -> None:
                          ("src-tauri/src/services/glm_asr_service.rs", "glm-asr")]:
         source = subprocess.check_output(["git", "show", f"{revision}:{path}"], cwd=ROOT,
                                          text=True, encoding="utf-8") if revision else (ROOT / path).read_text(encoding="utf-8")
-        body = source[source.index("pub async fn transcribe("):]
-        body = body[:body.index("\n}")]
-        before = body[:body.index(".bearer_auth") if ".bearer_auth" in body else body.index("transcribe_via_omni_chat(")]
-        required = ["native_asr_owner.lock().await", "funasr_lifecycle_op.lock().await",
-                    f'paths::read_engine_config() != "{engine}"', "let (api_key,"]
-        if any(fragment not in before for fragment in required):
-            raise ValueError(f"{path}: cloud key/config snapshot and ASR ownership required")
+        check_cloud_asr_snapshot(source, engine)
     path = "src-tauri/src/commands/funasr.rs"
     source = subprocess.check_output(["git", "show", f"{revision}:{path}"], cwd=ROOT,
                                      text=True, encoding="utf-8") if revision else (ROOT / path).read_text(encoding="utf-8")

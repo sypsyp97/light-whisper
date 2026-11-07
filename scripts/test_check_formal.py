@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import check_formal
+import check_request_snapshot
 
 
 class ToolPinTests(unittest.TestCase):
@@ -16,6 +17,30 @@ class ToolPinTests(unittest.TestCase):
                 for line in workflow.splitlines()
                 if '"$RUNNER_TEMP/tla2tools.jar" | sha256sum --check' in line]
         self.assertEqual(pins, [check_formal.TLC_SHA256])
+
+
+class CloudAsrSnapshotTests(unittest.TestCase):
+    def test_cloud_snapshot_guard_rejects_broken_request_paths(self):
+        for provider, original, replacement in [
+            ("glm", "let _asr_guard = state.engine.native_asr_owner.lock().await;", ""),
+            ("glm", "let _configuration = state.engine.funasr_lifecycle_op.lock().await;", ""),
+            ("glm", "state.read_online_asr_api_key(),", "{ drop(_configuration); state.read_online_asr_api_key() },"),
+            ("glm", "audio_data, &url, &api_key", "audio_data, &api_key, &url"),
+            ("glm", ".post(url)", ".post(paths::read_online_asr_endpoint())"),
+            ("glm", "if api_key.is_empty() {", "let api_key = state.read_online_asr_api_key();\n    if api_key.is_empty() {"),
+            ("alibaba", "transcribe_via_omni_chat(state, &base, &model, &api_key,",
+             "transcribe_via_omni_chat(state, &base, &model, &state.read_online_asr_api_key(),"),
+            ("alibaba", "transcribe_via_dashscope_asr(state, &base, &model, &api_key,",
+             "transcribe_via_dashscope_asr(state, &base, &model, &state.read_online_asr_api_key(),"),
+        ]:
+            with self.subTest(provider=provider, mutation=original):
+                target = check_request_snapshot.ROOT / f"src-tauri/src/services/{provider}_asr_service.rs"
+                source = target.read_text(encoding="utf-8")
+                engine = f"{provider}-asr"
+                check_request_snapshot.check_cloud_asr_snapshot(source, engine)
+                self.assertEqual(source.count(original), 1)
+                with self.assertRaises(ValueError):
+                    check_request_snapshot.check_cloud_asr_snapshot(source.replace(original, replacement), engine)
 
 
 class ModelBindingTests(unittest.TestCase):

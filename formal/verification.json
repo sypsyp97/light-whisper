@@ -201,6 +201,9 @@
       "discovery",
       "providers"
     ],
+    "commands::model_connection::test_model_connection": [
+      "model-probe"
+    ],
     "commands::jev::set_jev_config": [
       "preferences",
       "routing"
@@ -678,6 +681,23 @@
     ]
   },
   "contracts": {
+    "model-probe": {
+      "obligation": "Each test sends its fixed sample using the selected provider and endpoint. An ASR test uses the engine and credential captured for that request.",
+      "models": {
+        "ProviderRequests": ["CredentialOnlyGoesToItsProvider", "RequestUsesCapturedEndpoint"],
+        "RuntimeConfiguration": ["AsrPinsEngine", "ActiveKeyComesFromActiveSlot"]
+      },
+      "implementation": [
+        "src-tauri/src/commands/model_connection.rs#fn test_model_connection(",
+        "src-tauri/src/commands/model_connection.rs#fn asr_snapshot("
+      ],
+      "evidence": [
+        "src-tauri/src/commands/model_connection_tests.rs",
+        "src-tauri/src/services/model_connection_tests.rs",
+        "src-tauri/src/services/model_connection_asr_tests.rs"
+      ],
+      "assumptions": "The models cover request identity and credential ownership. Transport tests exercise sample contents and response parsing. Provider availability is external."
+    },
     "online-asr-identity": {
       "obligation": "Credential edits require a confirmed engine and Alibaba current-epoch endpoint; GLM shares its slot and local engines have no credential slot. Read retry preserves committed engine changes, independent key failure preserves endpoint success, obsolete endpoint completions cannot publish, and debounced writes retain captured identity across a flush-before-switch boundary.",
       "models": {
@@ -2849,6 +2869,7 @@
     "commands::ai_polish::set_ai_polish_screen_context_enabled": "src-tauri/src/commands/ai_polish.rs#fn set_ai_polish_screen_context_enabled(",
     "commands::ai_polish::set_screen_context_enabled": "src-tauri/src/commands/ai_polish.rs#fn set_screen_context_enabled(",
     "commands::ai_polish::list_ai_models": "src-tauri/src/commands/ai_polish.rs#fn list_ai_models(",
+    "commands::model_connection::test_model_connection": "src-tauri/src/commands/model_connection.rs#fn test_model_connection(",
     "commands::jev::set_jev_config": "src-tauri/src/commands/jev.rs#fn set_jev_config(",
     "commands::jev::set_jev_provider": "src-tauri/src/commands/jev.rs#fn set_jev_provider(",
     "commands::jev::get_jev_connection": "src-tauri/src/commands/jev.rs#fn get_jev_connection(",
