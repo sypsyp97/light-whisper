@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FunASRStatus } from "@/types";
 import { ownershipTrace } from "@/test/asyncOwnershipTrace";
 
-type StatusPayload = { status: string; device?: string; gpu_name?: string | null; message?: string };
+type StatusPayload = {
+  status: string; device?: string; gpu_name?: string | null; message?: string;
+  model_state?: FunASRStatus["model_state"];
+};
 const mocks = vi.hoisted(() => ({
   check: vi.fn(), start: vi.fn(), restart: vi.fn(), download: vi.fn(), cancel: vi.fn(),
   status: undefined as undefined | ((event: { payload: StatusPayload }) => void),
@@ -44,13 +47,14 @@ beforeEach(() => {
   mocks.status = undefined;
   mocks.restart.mockResolvedValue(undefined);
   mocks.cancel.mockResolvedValue(undefined);
-  // Keep native download work pending; status ownership never cancels issued work.
-  mocks.download.mockImplementation(() => new Promise(() => {}));
 });
 afterEach(() => { cleanup(); vi.clearAllTimers(); vi.useRealTimers(); });
 
 describe("TLC engine status ownership replay", () => {
-  it.each(["engine-status-event", "engine-status-query", "engine-status-start", "engine-status-progress"])(
+  it.each([
+    "engine-status-event", "engine-status-query", "engine-status-start",
+    "engine-status-progress", "engine-status-auto-download",
+  ])(
     "replays %s through the real hook", async (name) => {
       const events = ownershipTrace(name);
       const requests: ReturnType<typeof deferred<FunASRStatus>>[] = [];
@@ -87,6 +91,11 @@ describe("TLC engine status ownership replay", () => {
           downloads: mocks.download.mock.calls.length,
         };
       };
+      const expectMissing = async (before: ReturnType<typeof snapshot>) => {
+        await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+        expect(snapshot()).toEqual({ ...before, stage: "need_download", ready: false,
+          device: "cpu", gpu: null, error: null, downloading: false, downloads: 0 });
+      };
       const query = async (id: number) => {
         expect(id).toBe(requests.length + 1);
         if (!hook) hook = renderHook(() => useModelStatus());
@@ -99,15 +108,18 @@ describe("TLC engine status ownership replay", () => {
       };
       const emit = async (kind: string, crashId?: number, nativeProgress = false) => {
         if (!mocks.status) throw new Error("Status event without a registered listener");
+        const before = snapshot();
         epoch += 1;
         if (kind !== "loading") startEpoch += 1;
         const payload: StatusPayload = kind === "crashed" ? { status: "crashed" }
           : nativeProgress ? { status: "loading" }
           : kind === "failure" ? { status: "error", message: "event failed" }
+          : kind === "missing" ? { status: "error", model_state: "missing", device: "cpu", gpu_name: null }
           : { status: kind, device: kind === "ready" ? "cuda" : "cpu",
             gpu_name: kind === "ready" ? "event GPU" : null };
         await act(async () => { mocks.status!({ payload }); });
         await flush();
+        if (kind === "missing") return expectMissing(before);
         expect(hook!.result.current.stage).toBe(kind === "failure" ? "error" : kind === "crashed" ? "loading" : kind);
         if (kind === "ready") {
           expect(hook!.result.current).toMatchObject({ device: "cuda", gpuName: "event GPU", error: null });
@@ -148,9 +160,7 @@ describe("TLC engine status ownership replay", () => {
           expect(mocks.start).toHaveBeenCalledTimes(before.starts + (kind === "stopped" ? 1 : 0));
           expect(vi.getTimerCount()).toBe(before.timers);
         } else if (kind === "missing") {
-          await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-          expect(hook!.result.current).toMatchObject({ stage: "downloading", isDownloading: true, error: null });
-          expect(mocks.download).toHaveBeenCalledTimes(before.downloads + 1);
+          await expectMissing(before);
         } else throw new Error(`Unhandled status kind: ${kind}`);
         expect(mocks.restart).not.toHaveBeenCalled();
       };
@@ -182,7 +192,7 @@ describe("TLC engine status ownership replay", () => {
       for (const event of events) {
         let match: RegExpExecArray | null;
         if ((match = /^engine-status:query:([1-6])$/.exec(event))) await query(Number(match[1]));
-        else if ((match = /^engine-status:event:(ready|loading|failure)$/.exec(event))) await emit(match[1]);
+        else if ((match = /^engine-status:event:(ready|loading|failure|missing)$/.exec(event))) await emit(match[1]);
         else if ((match = /^engine-status:crashed:([1-6])$/.exec(event))) await emit("crashed", Number(match[1]));
         else if ((match = /^engine-status:progress:([1-6])$/.exec(event))) {
           if (!starts.has(Number(match[1])) || settledStarts.has(Number(match[1]))) {

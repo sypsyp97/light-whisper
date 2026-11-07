@@ -18,7 +18,7 @@
 ## Get started
 
 1. **Install.** Download the Windows 10/11 x64 `*_x64-setup.exe` from [Releases](https://github.com/sypsyp97/light-whisper/releases/latest). The recognition runtime is bundled; no separate Python or build tools are needed.
-2. **Choose an engine.** Open Settings, select your microphone, then download a local model or configure a cloud API key and region.
+2. **Choose an engine.** Select your microphone and recognition engine in Settings. The app reuses compatible cached weights. If the selected local model is missing, click **Start download** on the main screen, or choose another engine in Settings. Cloud engines use an API key and region.
 3. **Speak.** Focus the app you want to type into, hold <kbd>F2</kbd>, speak, then release. You can change the hotkey or switch to toggle recording in Settings.
 
 Basic local dictation works without an LLM account. For rewriting, translation or the voice assistant, configure a provider and model with an API key or supported account login.
@@ -63,11 +63,11 @@ Search options include provider-native search where supported, keyless Bing snip
 </details>
 
 <details>
-<summary><strong>Upgrading from before 1.6</strong></summary>
+<summary><strong>Model downloads after an upgrade</strong></summary>
 
 Saved Qwen 1.7B selections migrate to R2T2, which needs its own model download. Qwen 0.6B and existing model caches are preserved. R2T2 has a separate [model license](src-tauri/resources/R2T2-MODEL-LICENSE.txt).
 
-Version 1.7.7 moves Qwen 0.6B to the shared audio.cpp runtime and requires a new ~1.15 GB GGUF download. Existing model caches remain intact. Both local engines support CPU and NVIDIA CUDA.
+Version 1.7.7 switched Qwen 0.6B to a different GGUF for audio.cpp. Upgrading from the earlier Qwen runtime requires a one-time ~1.15 GB download if you choose this model. Interrupted downloads can resume when the server supports byte ranges.
 
 </details>
 

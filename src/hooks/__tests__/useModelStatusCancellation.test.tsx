@@ -53,25 +53,13 @@ async function flushMicrotasks() {
   });
 }
 
-async function runInitialAutoDownload() {
-  await flushMicrotasks();
+async function advancePolling() {
   await act(async () => {
-    vi.advanceTimersByTime(0);
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  await flushMicrotasks();
-}
-
-async function advanceAutoRetry() {
-  await act(async () => {
-    vi.advanceTimersByTime(3000);
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(18_000);
   });
 }
 
-describe("useModelStatus automatic download cancellation", () => {
+describe("useModelStatus manual model downloads", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetAllMocks();
@@ -80,6 +68,7 @@ describe("useModelStatus automatic download cancellation", () => {
       running: false,
       ready: false,
       models_present: false,
+      model_state: "missing",
       device: "cpu",
       gpu_name: null,
     });
@@ -94,29 +83,31 @@ describe("useModelStatus automatic download cancellation", () => {
     vi.useRealTimers();
   });
 
-  it("cancels an initial automatic download before its zero-delay trigger runs", async () => {
+  it("waits for user input when switching from a ready engine to an uncached model", async () => {
+    mocks.check.mockResolvedValueOnce({ running: true, ready: true, device: "cloud" });
     const hook = renderHook(() => useModelStatus());
     await flushMicrotasks();
+    expect(hook.result.current.stage).toBe("ready");
 
-    await act(async () => {
-      await hook.result.current.cancelDownload();
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(0);
-      await Promise.resolve();
-    });
+    // Engine settings recheck the new selection with retryModel (the hook's retry).
+    act(() => hook.result.current.retry());
+    await flushMicrotasks();
+    await advancePolling();
 
-    expect(mocks.cancel).toHaveBeenCalledOnce();
     expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(hook.result.current).toMatchObject({ stage: "need_download", isDownloading: false });
     hook.unmount();
   });
 
-  it("does not schedule an automatic retry when cancellation precedes a pending rejection", async () => {
+  it("ignores a cancelled download's late rejection and allows a new manual attempt", async () => {
     const pendingDownload = deferred<void>();
-    mocks.download.mockReturnValueOnce(pendingDownload.promise);
+    const nextDownload = deferred<void>();
+    mocks.download.mockReturnValueOnce(pendingDownload.promise).mockReturnValueOnce(nextDownload.promise);
 
     const hook = renderHook(() => useModelStatus());
-    await runInitialAutoDownload();
+    await flushMicrotasks();
+    act(() => { hook.result.current.downloadModels(); });
     expect(mocks.download).toHaveBeenCalledOnce();
 
     await act(async () => {
@@ -125,36 +116,37 @@ describe("useModelStatus automatic download cancellation", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    await advanceAutoRetry();
-
+    expect(mocks.cancel).toHaveBeenCalledOnce();
+    expect(hook.result.current).toMatchObject({ stage: "need_download", isDownloading: false, error: null });
+    await advancePolling();
     expect(mocks.download).toHaveBeenCalledOnce();
+    act(() => { hook.result.current.downloadModels(); });
+    expect(mocks.download).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.stage).toBe("downloading");
+
+    const checksBeforeUnmount = mocks.check.mock.calls.length;
     hook.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => { nextDownload.resolve(); });
+    expect(mocks.check).toHaveBeenCalledTimes(checksBeforeUnmount);
   });
 
-  it("clears an automatic retry on cancellation and unmount", async () => {
+  it("offers a manual retry after a failed download without restarting the transfer on recheck", async () => {
     mocks.download.mockRejectedValueOnce(new Error("download failed"));
-    const cancelled = renderHook(() => useModelStatus());
-    await runInitialAutoDownload();
+    const hook = renderHook(() => useModelStatus());
+    await flushMicrotasks();
+    await act(async () => { await hook.result.current.downloadModels(); });
+    expect(hook.result.current).toMatchObject({ stage: "error", isDownloading: false, error: "download failed" });
     expect(mocks.download).toHaveBeenCalledOnce();
 
-    await act(async () => {
-      await cancelled.result.current.cancelDownload();
-    });
-    await advanceAutoRetry();
+    act(() => hook.result.current.retry());
+    await flushMicrotasks();
+    await advancePolling();
     expect(mocks.download).toHaveBeenCalledOnce();
-    cancelled.unmount();
-
-    mocks.download.mockReset();
-    mocks.download.mockRejectedValueOnce(new Error("download failed"));
-    const unmounted = renderHook(() => useModelStatus());
-    await runInitialAutoDownload();
-    expect(mocks.download).toHaveBeenCalledOnce();
-    expect(vi.getTimerCount()).toBeGreaterThan(0);
-
-    unmounted.unmount();
-    expect(vi.getTimerCount()).toBe(0);
-    await advanceAutoRetry();
-    expect(mocks.download).toHaveBeenCalledOnce();
+    expect(hook.result.current.stage).toBe("need_download");
+    await act(async () => { await hook.result.current.downloadModels(); });
+    expect(mocks.download).toHaveBeenCalledTimes(2);
+    hook.unmount();
   });
 
   it("ignores a disposed download-status callback after StrictMode effect replay", async () => {

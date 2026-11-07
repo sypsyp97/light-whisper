@@ -18,7 +18,7 @@
 ## 快速开始
 
 1. **安装**。从 [Releases](https://github.com/sypsyp97/light-whisper/releases/latest) 下载 Windows 10/11 x64 的 `*_x64-setup.exe`。识别运行时已内置，无需另装 Python 或编译工具。
-2. **选择引擎**。打开设置，选择麦克风，然后下载本地模型，或配置云端 API Key 与区域。
+2. **选择引擎**。在设置中选择麦克风和识别引擎。已有兼容模型会直接使用。如果缺少所选本地模型，可以在主界面点击「开始下载」，也可以在设置中切换引擎。云端引擎使用 API Key 和区域配置。
 3. **开始说话**。将焦点放到目标应用，按住 <kbd>F2</kbd> 说话，松开后输出文字。热键可以修改，也可以改用点击切换录音。
 
 基础本地听写不需要 LLM 账号。如需润色、翻译或语音助手，再配置服务商、模型与 API Key，或使用受支持的账号登录。
@@ -63,11 +63,11 @@ AI 润色、屏幕感知和助手联网搜索均提供 **关闭／开启／自�
 </details>
 
 <details>
-<summary><strong>从 1.6 之前的版本升级</strong></summary>
+<summary><strong>升级后何时需要下载模型</strong></summary>
 
 原有 Qwen 1.7B 选项会迁移到 R2T2，需要另行下载模型。Qwen 0.6B 和已有模型缓存保留。R2T2 使用独立的[模型许可证](src-tauri/resources/R2T2-MODEL-LICENSE.txt)。
 
-1.7.7 将 Qwen 0.6B 迁移到共享的 audio.cpp 运行时，需要重新下载约 1.15 GB 的 GGUF 模型；已有模型缓存保留。两个本地引擎均支持 CPU 和英伟达 CUDA。
+1.7.7 将 Qwen 0.6B 迁移到 audio.cpp，使用不同的 GGUF 文件。从更早的 Qwen 运行时升级并选择该模型时，需要一次性下载约 1.15 GB。下载中断后，如果服务器支持分段请求，重新点击下载即可续传。
 
 </details>
 

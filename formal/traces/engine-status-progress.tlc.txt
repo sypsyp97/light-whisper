@@ -26,8 +26,6 @@ State 1: <Initial predicate>
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "checking",
@@ -41,7 +39,7 @@ State 1: <Initial predicate>
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 2: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnership>
+State 2: <Query line 42, col 3 to line 51, col 62 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:query:1"
 /\ s = [ view |->
       [ stage |-> "checking",
@@ -67,8 +65,6 @@ State 2: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "checking",
@@ -82,7 +78,7 @@ State 2: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 3: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwnership>
+State 3: <Complete line 84, col 3 to line 110, col 70 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:complete:1:stopped"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -108,8 +104,6 @@ State 3: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -123,7 +117,7 @@ State 3: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 4: <StartProgress line 114, col 3 to line 119, col 55 of module EngineStatusOwnership>
+State 4: <StartProgress line 112, col 3 to line 117, col 55 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:progress:1"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -149,8 +143,6 @@ State 4: <StartProgress line 114, col 3 to line 119, col 55 of module EngineStat
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -164,7 +156,7 @@ State 4: <StartProgress line 114, col 3 to line 119, col 55 of module EngineStat
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 5: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnership>
+State 5: <Query line 42, col 3 to line 51, col 62 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:query:2"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -190,8 +182,6 @@ State 5: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -205,7 +195,7 @@ State 5: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 6: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwnership>
+State 6: <Complete line 84, col 3 to line 110, col 70 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:complete:2:loading"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -231,8 +221,6 @@ State 6: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -246,7 +234,7 @@ State 6: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 7: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStatusOwnership>
+State 7: <CompleteStart line 119, col 3 to line 136, col 49 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:start:1:failure"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -272,8 +260,6 @@ State 7: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStat
   failuresDelivered |-> 1,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -287,7 +273,7 @@ State 7: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStat
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 8: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnership>
+State 8: <Query line 42, col 3 to line 51, col 62 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:query:3"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -313,8 +299,6 @@ State 8: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
   failuresDelivered |-> 1,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -328,7 +312,7 @@ State 8: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 9: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwnership>
+State 9: <Complete line 84, col 3 to line 110, col 70 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:complete:3:stopped"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -354,8 +338,6 @@ State 9: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   failuresDelivered |-> 1,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -369,7 +351,7 @@ State 9: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 10: <StartProgress line 114, col 3 to line 119, col 55 of module EngineStatusOwnership>
+State 10: <StartProgress line 112, col 3 to line 117, col 55 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:progress:3"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -395,8 +377,6 @@ State 10: <StartProgress line 114, col 3 to line 119, col 55 of module EngineSta
   failuresDelivered |-> 1,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -410,7 +390,7 @@ State 10: <StartProgress line 114, col 3 to line 119, col 55 of module EngineSta
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 11: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnership>
+State 11: <Query line 42, col 3 to line 51, col 62 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:query:4"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -436,8 +416,6 @@ State 11: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnersh
   failuresDelivered |-> 1,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -451,7 +429,7 @@ State 11: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnersh
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 12: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwnership>
+State 12: <Complete line 84, col 3 to line 110, col 70 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:complete:4:loading"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -477,8 +455,6 @@ State 12: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwn
   failuresDelivered |-> 1,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -492,7 +468,7 @@ State 12: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwn
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 13: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStatusOwnership>
+State 13: <CompleteStart line 119, col 3 to line 136, col 49 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:start:3:failure"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -518,8 +494,6 @@ State 13: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineSta
   failuresDelivered |-> 2,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -533,7 +507,7 @@ State 13: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineSta
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 14: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnership>
+State 14: <Query line 42, col 3 to line 51, col 62 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:query:5"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -559,8 +533,6 @@ State 14: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnersh
   failuresDelivered |-> 2,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -574,7 +546,7 @@ State 14: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnersh
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 15: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwnership>
+State 15: <Complete line 84, col 3 to line 110, col 70 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:complete:5:stopped"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -600,8 +572,6 @@ State 15: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwn
   failuresDelivered |-> 2,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -615,7 +585,7 @@ State 15: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwn
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 16: <StartProgress line 114, col 3 to line 119, col 55 of module EngineStatusOwnership>
+State 16: <StartProgress line 112, col 3 to line 117, col 55 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:progress:5"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -641,8 +611,6 @@ State 16: <StartProgress line 114, col 3 to line 119, col 55 of module EngineSta
   failuresDelivered |-> 2,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -656,7 +624,7 @@ State 16: <StartProgress line 114, col 3 to line 119, col 55 of module EngineSta
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 17: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnership>
+State 17: <Query line 42, col 3 to line 51, col 62 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:query:6"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -682,8 +650,6 @@ State 17: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnersh
   failuresDelivered |-> 2,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -697,7 +663,7 @@ State 17: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnersh
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 18: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStatusOwnership>
+State 18: <CompleteStart line 119, col 3 to line 136, col 49 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:start:5:failure"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -723,8 +689,6 @@ State 18: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineSta
   failuresDelivered |-> 3,
   loadingPollDuringStart |-> TRUE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "error",

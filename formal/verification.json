@@ -721,7 +721,7 @@
       "assumptions": "Three engine kinds with representative Alibaba-domestic/GLM-international combinations, three read batches within two configuration contexts, at most one engine mutation and one read-only retry, two edit/clear attempts and two write invocations. Only a committed engine switch changes context. Retry reissues ERROR fields; READY and PENDING siblings retain their context and may publish after retry. Native success/failure and response order are environmental inputs. Aggregate switch reads settle on first failure or both successes; pending sibling callbacks remain enabled. Engine, endpoint and key failures expose recoverable errors; a key failure preserves identity and an accepted edit retires old key results and clears its key error. Expected identity and write ledgers are independent of implementation readiness. Timer dispatch is abstract in TLC; real hook replay checks 599/600 ms, URL/readiness publication, first-failure busy release, selective retry and deferred flush completion. Switch with both an in-flight save and a second pending draft is excluded and left to debouncer unit regressions. Reachability witnesses are intentional negations, not safety proofs. Region mutation, catalogs, unmount lifecycle, backend storage internals and other windows are outside this bounded companion; no whole-source refinement claim."
     },
     "engine-status-ownership": {
-      "obligation": "A newer status query or accepted funasr-status event retires older status snapshots. Obsolete status results and errors cannot publish stage, device, GPU or error, start the engine, schedule auto-download or stop current polling. A separate start owner survives native loading progress and running/not-ready polling; a new actual start or accepted terminal state retires it. Three current start rejections reach terminal error and retire pending status queries, preserving that error against late loading. Already issued starts remain issued. Current queries and post-crash recovery still publish.",
+      "obligation": "A newer status query or accepted funasr-status event retires older status snapshots. Obsolete status results and errors cannot publish stage, device, GPU or error, start the engine or stop current polling. An accepted missing-model status offers a download and retains the current polling state. Only user action starts a model download. A separate start owner survives native loading progress and running/not-ready polling; a new actual start or accepted terminal state retires it. Three current start rejections reach terminal error and retire pending status queries, preserving that error against late loading. Already issued starts remain issued. Current queries and post-crash recovery still publish.",
       "models": {
         "EngineStatusOwnership": [
           "Query",
@@ -732,7 +732,7 @@
           "CompleteStart",
           "StatusPublicationOwned",
           "StartEffectsOwned",
-          "AutoDownloadOwned",
+          "NoImplicitDownload",
           "PollingOwned",
           "StartOutcomeOwned"
         ]
@@ -746,7 +746,7 @@
         "src/hooks/__tests__/useModelStatusFormalReplay.test.tsx",
         "src/hooks/__tests__/useModelStatusOwnership.test.tsx"
       ],
-      "assumptions": "Finite safety companion with independent snapshot and native-start ownership. General bound: three queries, one external ready/loading/error/crashed event and one native loading progress event per issued start. Progress bound: six ordered stopped/loading queries, three native loading events and three rejected starts. Each start spans a loading poll; the last poll completes after terminal start error. Specification snapshot/start epochs are independent of implementation tokens. Obsolete status/start completions remain enabled. The polling flag represents the real 6000 ms interval; loading retains prior polling, ready/error stop it, crash immediately queries and starts polling. Missing status folds the first zero-delay auto-download dispatch into its transition and leaves native download work pending. Issued start ledgers cannot be undone. Four faults remove query retirement, event retirement or awaited-start catch ownership, or incorrectly retire starts on loading progress. Two separately labeled reachability witnesses require current error followed by ready recovery (post-crash recovery is checked by implementation replay) and all three legitimate start failures despite progress/polls plus a dropped late loading snapshot; neither witness is a safety negative. Genuine TLC State schedules replay renderHook, deferred API calls and captured listener, checking public metadata/stage/error, timer and side-effect counts. The ten-loading restart threshold is covered by implementation tests; download generations, cancellation, unmount, other model-state branches, native scheduling, unbounded requests, refinement and liveness are outside this model."
+      "assumptions": "Finite safety companion with independent snapshot and native-start ownership. General bound: three queries, one external ready/loading/missing/error/crashed event and one native loading progress event per issued start. Progress bound: six ordered stopped/loading queries, three native loading events and three rejected starts. Each start spans a loading poll; the last poll completes after terminal start error. Specification snapshot/start epochs are independent of implementation tokens. Obsolete status/start completions remain enabled. The polling flag represents the real 6000 ms interval; loading retains prior polling, ready/error stop it, crash immediately queries and starts polling. The model checks status notifications before any user download input. Issued start ledgers cannot be undone. Five faults cover query retirement, event retirement, awaited-start catch ownership, start retirement on loading progress, and an implicit download on missing status. Two separately labeled reachability witnesses require current error followed by ready recovery (post-crash recovery is checked by implementation replay) and all three legitimate start failures despite progress/polls plus a dropped late loading snapshot; neither witness is a safety negative. Genuine TLC State schedules replay renderHook, deferred API calls and captured listener, checking public metadata/stage/error, timer and side-effect counts. The ten-loading restart threshold is covered by implementation tests; download generations, cancellation, unmount, other model-state branches, native scheduling, unbounded requests, refinement and liveness are outside this model."
     },
     "history-stats": {
       "obligation": "Only the latest started statistics request may publish or log a failure. A current failure retains the last accepted statistics, including when an older success arrives later; a later current success recovers. Unmount retires pending completions.",
@@ -2142,6 +2142,12 @@
       "model": "EngineStatusOwnership",
       "config": "EngineStatusOwnershipEventNegative.cfg",
       "invariant": "StatusPublicationOwned"
+    },
+    {
+      "name": "engine-status-auto-download",
+      "model": "EngineStatusOwnership",
+      "config": "EngineStatusOwnershipAutoDownloadNegative.cfg",
+      "invariant": "NoImplicitDownload"
     },
     {
       "name": "engine-status-query",

@@ -40,9 +40,7 @@ const MAX_LOADING_CHECKS = 10;
 const POLL_INTERVAL_MS = 6000;
 /** Consider download stalled if no progress event arrives within this period. */
 const DOWNLOAD_STALL_HINT_MS = 20000;
-/** Auto-download retries when app cold-starts without models. */
-const AUTO_DOWNLOAD_MAX_RETRIES = 1;
-const AUTO_DOWNLOAD_RETRY_DELAY_MS = 3000;
+
 function getEngineStartFallbackMessage(): string {
   return i18n.t("model.engineStartFailed");
 }
@@ -80,20 +78,11 @@ export function useModelStatus(): UseModelStatusReturn {
   const restartAttemptedRef = useRef(false);
   const loadingChecksRef = useRef(0);
   const downloadingRef = useRef(false);
-  const autoDownloadTriggeredRef = useRef(false);
-  const autoDownloadRetryRef = useRef(0);
-  const pendingAutoDownloadRef = useRef(false);
-  const autoDownloadAllowedRef = useRef(true);
   const downloadGenerationRef = useRef(0);
   const statusRequestIdRef = useRef(0);
   const startRequestIdRef = useRef(0);
-  const autoDownloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const downloadListenerReadyRef = useRef(false);
   const lastDownloadEventAtRef = useRef(0);
   const downloadWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const triggerDownloadRef = useRef<
-    ((source?: "auto" | "manual") => void) | null
-  >(null);
 
   const applyStatusSnapshot = useCallback((payload: {
     device?: string | null;
@@ -128,27 +117,6 @@ export function useModelStatus(): UseModelStatusReturn {
 
   const invalidateDownload = useCallback(() => {
     downloadGenerationRef.current += 1;
-    pendingAutoDownloadRef.current = false;
-    if (autoDownloadTimerRef.current !== null) {
-      clearTimeout(autoDownloadTimerRef.current);
-      autoDownloadTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleAutoDownload = useCallback((delay = 0) => {
-    if (!mountedRef.current || !autoDownloadAllowedRef.current) return;
-    if (downloadListenerReadyRef.current) {
-      if (autoDownloadTimerRef.current !== null) clearTimeout(autoDownloadTimerRef.current);
-      const generation = downloadGenerationRef.current;
-      autoDownloadTimerRef.current = setTimeout(() => {
-        autoDownloadTimerRef.current = null;
-        if (!mountedRef.current || !autoDownloadAllowedRef.current
-          || generation !== downloadGenerationRef.current || downloadingRef.current) return;
-        triggerDownloadRef.current?.("auto");
-      }, delay);
-    } else {
-      pendingAutoDownloadRef.current = true;
-    }
   }, []);
 
   const enterNeedDownloadState = useCallback(() => {
@@ -158,11 +126,7 @@ export function useModelStatus(): UseModelStatusReturn {
     setStage("need_download");
     setError(null);
     setDownloadMessage(null);
-    if (!autoDownloadTriggeredRef.current && !downloadingRef.current) {
-      autoDownloadTriggeredRef.current = true;
-      scheduleAutoDownload();
-    }
-  }, [scheduleAutoDownload]);
+  }, []);
 
   const enterErrorState = useCallback((message: string) => {
     statusRequestIdRef.current += 1;
@@ -229,7 +193,6 @@ export function useModelStatus(): UseModelStatusReturn {
       if (status.running && status.ready) {
         startRequestIdRef.current += 1;
         startFailuresRef.current = 0;
-        autoDownloadRetryRef.current = 0;
         restartAttemptedRef.current = false;
         loadingChecksRef.current = 0;
         setStage("ready");
@@ -304,8 +267,6 @@ export function useModelStatus(): UseModelStatusReturn {
     return () => {
       mountedRef.current = false;
       invalidateDownload();
-      downloadListenerReadyRef.current = false;
-      pendingAutoDownloadRef.current = false;
       clearDownloadWatchdog();
       clearPolling();
     };
@@ -415,7 +376,6 @@ export function useModelStatus(): UseModelStatusReturn {
               }
               case "completed": {
                 clearDownloadWatchdog();
-                autoDownloadRetryRef.current = 0;
                 setDownloadingState(false);
                 setDownloadProgress(100);
                 setDownloadMessage(message ?? null);
@@ -424,20 +384,17 @@ export function useModelStatus(): UseModelStatusReturn {
                 break;
               }
               case "cancelled": {
-                autoDownloadAllowedRef.current = false;
                 invalidateDownload();
                 clearDownloadWatchdog();
                 setDownloadingState(false);
                 setDownloadProgress(0);
                 setDownloadMessage(message ?? i18n.t("model.downloadCancelled"));
-                autoDownloadTriggeredRef.current = false;
                 setStage("need_download");
                 break;
               }
               case "error": {
                 clearDownloadWatchdog();
                 setDownloadingState(false);
-                autoDownloadTriggeredRef.current = false;
                 setError(payloadError || message || i18n.t("model.downloadFailed"));
                 setStage("error");
                 break;
@@ -448,16 +405,7 @@ export function useModelStatus(): UseModelStatusReturn {
           }
         );
 
-        if (disposed) {
-          unlisten?.();
-          return;
-        }
-
-        downloadListenerReadyRef.current = true;
-        if (pendingAutoDownloadRef.current && !downloadingRef.current) {
-          pendingAutoDownloadRef.current = false;
-          scheduleAutoDownload();
-        }
+        if (disposed) unlisten();
       } catch (err) {
         if (disposed || !mountedRef.current) return;
         setError(toErrorMessage(err, i18n.t("model.listenFailed")));
@@ -468,27 +416,17 @@ export function useModelStatus(): UseModelStatusReturn {
     setup();
     return () => {
       disposed = true;
-      downloadListenerReadyRef.current = false;
       clearDownloadWatchdog();
       unlisten?.();
     };
-  }, [clearDownloadWatchdog, invalidateDownload, scheduleAutoDownload, setDownloadingState, startDownloadWatchdog]);
+  }, [clearDownloadWatchdog, invalidateDownload, setDownloadingState, startDownloadWatchdog]);
 
-  const triggerDownload = useCallback(async (source: "auto" | "manual" = "manual") => {
-    if (!mountedRef.current || downloadingRef.current
-      || (source === "auto" && !autoDownloadAllowedRef.current)) return;
-    if (source === "manual") {
-      invalidateDownload();
-      autoDownloadAllowedRef.current = true;
-    }
+  const triggerDownload = useCallback(async () => {
+    if (!mountedRef.current || downloadingRef.current) return;
+    invalidateDownload();
     const generation = downloadGenerationRef.current;
     const current = () => mountedRef.current && generation === downloadGenerationRef.current;
     try {
-
-      if (source === "manual") {
-        autoDownloadTriggeredRef.current = true;
-      }
-
       setDownloadingState(true);
       lastDownloadEventAtRef.current = Date.now();
       startDownloadWatchdog();
@@ -499,7 +437,6 @@ export function useModelStatus(): UseModelStatusReturn {
       await downloadModels();
       if (!current()) return;
 
-      autoDownloadRetryRef.current = 0;
       if (downloadingRef.current) {
         clearDownloadWatchdog();
         setDownloadingState(false);
@@ -511,31 +448,12 @@ export function useModelStatus(): UseModelStatusReturn {
       if (!current()) return;
       clearDownloadWatchdog();
       setDownloadingState(false);
-      const message = toErrorMessage(err, i18n.t("model.downloadFailed"));
-
-      if (
-        source === "auto" &&
-        autoDownloadRetryRef.current < AUTO_DOWNLOAD_MAX_RETRIES
-      ) {
-        autoDownloadRetryRef.current += 1;
-        setError(null);
-        setStage("need_download");
-        setDownloadMessage(
-          i18n.t("model.retryIn", { seconds: Math.ceil(AUTO_DOWNLOAD_RETRY_DELAY_MS / 1000) })
-        );
-        scheduleAutoDownload(AUTO_DOWNLOAD_RETRY_DELAY_MS);
-        return;
-      }
-
-      setError(message);
+      setError(toErrorMessage(err, i18n.t("model.downloadFailed")));
       setStage("error");
     }
-  }, [checkStatus, clearDownloadWatchdog, invalidateDownload, scheduleAutoDownload, setDownloadingState, startDownloadWatchdog]);
-
-  triggerDownloadRef.current = triggerDownload;
+  }, [checkStatus, clearDownloadWatchdog, invalidateDownload, setDownloadingState, startDownloadWatchdog]);
 
   const cancelDownload = useCallback(async () => {
-    autoDownloadAllowedRef.current = false;
     invalidateDownload();
     const generation = downloadGenerationRef.current;
     try {
@@ -553,17 +471,13 @@ export function useModelStatus(): UseModelStatusReturn {
 
   const retry = useCallback(() => {
     invalidateDownload();
-    autoDownloadAllowedRef.current = true;
     clearDownloadWatchdog();
     setDownloadingState(false);
-    autoDownloadRetryRef.current = 0;
-    pendingAutoDownloadRef.current = false;
     setError(null);
     setDownloadProgress(0);
     setDownloadMessage(null);
     setStage("checking");
     startFailuresRef.current = 0;
-    autoDownloadTriggeredRef.current = false;
 
     clearPolling();
     void checkStatus();

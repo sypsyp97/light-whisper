@@ -262,25 +262,38 @@ describe("useModelStatus model integrity repair", () => {
     hook.unmount();
   });
 
-  it.each(["snapshot", "event"])(
-    "keeps the legacy missing-model download flow for a %s without model_state",
-    async (source) => {
+  it.each([
+    ["legacy", "snapshot"],
+    ["legacy", "event"],
+    ["structured", "snapshot"],
+    ["structured", "event"],
+  ])(
+    "waits for the download action after a %s missing-model %s",
+    async (format, source) => {
       const pendingDownload = deferred<void>();
       mocks.download.mockReturnValue(pendingDownload.promise);
-      mocks.check.mockResolvedValue(source === "snapshot"
-        ? { running: false, ready: false, models_present: false }
-        : { running: true, ready: true });
+      const modelState = format === "structured" ? { model_state: "missing" as const } : {};
+      mocks.check.mockResolvedValue({ running: false, ready: false, models_present: false, ...modelState });
+      if (source === "event") mocks.check.mockResolvedValueOnce({ running: true, ready: true });
       const hook = renderHook(() => useModelStatus());
       await flushMicrotasks();
       if (source === "event") {
-        emit("funasr-status", { status: "error", message: "模型文件未下载" });
+        expect(hook.result.current.stage).toBe("ready");
+        emit("funasr-status", {
+          status: "error",
+          message: format === "legacy" ? "模型文件未下载" : "Missing weights",
+          ...modelState,
+        });
       }
 
-      expect(hook.result.current.stage).toBe("need_download");
-      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-      expect(mocks.download).toHaveBeenCalledOnce();
-      expect(hook.result.current.stage).toBe("downloading");
+      await act(async () => { await vi.advanceTimersByTimeAsync(18_000); });
+      expect(mocks.download).not.toHaveBeenCalled();
+      expect(hook.result.current).toMatchObject({ stage: "need_download", isDownloading: false });
       expect(mocks.start).not.toHaveBeenCalled();
+
+      act(() => { hook.result.current.downloadModels(); });
+      expect(mocks.download).toHaveBeenCalledOnce();
+      expect(hook.result.current).toMatchObject({ stage: "downloading", isDownloading: true });
       hook.unmount();
       await act(async () => { pendingDownload.resolve(undefined); });
     },

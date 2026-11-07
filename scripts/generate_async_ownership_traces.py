@@ -26,6 +26,7 @@ CASES = {
     "engine-status-query": ("EngineStatusOwnership", "EngineStatusOwnershipQueryNegative.cfg", "StatusPublicationOwned"),
     "engine-status-start": ("EngineStatusOwnership", "EngineStatusOwnershipStartNegative.cfg", "StartOutcomeOwned"),
     "engine-status-progress": ("EngineStatusOwnership", "EngineStatusOwnershipProgressNegative.cfg", "StartOutcomeOwned"),
+    "engine-status-auto-download": ("EngineStatusOwnership", "EngineStatusOwnershipAutoDownloadNegative.cfg", "NoImplicitDownload"),
     "history-stats-publication": ("HistoryStatsOwnership", "HistoryStatsOwnershipPublicationNegative.cfg", "AcceptedSnapshotSurvivesCurrentFailure"),
     "history-stats-error": ("HistoryStatsOwnership", "HistoryStatsOwnershipErrorNegative.cfg", "ErrorOwned"),
     "history-stats-cleanup": ("HistoryStatsOwnership", "HistoryStatsOwnershipCleanupNegative.cfg", "ErrorOwned"),

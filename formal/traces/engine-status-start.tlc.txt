@@ -26,8 +26,6 @@ State 1: <Initial predicate>
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "checking",
@@ -41,7 +39,7 @@ State 1: <Initial predicate>
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 2: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnership>
+State 2: <Query line 42, col 3 to line 51, col 62 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:query:1"
 /\ s = [ view |->
       [ stage |-> "checking",
@@ -67,8 +65,6 @@ State 2: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "checking",
@@ -82,7 +78,7 @@ State 2: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 3: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwnership>
+State 3: <Complete line 84, col 3 to line 110, col 70 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:complete:1:stopped"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -108,8 +104,6 @@ State 3: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -123,8 +117,8 @@ State 3: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 4: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnership>
-/\ lastEvent = "engine-status:query:2"
+State 4: <Crash line 69, col 3 to line 82, col 64 of module EngineStatusOwnership>
+/\ lastEvent = "engine-status:crashed:2"
 /\ s = [ view |->
       [ stage |-> "loading",
         device |-> "cpu",
@@ -133,13 +127,13 @@ State 4: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
         polling |-> TRUE,
         failures |-> 0 ],
   issued |-> 2,
-  owner |-> 2,
-  intended |-> 2,
+  owner |-> 3,
+  intended |-> 3,
   pending |-> {2},
-  tokens |-> <<1, 2, 0, 0, 0, 0>>,
-  epochs |-> <<1, 2, 0, 0, 0, 0>>,
-  startOwner |-> 1,
-  startIntent |-> 1,
+  tokens |-> <<1, 3, 0, 0, 0, 0>>,
+  epochs |-> <<1, 3, 0, 0, 0, 0>>,
+  startOwner |-> 2,
+  startIntent |-> 2,
   startTokens |-> <<1, 0, 0, 0, 0, 0>>,
   startEpochs |-> <<1, 0, 0, 0, 0, 0>>,
   startPending |-> {1},
@@ -149,90 +143,6 @@ State 4: <Query line 41, col 3 to line 50, col 62 of module EngineStatusOwnershi
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
-  downloading |-> FALSE,
-  wanted |->
-      [ stage |-> "loading",
-        device |-> "cpu",
-        gpu |-> "none",
-        error |-> "none",
-        polling |-> TRUE,
-        failures |-> 0 ],
-  eventCount |-> 0,
-  sawReady |-> FALSE,
-  sawFailure |-> FALSE,
-  recovered |-> FALSE ]
-
-State 5: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwnership>
-/\ lastEvent = "engine-status:complete:2:stopped"
-/\ s = [ view |->
-      [ stage |-> "loading",
-        device |-> "cpu",
-        gpu |-> "none",
-        error |-> "none",
-        polling |-> TRUE,
-        failures |-> 0 ],
-  issued |-> 2,
-  owner |-> 2,
-  intended |-> 2,
-  pending |-> {},
-  tokens |-> <<1, 2, 0, 0, 0, 0>>,
-  epochs |-> <<1, 2, 0, 0, 0, 0>>,
-  startOwner |-> 2,
-  startIntent |-> 2,
-  startTokens |-> <<1, 2, 0, 0, 0, 0>>,
-  startEpochs |-> <<1, 2, 0, 0, 0, 0>>,
-  startPending |-> {1, 2},
-  starts |-> <<1, 2>>,
-  wantedStarts |-> <<1, 2>>,
-  progressed |-> {},
-  failuresDelivered |-> 0,
-  loadingPollDuringStart |-> FALSE,
-  lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
-  downloading |-> FALSE,
-  wanted |->
-      [ stage |-> "loading",
-        device |-> "cpu",
-        gpu |-> "none",
-        error |-> "none",
-        polling |-> TRUE,
-        failures |-> 0 ],
-  eventCount |-> 0,
-  sawReady |-> FALSE,
-  sawFailure |-> FALSE,
-  recovered |-> FALSE ]
-
-State 6: <Crash line 67, col 3 to line 80, col 64 of module EngineStatusOwnership>
-/\ lastEvent = "engine-status:crashed:3"
-/\ s = [ view |->
-      [ stage |-> "loading",
-        device |-> "cpu",
-        gpu |-> "none",
-        error |-> "none",
-        polling |-> TRUE,
-        failures |-> 0 ],
-  issued |-> 3,
-  owner |-> 4,
-  intended |-> 4,
-  pending |-> {3},
-  tokens |-> <<1, 2, 4, 0, 0, 0>>,
-  epochs |-> <<1, 2, 4, 0, 0, 0>>,
-  startOwner |-> 3,
-  startIntent |-> 3,
-  startTokens |-> <<1, 2, 0, 0, 0, 0>>,
-  startEpochs |-> <<1, 2, 0, 0, 0, 0>>,
-  startPending |-> {1, 2},
-  starts |-> <<1, 2>>,
-  wantedStarts |-> <<1, 2>>,
-  progressed |-> {},
-  failuresDelivered |-> 0,
-  loadingPollDuringStart |-> FALSE,
-  lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -246,7 +156,85 @@ State 6: <Crash line 67, col 3 to line 80, col 64 of module EngineStatusOwnershi
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 7: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwnership>
+State 5: <Complete line 84, col 3 to line 110, col 70 of module EngineStatusOwnership>
+/\ lastEvent = "engine-status:complete:2:stopped"
+/\ s = [ view |->
+      [ stage |-> "loading",
+        device |-> "cpu",
+        gpu |-> "none",
+        error |-> "none",
+        polling |-> TRUE,
+        failures |-> 0 ],
+  issued |-> 2,
+  owner |-> 3,
+  intended |-> 3,
+  pending |-> {},
+  tokens |-> <<1, 3, 0, 0, 0, 0>>,
+  epochs |-> <<1, 3, 0, 0, 0, 0>>,
+  startOwner |-> 3,
+  startIntent |-> 3,
+  startTokens |-> <<1, 3, 0, 0, 0, 0>>,
+  startEpochs |-> <<1, 3, 0, 0, 0, 0>>,
+  startPending |-> {1, 2},
+  starts |-> <<1, 2>>,
+  wantedStarts |-> <<1, 2>>,
+  progressed |-> {},
+  failuresDelivered |-> 0,
+  loadingPollDuringStart |-> FALSE,
+  lateLoadingDelivered |-> FALSE,
+  downloading |-> FALSE,
+  wanted |->
+      [ stage |-> "loading",
+        device |-> "cpu",
+        gpu |-> "none",
+        error |-> "none",
+        polling |-> TRUE,
+        failures |-> 0 ],
+  eventCount |-> 1,
+  sawReady |-> FALSE,
+  sawFailure |-> FALSE,
+  recovered |-> FALSE ]
+
+State 6: <Query line 42, col 3 to line 51, col 62 of module EngineStatusOwnership>
+/\ lastEvent = "engine-status:query:3"
+/\ s = [ view |->
+      [ stage |-> "loading",
+        device |-> "cpu",
+        gpu |-> "none",
+        error |-> "none",
+        polling |-> TRUE,
+        failures |-> 0 ],
+  issued |-> 3,
+  owner |-> 4,
+  intended |-> 4,
+  pending |-> {3},
+  tokens |-> <<1, 3, 4, 0, 0, 0>>,
+  epochs |-> <<1, 3, 4, 0, 0, 0>>,
+  startOwner |-> 3,
+  startIntent |-> 3,
+  startTokens |-> <<1, 3, 0, 0, 0, 0>>,
+  startEpochs |-> <<1, 3, 0, 0, 0, 0>>,
+  startPending |-> {1, 2},
+  starts |-> <<1, 2>>,
+  wantedStarts |-> <<1, 2>>,
+  progressed |-> {},
+  failuresDelivered |-> 0,
+  loadingPollDuringStart |-> FALSE,
+  lateLoadingDelivered |-> FALSE,
+  downloading |-> FALSE,
+  wanted |->
+      [ stage |-> "loading",
+        device |-> "cpu",
+        gpu |-> "none",
+        error |-> "none",
+        polling |-> TRUE,
+        failures |-> 0 ],
+  eventCount |-> 1,
+  sawReady |-> FALSE,
+  sawFailure |-> FALSE,
+  recovered |-> FALSE ]
+
+State 7: <Complete line 84, col 3 to line 110, col 70 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:complete:3:stopped"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -259,12 +247,12 @@ State 7: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   owner |-> 4,
   intended |-> 4,
   pending |-> {},
-  tokens |-> <<1, 2, 4, 0, 0, 0>>,
-  epochs |-> <<1, 2, 4, 0, 0, 0>>,
+  tokens |-> <<1, 3, 4, 0, 0, 0>>,
+  epochs |-> <<1, 3, 4, 0, 0, 0>>,
   startOwner |-> 4,
   startIntent |-> 4,
-  startTokens |-> <<1, 2, 4, 0, 0, 0>>,
-  startEpochs |-> <<1, 2, 4, 0, 0, 0>>,
+  startTokens |-> <<1, 3, 4, 0, 0, 0>>,
+  startEpochs |-> <<1, 3, 4, 0, 0, 0>>,
   startPending |-> {1, 2, 3},
   starts |-> <<1, 2, 3>>,
   wantedStarts |-> <<1, 2, 3>>,
@@ -272,8 +260,6 @@ State 7: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   failuresDelivered |-> 0,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -287,7 +273,7 @@ State 7: <Complete line 82, col 3 to line 112, col 70 of module EngineStatusOwne
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 8: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStatusOwnership>
+State 8: <CompleteStart line 119, col 3 to line 136, col 49 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:start:1:failure"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -300,12 +286,12 @@ State 8: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStat
   owner |-> 4,
   intended |-> 4,
   pending |-> {},
-  tokens |-> <<1, 2, 4, 0, 0, 0>>,
-  epochs |-> <<1, 2, 4, 0, 0, 0>>,
+  tokens |-> <<1, 3, 4, 0, 0, 0>>,
+  epochs |-> <<1, 3, 4, 0, 0, 0>>,
   startOwner |-> 4,
   startIntent |-> 4,
-  startTokens |-> <<1, 2, 4, 0, 0, 0>>,
-  startEpochs |-> <<1, 2, 4, 0, 0, 0>>,
+  startTokens |-> <<1, 3, 4, 0, 0, 0>>,
+  startEpochs |-> <<1, 3, 4, 0, 0, 0>>,
   startPending |-> {2, 3},
   starts |-> <<1, 2, 3>>,
   wantedStarts |-> <<1, 2, 3>>,
@@ -313,8 +299,6 @@ State 8: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStat
   failuresDelivered |-> 1,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -328,7 +312,7 @@ State 8: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStat
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 9: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStatusOwnership>
+State 9: <CompleteStart line 119, col 3 to line 136, col 49 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:start:2:failure"
 /\ s = [ view |->
       [ stage |-> "loading",
@@ -341,12 +325,12 @@ State 9: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStat
   owner |-> 4,
   intended |-> 4,
   pending |-> {},
-  tokens |-> <<1, 2, 4, 0, 0, 0>>,
-  epochs |-> <<1, 2, 4, 0, 0, 0>>,
+  tokens |-> <<1, 3, 4, 0, 0, 0>>,
+  epochs |-> <<1, 3, 4, 0, 0, 0>>,
   startOwner |-> 4,
   startIntent |-> 4,
-  startTokens |-> <<1, 2, 4, 0, 0, 0>>,
-  startEpochs |-> <<1, 2, 4, 0, 0, 0>>,
+  startTokens |-> <<1, 3, 4, 0, 0, 0>>,
+  startEpochs |-> <<1, 3, 4, 0, 0, 0>>,
   startPending |-> {3},
   starts |-> <<1, 2, 3>>,
   wantedStarts |-> <<1, 2, 3>>,
@@ -354,8 +338,6 @@ State 9: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStat
   failuresDelivered |-> 2,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",
@@ -369,7 +351,7 @@ State 9: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStat
   sawFailure |-> FALSE,
   recovered |-> FALSE ]
 
-State 10: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineStatusOwnership>
+State 10: <CompleteStart line 119, col 3 to line 136, col 49 of module EngineStatusOwnership>
 /\ lastEvent = "engine-status:start:3:failure"
 /\ s = [ view |->
       [ stage |-> "error",
@@ -382,12 +364,12 @@ State 10: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineSta
   owner |-> 5,
   intended |-> 4,
   pending |-> {},
-  tokens |-> <<1, 2, 4, 0, 0, 0>>,
-  epochs |-> <<1, 2, 4, 0, 0, 0>>,
+  tokens |-> <<1, 3, 4, 0, 0, 0>>,
+  epochs |-> <<1, 3, 4, 0, 0, 0>>,
   startOwner |-> 5,
   startIntent |-> 4,
-  startTokens |-> <<1, 2, 4, 0, 0, 0>>,
-  startEpochs |-> <<1, 2, 4, 0, 0, 0>>,
+  startTokens |-> <<1, 3, 4, 0, 0, 0>>,
+  startEpochs |-> <<1, 3, 4, 0, 0, 0>>,
   startPending |-> {},
   starts |-> <<1, 2, 3>>,
   wantedStarts |-> <<1, 2, 3>>,
@@ -395,8 +377,6 @@ State 10: <CompleteStart line 121, col 3 to line 138, col 49 of module EngineSta
   failuresDelivered |-> 3,
   loadingPollDuringStart |-> FALSE,
   lateLoadingDelivered |-> FALSE,
-  downloads |-> <<>>,
-  wantedDownloads |-> <<>>,
   downloading |-> FALSE,
   wanted |->
       [ stage |-> "loading",

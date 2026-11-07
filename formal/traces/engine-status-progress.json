@@ -4,10 +4,10 @@
   "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
   "model": "formal/EngineStatusOwnership.tla",
   "config": "formal/EngineStatusOwnershipProgressNegative.cfg",
-  "model_sha256": "2ca486f8ab905632b436d7b40a389d9548d95cf085769503727f1e2433ecf312",
+  "model_sha256": "d7b721f3deeeec70cfa8f23f7e176f5006e374845d47b3877a56412be1775227",
   "config_sha256": "ab78e75183cc9517451057bea88a39018f66647127951f4f71eb0a38226f4fbd",
   "counterexample": "formal/traces/engine-status-progress.tlc.txt",
-  "counterexample_sha256": "a1f897e8513534adfa808e34072f4f6106903c70835a9500316977f79ed9bd5b",
+  "counterexample_sha256": "2a019a14db2e17179c893f455828c7b5627a657e6b5af51fa1aa8c94371949d9",
   "violated_invariant": "StartOutcomeOwned",
   "events": [
     "engine-status:query:1",

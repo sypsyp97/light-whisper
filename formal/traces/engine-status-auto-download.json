@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "generator": "TLC 1.7.4 counterexample",
+  "tlc_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "model": "formal/EngineStatusOwnership.tla",
+  "config": "formal/EngineStatusOwnershipAutoDownloadNegative.cfg",
+  "model_sha256": "d7b721f3deeeec70cfa8f23f7e176f5006e374845d47b3877a56412be1775227",
+  "config_sha256": "8d42694e85644e8f4f13e523437e015cf93cf30ebf216ab350c036bd4913373c",
+  "counterexample": "formal/traces/engine-status-auto-download.tlc.txt",
+  "counterexample_sha256": "225b91270edf203aae999caeedac694bd6117bca00cb96737edf7e4b15038e57",
+  "violated_invariant": "NoImplicitDownload",
+  "events": [
+    "engine-status:query:1",
+    "engine-status:event:missing"
+  ]
+}
