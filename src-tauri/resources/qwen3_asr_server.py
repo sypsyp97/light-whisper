@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from asr_stream_server import ASRStreamServerMixin
 from firered_vad import FireRedVad
-from qwen3_native import QwenNativeRuntime, QwenPipelineRuntime, QwenPreviewRuntime
+from qwen3_native import QwenNativeRuntime, QwenPipelineRuntime
 from r2t2_stream import R2T2StreamSession
 
 from server_common import (
@@ -183,7 +183,9 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
             return QwenPipelineRuntime(
                 self._run_inference, prepare_audio=lambda audio: self._filter_speech(audio)[0]
             )
-        return QwenPreviewRuntime(self._transcribe_stream_audio)
+        # CPU VAD and CPU inference share the native worker so they do not
+        # compete for cores while new capture packets arrive.
+        return QwenPipelineRuntime(self._transcribe_stream_audio, prepare_audio=lambda audio: audio)
 
     def initialize(self):
         if self.initialized:

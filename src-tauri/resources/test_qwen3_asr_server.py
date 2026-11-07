@@ -49,7 +49,6 @@ class Qwen3ASRServerTests(unittest.TestCase):
     def setUp(self):
         FakeNativeRuntime.instances.clear()
         self.enterContext(mock.patch.object(qwen3_asr_server, "QwenNativeRuntime", FakeNativeRuntime))
-        self.enterContext(mock.patch.object(qwen3_asr_server, "QwenPreviewRuntime"))
         self.enterContext(mock.patch.dict(sys.modules, {
             "transcribe_cpp": None, "transcribe_cpp_native": None,
             "transcribe_cpp_native_cu12": None,

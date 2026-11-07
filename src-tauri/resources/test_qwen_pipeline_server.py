@@ -9,7 +9,7 @@ from unittest import mock
 import numpy as np
 
 import qwen3_asr_server
-from qwen3_native import QwenPipelineRuntime, QwenPreviewRuntime
+from qwen3_native import QwenPipelineRuntime
 from r2t2_stream import R2T2StreamSession
 from test_qwen_pipeline import TIMEOUT, _GatedTranscribe, _StreamCaller
 from test_qwen_preview_backlog import feed_command
@@ -62,7 +62,7 @@ class QwenPipelineServerTests(unittest.TestCase):
         self.enterContext(mock.patch("signal.signal"))
         self.enterContext(mock.patch.object(qwen3_asr_server, "logger"))
         self.enterContext(mock.patch.object(server_type, "_setup_runtime_environment"))
-        self.enterContext(mock.patch.object(server_type, "_detect_device", return_value="cuda"))
+        self.detect_device = self.enterContext(mock.patch.object(server_type, "_detect_device", return_value="cuda"))
         self.enterContext(mock.patch.object(server_type, "_get_gpu_device_info", return_value={"device": "test"}))
         self.enterContext(mock.patch.object(server_type, "_resolve_model_path", return_value="test-qwen.gguf"))
         self.enterContext(mock.patch.object(server_type, "_warmup_inference"))
@@ -156,28 +156,45 @@ class QwenPipelineServerTests(unittest.TestCase):
         for _, options, _ in native.decode.calls:
             self.assertEqual(options, {"timestamps": "none", "context": "mixed 术语", "language": "zh"})
 
-    def test_cuda_load_failure_keeps_cpu_synchronous_and_silence_skips_native(self):
+    def test_cpu_accepts_later_feeds_during_native_preview_and_finishes_with_tail(self):
+        pcm = np.arange(12813, dtype="<i2")
+        for device in ("cpu", "cuda"):
+            with self.subTest(device=device):
+                self.detect_device.return_value = device
+                caller, server, native, vad = self.initialized_server(fallback=device == "cuda")
+                self.assertEqual(server.backend, "cpu")
+                self.assertEqual([call.kwargs["backend"] for call in self.native_factory.call_args_list],
+                                 ["cpu"] if device == "cpu" else ["cuda", "cpu"])
+                self.start(caller, server)
+                first = caller.submit(lambda: server.handle_stream_command(feed_command(pcm[:3200])))
+                try:
+                    self.assertTrue(native.decode.entered[0].wait(TIMEOUT))
+                    for offset in range(3200, 12800, 3200):
+                        ack = self.command(caller, server, feed_command(pcm[offset:offset + 3200], offset=offset))
+                        self.assertEqual(ack["sample_count"], offset + 3200)
+                    tail = self.command(caller, server, feed_command(pcm[12800:], offset=12800, preview=False))
+                    self.assertEqual(tail["sample_count"], len(pcm))
+                    self.assertEqual(first.result()["sample_count"], 3200)
+                finally:
+                    native.decode.unblock()
+                final = self.command(caller, server, {"action": "stream_finish", "session_id": 1})
+                self.assertEqual((final["text"], final["sample_count"]), ("complete", len(pcm)))
+                np.testing.assert_array_equal(native.decode.calls[-1][0], pcm.astype(np.float32) / 32768)
+                caller.submit(server._close_runtime).result()
+                native.close.assert_called_once_with()
+                workers = (native.threads | vad.threads) - {caller.thread}
+                self.assertFalse(any(thread.is_alive() for thread in workers))
+
+    def test_cpu_silence_skips_native(self):
         caller, server, native, vad = self.initialized_server(fallback=True)
-        self.assertEqual([call.kwargs["backend"] for call in self.native_factory.call_args_list], ["cuda", "cpu"])
-        self.assertEqual(server.backend, "cpu")
-        self.assertIs(type(server.stream.runtime), QwenPreviewRuntime)
-        self.start(caller, server)
-        pcm = np.full(1920, 1000, dtype="<i2")
-        first = caller.submit(lambda: server.handle_stream_command(feed_command(pcm)))
-        self.assertTrue(native.decode.entered[0].wait(TIMEOUT))
-        self.assertFalse(first.done.is_set())
-        self.assertEqual(native.threads, {caller.thread})
-        native.decode.release[1].set()
-        self.assertTrue(first.result()["success"])
-        self.command(caller, server, {"action": "stream_finish", "session_id": 1})
         vad.silence = True
-        self.start(caller, server, 2)
-        silent = self.command(caller, server, feed_command(pcm, session_id=2))
+        self.start(caller, server)
+        silent = self.command(caller, server, feed_command(np.zeros(1920, dtype="<i2")))
         self.assertEqual(silent["tentative_text"], "")
-        final = self.command(caller, server, {"action": "stream_finish", "session_id": 2})
+        final = self.command(caller, server, {"action": "stream_finish", "session_id": 1})
         self.assertEqual((final["text"], final["sample_count"]), ("", 1920))
-        self.assertEqual(len(native.decode.calls), 1)
-        self.assertEqual({thread_id for _, thread_id in vad.calls}, {caller.thread.ident})
+        self.assertTrue(vad.calls)
+        self.assertFalse(native.decode.calls)
 
     def test_inactive_stream_unload_joins_pipeline_before_closing_native_once(self):
         caller, server, native, vad = self.initialized_server(attach_pipeline=True)

@@ -27,7 +27,6 @@ class QwenGpuMetadataTests(unittest.TestCase):
         self.vad_factory = self.enterContext(mock.patch.object(
             qwen3_asr_server, "FireRedVad", side_effect=lambda: mock.Mock()
         ))
-        self.enterContext(mock.patch.object(qwen3_asr_server, "QwenPreviewRuntime"))
         # Device detection and optional metadata must never reach host GPU tools.
         self.query = self.enterContext(mock.patch.object(
             subprocess, "run",
