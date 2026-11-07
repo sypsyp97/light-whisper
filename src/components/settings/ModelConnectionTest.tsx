@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { CircleAlert, CircleCheck, LoaderCircle, PlugZap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { testModelConnection, type ModelConnectionRequest, type ModelConnectionResult } from "@/api/tauri";
 
@@ -10,6 +11,7 @@ interface ModelConnectionTestProps {
 
 export default function ModelConnectionTest({ request, disabled = false, contextKey = "" }: ModelConnectionTestProps) {
   const { t } = useTranslation();
+  const hintId = useId();
   const signature = JSON.stringify([request, contextKey]);
   const context = useRef({ signature, version: 0 });
   if (context.current.signature !== signature) {
@@ -50,23 +52,26 @@ export default function ModelConnectionTest({ request, disabled = false, context
 
   const current = outcome?.version === context.current.version ? outcome : null;
   return (
-    <div className="settings-column model-connection-test">
-      <div className="settings-row model-connection-test-row">
-        <button type="button" className="btn-ghost" disabled={disabled || running}
-          aria-busy={running} onClick={() => { void run(); }}>
-          {t(running ? "settings.modelConnectionTesting" : "settings.testModelConnection")}
-        </button>
-        {current?.result && <span role="status" className="settings-hint settings-hint-flush">
-          {t("settings.modelConnectionSuccess", { model: current.result.model, ms: current.result.elapsedMs })}
-        </span>}
-      </div>
-      {current?.error && <p className="settings-error" role="alert">
-        {t("settings.modelConnectionFailed")} {current.error}
-      </p>}
-      <p className="settings-hint settings-hint-flush">
+    <div className="model-connection-test">
+      <p id={hintId} className="settings-hint model-connection-test-hint">
         {t(request.target === "asr" ? "settings.modelConnectionAsrHint"
           : request.target === "vision" ? "settings.modelConnectionVisionHint" : "settings.modelConnectionHint")}
       </p>
+      <button type="button" className="btn-ghost btn-ghost-sm model-connection-test-button"
+        disabled={disabled || running} aria-describedby={hintId}
+        aria-busy={running} onClick={() => { void run(); }}>
+        {running ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+          : <PlugZap size={14} aria-hidden="true" />}
+        {t(running ? "settings.modelConnectionTesting" : "settings.testModelConnection")}
+      </button>
+      {current?.result && <p role="status" className="model-connection-test-result" data-success="true">
+        <CircleCheck size={14} aria-hidden="true" />
+        <span>{t("settings.modelConnectionSuccess", { model: current.result.model, ms: current.result.elapsedMs })}</span>
+      </p>}
+      {current?.error && <p className="model-connection-test-result settings-error" role="alert">
+        <CircleAlert size={14} aria-hidden="true" />
+        <span>{t("settings.modelConnectionFailed")} {current.error}</span>
+      </p>}
     </div>
   );
 }
