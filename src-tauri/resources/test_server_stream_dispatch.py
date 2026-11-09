@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import sys
-import types
 import unittest
 from unittest import mock
 
@@ -28,9 +27,6 @@ class _TestServerBase(BaseASRServer):
 
     def _detect_device(self):
         return "cpu"
-
-    def _get_model_repos(self):
-        return []
 
     def initialize(self):
         self.initialize_calls += 1
@@ -69,14 +65,10 @@ class ServerStreamDispatchTests(unittest.TestCase):
             + "\n"
         )
         stdout = io.StringIO()
-        fake_hf_cache = types.SimpleNamespace(
-            get_hf_cache_root=lambda: "unused",
-            is_hf_repo_ready=lambda _repo: True,
-        )
         with (
             mock.patch.object(sys, "stdin", stdin),
             mock.patch.object(sys, "stdout", stdout),
-            mock.patch.dict(sys.modules, {"hf_cache_utils": fake_hf_cache}),
+            mock.patch("hf_cache_utils.get_hf_cache_root", return_value="unused"),
         ):
             server.run()
         return [json.loads(line) for line in stdout.getvalue().splitlines()]

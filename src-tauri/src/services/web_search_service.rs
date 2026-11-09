@@ -1158,20 +1158,6 @@ mod tests {
         assert_eq!(deduped[0].title, "Result 0");
         assert_eq!(deduped[1].title, "Result 1");
     }
-
-    #[test]
-    fn exa_sse_parser_uses_final_json_data_line_not_done_marker() {
-        let source = include_str!("web_search_service.rs");
-
-        assert!(
-            source.contains("extract_final_json_data_line"),
-            "Exa SSE parsing should use a helper that scans data: lines from the end and skips [DONE]/empty/non-JSON lines"
-        );
-        assert!(
-            !source.contains(".rev()\n            .find_map(|line| line.strip_prefix(\"data:\")"),
-            "selecting the last data: line treats trailing [DONE] or keepalive data as the JSON-RPC payload"
-        );
-    }
 }
 
 fn is_exa_no_search_results(text: &str) -> bool {

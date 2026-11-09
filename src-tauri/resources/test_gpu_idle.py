@@ -92,9 +92,6 @@ class _IdleServer(BaseASRServer):
     def _detect_device(self):
         return "cpu"
 
-    def _get_model_repos(self):
-        return []
-
     def initialize(self):
         self.initialize_calls += 1
         self.initialized = True
@@ -139,14 +136,10 @@ class IdleServerTests(unittest.TestCase):
             "\n".join(json.dumps(command) for command in commands) + "\n"
         )
         stdout = io.StringIO()
-        fake_hf = type("Hf", (), {
-            "get_hf_cache_root": staticmethod(lambda: "unused"),
-            "is_hf_repo_ready": staticmethod(lambda _repo: True),
-        })
         with (
             mock.patch.object(sys, "stdin", stdin),
             mock.patch.object(sys, "stdout", stdout),
-            mock.patch.dict(sys.modules, {"hf_cache_utils": fake_hf}),
+            mock.patch("hf_cache_utils.get_hf_cache_root", return_value="unused"),
             mock.patch.dict(os.environ, env or {}, clear=False),
         ):
             if env is None:

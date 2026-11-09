@@ -50,7 +50,6 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
         self.vad_model = None
         self.backend = "cuda" if self.device == "cuda" else "cpu"
         self._gpu_device_info_cache = None
-        self._last_load_error = None
         self._total_inference_ms = 0.0
         self._total_vad_ms = 0.0
         self._vad_calls = 0
@@ -58,11 +57,6 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
 
     def _get_gpu_device_info(self):
         return super()._get_gpu_device_info(include_memory=True)
-
-    def _get_model_repos(self):
-        # Exact-file validation happens in initialize(); a repository may contain
-        # Q4/Q6 files that must not be mistaken for the selected Q8 model.
-        return []
 
     def _resolve_model_path(self):
         return find_hf_snapshot_file(
@@ -214,7 +208,6 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
             )
             self.initialized = True
             self._gpu_suspended = False
-            self._last_load_error = None
             elapsed = time.perf_counter() - started
             logger.info("Qwen3-ASR 初始化完成，后端: %s，耗时 %.3f 秒", self.backend, elapsed)
             return {
@@ -229,7 +222,6 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
         except ImportError as exc:
             self._close_runtime()
             self.vad_model = None
-            self._last_load_error = str(exc)
             logger.error("Qwen3-ASR 依赖加载失败: %s", exc)
             logger.error(traceback.format_exc())
             return {
@@ -241,7 +233,6 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
         except Exception as exc:
             self._close_runtime()
             self.vad_model = None
-            self._last_load_error = str(exc)
             logger.error("Qwen3-ASR 初始化失败: %s", exc)
             logger.error(traceback.format_exc())
             return {

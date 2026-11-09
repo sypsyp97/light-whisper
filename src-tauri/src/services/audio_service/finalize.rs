@@ -24,6 +24,31 @@ use crate::utils::paths;
 
 const ASSISTANT_PIPELINE_TIMEOUT_SECS: u64 = 180;
 
+async fn persist_history_insert(
+    app_handle: &tauri::AppHandle,
+    draft: history_service::HistoryDraft,
+    retention_days: u32,
+) -> Result<i64, String> {
+    let app_handle = app_handle.clone();
+    let audio_file = draft.audio_file.clone();
+    match history_service::insert(draft, retention_days).await {
+        Ok(id) => {
+            let _ = app_handle.emit("history-updated", serde_json::json!({ "id": id }));
+            Ok(id)
+        }
+        Err(error) => {
+            if let Some(audio_file) = audio_file {
+                if let Err(cleanup_error) =
+                    history_service::cleanup_audio_if_unreferenced(audio_file).await
+                {
+                    log::warn!("回收未入库历史音频失败，将在下次启动重试: {cleanup_error}");
+                }
+            }
+            Err(error)
+        }
+    }
+}
+
 pub(super) fn history_audio_snapshot(
     samples: &parking_lot::Mutex<Vec<i16>>,
     enabled: bool,
@@ -135,7 +160,7 @@ impl HistorySessionContext {
             } else {
                 None
             };
-            crate::commands::history::persist_history_insert(
+            persist_history_insert(
                 app_handle,
                 history_service::HistoryDraft {
                     session_id,
@@ -624,8 +649,7 @@ pub async fn finalize_recording(
             app_context.clone(),
         )
         .with_explicit_screen_context(screen_context_explicit);
-        let (assistant_generation, cancel_rx) =
-            crate::commands::assistant::begin_assistant_chat_task(state.inner());
+        let (assistant_generation, cancel_rx) = state.ui.begin_assistant_chat_task();
         let assistant_pipeline = async {
             // 搜索判断、搜索关键词和最终生成都基于校正后的语音请求。
             // 显式关闭翻译覆盖，避免“翻译输出”设置改变用户实际发给助手的指令。
@@ -670,7 +694,7 @@ pub async fn finalize_recording(
             "助手请求超时（{}秒），请重试",
             ASSISTANT_PIPELINE_TIMEOUT_SECS
         );
-        let assistant_result = crate::commands::assistant::run_cancellable_assistant_task(
+        let assistant_result = assistant_service::run_cancellable_assistant_task(
             assistant_pipeline,
             cancel_rx,
             Duration::from_secs(ASSISTANT_PIPELINE_TIMEOUT_SECS),
@@ -678,7 +702,7 @@ pub async fn finalize_recording(
             "助手请求已取消",
         )
         .await;
-        crate::commands::assistant::clear_assistant_chat_task(state.inner(), assistant_generation);
+        state.ui.clear_assistant_chat_task(assistant_generation);
         let assistant_elapsed_ms = elapsed_ms(assistant_started);
 
         match assistant_result {

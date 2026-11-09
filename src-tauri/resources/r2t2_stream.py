@@ -2,8 +2,6 @@
 
 import numpy as np
 
-from qwen3_native import QwenPreviewRuntime
-
 
 class R2T2StreamSession:
     """Own one contiguous native stream at a time."""
@@ -85,6 +83,10 @@ class R2T2StreamSession:
     def active(self):
         return self._active_session_id is not None
 
+    @property
+    def supports_preview_suppression(self):
+        return getattr(self.runtime, "supports_preview_suppression", False) is True
+
     def start(
         self,
         session_id: int,
@@ -117,7 +119,7 @@ class R2T2StreamSession:
         self._require_active(session_id)
         if not isinstance(preview, bool):
             raise ValueError("preview must be a boolean")
-        if not preview and not isinstance(self.runtime, QwenPreviewRuntime):
+        if not preview and not self.supports_preview_suppression:
             raise ValueError("preview suppression requires Qwen3-ASR")
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             raise ValueError("offset must be a non-negative integer")
@@ -179,7 +181,7 @@ class R2T2StreamSession:
             if self.audio_processor is not None:
                 self._feed_runtime(
                     self.audio_processor.flush(),
-                    preview=not isinstance(self.runtime, QwenPreviewRuntime),
+                    preview=not self.supports_preview_suppression,
                 )
             previous_text = self._text
             text, native_language = self.runtime.finish()

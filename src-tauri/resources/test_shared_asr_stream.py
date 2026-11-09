@@ -74,6 +74,18 @@ class FakeStreamRuntime(CloseCounter):
         self.preview_text = ""
 
 
+class PreviewSuppressibleRuntime(FakeStreamRuntime):
+    supports_preview_suppression = True
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.preview_flags = []
+
+    def feed(self, pcm, *, preview=True):
+        self.preview_flags.append(preview)
+        return super().feed(pcm)
+
+
 class SharedASRStreamContract:
     def _server(self, runtime):
         with (
@@ -132,6 +144,67 @@ class SharedASRStreamContract:
         self.assertEqual(response.get("backend"), "cpu")
         self.assertIsInstance(response.get("error"), str)
         self.assertTrue(response["error"].strip())
+
+    def test_runtime_capability_allows_suppression_and_processed_tail_for_any_engine(self):
+        runtime = PreviewSuppressibleRuntime(
+            steps=[("", "", None), ("", "", None)], final=("完整文本", "zh")
+        )
+        server = self._server(runtime)
+        audio = np.asarray([1, 2, 3], dtype=np.float32) / 32768.0
+        processor = types.SimpleNamespace(
+            reset=mock.Mock(),
+            feed=mock.Mock(side_effect=lambda pcm: pcm[:2].copy()),
+            flush=mock.Mock(return_value=audio[2:].copy()),
+        )
+        server.stream.audio_processor = processor
+        self._assert_response(server.handle_stream_command({
+            "action": "stream_start", "session_id": 1,
+        }), 1, "", "", 0, False, language=None)
+
+        response = server.handle_stream_command({
+            "action": "stream_feed", "session_id": 1, "offset": 0,
+            "sample_rate": 16000, "audio_format": "pcm_s16le",
+            "audio_base64": self._pcm16([1, 2, 3]), "preview": False,
+        })
+
+        self._assert_response(response, 1, "", "", 3, False, language=None)
+        self._assert_response(server.handle_stream_command({
+            "action": "stream_finish", "session_id": 1,
+        }), 1, "完整文本", "", 3, True)
+        self.assertEqual(runtime.preview_flags, [False, False])
+        np.testing.assert_array_equal(np.concatenate(runtime.feed_inputs), audio)
+        self.assertEqual(processor.flush.call_count, 1)
+        self.assertEqual(runtime.finish_calls, 1)
+        self.assertFalse(server.stream.active)
+
+    def test_unsupported_suppression_rejects_before_decoding_or_consuming_audio(self):
+        for capability in ("missing", False, None, 1, "true"):
+            with self.subTest(capability=capability):
+                runtime = FakeStreamRuntime(steps=[("好", "好的", "zh")])
+                if capability != "missing":
+                    runtime.supports_preview_suppression = capability
+                server = self._server(runtime)
+                processor = types.SimpleNamespace(
+                    reset=mock.Mock(), feed=mock.Mock(side_effect=lambda pcm: pcm.copy())
+                )
+                server.stream.audio_processor = processor
+                server.stream.start(1)
+                command = dict(
+                    action="stream_feed", session_id=1, offset=0,
+                    sample_rate=16000, audio_format="pcm_s16le",
+                    audio_base64=self._pcm16([1, 2, 3]), preview=False,
+                )
+                with mock.patch.object(
+                    server, "_decode_stream_audio", wraps=server._decode_stream_audio
+                ) as decode:
+                    self._assert_error(server.handle_stream_command(command))
+                decode.assert_not_called()
+                processor.feed.assert_not_called()
+                self.assertEqual(runtime.feed_inputs, [])
+                self.assertEqual(runtime.reset_calls, 0)
+                self.assertTrue(server.stream.active)
+                self._assert_response(self._feed(server, 1, 0, [1, 2, 3]),
+                                      1, "好", "的", 3, False)
 
     def test_pcm16_preview_revisions_and_partial_tail_finish(self):
         runtime = FakeStreamRuntime(

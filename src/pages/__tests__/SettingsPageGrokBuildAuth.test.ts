@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import en from "@/i18n/en";
 import zh from "@/i18n/zh";
+import { hasLlmAuth } from "@/lib/llmAuth";
 
 function readRepo(relativePath: string): string {
   return readFileSync(resolve(process.cwd(), relativePath), "utf8");
@@ -124,7 +125,6 @@ describe("SettingsPage Grok Build dual-auth contract", () => {
     expect(settingsPage).toContain('from "@/lib/grokBuildAuth"');
     expect(settingsPage).toContain("effectiveXaiAuthMode");
     expect(settingsPage).toContain("shouldShowGrokBuildAuth");
-    expect(settingsPage).toContain("shouldUseGrokBuildOauth");
     expect(settingsPage).toContain("getGrokBuildOauthStatus");
     expect(settingsPage).toContain("loginGrokBuildOauth");
     expect(settingsPage).toContain("startGrokBuildOauthDeviceCode");
@@ -181,11 +181,15 @@ describe("SettingsPage Grok Build dual-auth contract", () => {
   });
 
   it("treats oauth plus a logged-in Grok session as credentials even when the API key field is empty", () => {
-    expect(settingsPage).toContain("shouldUseGrokBuildOauth");
-    expect(settingsPage).toContain("effectiveXaiAuthMode");
-    expect(settingsPage).toMatch(/polishHasAuth[\s\S]{0,1200}(shouldUseGrokBuildOauth|effectiveXaiAuthMode)/);
-    expect(settingsPage).toContain('"settings.fillApiKeyOrGrokLogin"');
-    expect(settingsPage).toContain('"settings.apiKeyOrGrokLoginMissing"');
+    const auth = {
+      provider: "xai", apiKey: "", xaiAuthMode: "oauth" as const,
+      grokOauthReady: true, openaiAuthMode: "api_key" as const,
+      openaiOauthReady: false,
+    };
+    expect(hasLlmAuth(auth)).toBe(true);
+    expect(hasLlmAuth({ ...auth, grokOauthReady: false })).toBe(false);
+    expect(hasLlmAuth({ ...auth, xaiAuthMode: "api_key" })).toBe(false);
+    expect(hasLlmAuth({ ...auth, xaiAuthMode: "api_key", apiKey: " key " })).toBe(true);
   });
 
   it("persists xaiAuthMode through llmConfigSave / setLlmProviderConfig", () => {

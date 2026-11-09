@@ -92,8 +92,8 @@ import {
 import {
   effectiveXaiAuthMode,
   shouldShowGrokBuildAuth,
-  shouldUseGrokBuildOauth,
 } from "@/lib/grokBuildAuth";
+import { hasLlmAuth } from "@/lib/llmAuth";
 import { formatHotkeyForDisplay } from "@/lib/hotkey";
 import {
   resolveAssistantLlmReasoningProbeTarget,
@@ -124,8 +124,7 @@ const engineOptions = [
   { key: "alibaba-asr", icon: Cloud, label: "Alibaba DashScope", labelKey: "settings.alibabaAsrLabel", descKey: "settings.alibabaAsrDesc" },
 ] as const;
 
-const ONLINE_ENGINES: ReadonlySet<string> = new Set(["glm-asr", "alibaba-asr"]);
-const isOnlineEngineKey = (engine: string) => ONLINE_ENGINES.has(engine);
+const isOnlineEngineKey = (engine: string) => getAsrEngineCapability(engine)?.execution === "cloud";
 
 const engineOptionLabel = (
   option: (typeof engineOptions)[number],
@@ -189,6 +188,19 @@ interface LlmProviderDraft {
 }
 
 type LlmProviderDraftMap = Record<string, LlmProviderDraft>;
+
+interface LlmProviderSaveConfig {
+  provider: string;
+  baseUrl: string;
+  model: string;
+  polishReasoningMode: LlmReasoningMode;
+  assistantReasoningMode: LlmReasoningMode;
+  assistantUseSeparateModel: boolean;
+  assistantModel: string;
+  assistantProvider?: string | null;
+  openaiAuthMode: OpenaiAuthMode | null;
+  xaiAuthMode: XaiAuthMode | null;
+}
 
 function resolveEffectiveProvider(key: string, customProviders: CustomProvider[]): string {
   if (llmProviderOptions.some((option) => option.key === key)) {
@@ -340,7 +352,6 @@ export default function SettingsPage({
     container.scrollTo({ top, behavior: "smooth" });
   }, []);
 
-  // Auto-scroll the nav bar to keep active tab visible + measure indicator position
   useEffect(() => {
     const navEl = navScrollRef.current;
     if (!navEl || !active) return;
@@ -487,24 +498,22 @@ export default function SettingsPage({
     effectiveAssistantProvider === "openai"
     && effectiveOpenaiAuthMode === "oauth"
     && openaiPlanReady;
-  const polishHasAuth = shouldUseGrokBuildOauth({
+  const polishHasAuth = hasLlmAuth({
     provider: llmProvider,
-    authMode: effectiveXaiAuthModeValue,
-    loggedIn: grokBuildOauthStatus.loggedIn,
-  })
-    || (llmProvider === "openai"
-      ? (effectiveOpenaiAuthMode === "oauth" ? openaiPlanReady : !!polishManualApiKey)
-      : llmProvider !== "xai" && !!polishManualApiKey)
-    || (llmProvider === "xai" && effectiveXaiAuthModeValue === "api_key" && !!polishManualApiKey);
-  const assistantHasAuth = shouldUseGrokBuildOauth({
+    apiKey: polishManualApiKey,
+    openaiAuthMode: effectiveOpenaiAuthMode,
+    openaiOauthReady: openaiPlanReady,
+    xaiAuthMode: effectiveXaiAuthModeValue,
+    grokOauthReady: grokBuildOauthStatus.loggedIn,
+  });
+  const assistantHasAuth = hasLlmAuth({
     provider: effectiveAssistantProvider,
-    authMode: effectiveXaiAuthModeValue,
-    loggedIn: grokBuildOauthStatus.loggedIn,
-  })
-    || (effectiveAssistantProvider === "openai"
-      ? (effectiveOpenaiAuthMode === "oauth" ? openaiPlanReady : !!assistantManualApiKey)
-      : effectiveAssistantProvider !== "xai" && !!assistantManualApiKey)
-    || (effectiveAssistantProvider === "xai" && effectiveXaiAuthModeValue === "api_key" && !!assistantManualApiKey);
+    apiKey: assistantManualApiKey,
+    openaiAuthMode: effectiveOpenaiAuthMode,
+    openaiOauthReady: openaiPlanReady,
+    xaiAuthMode: effectiveXaiAuthModeValue,
+    grokOauthReady: grokBuildOauthStatus.loggedIn,
+  });
   const oauthModelIdentity = [
     openaiCodexOauthStatus.loggedIn ? "connected" : "disconnected",
     openaiCodexOauthStatus.accountId ?? "",
@@ -621,31 +630,47 @@ export default function SettingsPage({
     return setWebSearchConfig(enabled, provider, maxResults).catch(() => {});
   }, 400, { onUnmount: "flush" });
 
-  const llmConfigSave = useDebouncedCallback((
-    provider: string,
-    baseUrl: string,
-    model: string,
-    nextPolishReasoningMode: LlmReasoningMode,
-    nextAssistantReasoningMode: LlmReasoningMode,
-    nextAssistantUseSeparateModel: boolean,
-    nextAssistantModel: string,
-    nextAssistantProvider?: string | null,
-  ) => {
-    // openaiAuthMode 直接从闭包读最新值：useDebouncedCallback 的 timer 触发时调用最新一版 callback。
-    // 一路透传到所有 schedule 调用点（保持现有 call site 签名不变）。
+  const llmConfigSave = useDebouncedCallback(({
+    provider,
+    baseUrl,
+    model,
+    polishReasoningMode,
+    assistantReasoningMode,
+    assistantUseSeparateModel,
+    assistantModel,
+    assistantProvider,
+    openaiAuthMode,
+    xaiAuthMode,
+  }: LlmProviderSaveConfig) => {
     return setLlmProviderConfig(
       provider,
       baseUrl || undefined,
       model || undefined,
-      nextPolishReasoningMode,
-      nextAssistantReasoningMode,
-      nextAssistantUseSeparateModel,
-      nextAssistantModel || undefined,
-      nextAssistantProvider,
+      polishReasoningMode,
+      assistantReasoningMode,
+      assistantUseSeparateModel,
+      assistantModel || undefined,
+      assistantProvider,
       openaiAuthMode,
       xaiAuthMode,
     ).catch(() => {});
   }, 400, { onUnmount: "flush" });
+
+  const scheduleLlmConfigSave = useCallback((patch: Partial<LlmProviderSaveConfig>) => {
+    llmConfigSave.schedule({
+      provider: llmProvider,
+      baseUrl: customBaseUrl,
+      model: customModel,
+      polishReasoningMode,
+      assistantReasoningMode,
+      assistantUseSeparateModel,
+      assistantModel,
+      assistantProvider: assistantProviderToPersist,
+      openaiAuthMode,
+      xaiAuthMode,
+      ...patch,
+    });
+  }, [assistantModel, assistantProviderToPersist, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, customModel, llmConfigSave, llmProvider, openaiAuthMode, polishReasoningMode, xaiAuthMode]);
 
   const customPromptSave = useDebouncedCallback((value: string) => {
     setCustomPrompt(value.trim() || null).catch(() => {
@@ -675,7 +700,6 @@ export default function SettingsPage({
 
   const resolveProviderDraft = useCallback((provider: string) => {
     const draft = providerDrafts[provider];
-    // 先查自定义 provider
     const cp = customProviders.find((p) => p.id === provider);
     if (cp) {
       return {
@@ -784,7 +808,6 @@ export default function SettingsPage({
     }
   }, []);
 
-  // 加载用户画像
   const refreshProfile = useCallback(async () => {
     setProfileLoadPending(true);
     try {
@@ -794,7 +817,6 @@ export default function SettingsPage({
       const cps = p.llm_provider.custom_providers ?? [];
       setCustomProviders(cps);
       const nextProvider = resolveEffectiveProvider(p.llm_provider.active || "cerebras", cps);
-      // 查自定义 provider
       const cp = cps.find((c) => c.id === nextProvider);
       const preset = findLlmPreset(nextProvider);
       const nextBaseUrl = cp
@@ -989,7 +1011,6 @@ export default function SettingsPage({
     selectedInputDeviceName,
   } = useMicrophoneSettings({ active, closePicker: picker.close, isRecording });
 
-  // (hotkey capture effects are now in useHotkeyCapture hook)
 
   const handleResetHotkey = async () => {
     if (mainHotkeyCapture.saving) return;
@@ -1018,7 +1039,6 @@ export default function SettingsPage({
     }
   };
 
-  // Unified picker focus/clear-search effect (replaces 6 individual effects)
   useEffect(() => {
     setProviderSearch("");
     setAiModelSearch("");
@@ -1291,55 +1311,20 @@ export default function SettingsPage({
   const handleOpenaiAuthModeChange = useCallback((mode: OpenaiAuthMode) => {
     if (mode === effectiveOpenaiAuthMode && openaiAuthMode !== null) return;
     setOpenaiAuthModeState(mode);
-    // schedule 触发时 useDebouncedCallback 的闭包会读到刚更新的 openaiAuthMode
-    llmConfigSave.schedule(
-      llmProvider,
-      customBaseUrl,
-      customModel,
-      polishReasoningMode,
-      assistantReasoningMode,
-      assistantUseSeparateModel,
-      assistantModel,
-      assistantProviderToPersist,
-    );
+    scheduleLlmConfigSave({ openaiAuthMode: mode });
   }, [
-    assistantModel,
-    assistantReasoningMode,
-    assistantUseSeparateModel,
-    assistantProviderToPersist,
-    customBaseUrl,
-    customModel,
     effectiveOpenaiAuthMode,
-    llmConfigSave,
-    llmProvider,
     openaiAuthMode,
-    polishReasoningMode,
+    scheduleLlmConfigSave,
   ]);
 
   const handleXaiAuthModeChange = useCallback((mode: XaiAuthMode) => {
     if (mode === effectiveXaiAuthModeValue && xaiAuthMode !== null) return;
     setXaiAuthModeState(mode);
-    llmConfigSave.schedule(
-      llmProvider,
-      customBaseUrl,
-      customModel,
-      polishReasoningMode,
-      assistantReasoningMode,
-      assistantUseSeparateModel,
-      assistantModel,
-      assistantProviderToPersist,
-    );
+    scheduleLlmConfigSave({ xaiAuthMode: mode });
   }, [
-    assistantModel,
-    assistantReasoningMode,
-    assistantUseSeparateModel,
-    assistantProviderToPersist,
-    customBaseUrl,
-    customModel,
     effectiveXaiAuthModeValue,
-    llmConfigSave,
-    llmProvider,
-    polishReasoningMode,
+    scheduleLlmConfigSave,
     xaiAuthMode,
   ]);
 
@@ -1806,16 +1791,12 @@ export default function SettingsPage({
     setProviderSearch("");
     setAiModelSearch("");
     setAssistantModelSearch("");
-    llmConfigSave.schedule(
-      nextProvider,
-      nextDraft.baseUrl,
-      nextDraft.model,
-      polishReasoningMode,
-      assistantReasoningMode,
-      assistantUseSeparateModel,
-      nextAssistantModel,
-      assistantProviderToPersist,
-    );
+    scheduleLlmConfigSave({
+      provider: nextProvider,
+      baseUrl: nextDraft.baseUrl,
+      model: nextDraft.model,
+      assistantModel: nextAssistantModel,
+    });
     await llmConfigSave.flush();
     if (polishProviderRef.current === nextProvider && !assistantUseSeparateModel) {
       assistantProviderRef.current = nextProvider;
@@ -1827,8 +1808,6 @@ export default function SettingsPage({
     customModel,
     currentAssistantPreset,
     llmProvider,
-    polishReasoningMode,
-    assistantReasoningMode,
     assistantUseSeparateModel,
     assistantModel,
     aiPolishKeySave,
@@ -1837,6 +1816,7 @@ export default function SettingsPage({
     refreshAiPolishKey,
     refreshAssistantKey,
     resolveProviderDraft,
+    scheduleLlmConfigSave,
     updateProviderDraft,
   ]);
 
@@ -1851,22 +1831,13 @@ export default function SettingsPage({
     });
     setCustomModel(normalizedModel);
     updateProviderDraft(llmProvider, customBaseUrl, normalizedModel);
-    llmConfigSave.schedule(
-      llmProvider,
-      customBaseUrl,
-      normalizedModel,
-      polishReasoningMode,
-      assistantReasoningMode,
-      assistantUseSeparateModel,
-      nextAssistantModel,
-      assistantProviderToPersist,
-    );
+    scheduleLlmConfigSave({ model: normalizedModel, assistantModel: nextAssistantModel });
     picker.close();
     setAiModelSearch("");
     if (!assistantUseSeparateModel) {
       setAssistantModel(normalizedModel);
     }
-  }, [aiModels, assistantModel, assistantProviderToPersist, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, llmProvider, picker, polishReasoningMode, llmConfigSave, updateProviderDraft]);
+  }, [aiModels, assistantModel, assistantUseSeparateModel, customBaseUrl, llmProvider, picker, scheduleLlmConfigSave, updateProviderDraft]);
 
   const handleAssistantModelToggle = useCallback((enabled: boolean) => {
     void assistantKeySave.flush();
@@ -1883,22 +1854,17 @@ export default function SettingsPage({
     });
     setAssistantModel(nextState.assistantModel);
     setAssistantProviderState(nextState.assistantProviderState);
-    llmConfigSave.schedule(
-      llmProvider,
-      customBaseUrl,
-      customModel,
-      polishReasoningMode,
-      assistantReasoningMode,
-      enabled,
-      nextState.assistantModel,
-      nextState.assistantProviderToPersist,
-    );
+    scheduleLlmConfigSave({
+      assistantUseSeparateModel: enabled,
+      assistantModel: nextState.assistantModel,
+      assistantProvider: nextState.assistantProviderToPersist,
+    });
     if (enabled) {
       const provider = nextState.assistantProviderToPersist || llmProvider;
       assistantProviderRef.current = provider;
       void refreshAssistantKey(provider);
     }
-  }, [assistantKeySave, assistantModel, assistantProvider, assistantReasoningMode, assistantUseSeparateModel, availableLlmProviders, currentAssistantPreset.defaultModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, refreshAssistantKey, llmConfigSave]);
+  }, [assistantKeySave, assistantModel, assistantProvider, assistantUseSeparateModel, availableLlmProviders, currentAssistantPreset.defaultModel, customModel, llmProvider, picker, refreshAssistantKey, scheduleLlmConfigSave]);
 
   const handleAssistantProviderSelect = useCallback(async (nextProvider: string) => {
     if (nextProvider === assistantProvider) {
@@ -1922,20 +1888,15 @@ export default function SettingsPage({
     setAssistantModel(nextAssistantModel);
     picker.close();
     setAssistantProviderSearch("");
-    llmConfigSave.schedule(
-      llmProvider,
-      customBaseUrl,
-      customModel,
-      polishReasoningMode,
-      assistantReasoningMode,
-      true,
-      nextAssistantModel,
-      nextProvider,
-    );
+    scheduleLlmConfigSave({
+      assistantUseSeparateModel: true,
+      assistantModel: nextAssistantModel,
+      assistantProvider: nextProvider,
+    });
     void llmConfigSave.flush();
     assistantProviderRef.current = nextProvider;
     void refreshAssistantKey(nextProvider);
-  }, [assistantKeySave, assistantProvider, assistantReasoningMode, customBaseUrl, customModel, customProviders, llmConfigSave, llmProvider, picker, polishReasoningMode, refreshAssistantKey]);
+  }, [assistantKeySave, assistantProvider, customModel, customProviders, llmConfigSave, llmProvider, picker, refreshAssistantKey, scheduleLlmConfigSave]);
 
   const handleAssistantModelSelect = useCallback((nextModel: string) => {
     const normalizedModel = resolveModelId(nextModel, effectiveAssistantModels);
@@ -1943,17 +1904,8 @@ export default function SettingsPage({
     setAssistantModel(normalizedModel);
     picker.close();
     setAssistantModelSearch("");
-    llmConfigSave.schedule(
-      llmProvider,
-      customBaseUrl,
-      customModel,
-      polishReasoningMode,
-      assistantReasoningMode,
-      true,
-      normalizedModel,
-      assistantProviderToPersist,
-    );
-  }, [assistantProviderToPersist, assistantReasoningMode, customBaseUrl, customModel, effectiveAssistantModels, llmProvider, picker, polishReasoningMode, llmConfigSave]);
+    scheduleLlmConfigSave({ assistantUseSeparateModel: true, assistantModel: normalizedModel });
+  }, [effectiveAssistantModels, picker, scheduleLlmConfigSave]);
 
   const handleTranslationSelect = useCallback(async (target: string | null) => {
     setTranslationTargetState(target);
@@ -2186,33 +2138,15 @@ export default function SettingsPage({
     if (polishReasoningModeDisabled) return;
     setPolishReasoningMode(mode);
     picker.close();
-    llmConfigSave.schedule(
-      llmProvider,
-      customBaseUrl,
-      customModel,
-      mode,
-      assistantReasoningMode,
-      assistantUseSeparateModel,
-      assistantModel,
-      assistantProviderToPersist,
-    );
-  }, [assistantModel, assistantProviderToPersist, assistantReasoningMode, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningModeDisabled, llmConfigSave]);
+    scheduleLlmConfigSave({ polishReasoningMode: mode });
+  }, [picker, polishReasoningModeDisabled, scheduleLlmConfigSave]);
 
   const handleAssistantReasoningModeChange = useCallback((mode: LlmReasoningMode) => {
     if (assistantReasoningModeDisabled) return;
     setAssistantReasoningMode(mode);
     picker.close();
-    llmConfigSave.schedule(
-      llmProvider,
-      customBaseUrl,
-      customModel,
-      polishReasoningMode,
-      mode,
-      assistantUseSeparateModel,
-      assistantModel,
-      assistantProviderToPersist,
-    );
-  }, [assistantModel, assistantProviderToPersist, assistantReasoningModeDisabled, assistantUseSeparateModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, llmConfigSave]);
+    scheduleLlmConfigSave({ assistantReasoningMode: mode });
+  }, [assistantReasoningModeDisabled, picker, scheduleLlmConfigSave]);
 
   const handleRecordingModeChange = useCallback((mode: "hold" | "toggle") => {
     setRecordingModeState(mode);
@@ -2520,11 +2454,11 @@ export default function SettingsPage({
                 model: engine === "alibaba-asr" ? alibabaAsrModel : engine,
                 ...(isOnlineEngineKey(engine) ? { baseUrl: onlineAsrUrl, apiKey: onlineAsrApiKey } : {}),
               }} />
-            {engine !== "glm-asr" && engine !== "alibaba-asr" && <AudioProcessingControl />}
+            {!isOnlineEngineKey(engine) && <AudioProcessingControl />}
             <SettingsReveal open={engine === "confucius4-r2t2" && !!profile} gap={10}>
               {profile && <R2T2SettingsSection profile={profile} onSaved={() => { void refreshProfile(); }} />}
             </SettingsReveal>
-            {(engine === "glm-asr" || engine === "alibaba-asr") && (
+            {isOnlineEngineKey(engine) && (
               <div className="settings-inline-panel" style={{ marginTop: 8 }}>
                 <div className="settings-column" style={{ gap: 4 }}>
                   <span className="settings-option-desc">{t("settings.apiEndpoint")}</span>
@@ -3072,16 +3006,7 @@ export default function SettingsPage({
                                         setAssistantProviderState("");
                                       }
                                       updateProviderDraft(id, baseUrl, model);
-                                      llmConfigSave.schedule(
-                                        id,
-                                        baseUrl,
-                                        model,
-                                        polishReasoningMode,
-                                        assistantReasoningMode,
-                                        assistantUseSeparateModel,
-                                        nextAssistantModel,
-                                        assistantProviderToPersist,
-                                      );
+                                      scheduleLlmConfigSave({ provider: id, baseUrl, model, assistantModel: nextAssistantModel });
                                       await llmConfigSave.flush();
                                       await refreshAiPolishKey(id);
                                     });
@@ -3126,16 +3051,7 @@ export default function SettingsPage({
                       const nextBaseUrl = e.target.value;
                       setCustomBaseUrl(nextBaseUrl);
                       updateProviderDraft(llmProvider, nextBaseUrl, customModel);
-                      llmConfigSave.schedule(
-                        llmProvider,
-                        nextBaseUrl,
-                        customModel,
-                        polishReasoningMode,
-                        assistantReasoningMode,
-                        assistantUseSeparateModel,
-                        assistantModel,
-                        assistantProviderToPersist,
-                      );
+                      scheduleLlmConfigSave({ baseUrl: nextBaseUrl });
                     }}
                   />
                   <p className="settings-hint">
@@ -3192,16 +3108,7 @@ export default function SettingsPage({
                           });
                           setCustomModel(nextModel);
                           updateProviderDraft(llmProvider, customBaseUrl, nextModel);
-                          llmConfigSave.schedule(
-                            llmProvider,
-                            customBaseUrl,
-                            nextModel,
-                            polishReasoningMode,
-                            assistantReasoningMode,
-                            assistantUseSeparateModel,
-                            nextAssistantModel,
-                            assistantProviderToPersist,
-                          );
+                          scheduleLlmConfigSave({ model: nextModel, assistantModel: nextAssistantModel });
                           if (!assistantUseSeparateModel) {
                             setAssistantModel(nextModel);
                           }
@@ -3766,16 +3673,7 @@ export default function SettingsPage({
                         onChange={(e) => {
                           const nextModel = e.target.value;
                           setAssistantModel(nextModel);
-                          llmConfigSave.schedule(
-                            llmProvider,
-                            customBaseUrl,
-                            customModel,
-                            polishReasoningMode,
-                            assistantReasoningMode,
-                            true,
-                            nextModel,
-                            assistantProviderToPersist,
-                          );
+                          scheduleLlmConfigSave({ assistantUseSeparateModel: true, assistantModel: nextModel });
                         }}
                       />
                       <button

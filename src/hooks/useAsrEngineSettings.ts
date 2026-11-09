@@ -13,6 +13,7 @@ import {
   setOnlineAsrEndpoint,
 } from "@/api/tauri";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
+import { getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 
 interface UseAsrEngineSettingsOptions {
   engineLabel: (engine: string) => string;
@@ -194,7 +195,7 @@ export function useAsrEngineSettings({
       setConfigReadErrors({ engine: false, endpoint: false, key: false });
       toast.success(t("toast.switchedToEngine", { label: engineLabel(newEngine) }));
       // The backend reloads the keyring slot for the new online engine.
-      if (newEngine === "glm-asr" || newEngine === "alibaba-asr") {
+      if (getAsrEngineCapability(newEngine)?.execution === "cloud") {
         if (await readAsrConfig({ key: true, endpoint: true })) {
           toast.error(t("toast.onlineAsrConfigReadFailed"));
         }

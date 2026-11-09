@@ -6,7 +6,7 @@ import time
 import numpy as np
 
 
-# Match Rust's ASR selection limit and profile_service's user hotword length.
+# Bounds for hotwords accepted by the stdio stream protocol.
 MAX_ASR_HOT_WORDS = 100
 MAX_HOT_WORD_CHARS = 80
 
@@ -132,7 +132,7 @@ class ASRStreamServerMixin:
                 preview = command.get("preview", True)
                 if not isinstance(preview, bool):
                     raise ValueError("preview must be a boolean")
-                if not preview and self.engine != "qwen3-asr-0.6b":
+                if not preview and not self.stream.supports_preview_suppression:
                     raise ValueError("preview suppression requires Qwen3-ASR")
                 if command.get("sample_rate") != 16_000:
                     raise ValueError("sample_rate must be 16000")

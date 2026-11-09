@@ -87,7 +87,6 @@ class R2T2ASRServerAdapterTests(unittest.TestCase):
         server.logger = logging.getLogger("test_r2t2_asr_server")
         server.stdout_suppressor = mock.Mock()
         server.stdout_suppressor.suppress.side_effect = contextlib.nullcontext
-        server._last_load_error = None
         server.transcription_count = 0
         server.total_audio_duration = 0.0
         server._total_inference_ms = 0.0

@@ -19,11 +19,12 @@ import traceback
 from typing import Optional, Tuple
 from logging.handlers import RotatingFileHandler
 
+from gpu_idle import GPU_IDLE_ACTIVITY_ACTIONS, GPU_IDLE_LOCKED_ACTIONS
+
 
 def _has_nvidia_gpu() -> bool:
     """Probe the NVIDIA driver; native model loading validates CUDA availability."""
     if sys.platform != "win32":
-        # On Linux, just check for /dev/nvidia*
         import glob as _glob
         return bool(_glob.glob("/dev/nvidia[0-9]*"))
     try:
@@ -61,7 +62,7 @@ def setup_rotating_logger(module_name: str, log_filename: str, service_name: str
             RotatingFileHandler(
                 log_file_path,
                 encoding="utf-8",
-                maxBytes=5 * 1024 * 1024,  # 5MB
+                maxBytes=5 * 1024 * 1024,
                 backupCount=3,
             ),
             logging.StreamHandler(sys.stderr),
@@ -166,7 +167,6 @@ class BaseASRServer:
       - check_status() -> dict
       - get_performance_stats() -> dict
       - transcribe_audio(audio_path, options=None) -> dict
-      - _get_model_repos() -> list[str]  (repo IDs to check before init)
     """
 
     def __init__(self, engine: str, logger: logging.Logger) -> None:
@@ -290,10 +290,6 @@ class BaseASRServer:
     # ------------------------------------------------------------------
     # Hooks for subclasses
     # ------------------------------------------------------------------
-
-    def _get_model_repos(self) -> list:
-        """Return list of HF repo IDs to check before auto-init."""
-        raise NotImplementedError
 
     def initialize(self) -> dict:
         raise NotImplementedError
@@ -508,26 +504,12 @@ class BaseASRServer:
 
         self.logger.info(f"{self.engine} 服务器启动")
 
-        from hf_cache_utils import get_hf_cache_root, is_hf_repo_ready
+        from hf_cache_utils import get_hf_cache_root
 
         hf_cache = get_hf_cache_root()
         self.logger.info(f"HuggingFace 缓存根目录: {hf_cache}")
 
-        model_repos = self._get_model_repos()
-        missing = [r for r in model_repos if not is_hf_repo_ready(r)]
-
-        if not missing:
-            self.logger.info("模型文件存在，开始初始化")
-            init_result = self.initialize()
-        else:
-            self.logger.info(f"模型文件不存在或不完整：{', '.join(missing)}，跳过初始化")
-            init_result = {
-                "success": False,
-                "error": "模型文件未下载，请先下载模型",
-                "type": "models_not_downloaded",
-                "engine": self.engine,
-            }
-
+        init_result = self.initialize()
         send(init_result)
 
         self._adopt_gpu_idle_from_env()
@@ -569,19 +551,7 @@ class BaseASRServer:
                     break
                 elif action == "set_gpu_idle":
                     result = self._handle_set_gpu_idle(command)
-                elif self._gpu_idle_seconds > 0 and action in (
-                    "transcribe",
-                    "stream_start",
-                    "stream_feed",
-                    "stream_finish",
-                    "stream_cancel",
-                    "status",
-                    "stats",
-                    "cleanup",
-                    "set_audio_processing",
-                ):
-                    from gpu_idle import GPU_IDLE_ACTIVITY_ACTIONS
-
+                elif self._gpu_idle_seconds > 0 and action in GPU_IDLE_LOCKED_ACTIONS:
                     with self._gpu_idle_lock:
                         result = self._execute_action(command, action)
                         if action in GPU_IDLE_ACTIVITY_ACTIONS:

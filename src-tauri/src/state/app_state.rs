@@ -453,15 +453,15 @@ pub struct UiState {
     pub input_method: Arc<parking_lot::Mutex<String>>,
     pub sound_enabled: Arc<AtomicBool>,
     pub hotkey_diagnostic: Arc<parking_lot::Mutex<HotkeyDiagnosticState>>,
-    pub assistant_chat_generation: AtomicU64,
-    pub assistant_chat_cancel: Arc<parking_lot::Mutex<Option<AssistantChatTask>>>,
+    assistant_chat_generation: AtomicU64,
+    assistant_chat_cancel: parking_lot::Mutex<Option<AssistantChatTask>>,
     pub selection_generation: AtomicU64,
     pub selection_cancel: Arc<parking_lot::Mutex<Option<SelectionTask>>>,
 }
 
-pub struct AssistantChatTask {
-    pub generation: u64,
-    pub cancel: oneshot::Sender<()>,
+struct AssistantChatTask {
+    generation: u64,
+    cancel: oneshot::Sender<()>,
 }
 
 pub struct SelectionTask {
@@ -485,6 +485,40 @@ impl Default for UiState {
 }
 
 impl UiState {
+    pub(crate) fn begin_assistant_chat_task(&self) -> (u64, oneshot::Receiver<()>) {
+        let mut current = self.assistant_chat_cancel.lock();
+        let generation = self
+            .assistant_chat_generation
+            .fetch_add(1, Ordering::AcqRel)
+            + 1;
+        let (cancel, cancel_rx) = oneshot::channel();
+        let previous = current.replace(AssistantChatTask { generation, cancel });
+        drop(current);
+        if let Some(previous) = previous {
+            let _ = previous.cancel.send(());
+        }
+        (generation, cancel_rx)
+    }
+
+    pub(crate) fn clear_assistant_chat_task(&self, generation: u64) {
+        let mut task = self.assistant_chat_cancel.lock();
+        if task
+            .as_ref()
+            .is_some_and(|current| current.generation == generation)
+        {
+            task.take();
+        }
+    }
+
+    pub(crate) fn cancel_assistant_chat_task(&self) -> bool {
+        let mut current = self.assistant_chat_cancel.lock();
+        let task = current.take();
+        self.assistant_chat_generation
+            .fetch_add(1, Ordering::AcqRel);
+        drop(current);
+        task.is_some_and(|task| task.cancel.send(()).is_ok())
+    }
+
     pub fn mark_api_warning(&self, session_id: u64) {
         if session_id > 0 {
             self.api_warning_session
@@ -743,6 +777,35 @@ impl AppState {
         let mut guard = self.ui.hotkey_diagnostic.lock();
         let result = f(&mut guard);
         (result, guard.clone())
+    }
+}
+
+#[cfg(test)]
+mod assistant_chat_task_tests {
+    use super::UiState;
+
+    #[tokio::test]
+    async fn assistant_chat_cancel_notifies_the_active_request() {
+        let state = UiState::default();
+        let (_, cancelled) = state.begin_assistant_chat_task();
+
+        assert!(state.cancel_assistant_chat_task());
+        assert!(cancelled.await.is_ok());
+        assert!(!state.cancel_assistant_chat_task());
+    }
+
+    #[tokio::test]
+    async fn clearing_an_old_generation_keeps_the_new_task_cancellable() {
+        let state = UiState::default();
+        let (old_generation, old_cancelled) = state.begin_assistant_chat_task();
+        let (new_generation, new_cancelled) = state.begin_assistant_chat_task();
+
+        assert!(new_generation > old_generation);
+        assert!(old_cancelled.await.is_ok());
+        state.clear_assistant_chat_task(old_generation);
+
+        assert!(state.cancel_assistant_chat_task());
+        assert!(new_cancelled.await.is_ok());
     }
 }
 

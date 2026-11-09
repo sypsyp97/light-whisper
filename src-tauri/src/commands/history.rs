@@ -292,31 +292,6 @@ pub async fn reprocess_transcription_history(
     result
 }
 
-pub async fn persist_history_insert(
-    app_handle: &tauri::AppHandle,
-    draft: history_service::HistoryDraft,
-    retention_days: u32,
-) -> Result<i64, String> {
-    let app_handle = app_handle.clone();
-    let audio_file = draft.audio_file.clone();
-    match history_service::insert(draft, retention_days).await {
-        Ok(id) => {
-            emit_history_updated(&app_handle, Some(id));
-            Ok(id)
-        }
-        Err(error) => {
-            if let Some(audio_file) = audio_file {
-                if let Err(cleanup_error) =
-                    history_service::cleanup_audio_if_unreferenced(audio_file).await
-                {
-                    log::warn!("回收未入库历史音频失败，将在下次启动重试: {cleanup_error}");
-                }
-            }
-            Err(error)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{ensure_reprocessable_workflow, export_markdown};

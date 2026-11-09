@@ -174,15 +174,25 @@ class ModelDownloadAtomicityTests(unittest.TestCase):
 
             self.assertFalse(hf_cache_utils._snapshot_matches_completion_manifest(tmp))
 
-    def test_download_file_uses_resolved_commit_in_url_when_helper_is_available(self):
-        helper = getattr(download_models, "_resolve_download_url", None)
-        if helper is None:
-            self.skipTest("_resolve_download_url helper is not implemented yet")
+    def test_download_file_requests_pinned_revision_and_writes_complete_file(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(download_models.requests, "get", return_value=FakeCompleteResponse()) as network,
+            mock.patch.object(download_models, "_emit"),
+        ):
+            destination = Path(tmp) / "nested" / "model.bin"
+            download_models._download_file(
+                "org/model", "nested/model.bin", str(destination), "asr", 1, 1,
+                "https://hf.example", expected_size=3, revision="commit123",
+            )
 
-        self.assertEqual(
-            helper("https://hf.example", "org/model", "nested/model.bin", "commit123"),
-            "https://hf.example/org/model/resolve/commit123/nested/model.bin",
-        )
+            network.assert_called_once()
+            self.assertEqual(
+                network.call_args.args[0],
+                "https://hf.example/org/model/resolve/commit123/nested/model.bin",
+            )
+            self.assertEqual(destination.read_bytes(), b"xyz")
+            self.assertFalse(Path(str(destination) + ".incomplete").exists())
 
     def test_interrupted_download_does_not_leave_partial_final_file(self):
         with tempfile.TemporaryDirectory() as tmp:

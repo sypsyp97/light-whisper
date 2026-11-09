@@ -62,6 +62,8 @@ class QwenNativeRuntime(NativeRuntime):
 class QwenPreviewRuntime:
     """Revise bounded previews; finalize from the complete captured audio."""
 
+    supports_preview_suppression = True
+
     def __init__(self, transcribe, *, sample_rate=16000, preview_samples=3200,
                  window_samples=192000):
         for name, value in (('sample_rate', sample_rate),

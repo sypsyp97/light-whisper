@@ -3,7 +3,6 @@ import os
 import queue
 import sys
 import threading
-import types
 import unittest
 from unittest import mock
 
@@ -48,10 +47,6 @@ class ServerProtocolOutputTests(unittest.TestCase):
             json.dumps({"action": "stream_finish", "request_id": 13}),
             json.dumps({"action": "exit", "request_id": 14}),
         ]
-        fake_hf_cache = types.SimpleNamespace(
-            get_hf_cache_root=lambda: "unused",
-            is_hf_repo_ready=lambda _repo: True,
-        )
         lines = queue.Queue()
         run_errors = []
 
@@ -81,7 +76,7 @@ class ServerProtocolOutputTests(unittest.TestCase):
                     os.fdopen(write_fd, "w", encoding="utf-8") as protocol_output,
                     mock.patch.object(sys, "stdin", command_reader),
                     mock.patch.object(sys, "stdout", protocol_output),
-                    mock.patch.dict(sys.modules, {"hf_cache_utils": fake_hf_cache}),
+                    mock.patch("hf_cache_utils.get_hf_cache_root", return_value="unused"),
                     mock.patch.dict(os.environ, {"LIGHT_WHISPER_GPU_IDLE_SECONDS": "0"}),
                 ):
                     runner.start()

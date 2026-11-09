@@ -3,10 +3,11 @@ import { ChevronsUpDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
+import { useModelCatalog } from "@/hooks/useModelCatalog";
 import { listAiModels } from "@/api/tauri";
-import { shouldUseGrokBuildOauth } from "@/lib/grokBuildAuth";
+import { hasLlmAuth } from "@/lib/llmAuth";
 import { resolveModelId } from "@/lib/llmModelOptions";
-import type { AiModelInfo, OpenaiAuthMode, XaiAuthMode } from "@/types";
+import type { OpenaiAuthMode, XaiAuthMode } from "@/types";
 import ScreenVisionAuth from "@/components/settings/ScreenVisionAuth";
 import ModelConnectionTest from "./ModelConnectionTest";
 
@@ -48,21 +49,15 @@ export default function ScreenVisionModelPicker({
   const { t } = useTranslation();
   const picker = useExclusivePicker<"model">();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const requestIdRef = useRef(0);
   const [search, setSearch] = useState("");
-  const [models, setModels] = useState<AiModelInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
-  const hasAuth = shouldUseGrokBuildOauth({
+  const hasAuth = hasLlmAuth({
     provider,
-    authMode: xaiAuthMode ?? "api_key",
-    loggedIn: grokLoggedIn,
-  })
-    || (provider === "openai" && openaiAuthMode === "oauth"
-      ? loggedIn
-      : provider !== "xai" && Boolean(apiKey.trim()))
-    || (provider === "xai" && (xaiAuthMode ?? "api_key") === "api_key" && Boolean(apiKey.trim()));
+    apiKey,
+    openaiAuthMode: openaiAuthMode ?? "api_key",
+    openaiOauthReady: loggedIn,
+    xaiAuthMode: xaiAuthMode ?? "api_key",
+    grokOauthReady: grokLoggedIn,
+  });
   const requestContext = JSON.stringify([
     provider,
     baseUrl,
@@ -72,7 +67,18 @@ export default function ScreenVisionModelPicker({
     xaiAuthMode,
     grokLoggedIn,
   ]);
-  const contextRef = useRef<string | null>(null);
+  const fetchCatalog = useCallback((silent: boolean) => listAiModels(
+    provider,
+    baseUrl || undefined,
+    apiKey.trim(),
+    !silent,
+    provider === "openai" ? openaiAuthMode : undefined,
+    provider === "xai" ? xaiAuthMode : undefined,
+  ), [apiKey, baseUrl, openaiAuthMode, provider, xaiAuthMode]);
+  const { models, loading, error, sourceUrl, refresh: refreshCatalog, reset: resetCatalog } = useModelCatalog({
+    context: requestContext,
+    fetchModels: fetchCatalog,
+  });
   const filteredModels = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     if (!keyword) return models;
@@ -83,58 +89,19 @@ export default function ScreenVisionModelPicker({
   const selectedModel = models.find((item) => item.id === model);
 
   const refresh = useCallback(async (silent = false) => {
-    const requestId = ++requestIdRef.current;
     if (!hasAuth) {
-      setModels([]);
-      setSourceUrl("");
-      setError(t(provider === "xai" ? "settings.apiKeyOrGrokLoginMissing" : "settings.apiKeyOrLoginMissing"));
-      contextRef.current = null;
+      resetCatalog(t(provider === "xai" ? "settings.apiKeyOrGrokLoginMissing" : "settings.apiKeyOrLoginMissing"), false);
       return;
     }
-    setLoading(true);
-    if (!silent) setError("");
-    try {
-      const payload = await listAiModels(
-        provider,
-        baseUrl || undefined,
-        apiKey.trim(),
-        !silent,
-        provider === "openai" ? openaiAuthMode : undefined,
-        provider === "xai" ? xaiAuthMode : undefined,
-      );
-      if (requestId !== requestIdRef.current) return;
-      setModels(payload.models);
-      setSourceUrl(payload.sourceUrl);
-      setError(payload.warning || (payload.models.length === 0 ? t("settings.modelListEmpty") : ""));
-      contextRef.current = requestContext;
-    } catch (err) {
-      if (requestId !== requestIdRef.current) return;
-      if (contextRef.current !== requestContext) {
-        setModels([]);
-        setSourceUrl("");
-        contextRef.current = null;
-      }
-      setError(err instanceof Error ? err.message : t("settings.fetchModelsFailed"));
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
-    }
-  }, [apiKey, baseUrl, grokLoggedIn, hasAuth, openaiAuthMode, provider, requestContext, t, xaiAuthMode]);
+    await refreshCatalog(silent);
+  }, [hasAuth, provider, refreshCatalog, resetCatalog, t]);
   const fetchModels = useDebouncedCallback((silent: boolean) => {
     void refresh(silent);
   }, 700);
 
   useEffect(() => {
-    if (contextRef.current !== requestContext) {
-      contextRef.current = null;
-      setModels([]);
-      setSourceUrl("");
-      setError("");
-    }
     fetchModels.schedule(true);
-    return () => {
-      fetchModels.cancel();
-      requestIdRef.current += 1;
-    };
+    return fetchModels.cancel;
   }, [fetchModels, requestContext]);
 
   const select = (value: string) => {

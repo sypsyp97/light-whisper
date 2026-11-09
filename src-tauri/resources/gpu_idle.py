@@ -24,7 +24,7 @@ GPU_IDLE_ACTIVITY_ACTIONS = frozenset(
     }
 )
 GPU_IDLE_LOCKED_ACTIONS = GPU_IDLE_ACTIVITY_ACTIONS | frozenset(
-    {"status", "stats", "cleanup"}
+    {"status", "stats", "cleanup", "set_audio_processing"}
 )
 
 

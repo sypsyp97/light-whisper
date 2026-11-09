@@ -1,5 +1,6 @@
+use std::future::Future;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, FixedOffset, Local, SecondsFormat};
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,23 @@ const ASSISTANT_EXTENDED_STREAM_TOTAL_TIMEOUT_SECS: u64 = 600;
 const ASSISTANT_STREAM_EVENT: &str = "assistant-stream";
 const ASSISTANT_CHAT_STREAM_EVENT: &str = "assistant-chat-stream";
 const MAX_CONVERSATION_TURNS: usize = 12;
+
+pub(crate) async fn run_cancellable_assistant_task<T, F>(
+    future: F,
+    cancel_rx: tokio::sync::oneshot::Receiver<()>,
+    timeout: Duration,
+    timeout_message: &str,
+    cancel_message: &str,
+) -> Result<T, AppError>
+where
+    F: Future<Output = Result<T, AppError>>,
+{
+    tokio::select! {
+        result = future => result,
+        _ = tokio::time::sleep(timeout) => Err(AppError::Other(timeout_message.to_string())),
+        _ = cancel_rx => Err(AppError::Other(cancel_message.to_string())),
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -704,7 +722,7 @@ async fn run_third_party_search(
         WebSearchProvider::Exa => {
             let results = web_search_service::exa_search(
                 &state.http_client,
-                &state.read_web_search_api_key("exa"),
+                &state.read_web_search_api_key(ws.provider.cache_key()),
                 query,
                 max,
             )
@@ -715,7 +733,7 @@ async fn run_third_party_search(
             })
         }
         WebSearchProvider::Tavily => {
-            let api_key = state.read_web_search_api_key("tavily");
+            let api_key = state.read_web_search_api_key(ws.provider.cache_key());
             if api_key.trim().is_empty() {
                 return Err("SEARCH_AUTH_REQUIRED: Tavily".to_string());
             }
@@ -727,7 +745,7 @@ async fn run_third_party_search(
             })
         }
         WebSearchProvider::Google => {
-            let api_key = state.read_web_search_api_key("google");
+            let api_key = state.read_web_search_api_key(ws.provider.cache_key());
             if api_key.trim().is_empty() {
                 return Err("SEARCH_AUTH_REQUIRED: Google".to_string());
             }
@@ -1437,13 +1455,80 @@ mod tests {
         build_assistant_request_options, build_conversation_user_content, contextual_search_query,
         decide_assistant_web_search, discard_stale_screen_context, normalized_search_query,
         render_assistant_system_prompt_at, render_assistant_user_content,
-        AssistantConversationTurn, AssistantRequestContext, ConversationContext,
-        ASSISTANT_CHAT_STREAM_EVENT, ASSISTANT_STREAM_EVENT,
+        run_cancellable_assistant_task, AssistantConversationTurn, AssistantRequestContext,
+        ConversationContext, ASSISTANT_CHAT_STREAM_EVENT, ASSISTANT_STREAM_EVENT,
     };
     use crate::services::llm_client::LlmImageInput;
     use crate::state::user_profile::LlmReasoningMode;
     use crate::state::user_profile::UserProfile;
     use crate::utils::foreground::ForegroundApp;
+    use crate::utils::AppError;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn cancellable_assistant_task_returns_success() {
+        let (_cancel, cancel_rx) = tokio::sync::oneshot::channel();
+
+        let result = run_cancellable_assistant_task(
+            async { Ok::<_, AppError>("response") },
+            cancel_rx,
+            Duration::from_secs(1),
+            "timed out",
+            "cancelled",
+        )
+        .await;
+
+        assert_eq!(result.unwrap(), "response");
+    }
+
+    #[tokio::test]
+    async fn cancellable_assistant_task_preserves_business_errors() {
+        let (_cancel, cancel_rx) = tokio::sync::oneshot::channel();
+
+        let result = run_cancellable_assistant_task(
+            async { Err::<String, _>(AppError::Other("provider failed".to_string())) },
+            cancel_rx,
+            Duration::from_secs(1),
+            "timed out",
+            "cancelled",
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err().to_string(), "provider failed");
+    }
+
+    #[tokio::test]
+    async fn cancellable_assistant_task_reports_timeout() {
+        let (_cancel, cancel_rx) = tokio::sync::oneshot::channel();
+
+        let result = run_cancellable_assistant_task(
+            std::future::pending::<Result<String, AppError>>(),
+            cancel_rx,
+            Duration::from_millis(5),
+            "retry deadline reached",
+            "cancelled",
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err().to_string(), "retry deadline reached");
+    }
+
+    #[tokio::test]
+    async fn cancellable_assistant_task_reports_cancellation() {
+        let (cancel, cancel_rx) = tokio::sync::oneshot::channel();
+        cancel.send(()).unwrap();
+
+        let result = run_cancellable_assistant_task(
+            std::future::pending::<Result<String, AppError>>(),
+            cancel_rx,
+            Duration::from_secs(1),
+            "timed out",
+            "request cancelled",
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err().to_string(), "request cancelled");
+    }
 
     #[test]
     fn search_modes_keep_fixed_on_separate_from_auto_and_respect_explicit_choices() {

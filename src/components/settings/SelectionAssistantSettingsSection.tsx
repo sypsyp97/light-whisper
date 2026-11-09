@@ -24,10 +24,8 @@ import {
   setSelectionApiKey,
   setSelectionAssistantConfig,
 } from "@/api/tauri";
-import {
-  shouldShowGrokBuildAuth,
-  shouldUseGrokBuildOauth,
-} from "@/lib/grokBuildAuth";
+import { shouldShowGrokBuildAuth } from "@/lib/grokBuildAuth";
+import { hasLlmAuth } from "@/lib/llmAuth";
 import type { AiModelInfo, LlmReasoningMode, OpenaiAuthMode, UserProfile, XaiAuthMode } from "@/types";
 
 interface SelectionAssistantSettingsSectionProps {
@@ -236,15 +234,14 @@ export default function SelectionAssistantSettingsSection({
       return;
     }
     setAvailableModels(currentProvider.models.map((id) => ({ id })));
-    const hasAuth = shouldUseGrokBuildOauth({
+    const hasAuth = hasLlmAuth({
       provider,
-      authMode: xaiAuthMode,
-      loggedIn: grokOauthLoggedIn,
-    })
-      || (provider === "openai"
-        ? (openaiAuthMode === "oauth" ? openaiOauthLoggedIn : Boolean(apiKey.trim()))
-        : provider !== "xai" && Boolean(apiKey.trim()))
-      || (provider === "xai" && xaiAuthMode === "api_key" && Boolean(apiKey.trim()));
+      apiKey,
+      openaiAuthMode,
+      openaiOauthReady: openaiOauthLoggedIn,
+      xaiAuthMode,
+      grokOauthReady: grokOauthLoggedIn,
+    });
     if (!hasAuth) return;
 
     let disposed = false;

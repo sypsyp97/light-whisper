@@ -413,6 +413,28 @@ pub enum WebSearchProvider {
     Google,
 }
 
+impl WebSearchProvider {
+    pub fn keyring_user(&self) -> Option<&'static str> {
+        match self {
+            Self::Exa => Some("web-search-exa-key"),
+            Self::Tavily => Some("web-search-tavily-key"),
+            Self::Google => Some("web-search-google-key"),
+            // Bing is keyless; ModelNative uses the LLM provider credential.
+            Self::Bing | Self::ModelNative => None,
+        }
+    }
+
+    pub fn cache_key(&self) -> &'static str {
+        match self {
+            Self::ModelNative => "model_native",
+            Self::Exa => "exa",
+            Self::Bing => "bing",
+            Self::Tavily => "tavily",
+            Self::Google => "google",
+        }
+    }
+}
+
 /// 联网搜索配置（仅在助手模式下生效）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchConfig {
@@ -814,6 +836,11 @@ impl UserProfile {
         self.ai_polish_screen_context_enabled || self.assistant_screen_context_enabled
     }
 
+    pub fn set_screen_context_enabled(&mut self, enabled: bool) {
+        self.ai_polish_screen_context_enabled = enabled;
+        self.assistant_screen_context_enabled = enabled;
+    }
+
     pub fn resolve_app_profile(
         &self,
         process_name: &str,
@@ -868,7 +895,7 @@ mod tests {
     use super::{
         ApiFormat, AppProfileRule, AppRuleOverride, AppTranslationOverride, CustomProvider,
         HistorySettings, LlmProviderConfig, LlmReasoningMode, PolishStructureLevel,
-        SelectionAssistantConfig, UserProfile,
+        SelectionAssistantConfig, UserProfile, WebSearchProvider,
     };
 
     fn custom_provider(id: &str) -> CustomProvider {
@@ -938,6 +965,47 @@ mod tests {
         assert!(polish_only.screen_context_enabled());
         assert!(assistant_only.screen_context_enabled());
         assert!(!UserProfile::default().screen_context_enabled());
+    }
+
+    #[test]
+    fn screen_context_setter_updates_both_legacy_fields_and_serialized_values() {
+        let mut profile = UserProfile {
+            ai_polish_screen_context_enabled: true,
+            assistant_screen_context_enabled: false,
+            ..Default::default()
+        };
+
+        for enabled in [false, true, false] {
+            profile.set_screen_context_enabled(enabled);
+            assert_eq!(profile.screen_context_enabled(), enabled);
+            assert_eq!(profile.ai_polish_screen_context_enabled, enabled);
+            assert_eq!(profile.assistant_screen_context_enabled, enabled);
+            let saved = serde_json::to_value(&profile).unwrap();
+            assert_eq!(saved["ai_polish_screen_context_enabled"], enabled);
+            assert_eq!(saved["assistant_screen_context_enabled"], enabled);
+        }
+    }
+
+    #[test]
+    fn keyed_web_search_providers_use_isolated_keyring_slots() {
+        for (provider, cache_key, keyring_user) in [
+            (WebSearchProvider::ModelNative, "model_native", None),
+            (WebSearchProvider::Bing, "bing", None),
+            (WebSearchProvider::Exa, "exa", Some("web-search-exa-key")),
+            (
+                WebSearchProvider::Tavily,
+                "tavily",
+                Some("web-search-tavily-key"),
+            ),
+            (
+                WebSearchProvider::Google,
+                "google",
+                Some("web-search-google-key"),
+            ),
+        ] {
+            assert_eq!(provider.keyring_user(), keyring_user);
+            assert_eq!(provider.cache_key(), cache_key);
+        }
     }
 
     #[test]

@@ -1082,12 +1082,13 @@
         "src-tauri/src/commands/funasr.rs",
         "src-tauri/src/lib.rs",
         "src-tauri/src/state/app_state.rs#with_web_search_key_operation",
+        "src-tauri/src/state/user_profile.rs#impl WebSearchProvider",
         "src/pages/SettingsPage.tsx",
         "src/api/tauri.ts"
       ],
       "evidence": [
         "src-tauri/src/services/llm_provider.rs#credential_persistence_tests",
-        "src-tauri/src/commands/assistant.rs#keyed_web_search_providers_use_isolated_keyring_slots",
+        "src-tauri/src/state/user_profile.rs#keyed_web_search_providers_use_isolated_keyring_slots",
         "src-tauri/src/state/web_search_key_tests.rs",
         "scripts/check_request_snapshot.py",
         "src/pages/__tests__/SettingsPageProviderDiscovery.test.tsx#TLC assistant credential replay",
@@ -1273,10 +1274,11 @@
       "implementation": [
         "src-tauri/src/commands/assistant.rs",
         "src-tauri/src/services/assistant_service.rs",
+        "src-tauri/src/state/app_state.rs#begin_assistant_chat_task",
         "src-tauri/src/services/assistant_service.rs#discard_stale_screen_context"
       ],
       "evidence": [
-        "src-tauri/src/commands/assistant.rs#clearing_an_old_generation_keeps_the_new_task_cancellable",
+        "src-tauri/src/state/app_state.rs#clearing_an_old_generation_keeps_the_new_task_cancellable",
         "src/pages/__tests__/SubtitleOverlay.test.tsx",
         "src-tauri/src/services/assistant_service.rs#fresh_screen_payload_is_discarded_when_foreground_changes_during_preparation",
         "src-tauri/src/services/assistant_service.rs#fresh_screen_payload_survives_when_recording_foreground_still_matches",

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from asr_stream_server import ASRStreamServerMixin, MAX_ASR_HOT_WORDS, MAX_HOT_WORD_CHARS
+from asr_stream_server import ASRStreamServerMixin
 from firered_vad import FireRedVad
 from hf_cache_utils import R2T2_MODEL, get_hf_cache_root
 from r2t2_native import NativeRuntime
@@ -39,12 +39,8 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
         self.segmented = None
         self.stream = None
         self.backend = "cuda" if self.device == "cuda" else "cpu"
-        self._last_load_error = None
         self._verified_model_path = None
         self._total_inference_ms = 0.0
-
-    def _get_model_repos(self):
-        return []
 
     def _resolve_model_path(self):
         verified_model_path = getattr(self, "_verified_model_path", None)
@@ -199,7 +195,6 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
                 )
             self.initialized = True
             self._gpu_suspended = False
-            self._last_load_error = None
             self.logger.info(
                 "R2T2 %s完成，后端: %s，耗时 %.3f 秒",
                 "空闲恢复" if resuming else "初始化",
@@ -220,7 +215,6 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
             self.segmented = None
             self.stream = None
             self.initialized = False
-            self._last_load_error = "R2T2 initialization failed"
             self.logger.error("R2T2 初始化失败")
             return {
                 "success": False,

@@ -31,8 +31,7 @@ impl FeatureMode {
 }
 
 fn apply_screen_context_mode(profile: &mut UserProfile, mode: FeatureMode) {
-    profile.ai_polish_screen_context_enabled = mode.enabled();
-    profile.assistant_screen_context_enabled = mode.enabled();
+    profile.set_screen_context_enabled(mode.enabled());
     profile.jev.screen_routing = mode.jev_routing();
 }
 

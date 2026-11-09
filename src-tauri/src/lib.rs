@@ -176,9 +176,7 @@ pub fn run() {
                     crate::state::user_profile::WebSearchProvider::Tavily,
                     crate::state::user_profile::WebSearchProvider::Google,
                 ] {
-                    let Some(keyring_user) =
-                        commands::assistant::web_search_keyring_user(&search_provider)
-                    else {
+                    let Some(keyring_user) = search_provider.keyring_user() else {
                         continue;
                     };
                     state.with_web_search_key_operation(|| {
@@ -189,9 +187,7 @@ pub fn run() {
                             .flatten()
                             .filter(|key| !key.is_empty())
                         {
-                            let cache_key = commands::assistant::web_search_provider_cache_key(
-                                &search_provider,
-                            );
+                            let cache_key = search_provider.cache_key();
                             state.set_web_search_api_key(cache_key, ws_key);
                             log::info!("已从密钥环加载联网搜索 API Key ({})", cache_key);
                         }

@@ -92,8 +92,7 @@ pub async fn set_ai_polish_screen_context_enabled(
     enabled: bool,
 ) -> Result<(), String> {
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
-        profile.ai_polish_screen_context_enabled = enabled;
-        profile.assistant_screen_context_enabled = enabled;
+        profile.set_screen_context_enabled(enabled);
     });
     Ok(())
 }
@@ -104,13 +103,11 @@ pub async fn set_screen_context_enabled(
     enabled: bool,
 ) -> Result<(), String> {
     profile_service::update_profile_and_schedule(state.inner(), |profile| {
-        profile.ai_polish_screen_context_enabled = enabled;
-        profile.assistant_screen_context_enabled = enabled;
+        profile.set_screen_context_enabled(enabled);
     });
     Ok(())
 }
 
-/// Anthropic 硬编码模型列表
 fn anthropic_models() -> Vec<AiModelInfo> {
     [
         "claude-opus-4-6",
@@ -520,7 +517,6 @@ pub async fn list_ai_models(
         }
     }
 
-    // 构建请求（Anthropic 用 x-api-key，其他用 Bearer）
     let mut req = state
         .http_client
         .get(&source_url)
