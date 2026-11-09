@@ -1,5 +1,8 @@
 # CapturePipeline formal evidence
 
+Machine-specific paths below are anonymized; `/path/to/...`, `%TEMP%`, and
+`%USERPROFILE%` are placeholders for the original local directories.
+
 Baseline: `d29cd45db8876bd7bcfa915ae642af3b0fcc4bbe` (`d29cd45`). This slice
 adds only `formal/CapturePipeline.tla`, `formal/CapturePipeline.cfg`, and this
 evidence file. No production files were changed by this slice.
@@ -79,7 +82,7 @@ No unresolved test interface was introduced (`INTERFACE_PENDING`: none).
 Exact command (WSL2, supplied TLC jar, unique metadir):
 
 ```text
-wsl.exe bash -lc 'set -o pipefail; java -XX:+UseParallelGC -jar /mnt/c/Users/sun/AppData/Local/Temp/light-whisper-tla2tools-1.8.0.jar -noGenerateSpecTE -metadir /tmp/light-whisper-capture-final-nocoverage-restart-$(date +%s%N) -config /mnt/c/Users/sun/Downloads/light-whisper/formal/CapturePipeline.cfg /mnt/c/Users/sun/Downloads/light-whisper/formal/CapturePipeline.tla'
+wsl.exe bash -lc 'set -o pipefail; java -XX:+UseParallelGC -jar /path/to/temp/light-whisper-tla2tools-1.8.0.jar -noGenerateSpecTE -metadir /tmp/light-whisper-capture-final-nocoverage-restart-$(date +%s%N) -config /path/to/light-whisper/formal/CapturePipeline.cfg /path/to/light-whisper/formal/CapturePipeline.tla'
 ```
 
 Result:
@@ -100,14 +103,14 @@ action, including `NativeReady`, `NativeUnavailable`, `NativeDisconnected`,
 Exact coverage command:
 
 ```text
-wsl.exe bash -lc 'set -o pipefail; java -XX:+UseParallelGC -jar /mnt/c/Users/sun/AppData/Local/Temp/light-whisper-tla2tools-1.8.0.jar -noGenerateSpecTE -coverage 1 -metadir /tmp/light-whisper-capture-coverage-20260928-0827-restart -config /mnt/c/Users/sun/Downloads/light-whisper/formal/CapturePipeline.cfg /mnt/c/Users/sun/Downloads/light-whisper/formal/CapturePipeline.tla'
+wsl.exe bash -lc 'set -o pipefail; java -XX:+UseParallelGC -jar /path/to/temp/light-whisper-tla2tools-1.8.0.jar -noGenerateSpecTE -coverage 1 -metadir /tmp/light-whisper-capture-coverage-20260928-0827-restart -config /path/to/light-whisper/formal/CapturePipeline.cfg /path/to/light-whisper/formal/CapturePipeline.tla'
 ```
 
 ## Negative mutation and exact RED evidence
 
 The mutation was made only in this temporary copy outside the repository:
 
-`C:\Users\sun\AppData\Local\Temp\light-whisper-capture-negative-cedb634e8c5e434f9b1a2d4e909f15aa`
+`%TEMP%\light-whisper-capture-negative-cedb634e8c5e434f9b1a2d4e909f15aa`
 
 `LateNativeReturn` was deliberately changed to append
 `AppendSamples(samples, "native", 1)` while the detached worker was returning.
@@ -117,7 +120,7 @@ the forbidden late-native write and leaves the repository files unchanged.
 Exact command:
 
 ```text
-wsl.exe bash -lc 'set -o pipefail; java -XX:+UseParallelGC -jar /mnt/c/Users/sun/AppData/Local/Temp/light-whisper-tla2tools-1.8.0.jar -noGenerateSpecTE -metadir /tmp/light-whisper-capture-negative-final-$(date +%s%N) -config /mnt/c/Users/sun/AppData/Local/Temp/light-whisper-capture-negative-cedb634e8c5e434f9b1a2d4e909f15aa/CapturePipeline.cfg /mnt/c/Users/sun/AppData/Local/Temp/light-whisper-capture-negative-cedb634e8c5e434f9b1a2d4e909f15aa/CapturePipeline.tla'
+wsl.exe bash -lc 'set -o pipefail; java -XX:+UseParallelGC -jar /path/to/temp/light-whisper-tla2tools-1.8.0.jar -noGenerateSpecTE -metadir /tmp/light-whisper-capture-negative-final-$(date +%s%N) -config /path/to/temp/light-whisper-capture-negative-cedb634e8c5e434f9b1a2d4e909f15aa/CapturePipeline.cfg /path/to/temp/light-whisper-capture-negative-cedb634e8c5e434f9b1a2d4e909f15aa/CapturePipeline.tla'
 ```
 
 The run failed semantically, not during parsing or type checking:

@@ -1,5 +1,8 @@
 # HistoryRecords formal evidence
 
+Machine-specific paths below are anonymized; `/path/to/...`, `%TEMP%`, and
+`%USERPROFILE%` are placeholders for the original local directories.
+
 ## 2026-10-24 output before archiving
 
 The current `AppWorkflow` safety condition is `ArchiveFollowsTerminalOutput`.
@@ -59,7 +62,7 @@ baseline. Current full checks use the pinned TLC 1.7.4 and Lean 4.34.1 runtimes.
 - Repository baseline: `d29cd45db8876bd7bcfa915ae642af3b0fcc4bbe`.
 - Owned artifacts: `formal/HistoryRecords.tla`, `formal/HistoryRecords.cfg`, and this file.
 - The model is test-only. No production file was changed by this slice; the existing working-tree changes in other slices were left untouched.
-- TLC runtime: `/mnt/c/Users/sun/AppData/Local/Temp/light-whisper-tla2tools-1.8.0.jar`, invoked through WSL with four workers, unique `/tmp` metadirs, and `-noGenerateSpecTE`.
+- TLC runtime: `/path/to/temp/light-whisper-tla2tools-1.8.0.jar`, invoked through WSL with four workers, unique `/tmp` metadirs, and `-noGenerateSpecTE`.
 
 ## Requirement and source mapping
 
@@ -82,7 +85,7 @@ Committed `formal/HistoryRecords.cfg` checks `FairSpec`, all nine state invarian
 Exact safety/liveness command:
 
 ```text
-wsl.exe bash -lc 'set -o pipefail; java -XX:+UseParallelGC -jar /mnt/c/Users/sun/AppData/Local/Temp/light-whisper-tla2tools-1.8.0.jar -workers 4 -noGenerateSpecTE -metadir /tmp/light-whisper-history-safety-$(date +%s%N) -config /mnt/c/Users/sun/Downloads/light-whisper/formal/HistoryRecords.cfg /mnt/c/Users/sun/Downloads/light-whisper/formal/HistoryRecords.tla'
+wsl.exe bash -lc 'set -o pipefail; java -XX:+UseParallelGC -jar /path/to/temp/light-whisper-tla2tools-1.8.0.jar -workers 4 -noGenerateSpecTE -metadir /tmp/light-whisper-history-safety-$(date +%s%N) -config /path/to/light-whisper/formal/HistoryRecords.cfg /path/to/light-whisper/formal/HistoryRecords.tla'
 ```
 
 Result on 2026-09-28:
@@ -110,7 +113,7 @@ with
 /\ TRUE \* MUTATION: reference-count guard removed
 ```
 
-The corrected mutation was run from `C:\Users\sun\AppData\Local\Temp\light-whisper-history-negative-ce60923edeab4ec1abee32fb4ed7e071` with the same TLC jar, workers, `-noGenerateSpecTE`, and a unique `/tmp/light-whisper-history-negative-*` metadir. TLC produced a semantic RED:
+The corrected mutation was run from `%TEMP%\light-whisper-history-negative-ce60923edeab4ec1abee32fb4ed7e071` with the same TLC jar, workers, `-noGenerateSpecTE`, and a unique `/tmp/light-whisper-history-negative-*` metadir. TLC produced a semantic RED:
 
 ```text
 Error: Invariant ReferencedOrLeasedAudioRetained is violated.
