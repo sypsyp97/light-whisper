@@ -216,6 +216,7 @@ export default function SubtitleOverlay() {
   const conversationMessageIdRef = useRef(0);
   const conversationOpenRef = useRef(false);
   const conversationRequestGenerationRef = useRef(0);
+  const assistantRetryGenerationRef = useRef(0);
   const conversationShouldAutoScrollRef = useRef(true);
   const shouldAutoScrollRef = useRef(true);
   const assistantPanelActive = mode === "assistant" && (
@@ -237,6 +238,7 @@ export default function SubtitleOverlay() {
   const resetConversationState = useCallback(() => {
     conversationOpenRef.current = false;
     conversationRequestGenerationRef.current += 1;
+    assistantRetryGenerationRef.current += 1;
     conversationShouldAutoScrollRef.current = true;
     void cancelAssistantConversation().catch(() => undefined);
     setAssistantRequest("");
@@ -1177,6 +1179,9 @@ export default function SubtitleOverlay() {
     const request = assistantRequest.trim();
     const sessionId = latestSessionIdRef.current;
     if (!request || !isValidSessionId(sessionId) || assistantRetryBusy) return;
+    const generation = ++assistantRetryGenerationRef.current;
+    const current = () => sessionId === latestSessionIdRef.current
+      && generation === assistantRetryGenerationRef.current;
 
     setAssistantRetryBusy(true);
     setAssistantSearchError(null);
@@ -1188,15 +1193,17 @@ export default function SubtitleOverlay() {
     updatePhase("polishing");
     try {
       const result = await retryAssistantRequest({ sessionId, request });
+      if (!current()) return;
       const finalText = result.trim();
       setText(finalText);
       conversationInitialResponseRef.current = finalText;
       updatePhase(finalText ? "result" : "outcome");
     } catch {
+      if (!current()) return;
       setAssistantSearchError(t("subtitle.conversation.searchFailed"));
       updatePhase("result");
     } finally {
-      setAssistantRetryBusy(false);
+      if (current()) setAssistantRetryBusy(false);
     }
   }, [assistantRequest, assistantRetryBusy, updatePhase, t]);
 

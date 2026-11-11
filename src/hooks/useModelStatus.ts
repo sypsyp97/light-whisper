@@ -79,6 +79,7 @@ export function useModelStatus(): UseModelStatusReturn {
   const loadingChecksRef = useRef(0);
   const downloadingRef = useRef(false);
   const downloadGenerationRef = useRef(0);
+  const downloadRequestIdRef = useRef<string | null>(null);
   const statusRequestIdRef = useRef(0);
   const startRequestIdRef = useRef(0);
   const lastDownloadEventAtRef = useRef(0);
@@ -117,6 +118,7 @@ export function useModelStatus(): UseModelStatusReturn {
 
   const invalidateDownload = useCallback(() => {
     downloadGenerationRef.current += 1;
+    downloadRequestIdRef.current = null;
   }, []);
 
   const enterNeedDownloadState = useCallback(() => {
@@ -352,6 +354,7 @@ export function useModelStatus(): UseModelStatusReturn {
       message?: string;
       progress?: number;
       error?: string;
+      requestId?: string;
     };
 
     const setup = async () => {
@@ -360,6 +363,7 @@ export function useModelStatus(): UseModelStatusReturn {
           "model-download-status",
           (event) => {
             if (disposed || !mountedRef.current) return;
+            if (!downloadRequestIdRef.current || event.payload.requestId !== downloadRequestIdRef.current) return;
             const { status, progress, message, error: payloadError } = event.payload;
 
             switch (status) {
@@ -375,6 +379,7 @@ export function useModelStatus(): UseModelStatusReturn {
                 break;
               }
               case "completed": {
+                invalidateDownload();
                 clearDownloadWatchdog();
                 setDownloadingState(false);
                 setDownloadProgress(100);
@@ -393,6 +398,7 @@ export function useModelStatus(): UseModelStatusReturn {
                 break;
               }
               case "error": {
+                invalidateDownload();
                 clearDownloadWatchdog();
                 setDownloadingState(false);
                 setError(payloadError || message || i18n.t("model.downloadFailed"));
@@ -424,6 +430,8 @@ export function useModelStatus(): UseModelStatusReturn {
   const triggerDownload = useCallback(async () => {
     if (!mountedRef.current || downloadingRef.current) return;
     invalidateDownload();
+    const requestId = crypto.randomUUID();
+    downloadRequestIdRef.current = requestId;
     const generation = downloadGenerationRef.current;
     const current = () => mountedRef.current && generation === downloadGenerationRef.current;
     try {
@@ -434,8 +442,9 @@ export function useModelStatus(): UseModelStatusReturn {
       setDownloadProgress(0);
       setDownloadMessage(i18n.t("model.preparingDownload"));
       setError(null);
-      await downloadModels();
+      await downloadModels(requestId);
       if (!current()) return;
+      invalidateDownload();
 
       if (downloadingRef.current) {
         clearDownloadWatchdog();
@@ -446,6 +455,7 @@ export function useModelStatus(): UseModelStatusReturn {
       void checkStatus();
     } catch (err) {
       if (!current()) return;
+      invalidateDownload();
       clearDownloadWatchdog();
       setDownloadingState(false);
       setError(toErrorMessage(err, i18n.t("model.downloadFailed")));
@@ -454,10 +464,13 @@ export function useModelStatus(): UseModelStatusReturn {
   }, [checkStatus, clearDownloadWatchdog, invalidateDownload, setDownloadingState, startDownloadWatchdog]);
 
   const cancelDownload = useCallback(async () => {
+    const requestId = downloadRequestIdRef.current;
+    if (!mountedRef.current || !requestId) return;
     invalidateDownload();
+    clearDownloadWatchdog();
     const generation = downloadGenerationRef.current;
     try {
-      await cancelModelDownload();
+      await cancelModelDownload(requestId);
       if (!mountedRef.current || generation !== downloadGenerationRef.current) return;
       clearDownloadWatchdog();
       setDownloadingState(false);

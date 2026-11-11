@@ -10,8 +10,8 @@ classes, credentials/OAuth, providers/settings/personalization, context/routing,
 selection/assistant, history, windows/subtitles, updates, theme/autostart and
 bundled protocols.
 
-[`verification.json`](verification.json) binds **131 registered commands**,
-**20 event families**, **16 lifecycle entries** and **16 protocol families** to
+[`verification.json`](verification.json) binds **132 registered commands**,
+**21 event families**, **16 lifecycle entries** and **16 protocol families** to
 obligations, model operators, source/test paths and explicit assumptions. CI
 rejects inventory drift, missing anchors, unasserted properties, unreachable
 explicitly declared actions, failed models/proofs and negative controls that no longer find the
@@ -27,7 +27,7 @@ automatic proof of a Rust/TypeScript function.
 | Lean StateContracts | Parameter-independent ownership/decision contracts, profile-version induction, first matching rule, consent, clipboard preservation, sample cap, correction provenance and theme. No sorry, admit or declared axiom. |
 | [Verus implementation proofs](verus/README.md) | Required CI verification of production capture arithmetic, hotkey ownership transitions and interim interval control, plus typechecked negative controls. Caller wiring, synchronization and mixing retain separate Rust tests and review. |
 | Implementation correspondence | Actual regression tests and source-path review, including a source guard requiring provider/endpoint/key snapshots before OAuth awaits. This is not compiler refinement. |
-| Negative controls | Legacy races and deliberate guard removals must fail with Java exit 12 and the named violated invariant. Required CI gates. |
+| Negative controls | Safety mutants must fail with Java exit 12 and the named violated invariant. Separately labeled boundary witnesses use intentional reachability-target violations; they are not safety proofs. Required CI gates. |
 
 ## Model families
 
@@ -38,11 +38,12 @@ automatic proof of a Rust/TypeScript function.
 | Engines and migration | EngineDownload, RuntimeConfiguration, EngineConfigurationWrites, ModelDirectoryMigration, ModelIntegrityRepair, EngineStatusOwnership |
 | GPU residency and settings | GpuIdleLifecycle (startup and runtime enable), GpuIdleSettings |
 | Authentication and provider pairing | OAuthLifecycle, OAuthStorage, ProviderRequests |
-| Credential publication and account snapshots | WebSearchKeys, ProviderAuthSnapshot, AssistantCredentialOwnership, CatalogDiscoveryOwnership, OnlineAsrIdentity |
+| Credential publication and account snapshots | WebSearchKeys, ProviderAuthSnapshot, AssistantCredentialOwnership, VisionCredentialOwnership, CatalogDiscoveryOwnership, ModelCatalogLoadingOwnership, OnlineAsrIdentity |
 | Settings and personalization | ProfilePersistence, SettingsContracts, Personalization, AppProfileRules, AsyncSettings |
-| Routing, tasks and history | ContextRouting, TaskOwnership, HistoryRecords, HistoryLeaseInterleavings, OutputDrainOwnership, HistoryFilterOwnership, HistoryStatsOwnership |
+| Routing, tasks and history | ContextRouting, TaskOwnership, HistoryRecords, HistoryLeaseInterleavings, HistoryAudioGcOwnership, OutputDrainOwnership, HistoryFilterOwnership, HistoryMutationFilterOwnership, HistoryStatsOwnership |
+| Assistant and selection publication | AssistantRetryOwnership, SelectionPublicationOwnership |
 | Windows and UI state | WindowLifecycle, UiPreferences, ThemeSynchronization |
-| Download timers and event subscriptions | DownloadUiLifecycle, EventSubscriptionLifecycle |
+| Download timers and event subscriptions | DownloadUiLifecycle, DownloadTaskEventOwnership, EventSubscriptionLifecycle |
 | Protocols and transport | RequestProtocols, LlmTransport, LlmRequestParameters, IpcCommandDeadline |
 
 AppWorkflow is the additional integrated model. The registry is the authoritative
@@ -86,6 +87,13 @@ the rejected first candidate, and the final formal/replay/mutation checks.
 The [third RSI/TDD round](evidence/rsi-round3-20261022.md) records online ASR
 credential identity readiness, selective read recovery, and source-backed
 interleavings of failed reads, pending siblings and engine changes.
+The [2026-11-11 state-machine audit](evidence/state-machine-20261111.md) records
+seven additional companions for history GC, selection publication, assistant
+retry, mutation refresh, catalog loading, vision credentials and download tasks.
+They add 22 safety negatives and two separately labeled boundary reachability
+witnesses. Their finite bounds and positive state counts are listed in
+[coverage](COVERAGE.md); implementation tests and source review remain the
+correspondence boundary.
 
 ## Reproduce
 

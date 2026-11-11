@@ -602,7 +602,9 @@ impl Default for AppState {
 
 pub struct DownloadTask {
     pub id: u64,
+    pub request_id: Option<String>,
     pub cancel: Option<oneshot::Sender<()>>,
+    pub done: tokio::sync::watch::Receiver<bool>,
 }
 
 pub struct FunasrProcess {

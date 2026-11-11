@@ -131,8 +131,12 @@ export function openAppReleasePage(url?: string | null): Promise<string> {
 }
 
 export const checkFunASRStatus = createNoArgCommand<FunASRStatus>("check_funasr_status");
-export const downloadModels = createNoArgCommand<string>("download_models");
-export const cancelModelDownload = createNoArgCommand<string>("cancel_model_download");
+export function downloadModels(requestId?: string): Promise<string> {
+  return invokeCommand<string>("download_models", requestId === undefined ? undefined : { requestId });
+}
+export function cancelModelDownload(requestId?: string): Promise<string> {
+  return invokeCommand<string>("cancel_model_download", requestId === undefined ? undefined : { requestId });
+}
 export const restartFunASR = createNoArgCommand<string>("restart_funasr");
 export const getEngine = createNoArgCommand<string>("get_engine");
 

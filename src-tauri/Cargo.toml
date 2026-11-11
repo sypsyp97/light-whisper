@@ -92,6 +92,7 @@ xcap = { version = "0.9", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [dev-dependencies]
+rusqlite = { version = "0.32", features = ["hooks"] }
 tauri = { version = "2", features = ["test"] }
 ts-rs = { version = "=12.0.1" }
 tokio = { version = "1", features = ["test-util"] }

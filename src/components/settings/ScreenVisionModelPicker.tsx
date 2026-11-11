@@ -90,7 +90,7 @@ export default function ScreenVisionModelPicker({
 
   const refresh = useCallback(async (silent = false) => {
     if (!hasAuth) {
-      resetCatalog(t(provider === "xai" ? "settings.apiKeyOrGrokLoginMissing" : "settings.apiKeyOrLoginMissing"), false);
+      resetCatalog(t(provider === "xai" ? "settings.apiKeyOrGrokLoginMissing" : "settings.apiKeyOrLoginMissing"));
       return;
     }
     await refreshCatalog(silent);

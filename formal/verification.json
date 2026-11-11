@@ -684,8 +684,14 @@
     "model-probe": {
       "obligation": "Each test sends its fixed sample using the selected provider and endpoint. An ASR test uses the engine and credential captured for that request.",
       "models": {
-        "ProviderRequests": ["CredentialOnlyGoesToItsProvider", "RequestUsesCapturedEndpoint"],
-        "RuntimeConfiguration": ["AsrPinsEngine", "ActiveKeyComesFromActiveSlot"]
+        "ProviderRequests": [
+          "CredentialOnlyGoesToItsProvider",
+          "RequestUsesCapturedEndpoint"
+        ],
+        "RuntimeConfiguration": [
+          "AsrPinsEngine",
+          "ActiveKeyComesFromActiveSlot"
+        ]
       },
       "implementation": [
         "src-tauri/src/commands/model_connection.rs#fn test_model_connection(",
@@ -702,10 +708,23 @@
       "obligation": "Credential edits require a confirmed engine and Alibaba current-epoch endpoint; GLM shares its slot and local engines have no credential slot. Read retry preserves committed engine changes, independent key failure preserves endpoint success, obsolete endpoint completions cannot publish, and debounced writes retain captured identity across a flush-before-switch boundary.",
       "models": {
         "OnlineAsrIdentity": [
-          "CompleteEngine", "CompleteEndpoint", "CompleteKey", "Edit", "Dispatch",
-          "CompleteWrite", "BeginSwitch", "CompleteSwitch", "FinishSwitchRead", "Retry",
-          "WritesRequireKnownIdentity", "EndpointPublicationOwned", "KnownEndpointRetained",
-          "SharedGlmSlotAvailable", "LocalHasNoCredentialSlot", "CommittedEngineRetained", "ConfirmedEngineRetained"
+          "CompleteEngine",
+          "CompleteEndpoint",
+          "CompleteKey",
+          "Edit",
+          "Dispatch",
+          "CompleteWrite",
+          "BeginSwitch",
+          "CompleteSwitch",
+          "FinishSwitchRead",
+          "Retry",
+          "WritesRequireKnownIdentity",
+          "EndpointPublicationOwned",
+          "KnownEndpointRetained",
+          "SharedGlmSlotAvailable",
+          "LocalHasNoCredentialSlot",
+          "CommittedEngineRetained",
+          "ConfirmedEngineRetained"
         ]
       },
       "implementation": [
@@ -940,7 +959,7 @@
       "assumptions": "Four engine classes; model output correctness and filesystem/driver/network primitives are outside proof. Ready/error values are environmental inputs. Cache integrity companion partitions absent/valid/invalid manifest and absent/large weights. A positive trace witness reaches repair completion; this reachability target is deliberately false and is not a safety proof. Actual replay calls cache resolvers and explicit download_model verification/atomic manifest publication on temporary local bytes; no GPU/model inference internals are claimed. Configuration writes are within one application process; four independent fields and atomic replacement success/failure are modeled. External writers and arbitrary filesystem durability are outside the mutex contract. Audio-processing reads observe engine.json; writes reuse the reviewed update_engine_json transaction helper. EngineConfigurationWrites retains exactly four writers with one update each; the additional enhancement field and its interleavings are implementation correspondence, not enumerated model states. Startup bootstrap/reconciliation, positive acknowledgement, persistence rollback, UI behavior and enhancer reconstruction are covered by implementation review and regression tests, not dedicated formal proofs. Python enhancement lifecycle regressions mock model/device/enhancer operations and do not independently establish dispatch-lock exclusion or DSP correctness."
     },
     "download": {
-      "obligation": "A cancelled download retains ownership/configuration until worker termination; cleanup cannot release a newer task; cancellation/unmount revoke frontend timers and old asynchronous callbacks.",
+      "obligation": "A cancelled download retains ownership/configuration until worker termination; cleanup cannot release a newer task; cancellation/unmount revoke frontend timers and old asynchronous callbacks. Frontend promises and status events require the active request identity. Scoped cancellation cannot signal a replacement task, and every cancellation acknowledgement follows worker termination, terminal publication and owned-slot release, including preparation, progress and child-wait stages.",
       "models": {
         "EngineDownload": [
           "Cancel",
@@ -955,17 +974,42 @@
           "DisposedListenerCannotAct",
           "NoTimerAfterUnmount",
           "RequestsSettle"
+        ],
+        "DownloadTaskEventOwnership": [
+          "Begin",
+          "Advance",
+          "Cancel",
+          "StopForCancel",
+          "NormalExit",
+          "PublishTerminal",
+          "Cleanup",
+          "Ack",
+          "Event",
+          "PromiseFinish",
+          "OnlyCurrentRequestPublishes",
+          "CancellationTargetsCapturedRequest",
+          "AckFollowsTerminalAndSlotRelease",
+          "WorkerKeepsItsSlot",
+          "TerminalFollowsWorkerExit",
+          "CancellationRetiresPublication",
+          "CancellationFinishes"
         ]
       },
       "implementation": [
         "src-tauri/src/services/download_service.rs",
-        "src/hooks/useModelStatus.ts"
+        "src/hooks/useModelStatus.ts",
+        "src-tauri/src/commands/funasr.rs#pub async fn cancel_model_download(",
+        "src-tauri/src/state/app_state.rs",
+        "src/api/tauri.ts"
       ],
       "evidence": [
         "src-tauri/src/services/download_service.rs",
-        "src/hooks/__tests__/useModelStatusCancellation.test.tsx"
+        "src/hooks/__tests__/useModelStatusCancellation.test.tsx",
+        "src/api/__tests__/tauri.test.ts",
+        "src-tauri/src/services/download_worker_tests.rs",
+        "formal/evidence/state-machine-20261111.md"
       ],
-      "assumptions": "Filesystem writes and HTTP completion are environmental outcomes; scheduler fairness is required for worker settlement."
+      "assumptions": "Filesystem writes and HTTP completion are environmental outcomes; scheduler fairness is required for worker settlement. DownloadTaskEventOwnership bounds two request identities, up to two cancellation waiters per request, preparation/progress/child-wait phases, all four status classes and late promise settlement. Request identities are unique across hook lifetimes; identity-less legacy events cannot own a scoped frontend attempt. Native process, filesystem and HTTP outcomes are inputs. CancellationFinishes assumes weak fairness for cancellation observation, terminal publication and cleanup; it gives no wall-clock bound. Native worker tests inject local child/preparation outcomes. These finite contracts are not compiler refinement. Cancellation while waiting for lifecycle may finish before preparation starts. Started engine preparation is not dropped: cancellation retains the slot until its future and blocking extraction settle, then suppresses child spawn. Progress assumes preparation, kill and reap eventually finish; no wall-clock cancellation bound is proved."
     },
     "directory": {
       "obligation": "Copy before committing destination; never delete source until current destination and runtime readiness are rechecked.",
@@ -989,7 +1033,7 @@
       "assumptions": "Canonical path resolution and successful copies are trusted filesystem operations; source deletion failures must remain visible."
     },
     "discovery": {
-      "obligation": "Only the newest request for current provider/engine/auth context may publish; failure retains same-context data. Selective invalidation retires and clears only the selected catalog; polish publication preserves independent assistant ownership and shared catalogs follow polish.",
+      "obligation": "Only the newest request for current provider/engine/auth context may publish; failure retains same-context data. Selective invalidation retires and clears only the selected catalog; polish publication preserves independent assistant ownership and shared catalogs follow polish. Context, authentication or separate-model retirement settles the retired spinner immediately; obsolete success, failure and finally cannot publish or clear a newer request's loading state.",
       "models": {
         "AsyncSettings": [
           "NoCrossProviderData",
@@ -1005,20 +1049,38 @@
           "LoadingOwnershipPreserved",
           "SelectedInvalidationClears",
           "SharedProjectionPreserved"
+        ],
+        "ModelCatalogLoadingOwnership": [
+          "Begin",
+          "Retire",
+          "RestoreAuth",
+          "Complete",
+          "RetiredLoadingSettles",
+          "OwnedPendingKeepsLoading",
+          "IneligibleCatalogIsSettled",
+          "OnlyCurrentCatalogPublishes",
+          "CurrentCompletionSettles"
         ]
       },
       "implementation": [
         "src/hooks/useModelDiscovery.ts",
         "src/hooks/useAsrEngineSettings.ts",
-        "src-tauri/src/commands/ai_polish.rs"
+        "src-tauri/src/commands/ai_polish.rs",
+        "src/hooks/useModelCatalog.ts",
+        "src/components/settings/ScreenVisionModelPicker.tsx",
+        "src/components/settings/SelectionAssistantSettingsSection.tsx"
       ],
       "evidence": [
         "src/hooks/__tests__/useModelDiscovery.test.tsx",
         "src/hooks/__tests__/useAsrEngineSettings.test.tsx",
         "src/pages/__tests__/SettingsPageProviderDiscovery.test.tsx",
-        "src/hooks/__tests__/useModelDiscoveryFormalReplay.test.tsx"
+        "src/hooks/__tests__/useModelDiscoveryFormalReplay.test.tsx",
+        "src/hooks/__tests__/useModelCatalogLoadingOwnership.test.tsx",
+        "src/components/settings/ScreenVisionModelPickerLoading.test.tsx",
+        "src/components/settings/SelectionAssistantCatalogLoading.test.tsx",
+        "formal/evidence/state-machine-20261111.md"
       ],
-      "assumptions": "Upstream catalog contents and availability are inputs; finite two-request/context interleavings; HTTP schemas are checked by implementation tests. CatalogDiscoveryOwnership adds two roles, at most two issued requests per role and one selective invalidation per role, success/failure inputs and independent/shared modes. Shared mode projects polish publication/invalidation; independent assistant invalidation is checked in independent mode. Auth/context/unmount remain AsyncSettings obligations. TLC counterexample schedules replay actual hook APIs; this is bounded correspondence, not source refinement. Queued callback cancellation remains implementation-test coverage only; this companion has no scheduler/automatic-dispatch state and makes no queued-cancellation proof claim."
+      "assumptions": "Upstream catalog contents and availability are inputs; finite two-request/context interleavings; HTTP schemas are checked by implementation tests. CatalogDiscoveryOwnership adds two roles, at most two issued requests per role and one selective invalidation per role, success/failure inputs and independent/shared modes. Shared mode projects polish publication/invalidation; independent assistant invalidation is checked in independent mode. Auth/context/unmount remain AsyncSettings obligations. TLC counterexample schedules replay actual hook APIs; this is bounded correspondence, not source refinement. Queued callback cancellation remains implementation-test coverage only; this companion has no scheduler/automatic-dispatch state and makes no queued-cancellation proof claim. ModelCatalogLoadingOwnership bounds two requests and one retirement by context, missing authentication or separate-mode closure, plus optional eligibility restoration. Request completion success/failure and order are environmental inputs. Hook and real picker regressions check credential deletion, OAuth sign-out, separate-mode closure/reopen and current completion. Debounce durations and UI rendering remain implementation-test obligations; this bounded model is not compiler refinement."
     },
     "oauth": {
       "obligation": "Browser/device/refresh owners must remain current; logout and newer login reject old commits and stale fatal refresh.",
@@ -1046,7 +1108,7 @@
       "assumptions": "Identity-provider authentication and cryptography are trusted; generation counters must not wrap; storage durability is a separate obligation."
     },
     "keys": {
-      "obligation": "Failed keyring write/delete is returned before publishing runtime caches; missing deletes are idempotent; saves, lazy loads and startup restore serialize storage and cache publication. Assistant delayed edits and retry retain captured provider; actual writes serialize; newest provider/read/edit ownership controls read publication. Polish credential reads never write storage; edits capture their provider and retain dirty drafts across switches and failed saves. Retired reads cannot publish.",
+      "obligation": "Failed keyring write/delete is returned before publishing runtime caches; missing deletes are idempotent; saves, lazy loads and startup restore serialize storage and cache publication. Assistant delayed edits and retry retain captured provider; actual writes serialize; newest provider/read/edit ownership controls read publication. Polish credential reads never write storage; edits capture their provider and retain dirty drafts across switches and failed saves. Retired reads cannot publish. Vision credential provider switches preserve captured pending drafts, writes serialize, and read ownership includes provider, switch, edit version and the dirty-at-read snapshot.",
       "models": {
         "SettingsContracts": [
           "KeyWrite",
@@ -1073,6 +1135,20 @@
           "SaveVersionsNeverGoBackwards",
           "OnlyLatestReadPublishes",
           "OneWriteOwnsStorage"
+        ],
+        "VisionCredentialOwnership": [
+          "Edit",
+          "Switch",
+          "Dispatch",
+          "BeginWrite",
+          "Save",
+          "Retry",
+          "ReadBegin",
+          "ReadComplete",
+          "OnlyOwnedReadPublishes",
+          "ProviderSwitchPreservesDraft",
+          "CapturedProviderReceivesKey",
+          "StorageWritesAreSerial"
         ]
       },
       "implementation": [
@@ -1095,9 +1171,11 @@
         "formal/evidence/async-ownership.md",
         "src-tauri/src/commands/polish_credential_tests.rs",
         "src/pages/__tests__/SettingsPageProviderDiscovery.test.tsx#SettingsPage polish credential ownership",
-        "src/api/__tests__/tauri.test.ts"
+        "src/api/__tests__/tauri.test.ts",
+        "src/pages/__tests__/SettingsPageProviderDiscovery.test.tsx#SettingsPage vision credential ownership",
+        "formal/evidence/state-machine-20261111.md"
       ],
-      "assumptions": "Single keyring operations are atomic; physical OAuth multi-store commits are modeled separately. Getter failure is an unavailable credential, never proof of deletion. Companion model bounds two edits, two provider switches, two independent reads, success/failure and one retry per edit. UI/keyring promises and provider callbacks are checked with actual SettingsPage fixtures; native keyring internals are trusted. Read eligibility snapshots both the dirty draft and request/edit ownership: failed writes retain drafts; only matching successful writes clear them; a read started while dirty cannot become publishable after that clearing. Initial hydration is outside the companion; each provider switch captures a read before subsequent edits or matching save-clear transitions. The same abstract editor ownership machine applies independently to polish and assistant editors; cross-editor last-write ordering is supplied by keyring primitives. Initial profile hydration is tested in the implementation, not added to this companion model."
+      "assumptions": "Single keyring operations are atomic; physical OAuth multi-store commits are modeled separately. Getter failure is an unavailable credential, never proof of deletion. Companion model bounds two edits, two provider switches, two independent reads, success/failure and one retry per edit. UI/keyring promises and provider callbacks are checked with actual SettingsPage fixtures; native keyring internals are trusted. Read eligibility snapshots both the dirty draft and request/edit ownership: failed writes retain drafts; only matching successful writes clear them; a read started while dirty cannot become publishable after that clearing. Initial hydration is outside the companion; each provider switch captures a read before subsequent edits or matching save-clear transitions. The same abstract editor ownership machine applies independently to polish and assistant editors; cross-editor last-write ordering is supplied by keyring primitives. Initial profile hydration is tested in the implementation, not added to this companion model. VisionCredentialOwnership adds two edits, two reads, two provider switches and one retry per failed latest edit for Cerebras/OpenAI representatives. Switch flush queues the captured draft; one real write runs at a time. A read begun while dirty stays retired after save clears the draft. Keyring operations are trusted primitives; debounce timing and actual SettingsPage interaction are implementation tests, not a compiler refinement theorem."
     },
     "profile-save": {
       "obligation": "Each profile update queues its own current version under the same ordering lock; settled disk is latest.",
@@ -1253,7 +1331,7 @@
       "assumptions": "Classifier/model answers are Yes/No/Unknown inputs; linguistic quality is not proved. Screen and polish overrides are independent variables."
     },
     "assistant": {
-      "obligation": "Current task owns cancellation; old completion cannot clear it; routed external search/screen preparation joins before dispatch; fresh screen payload uses the foreground snapshot sampled after preparation; only assistant workflow emits chat, validated sources can open.",
+      "obligation": "Current task owns cancellation; old completion cannot clear it; routed external search/screen preparation joins before dispatch; fresh screen payload uses the foreground snapshot sampled after preparation; only assistant workflow emits chat, validated sources can open. Initial-request retry success, failure and finally may change text, phase or busy state only while the captured session and generation still own the overlay; close retires ownership even within the same session.",
       "models": {
         "TaskOwnership": [
           "NewestInstalledOwnsSlot"
@@ -1269,25 +1347,41 @@
         ],
         "SettingsContracts": [
           "NoExecutableUrl"
+        ],
+        "AssistantRetryOwnership": [
+          "BeginRetry",
+          "StreamFinal",
+          "NewDictation",
+          "Close",
+          "Reopen",
+          "Complete",
+          "NewDictationKeepsItsDisplay",
+          "ClosedOverlayStaysEmpty",
+          "CurrentRetryKeepsBusy",
+          "CurrentStreamSurvivesOldCompletion",
+          "OwnedRetrySettles"
         ]
       },
       "implementation": [
         "src-tauri/src/commands/assistant.rs",
         "src-tauri/src/services/assistant_service.rs",
         "src-tauri/src/state/app_state.rs#begin_assistant_chat_task",
-        "src-tauri/src/services/assistant_service.rs#discard_stale_screen_context"
+        "src-tauri/src/services/assistant_service.rs#discard_stale_screen_context",
+        "src/pages/SubtitleOverlay.tsx"
       ],
       "evidence": [
         "src-tauri/src/state/app_state.rs#clearing_an_old_generation_keeps_the_new_task_cancellable",
         "src/pages/__tests__/SubtitleOverlay.test.tsx",
         "src-tauri/src/services/assistant_service.rs#fresh_screen_payload_is_discarded_when_foreground_changes_during_preparation",
         "src-tauri/src/services/assistant_service.rs#fresh_screen_payload_survives_when_recording_foreground_still_matches",
-        "src-tauri/src/services/assistant_service.rs#reused_polish_description_survives_a_later_foreground_change"
+        "src-tauri/src/services/assistant_service.rs#reused_polish_description_survives_a_later_foreground_change",
+        "src/pages/__tests__/SubtitleOverlayRetryOwnership.test.tsx",
+        "formal/evidence/state-machine-20261111.md"
       ],
-      "assumptions": "Network response content and browser opening are trusted external outcomes; request timeout/scheduler progress is required. Integrated search represents external third-party preparation; ModelNative tools run inside the LLM request. Joined preparation remains inside the cancellable assistant future. Foreground identity is sampled after preparation; OS changes after that read are not prevented. Integrated fresh screen preparation is modeled; reused pre-polish descriptions retain prior semantics and have Rust regression evidence."
+      "assumptions": "Network response content and browser opening are trusted external outcomes; request timeout/scheduler progress is required. Integrated search represents external third-party preparation; ModelNative tools run inside the LLM request. Joined preparation remains inside the cancellable assistant future. Foreground identity is sampled after preparation; OS changes after that read are not prevented. Integrated fresh screen preparation is modeled; reused pre-polish descriptions retain prior semantics and have Rust regression evidence. AssistantRetryOwnership bounds two retries, one retirement by a newer dictation or overlay close, and an optional same-session reopen. Streamed final publication and command settlement are independent inputs. Generation counters do not wrap; current completion remains permitted. This is bounded UI ownership correspondence, not compiler refinement."
     },
     "selection": {
-      "obligation": "Replacement requires exact selection version, text and source window; cancellation owns latest task; raw selection is preserved.",
+      "obligation": "Replacement requires exact selection version, text and source window; cancellation owns latest task; raw selection is preserved. Disabling the listener retires pending capture epochs before cancellation/hide completes. The same publication lock covers eligibility, screenshot cache and the actual show_selection call; re-enabling never revives a retired worker.",
       "models": {
         "TaskOwnership": [
           "NewestInstalledOwnsSlot"
@@ -1297,6 +1391,20 @@
           "SelectionReplaceIsAuthorized",
           "ReplaceSelection",
           "SearchSelection"
+        ],
+        "SelectionPublicationOwnership": [
+          "BeginWorker",
+          "CaptureCompletes",
+          "CheckPublication",
+          "PublishScreenshots",
+          "ShowWindow",
+          "FinishPublication",
+          "Retire",
+          "CompleteDisable",
+          "Reenable",
+          "TypeOK",
+          "PublicationOwned",
+          "DisableCompletionClearsEffects"
         ]
       },
       "implementation": [
@@ -1306,9 +1414,11 @@
       ],
       "evidence": [
         "src-tauri/src/services/selection_service.rs#replacement_context_requires_the_exact_version_text_and_source_window",
-        "src/pages/__tests__/SelectionOverlay.test.tsx"
+        "src/pages/__tests__/SelectionOverlay.test.tsx",
+        "src-tauri/src/services/selection_publication_tests.rs",
+        "formal/evidence/state-machine-20261111.md"
       ],
-      "assumptions": "OS selection and paste operations are external; two context versions represent arbitrary text, not recognition correctness. State changes use a window-targeted event after publication plus a post-subscription bootstrap snapshot; listener failure falls back to single-flight slow snapshots, checked by implementation tests."
+      "assumptions": "OS selection and paste operations are external; two context versions represent arbitrary text, not recognition correctness. State changes use a window-targeted event after publication plus a post-subscription bootstrap snapshot; listener failure falls back to single-flight slow snapshots, checked by implementation tests. SelectionPublicationOwnership bounds two workers, finite epochs 0/1 and one disable/re-enable cycle, with optional screenshots and arbitrary capture completion order. Runtime epochs must not wrap. Retirement and the actual publication closure share one lock, including screenshot cache and native window publication. Native clipboard, screenshot and window primitives are trusted inputs; owner API tests plus source review establish correspondence, not compiler refinement or Windows runtime proof."
     },
     "clipboard": {
       "obligation": "Paste restores clipboard only when clipboard still contains the text owned by that paste; assistant output is never auto-pasted. A completed dictation remains a distinct session/text/original-target queue item while a second assistant occupies the recording slot; all eligible terminal paths schedule a drain; unknown/changed targets and paste failures expose original text for recovery.",
@@ -1347,7 +1457,7 @@
       "assumptions": "OS clipboard reads/writes and key injection may fail; success means the API acknowledged the operation, not that a foreign application consumed it. Companion output model starts with A processing and independently records B starting/recording. It checks success/error/start-cancel/start-error exits and one focus change. Real queue/controller replay injects only the native paste primitive; source wiring tests establish terminal scheduling correspondence. OS focus remains sampled, and foreign-app consumption is not proved. One production finalizer owns each unique recording session. Tracked outputs deduplicate pending and in-flight IDs until their completion receipt settles; the legacy untracked push deduplicates pending IDs only and permits re-enqueue after a drain. There is no permanent global exactly-once ledger."
     },
     "history": {
-      "obligation": "Persist only with consent; terminal output and paste authorization precede archive encoding and persistence; raw samples are snapshotted before ASR drains them, only with consent; history persistence and actual paste completion settle independently, and measured output timing updates only the inserted row ID; transactions are atomic; shared referenced/leased audio survives GC; reprocess retains captured source. After each SQL transaction, each audio lease count equals the number of independent holders; releasing the first of two shared holders must retain the second. History filter effects retire obsolete requests before debounce dispatch; pending or failed resets block old-offset pagination, current errors remain visible, and retry replaces from offset zero.",
+      "obligation": "Persist only with consent; terminal output and paste authorization precede archive encoding and persistence; raw samples are snapshotted before ASR drains them, only with consent; history persistence and actual paste completion settle independently, and measured output timing updates only the inserted row ID; transactions are atomic; shared referenced/leased audio survives GC; reprocess retains captured source. After each SQL transaction, each audio lease count equals the number of independent holders; releasing the first of two shared holders must retain the second. History filter effects retire obsolete requests before debounce dispatch; pending or failed resets block old-offset pagination, current errors remain visible, and retry replaces from offset zero. Audio GC holds one SQLite write transaction across both ownership reads and filesystem unlink. Reprocess, successful delete and missing-row delete refresh the currently visible filter rather than the mutation-start callback.",
       "models": {
         "HistoryRecords": [
           "SaveAudioGate",
@@ -1393,6 +1503,34 @@
           "ResetUsesZeroOffset",
           "PaginationUsesCurrentPage",
           "NormalPaginationAppends"
+        ],
+        "HistoryAudioGcOwnership": [
+          "Acquire",
+          "DeleteSource",
+          "InsertReplacement",
+          "PersistSavedAudio",
+          "Release",
+          "DeleteReplacement",
+          "BeginGc",
+          "ReadReferences",
+          "ReadLeases",
+          "QueryFailure",
+          "Unlink",
+          "UnlinkFailure",
+          "EndGc",
+          "TypeOK",
+          "ReferencedOrLeasedAudioRetained",
+          "ReprocessOwnsLease"
+        ],
+        "HistoryMutationFilterOwnership": [
+          "BeginMutation",
+          "ChangeFilter",
+          "CompleteFilter",
+          "CompleteMutation",
+          "CompleteRefresh",
+          "MutationRefreshUsesVisibleFilter",
+          "LoadedFilterKeepsItsRows",
+          "CompletionSettlesWorking"
         ]
       },
       "implementation": [
@@ -1416,9 +1554,12 @@
         "src-tauri/src/services/audio_service/history_output_tests.rs",
         "src-tauri/src/services/history_timing_tests.rs",
         "src/hooks/__tests__/useRecordingTiming.test.tsx",
-        "scripts/test_async_output_wiring.py"
+        "scripts/test_async_output_wiring.py",
+        "src-tauri/src/services/history_audio_gc_tests.rs",
+        "src/pages/__tests__/HistoryMutationFilterOwnership.test.tsx",
+        "formal/evidence/state-machine-20261111.md"
       ],
-      "assumptions": "SQLite transactions and successful filesystem deletion are trusted primitives; detailed base bound of five rows, three audio classes and one reprocessor/count-one lease; DB errors retain audio conservatively. Terminal transcription/outcome publication and paste authorization precede archive work. Actual successful paste publishes an independent session-scoped timing event; persistence proceeds while a paste is queued, and later completion updates the inserted row ID without recreating deleted rows. Publication here means terminal transcription/subtitle results and paste authorization; assistant stream chunks and stream done arrive during LLM work and are excluded. Scheduling permits archive I/O and actual paste completion to settle independently after terminal publication; the model does not prove a wall-clock speedup. HistoryRecords retains its detailed five-row, three audio-class, single-reprocessor/count-one bound. HistoryLeaseInterleavings adds two independent tasks and two shared audio identities; release is DELETE count=1, UPDATE count>1, then commit. Equality is asserted outside the transaction; row deletion and GC interleave only at commit boundaries. Statistics reuse is checked by implementation tests: a retained read connection compares SQLite data_version, aggregate and latency queries share a read transaction, and concurrent changes invalidate cache publication. Database path remains fixed during the process; replacing the open database file is outside this contract. HistoryFilterOwnership adds seed row 1, optional old page row 2, one filter epoch, reset/retry replacement rows 3 and 4, and one normal pagination append row 5. Request identities are old=1/reset=2/retry=3/page=4; repeated retries fold to identity 3. Pagination availability directly follows hasMore, loading and error, independent of the specification pending-reset intent; normal pagination must use the current page epoch and offset two, while reset/retry use offset zero. Native success/failure are inputs. Effect retirement and debounce dispatch are distinct actions; actual replay checks 179/180 ms and public DOM/API behavior. Bounded correspondence only; no source refinement."
+      "assumptions": "SQLite transactions and successful filesystem deletion are trusted primitives; detailed base bound of five rows, three audio classes and one reprocessor/count-one lease; DB errors retain audio conservatively. Terminal transcription/outcome publication and paste authorization precede archive work. Actual successful paste publishes an independent session-scoped timing event; persistence proceeds while a paste is queued, and later completion updates the inserted row ID without recreating deleted rows. Publication here means terminal transcription/subtitle results and paste authorization; assistant stream chunks and stream done arrive during LLM work and are excluded. Scheduling permits archive I/O and actual paste completion to settle independently after terminal publication; the model does not prove a wall-clock speedup. HistoryRecords retains its detailed five-row, three audio-class, single-reprocessor/count-one bound. HistoryLeaseInterleavings adds two independent tasks and two shared audio identities; release is DELETE count=1, UPDATE count>1, then commit. Equality is asserted outside the transaction; row deletion and GC interleave only at commit boundaries. Statistics reuse is checked by implementation tests: a retained read connection compares SQLite data_version, aggregate and latency queries share a read transaction, and concurrent changes invalidate cache publication. Database path remains fixed during the process; replacing the open database file is outside this contract. HistoryFilterOwnership adds seed row 1, optional old page row 2, one filter epoch, reset/retry replacement rows 3 and 4, and one normal pagination append row 5. Request identities are old=1/reset=2/retry=3/page=4; repeated retries fold to identity 3. Pagination availability directly follows hasMore, loading and error, independent of the specification pending-reset intent; normal pagination must use the current page epoch and offset two, while reset/retry use offset zero. Native success/failure are inputs. Effect retirement and debounce dispatch are distinct actions; actual replay checks 179/180 ms and public DOM/API behavior. Bounded correspondence only; no source refinement. HistoryAudioGcOwnership bounds one shared audio identity, two independent tasks and three GC attempts, including query/unlink failure. Initially saved paths are fresh and unique; existing-audio reprocessing uses leases. SQLite IMMEDIATE write exclusion, native filesystem operations and successful transaction commits are trusted primitives. The lock spans reference read, lease read and unlink; ownership query failures conservatively retain audio. HistoryMutationFilterOwnership bounds one mutation (polish, ASR, removed delete or missing delete), an A-to-B filter switch, a successful B load and success/failure of mutation and refresh. Bounded models and reviewed implementation tests are not compiler refinement."
     },
     "windows": {
       "obligation": "Only current show/hide generations publish; interactive state requires a window; exit signals capture and reaps child.",
@@ -1745,7 +1886,9 @@
       "CudaArchitectureSelection.cfg"
     ],
     "OnlineAsrIdentity": [
-      "OnlineAsrIdentity.cfg", "OnlineAsrIdentityGlm.cfg", "OnlineAsrIdentityLocal.cfg"
+      "OnlineAsrIdentity.cfg",
+      "OnlineAsrIdentityGlm.cfg",
+      "OnlineAsrIdentityLocal.cfg"
     ],
     "AppProfileRules": [
       "AppProfileRules.cfg"
@@ -1904,15 +2047,49 @@
       "ExactHeadSelection.cfg",
       "ExactHeadSelectionTwoDevices.cfg",
       "ExactHeadSelectionLifecycle.cfg"
+    ],
+    "HistoryAudioGcOwnership": [
+      "HistoryAudioGcOwnership.cfg"
+    ],
+    "SelectionPublicationOwnership": [
+      "SelectionPublicationOwnership.cfg"
+    ],
+    "AssistantRetryOwnership": [
+      "AssistantRetryOwnership.cfg"
+    ],
+    "HistoryMutationFilterOwnership": [
+      "HistoryMutationFilterOwnership.cfg"
+    ],
+    "ModelCatalogLoadingOwnership": [
+      "ModelCatalogLoadingOwnership.cfg"
+    ],
+    "VisionCredentialOwnership": [
+      "VisionCredentialOwnership.cfg"
+    ],
+    "DownloadTaskEventOwnership": [
+      "DownloadTaskEventOwnership.cfg"
     ]
   },
   "actions": {
     "CudaArchitectureSelection": [
-      "FirstConfigure", "Plan", "Reconfigure", "Verify", "Build", "Package"
+      "FirstConfigure",
+      "Plan",
+      "Reconfigure",
+      "Verify",
+      "Build",
+      "Package"
     ],
     "OnlineAsrIdentity": [
-      "CompleteEngine", "CompleteEndpoint", "CompleteKey", "Edit", "Dispatch",
-      "CompleteWrite", "BeginSwitch", "CompleteSwitch", "FinishSwitchRead", "Retry"
+      "CompleteEngine",
+      "CompleteEndpoint",
+      "CompleteKey",
+      "Edit",
+      "Dispatch",
+      "CompleteWrite",
+      "BeginSwitch",
+      "CompleteSwitch",
+      "FinishSwitchRead",
+      "Retry"
     ],
     "RecordingLifecycle": [
       "Start",
@@ -2067,6 +2244,75 @@
       "ApiError",
       "Destroy",
       "Recreate"
+    ],
+    "HistoryAudioGcOwnership": [
+      "Acquire",
+      "DeleteSource",
+      "InsertReplacement",
+      "PersistSavedAudio",
+      "Release",
+      "DeleteReplacement",
+      "BeginGc",
+      "ReadReferences",
+      "ReadLeases",
+      "QueryFailure",
+      "Unlink",
+      "UnlinkFailure",
+      "EndGc"
+    ],
+    "SelectionPublicationOwnership": [
+      "BeginWorker",
+      "CaptureCompletes",
+      "CheckPublication",
+      "PublishScreenshots",
+      "ShowWindow",
+      "FinishPublication",
+      "Retire",
+      "CompleteDisable",
+      "Reenable"
+    ],
+    "AssistantRetryOwnership": [
+      "BeginRetry",
+      "StreamFinal",
+      "NewDictation",
+      "Close",
+      "Reopen",
+      "Complete"
+    ],
+    "HistoryMutationFilterOwnership": [
+      "BeginMutation",
+      "ChangeFilter",
+      "CompleteFilter",
+      "CompleteMutation",
+      "CompleteRefresh"
+    ],
+    "ModelCatalogLoadingOwnership": [
+      "Begin",
+      "Retire",
+      "RestoreAuth",
+      "Complete"
+    ],
+    "VisionCredentialOwnership": [
+      "Edit",
+      "Switch",
+      "Dispatch",
+      "BeginWrite",
+      "Save",
+      "Retry",
+      "ReadBegin",
+      "ReadComplete"
+    ],
+    "DownloadTaskEventOwnership": [
+      "Begin",
+      "Advance",
+      "Cancel",
+      "StopForCancel",
+      "NormalExit",
+      "PublishTerminal",
+      "Cleanup",
+      "Ack",
+      "Event",
+      "PromiseFinish"
     ]
   },
   "negative": [
@@ -2814,6 +3060,152 @@
       "config": "AppWorkflowQueuedHistoryWitness.cfg",
       "invariant": "HistoryRequiresCompletedPaste",
       "purpose": "Reachability witness that history can settle while paste remains queued; not a safety negative."
+    },
+    {
+      "name": "history-audio-gc-ownership-split-read",
+      "model": "HistoryAudioGcOwnership",
+      "config": "HistoryAudioGcOwnershipSplitReadNegative.cfg",
+      "invariant": "ReferencedOrLeasedAudioRetained"
+    },
+    {
+      "name": "history-audio-gc-ownership-ignore-lease",
+      "model": "HistoryAudioGcOwnership",
+      "config": "HistoryAudioGcOwnershipIgnoreLeaseNegative.cfg",
+      "invariant": "ReferencedOrLeasedAudioRetained"
+    },
+    {
+      "name": "history-audio-gc-ownership-early-unlock",
+      "model": "HistoryAudioGcOwnership",
+      "config": "HistoryAudioGcOwnershipEarlyUnlockNegative.cfg",
+      "invariant": "ReferencedOrLeasedAudioRetained"
+    },
+    {
+      "name": "selection-publication-ownership-legacy",
+      "model": "SelectionPublicationOwnership",
+      "config": "SelectionPublicationOwnershipLegacyNegative.cfg",
+      "invariant": "PublicationOwned"
+    },
+    {
+      "name": "selection-publication-ownership-reenable",
+      "model": "SelectionPublicationOwnership",
+      "config": "SelectionPublicationOwnershipReenableNegative.cfg",
+      "invariant": "PublicationOwned"
+    },
+    {
+      "name": "selection-publication-ownership-early-unlock",
+      "model": "SelectionPublicationOwnership",
+      "config": "SelectionPublicationOwnershipEarlyUnlockNegative.cfg",
+      "invariant": "PublicationOwned"
+    },
+    {
+      "name": "assistant-retry-ownership-legacy",
+      "model": "AssistantRetryOwnership",
+      "config": "AssistantRetryOwnershipLegacyNegative.cfg",
+      "invariant": "NewDictationKeepsItsDisplay"
+    },
+    {
+      "name": "assistant-retry-ownership-generation",
+      "model": "AssistantRetryOwnership",
+      "config": "AssistantRetryOwnershipGenerationNegative.cfg",
+      "invariant": "ClosedOverlayStaysEmpty"
+    },
+    {
+      "name": "assistant-retry-ownership-finally",
+      "model": "AssistantRetryOwnership",
+      "config": "AssistantRetryOwnershipFinallyNegative.cfg",
+      "invariant": "CurrentRetryKeepsBusy"
+    },
+    {
+      "name": "history-mutation-filter-ownership-legacy",
+      "model": "HistoryMutationFilterOwnership",
+      "config": "HistoryMutationFilterOwnershipLegacyNegative.cfg",
+      "invariant": "MutationRefreshUsesVisibleFilter"
+    },
+    {
+      "name": "history-mutation-filter-ownership-delete",
+      "model": "HistoryMutationFilterOwnership",
+      "config": "HistoryMutationFilterOwnershipDeleteNegative.cfg",
+      "invariant": "MutationRefreshUsesVisibleFilter"
+    },
+    {
+      "name": "model-catalog-loading-ownership-legacy",
+      "model": "ModelCatalogLoadingOwnership",
+      "config": "ModelCatalogLoadingOwnershipLegacyNegative.cfg",
+      "invariant": "RetiredLoadingSettles"
+    },
+    {
+      "name": "model-catalog-loading-ownership-finally",
+      "model": "ModelCatalogLoadingOwnership",
+      "config": "ModelCatalogLoadingOwnershipFinallyNegative.cfg",
+      "invariant": "OwnedPendingKeepsLoading"
+    },
+    {
+      "name": "model-catalog-loading-ownership-publication",
+      "model": "ModelCatalogLoadingOwnership",
+      "config": "ModelCatalogLoadingOwnershipPublicationNegative.cfg",
+      "invariant": "OnlyCurrentCatalogPublishes"
+    },
+    {
+      "name": "vision-credential-ownership-provider",
+      "model": "VisionCredentialOwnership",
+      "config": "VisionCredentialOwnershipProviderNegative.cfg",
+      "invariant": "CapturedProviderReceivesKey"
+    },
+    {
+      "name": "vision-credential-ownership-read",
+      "model": "VisionCredentialOwnership",
+      "config": "VisionCredentialOwnershipReadNegative.cfg",
+      "invariant": "OnlyOwnedReadPublishes"
+    },
+    {
+      "name": "vision-credential-ownership-saved-read",
+      "model": "VisionCredentialOwnership",
+      "config": "VisionCredentialOwnershipSavedReadNegative.cfg",
+      "invariant": "OnlyOwnedReadPublishes"
+    },
+    {
+      "name": "vision-credential-ownership-serial",
+      "model": "VisionCredentialOwnership",
+      "config": "VisionCredentialOwnershipSerialNegative.cfg",
+      "invariant": "StorageWritesAreSerial"
+    },
+    {
+      "name": "vision-credential-ownership-switch",
+      "model": "VisionCredentialOwnership",
+      "config": "VisionCredentialOwnershipSwitchNegative.cfg",
+      "invariant": "ProviderSwitchPreservesDraft"
+    },
+    {
+      "name": "download-task-event-ownership-ack",
+      "model": "DownloadTaskEventOwnership",
+      "config": "DownloadTaskEventOwnershipAckNegative.cfg",
+      "invariant": "AckFollowsTerminalAndSlotRelease"
+    },
+    {
+      "name": "download-task-event-ownership-cancel",
+      "model": "DownloadTaskEventOwnership",
+      "config": "DownloadTaskEventOwnershipCancelNegative.cfg",
+      "invariant": "CancellationTargetsCapturedRequest"
+    },
+    {
+      "name": "download-task-event-ownership-event",
+      "model": "DownloadTaskEventOwnership",
+      "config": "DownloadTaskEventOwnershipEventNegative.cfg",
+      "invariant": "OnlyCurrentRequestPublishes"
+    },
+    {
+      "name": "history-audio-gc-ownership-boundary-witness",
+      "model": "HistoryAudioGcOwnership",
+      "config": "HistoryAudioGcOwnershipBoundaryNegative.cfg",
+      "invariant": "BoundaryCoverageNotReached",
+      "purpose": "Positive bounded boundary reachability witness with unmodified guards; intentionally violates the reachability target, not a safety negative or proof."
+    },
+    {
+      "name": "selection-publication-ownership-boundary-witness",
+      "model": "SelectionPublicationOwnership",
+      "config": "SelectionPublicationOwnershipBoundaryNegative.cfg",
+      "invariant": "BoundaryCoverageNotReached",
+      "purpose": "Positive bounded boundary reachability witness with unmodified guards; intentionally violates the reachability target, not a safety negative or proof."
     }
   ],
   "command_implementation": {

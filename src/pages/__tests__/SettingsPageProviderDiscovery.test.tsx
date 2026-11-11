@@ -25,6 +25,7 @@ const tauriMock = vi.hoisted(() => ({
   getOnlineAsrApiKey: vi.fn(),
   getOnlineAsrEndpoint: vi.fn(),
   getSelectionApiKey: vi.fn(),
+  getScreenVisionApiKey: vi.fn(),
   getGrokBuildOauthStatus: vi.fn(),
   getOpenaiCodexOauthStatus: vi.fn(),
   getUserProfile: vi.fn(),
@@ -65,6 +66,8 @@ const tauriMock = vi.hoisted(() => ({
   setRecordingMode: vi.fn(),
   setSelectionAssistantConfig: vi.fn(),
   setSelectionApiKey: vi.fn(),
+  setScreenVisionApiKey: vi.fn(),
+  setScreenVisionConfig: vi.fn(),
   setSoundEnabled: vi.fn(),
   setTranslationHotkey: vi.fn(),
   setTranslationTarget: vi.fn(),
@@ -208,6 +211,7 @@ function resetMocks(profile: UserProfile = baseProfile) {
   tauriMock.getAiPolishApiKey.mockResolvedValue("");
   tauriMock.getAssistantApiKey.mockResolvedValue("");
   tauriMock.getSelectionApiKey.mockResolvedValue("");
+  tauriMock.getScreenVisionApiKey.mockResolvedValue("");
   tauriMock.getAlibabaAsrConfig.mockResolvedValue({
     model: "qwen3-asr-flash",
     models: ["qwen3-asr-flash"],
@@ -752,6 +756,246 @@ describe("SettingsPage polish credential ownership", () => {
     expect(store.keys.openai).toBe("saved-openai-key");
     expect(screen.getByPlaceholderText("Cerebras API Key")).toHaveValue("retryable-cerebras-key");
     expect(tauriMock.saveAiPolishApiKey).toHaveBeenCalledWith("retryable-cerebras-key", "cerebras");
+  });
+});
+
+describe("SettingsPage vision credential ownership", () => {
+  const profile: UserProfile = {
+    ...baseProfile,
+    ai_polish_screen_context_enabled: true,
+    llm_provider: {
+      ...baseProfile.llm_provider,
+      screen_vision_enabled: true,
+      screen_vision_provider: "cerebras",
+      screen_vision_model: "vision-model",
+      openai_auth_mode: "api_key",
+    },
+  };
+
+  function credentialStore() {
+    const keys: Record<string, string> = {
+      cerebras: "stored-cerebras-vision-key",
+      openai: "stored-openai-vision-key",
+    };
+    tauriMock.getScreenVisionApiKey.mockImplementation(async (provider: string) => keys[provider]);
+    tauriMock.setScreenVisionApiKey.mockImplementation(async (provider: string, value: string) => {
+      keys[provider] = value;
+    });
+    return keys;
+  }
+
+  function keyField() {
+    return screen.getByLabelText("settings.screenVisionApiKey");
+  }
+
+  async function selectProvider(provider: string) {
+    await act(async () => {
+      fireEvent.change(screen.getByRole("combobox", { name: "settings.screenVisionProvider" }), {
+        target: { value: provider },
+      });
+    });
+  }
+
+  async function elapseDebounce() {
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps the restored provider key when a rejected provider switch finishes its key read late", async () => {
+    credentialStore();
+    await renderSettings(profile);
+    expect(keyField()).toHaveValue("stored-cerebras-vision-key");
+    vi.useFakeTimers();
+    const configSave = deferred<void>();
+    const switchedKey = deferred<string>();
+    tauriMock.setScreenVisionConfig.mockReturnValueOnce(configSave.promise);
+    tauriMock.getScreenVisionApiKey.mockReturnValueOnce(switchedKey.promise);
+
+    await selectProvider("openai");
+    expect(screen.getByRole("combobox", { name: "settings.screenVisionProvider" })).toHaveValue("openai");
+    await act(async () => {
+      configSave.reject(new Error("provider config save failed"));
+      await configSave.promise.catch(() => undefined);
+    });
+    expect(screen.getByRole("combobox", { name: "settings.screenVisionProvider" })).toHaveValue("cerebras");
+
+    await act(async () => {
+      switchedKey.resolve("stored-openai-vision-key");
+      await switchedKey.promise;
+    });
+
+    expect(keyField()).toHaveValue("stored-cerebras-vision-key");
+    expect(tauriMock.setScreenVisionApiKey).not.toHaveBeenCalled();
+  });
+
+  it.each(["success", "failure"] as const)("keeps a new draft when its pending key read finishes with %s", async (outcome) => {
+    credentialStore();
+    const read = deferred<string>();
+    tauriMock.getScreenVisionApiKey.mockReturnValueOnce(read.promise);
+    await renderSettings(profile);
+    expect(tauriMock.getScreenVisionApiKey).toHaveBeenCalledWith("cerebras");
+    vi.useFakeTimers();
+    fireEvent.change(keyField(), { target: { value: "new-vision-draft" } });
+
+    await act(async () => {
+      if (outcome === "success") read.resolve("obsolete-stored-key");
+      else read.reject(new Error("credential read failed"));
+      await read.promise.catch(() => undefined);
+    });
+
+    expect(keyField()).toHaveValue("new-vision-draft");
+    await elapseDebounce();
+    expect(tauriMock.setScreenVisionApiKey.mock.calls).toEqual([["cerebras", "new-vision-draft"]]);
+  });
+
+  it("saves an edit to its original provider when switching before the debounce expires", async () => {
+    const keys = credentialStore();
+    await renderSettings(profile);
+    vi.useFakeTimers();
+    fireEvent.change(keyField(), { target: { value: "cerebras-vision-draft" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(tauriMock.setScreenVisionApiKey).not.toHaveBeenCalled();
+
+    await selectProvider("openai");
+
+    expect(tauriMock.setScreenVisionApiKey.mock.calls).toEqual([["cerebras", "cerebras-vision-draft"]]);
+    expect(keys).toEqual({ cerebras: "cerebras-vision-draft", openai: "stored-openai-vision-key" });
+    expect(keyField()).toHaveValue("stored-openai-vision-key");
+  });
+
+  it("waits for the actual storage write before starting the next draft write", async () => {
+    const keys = credentialStore();
+    const firstWrite = deferred<void>();
+    tauriMock.setScreenVisionApiKey.mockImplementationOnce(async (provider: string, value: string) => {
+      await firstWrite.promise;
+      keys[provider] = value;
+    });
+    await renderSettings(profile);
+    vi.useFakeTimers();
+    fireEvent.change(keyField(), { target: { value: "older-vision-draft" } });
+    await elapseDebounce();
+    expect(tauriMock.setScreenVisionApiKey).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(keyField(), { target: { value: "newer-vision-draft" } });
+    await elapseDebounce();
+    expect(tauriMock.setScreenVisionApiKey).toHaveBeenCalledTimes(1);
+
+    await act(async () => { firstWrite.resolve(); await firstWrite.promise; });
+    expect(tauriMock.setScreenVisionApiKey.mock.calls).toEqual([
+      ["cerebras", "older-vision-draft"], ["cerebras", "newer-vision-draft"],
+    ]);
+    expect(keys.cerebras).toBe("newer-vision-draft");
+  });
+
+  it("keeps the flushed provider write when the new provider is edited immediately", async () => {
+    const keys = credentialStore();
+    const firstWrite = deferred<void>();
+    tauriMock.setScreenVisionApiKey.mockImplementationOnce(async (provider: string, value: string) => {
+      await firstWrite.promise;
+      keys[provider] = value;
+    });
+    await renderSettings(profile);
+    vi.useFakeTimers();
+    fireEvent.change(keyField(), { target: { value: "cerebras-vision-draft" } });
+
+    await selectProvider("openai");
+    fireEvent.change(keyField(), { target: { value: "openai-vision-draft" } });
+    expect(tauriMock.setScreenVisionApiKey.mock.calls).toEqual([["cerebras", "cerebras-vision-draft"]]);
+    await elapseDebounce();
+    expect(tauriMock.setScreenVisionApiKey).toHaveBeenCalledTimes(1);
+
+    await act(async () => { firstWrite.resolve(); await firstWrite.promise; });
+
+    expect(tauriMock.setScreenVisionApiKey.mock.calls).toEqual([
+      ["cerebras", "cerebras-vision-draft"], ["openai", "openai-vision-draft"],
+    ]);
+    expect(keys).toEqual({ cerebras: "cerebras-vision-draft", openai: "openai-vision-draft" });
+    expect(keyField()).toHaveValue("openai-vision-draft");
+  });
+
+  it.each(["pending", "failed"] as const)("restores the %s draft after a rapid provider round trip", async (saveState) => {
+    const keys = credentialStore();
+    const write = deferred<void>();
+    tauriMock.setScreenVisionApiKey.mockReturnValueOnce(write.promise);
+    await renderSettings(profile);
+    vi.useFakeTimers();
+    fireEvent.change(keyField(), { target: { value: "unsaved-vision-draft" } });
+    await elapseDebounce();
+    if (saveState === "failed") {
+      await act(async () => {
+        write.reject(new Error("credential store unavailable"));
+        await write.promise.catch(() => undefined);
+      });
+    }
+
+    await selectProvider("openai");
+    expect(keyField()).toHaveValue("stored-openai-vision-key");
+    await selectProvider("cerebras");
+
+    expect(keyField()).toHaveValue("unsaved-vision-draft");
+    expect(keys.cerebras).toBe("stored-cerebras-vision-key");
+    await act(async () => { write.resolve(); await write.promise.catch(() => undefined); });
+  });
+
+  it("ignores a read begun during a dirty draft even after that draft saves", async () => {
+    const keys = credentialStore();
+    const write = deferred<void>();
+    const staleRead = deferred<string>();
+    tauriMock.setScreenVisionApiKey.mockImplementationOnce(async (provider: string, value: string) => {
+      await write.promise;
+      keys[provider] = value;
+    });
+    await renderSettings(profile);
+    vi.useFakeTimers();
+    fireEvent.change(keyField(), { target: { value: "saved-new-vision-key" } });
+    await elapseDebounce();
+    await selectProvider("openai");
+    tauriMock.getScreenVisionApiKey.mockReturnValueOnce(staleRead.promise);
+    await selectProvider("cerebras");
+    await act(async () => { write.resolve(); await write.promise; });
+
+    await act(async () => { staleRead.resolve("stored-cerebras-vision-key"); await staleRead.promise; });
+
+    expect(keys.cerebras).toBe("saved-new-vision-key");
+    expect(keyField()).toHaveValue("saved-new-vision-key");
+  });
+
+  it("keeps a failed draft available and permits retrying it for its original provider", async () => {
+    const keys = credentialStore();
+    tauriMock.setScreenVisionApiKey.mockRejectedValueOnce(new Error("credential store unavailable"));
+    await renderSettings(profile);
+    vi.useFakeTimers();
+    fireEvent.change(keyField(), { target: { value: "retryable-vision-draft" } });
+    await elapseDebounce();
+    expect(keys.cerebras).toBe("stored-cerebras-vision-key");
+    await selectProvider("openai");
+    await selectProvider("cerebras");
+    expect(keyField()).toHaveValue("retryable-vision-draft");
+
+    fireEvent.change(keyField(), { target: { value: "retryable-vision-draft-updated" } });
+    await elapseDebounce();
+
+    expect(tauriMock.setScreenVisionApiKey.mock.calls).toEqual([
+      ["cerebras", "retryable-vision-draft"], ["cerebras", "retryable-vision-draft-updated"],
+    ]);
+    expect(keys).toEqual({ cerebras: "retryable-vision-draft-updated", openai: "stored-openai-vision-key" });
+  });
+
+  it("loads the current stored credential after a successful draft save and provider round trip", async () => {
+    const keys = credentialStore();
+    await renderSettings(profile);
+    vi.useFakeTimers();
+    fireEvent.change(keyField(), { target: { value: "successfully-saved-vision-key" } });
+    await elapseDebounce();
+    expect(keys.cerebras).toBe("successfully-saved-vision-key");
+    await selectProvider("openai");
+    keys.cerebras = "externally-updated-vision-key";
+
+    await selectProvider("cerebras");
+
+    expect(keyField()).toHaveValue("externally-updated-vision-key");
+    expect(tauriMock.setScreenVisionApiKey.mock.calls).toEqual([["cerebras", "successfully-saved-vision-key"]]);
   });
 });
 

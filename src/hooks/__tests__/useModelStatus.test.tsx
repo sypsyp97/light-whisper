@@ -146,6 +146,7 @@ describe("useModelStatus model integrity repair", () => {
       model_state?: "ready" | "missing" | "corrupt";
       models_present?: boolean;
       corrupt_models?: string[];
+      requestId?: string;
     };
   };
   const handlers = new Map<string, (event: StatusEvent) => void>();
@@ -249,7 +250,7 @@ describe("useModelStatus model integrity repair", () => {
     expect(hook.result.current.stage).toBe("downloading");
     expect(hook.result.current.isDownloading).toBe(true);
 
-    emit("model-download-status", { status: "completed", progress: 100 });
+    emit("model-download-status", { status: "completed", progress: 100, requestId: mocks.download.mock.calls[0]?.[0] });
     expect(hook.result.current.stage).toBe("loading");
     mocks.check.mockResolvedValue({ running: true, ready: true, model_state: "ready" });
     emit("funasr-status", { status: "ready", model_state: "ready" });

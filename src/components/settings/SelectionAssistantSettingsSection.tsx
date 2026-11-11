@@ -228,6 +228,7 @@ export default function SelectionAssistantSettingsSection({
   }, [Boolean(profile), provider, separate]);
 
   useEffect(() => {
+    setModelsLoading(false);
     if (!separate) {
       setAvailableModels([]);
       setModelsError("");

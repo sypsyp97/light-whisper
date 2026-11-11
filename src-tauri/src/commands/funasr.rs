@@ -113,22 +113,38 @@ pub async fn check_model_files() -> Result<funasr_service::ModelCheckResult, App
 pub async fn download_models(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    request_id: Option<String>,
 ) -> Result<String, AppError> {
-    crate::services::download_service::run_download(&app_handle, state.inner()).await
+    crate::services::download_service::run_download(&app_handle, state.inner(), request_id).await
 }
 
 #[tauri::command]
-pub async fn cancel_model_download(state: tauri::State<'_, AppState>) -> Result<String, AppError> {
+pub async fn cancel_model_download(
+    state: tauri::State<'_, AppState>,
+    request_id: Option<String>,
+) -> Result<String, AppError> {
     let cancellation = {
         let mut guard = state.engine.download_task.lock().await;
-        guard.as_mut().and_then(|task| task.cancel.take())
+        guard
+            .as_mut()
+            .filter(|task| {
+                request_id
+                    .as_ref()
+                    .is_none_or(|request_id| task.request_id.as_ref() == Some(request_id))
+            })
+            .map(|task| (task.cancel.take(), task.done.clone()))
     };
 
-    if let Some(cancel) = cancellation {
-        let _ = cancel.send(());
+    if let Some((cancel, mut done)) = cancellation {
+        if let Some(cancel) = cancel {
+            let _ = cancel.send(());
+        }
+        while !*done.borrow() {
+            if done.changed().await.is_err() {
+                break;
+            }
+        }
         Ok("已取消模型下载".to_string())
-    } else if state.engine.download_task.lock().await.is_some() {
-        Ok("模型下载正在取消".to_string())
     } else {
         Ok("当前没有下载任务".to_string())
     }

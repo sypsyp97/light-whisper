@@ -564,6 +564,8 @@ export default function SettingsPage({
   const [screenVisionModel, setScreenVisionModel] = useState(DEFAULT_SCREEN_VISION_MODEL);
   const [screenVisionApiKey, setScreenVisionApiKeyState] = useState("");
   const screenVisionKeyRequestIdRef = useRef(0);
+  const screenVisionKeyEditIdRef = useRef(0);
+  const screenVisionKeyDraftsRef = useRef<Record<string, { value: string; id: number }>>({});
   const screenVisionBaseUrl = customProviders
     .find((provider) => provider.id === screenVisionProvider)?.base_url
     ?? findLlmPreset(screenVisionProvider).baseUrl;
@@ -612,10 +614,15 @@ export default function SettingsPage({
     }
   }, 600, { onUnmount: "flush" });
 
-  const screenVisionKeySave = useDebouncedCallback((provider: string, value: string) => {
-    setScreenVisionApiKey(provider, value).catch(() => {
+  const screenVisionKeySave = useDebouncedCallback(async (provider: string, value: string, id: number) => {
+    try {
+      await setScreenVisionApiKey(provider, value);
+      if (screenVisionKeyDraftsRef.current[provider]?.id === id) {
+        delete screenVisionKeyDraftsRef.current[provider];
+      }
+    } catch {
       toast.error(t("toast.screenVisionKeySaveFailed"));
-    });
+    }
   }, 600, { onUnmount: "flush" });
 
   const webSearchKeySave = useDebouncedCallback((provider: WebSearchProvider, value: string) => {
@@ -749,14 +756,18 @@ export default function SettingsPage({
 
   const refreshScreenVisionKey = useCallback(async (provider: string) => {
     const requestId = ++screenVisionKeyRequestIdRef.current;
+    const draft = screenVisionKeyDraftsRef.current[provider];
+    setScreenVisionApiKeyState(draft?.value ?? "");
+    const current = () => requestId === screenVisionKeyRequestIdRef.current
+      && !draft && !screenVisionKeyDraftsRef.current[provider];
     try {
       const key = (await getScreenVisionApiKey(provider)) || "";
-      if (requestId === screenVisionKeyRequestIdRef.current) {
+      if (current()) {
         setScreenVisionApiKeyState(key);
       }
       return key;
     } catch {
-      if (requestId === screenVisionKeyRequestIdRef.current) {
+      if (current()) {
         setScreenVisionApiKeyState("");
       }
       return "";
@@ -2204,14 +2215,14 @@ export default function SettingsPage({
       || DEFAULT_SCREEN_VISION_MODEL;
     const previousProvider = screenVisionProvider;
     const previousModel = screenVisionModel;
-    screenVisionKeySave.cancel();
+    void screenVisionKeySave.flush();
     setScreenVisionProvider(provider);
     setScreenVisionModel(nextModel);
-    setScreenVisionApiKeyState("");
     void refreshScreenVisionKey(provider);
     setScreenVisionConfig(screenVisionEnabled, provider, nextModel).catch(() => {
       setScreenVisionProvider(previousProvider);
       setScreenVisionModel(previousModel);
+      void refreshScreenVisionKey(previousProvider);
       toast.error(t("toast.screenVisionSaveFailed"));
     });
   }, [customProviders, refreshScreenVisionKey, screenVisionEnabled, screenVisionKeySave, screenVisionModel, screenVisionProvider, t]);
@@ -3345,8 +3356,11 @@ export default function SettingsPage({
                         )}
                         onProviderChange={handleScreenVisionProviderChange}
                         onApiKeyChange={(value) => {
+                          const id = ++screenVisionKeyEditIdRef.current;
+                          ++screenVisionKeyRequestIdRef.current;
+                          screenVisionKeyDraftsRef.current[screenVisionProvider] = { value, id };
                           setScreenVisionApiKeyState(value);
-                          screenVisionKeySave.schedule(screenVisionProvider, value);
+                          screenVisionKeySave.schedule(screenVisionProvider, value, id);
                         }}
                         onChange={setScreenVisionModel}
                         onBlur={handleScreenVisionModelBlur}

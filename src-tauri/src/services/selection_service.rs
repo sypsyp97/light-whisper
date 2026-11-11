@@ -21,6 +21,53 @@ const CURSOR_GAP_LOGICAL: f64 = 12.0;
 const EDGE_MARGIN_LOGICAL: f64 = 8.0;
 const VERTICAL_DIRECTION_THRESHOLD_LOGICAL: f64 = 24.0;
 
+#[cfg(any(target_os = "windows", test))]
+#[derive(Default)]
+struct SelectionPublicationOwner {
+    state: parking_lot::Mutex<SelectionPublicationState>,
+}
+
+#[cfg(any(target_os = "windows", test))]
+#[derive(Default)]
+struct SelectionPublicationState {
+    enabled: bool,
+    epoch: u64,
+}
+
+#[cfg(any(target_os = "windows", test))]
+impl SelectionPublicationOwner {
+    fn snapshot(&self) -> Option<u64> {
+        let state = self.state.lock();
+        state.enabled.then_some(state.epoch)
+    }
+
+    fn set_enabled(&self, enabled: bool) {
+        let mut state = self.state.lock();
+        if state.enabled != enabled {
+            state.epoch = state
+                .epoch
+                .checked_add(1)
+                .expect("selection epoch exhausted");
+            state.enabled = enabled;
+        }
+    }
+
+    fn publish_if_current<T>(&self, epoch: u64, publish: impl FnOnce() -> T) -> Option<T> {
+        let state = self.state.lock();
+        if !state.enabled || state.epoch != epoch {
+            return None;
+        }
+        // Retirement takes the same lock, after all cache and window effects.
+        Some(publish())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn selection_publication_owner() -> &'static SelectionPublicationOwner {
+    static OWNER: OnceLock<SelectionPublicationOwner> = OnceLock::new();
+    OWNER.get_or_init(SelectionPublicationOwner::default)
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Anchor {
     x: i32,
@@ -1406,7 +1453,7 @@ fn hook_sender() -> &'static parking_lot::Mutex<Option<std::sync::mpsc::SyncSend
 
 #[cfg(target_os = "windows")]
 pub fn start_selection_listener(app_handle: tauri::AppHandle) -> Result<(), String> {
-    HOOK_ENABLED.store(true, Ordering::Release);
+    set_selection_listener_enabled(true);
     let mut current_sender = hook_sender().lock();
     if current_sender.is_some() {
         return Ok(());
@@ -1420,7 +1467,7 @@ pub fn start_selection_listener(app_handle: tauri::AppHandle) -> Result<(), Stri
         .spawn(move || run_selection_worker(app_handle, receiver))
     {
         *hook_sender().lock() = None;
-        HOOK_ENABLED.store(false, Ordering::Release);
+        set_selection_listener_enabled(false);
         return Err(format!("启动划词处理线程失败: {error}"));
     }
 
@@ -1429,7 +1476,7 @@ pub fn start_selection_listener(app_handle: tauri::AppHandle) -> Result<(), Stri
         .spawn(run_hook_message_loop)
     {
         *hook_sender().lock() = None;
-        HOOK_ENABLED.store(false, Ordering::Release);
+        set_selection_listener_enabled(false);
         return Err(format!("启动划词输入监听失败: {error}"));
     }
     Ok(())
@@ -1442,7 +1489,10 @@ pub fn start_selection_listener(_app_handle: tauri::AppHandle) -> Result<(), Str
 
 pub fn set_selection_listener_enabled(enabled: bool) {
     #[cfg(target_os = "windows")]
-    HOOK_ENABLED.store(enabled, Ordering::Release);
+    {
+        selection_publication_owner().set_enabled(enabled);
+        HOOK_ENABLED.store(enabled, Ordering::Release);
+    }
 
     #[cfg(not(target_os = "windows"))]
     let _ = enabled;
@@ -1576,7 +1626,7 @@ fn run_hook_message_loop() {
                 UnhookWindowsHookEx(keyboard);
             }
             *hook_sender().lock() = None;
-            HOOK_ENABLED.store(false, Ordering::Release);
+            set_selection_listener_enabled(false);
             return;
         }
         let mut message = std::mem::zeroed();
@@ -1587,7 +1637,7 @@ fn run_hook_message_loop() {
         UnhookWindowsHookEx(mouse);
         UnhookWindowsHookEx(keyboard);
         *hook_sender().lock() = None;
-        HOOK_ENABLED.store(false, Ordering::Release);
+        set_selection_listener_enabled(false);
     }
 }
 
@@ -1634,6 +1684,9 @@ fn run_selection_worker(
                     continue;
                 };
 
+                let Some(publication_epoch) = selection_publication_owner().snapshot() else {
+                    continue;
+                };
                 let config = app_handle
                     .state::<AppState>()
                     .with_profile(|profile| profile.selection_assistant.clone());
@@ -1672,8 +1725,6 @@ fn run_selection_worker(
                 {
                     continue;
                 }
-                last_value = dedupe_value;
-                last_seen = Instant::now();
                 let screenshots = match screenshot_task {
                     Some(task) => match task.join() {
                         Ok(Ok(images)) => images,
@@ -1688,8 +1739,16 @@ fn run_selection_worker(
                     },
                     None => Vec::new(),
                 };
-                if let Err(error) = show_selection(&app_handle, gesture, text, screenshots) {
-                    log::warn!("显示划词助手失败: {error}");
+                if let Some(result) = selection_publication_owner()
+                    .publish_if_current(publication_epoch, || {
+                        show_selection(&app_handle, gesture, text, screenshots)
+                    })
+                {
+                    last_value = dedupe_value;
+                    last_seen = Instant::now();
+                    if let Err(error) = result {
+                        log::warn!("显示划词助手失败: {error}");
+                    }
                 }
             }
         }
@@ -1800,3 +1859,7 @@ fn foreground_app_source(excluded_apps: &[String]) -> Option<String> {
         (!filtered).then_some(name)
     }
 }
+
+#[cfg(test)]
+#[path = "selection_publication_tests.rs"]
+mod publication_owner_tests;

@@ -57,6 +57,7 @@ export function useModelCatalog({ context, fetchModels }: {
   }, [context, fetchModels, t]);
 
   useEffect(() => {
+    setLoading(false);
     if (loadedContextRef.current !== context) {
       loadedContextRef.current = null;
       setModels([]);

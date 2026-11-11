@@ -37,6 +37,35 @@ beforeEach(() => {
   invokeMock.invoke.mockReset();
 });
 
+describe("download request ownership IPC", () => {
+  it.each([
+    ["downloadModels", "download_models"],
+    ["cancelModelDownload", "cancel_model_download"],
+  ] as const)("%s forwards its captured request identity", async (exportName, command) => {
+    const api = await import("@/api/tauri");
+    const operation: (requestId?: string) => Promise<string> = api[exportName];
+    invokeMock.invoke.mockResolvedValueOnce("finished");
+
+    await expect(operation("download-owner-a")).resolves.toBe("finished");
+
+    expect(invokeMock.invoke).toHaveBeenCalledExactlyOnceWith(command, { requestId: "download-owner-a" });
+  });
+
+  it.each([
+    ["downloadModels", "download_models"],
+    ["cancelModelDownload", "cancel_model_download"],
+  ] as const)("%s retains the legacy no-argument call", async (exportName, command) => {
+    const api = await import("@/api/tauri");
+    invokeMock.invoke.mockResolvedValueOnce("finished");
+
+    await expect(api[exportName]()).resolves.toBe("finished");
+
+    expect(invokeMock.invoke).toHaveBeenCalledTimes(1);
+    expect(invokeMock.invoke.mock.calls[0][0]).toBe(command);
+    expect(invokeMock.invoke.mock.calls[0][1]?.requestId ?? null).toBeNull();
+  });
+});
+
 describe("polish credential provider IPC", () => {
   async function credentialApi() {
     return await import("@/api/tauri") as {

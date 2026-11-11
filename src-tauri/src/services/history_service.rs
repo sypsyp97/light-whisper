@@ -732,12 +732,22 @@ fn read_stats(connection: &Connection) -> Result<HistoryStats, String> {
 }
 
 fn cleanup_audio_if_unreferenced_with_connection(connection: &Connection, audio_file: &str) {
-    let references = connection.query_row(
+    // Keep ownership checks and unlink in one write transaction so a completed
+    // reprocess cannot transfer its lease to a row between these operations.
+    let transaction =
+        match rusqlite::Transaction::new_unchecked(connection, TransactionBehavior::Immediate) {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                log::warn!("锁定历史音频回收失败，保留文件等待重试: {audio_file}: {error}");
+                return;
+            }
+        };
+    let references = transaction.query_row(
         "SELECT COUNT(*) FROM transcription_history WHERE audio_file = ?1",
         params![audio_file],
         |row| row.get::<_, i64>(0),
     );
-    let leases = connection.query_row(
+    let leases = transaction.query_row(
         "SELECT COALESCE(SUM(lease_count), 0) FROM history_audio_leases WHERE audio_file = ?1",
         params![audio_file],
         |row| row.get::<_, i64>(0),

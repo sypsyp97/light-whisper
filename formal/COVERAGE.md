@@ -10,13 +10,14 @@ an explicit contract, with actual source and evidence paths.
 | Recording/output | Reservation, cancellation, four modes, finalization, consent, paste/restoration and disposed listeners; audio/finalize, useRecording/disposal and clipboard tests. |
 | Capture/monitor | Native acceptance/fallback, worker/device identity, sample cap, detached workers and monitor generations; native tests, publication guard and disposed-effect regression. |
 | Hotkeys | Three roles, conflict/backend partitions, hold/toggle, duplicates, session stops, queued starts and obsolete native/dispatch messages; per-gate owner, recording-lock bind, fresh mode gates and never-reused native IDs. |
-| Engine/model management | Four engine classes, start/restart/failure, key slots/regions, downloads, busy exclusion, directory migration and frontend cancel/retry/unmount generations; engine/native/path, settings and download cancellation tests. |
+| Engine/model management | Four engine classes, start/restart/failure, key slots/regions, downloads, busy exclusion, directory migration and frontend cancel/retry/unmount generations; scoped download events/promises, captured cancellation targets, and acknowledgement after worker termination, terminal publication and slot release; engine/native/path, settings, worker and download cancellation tests. |
 | GPU idle unload | Startup/runtime enable windows, command-lock and active-stream exclusion, sticky readiness, reload and stale settings reads; two component models plus the integrated R2T2 workload. User-event tests cover blur/click ordering; CUDA speech probes check native unload/reload. |
-| Authentication/providers | Browser/device/refresh/logout, partial storage, provider/key/endpoint pairing, captured authentication choices, one-session catalog credentials and storage/cache publication; coordinator/challenge/metadata/key interleaving tests, eight LLM/catalog snapshot paths and provider tests. |
+| Authentication/providers | Browser/device/refresh/logout, partial storage, provider/key/endpoint pairing, captured authentication choices, one-session catalog credentials and storage/cache publication; vision drafts survive provider switches, writes serialize and stale or dirty-at-read responses cannot publish; coordinator/challenge/metadata/key interleaving tests, real SettingsPage interactions, eight LLM/catalog snapshot paths and provider tests. |
+| Catalog loading | Context, authentication and separate-mode retirement settle the retired spinner; stale success/failure cannot publish or clear a replacement request's loading state. Real hook, vision picker and selection settings interactions cover deletion, logout, closure/reopen and current completion. |
 | Settings/personalization | Version ordering, preference publication, providers/import/export, hotwords/corrections/app rules; profile/state/settings tests and unbounded Lean induction/first-match proofs. |
 | Context/processing | Independent Off/On/Auto settings and app overrides, explicit operations/no-search, unknown fail-open, captured screenshots and meaning audit; routed external search/fresh screen joins, post-join foreground snapshot, and reused description regressions. |
-| Assistant/selection | Cancellation/conversation/retry, search/source partitions, result ownership and exact-context replacement; production unit and overlay tests. |
-| History | Multiple/shared records, consent, transactional deletion, retention/GC failures, export/leases/reprocessing; audio I/O overlaps ASR/LLM and settles with the persistence attempt before terminal results/paste authorization; SQLite tests, percentile rank preservation and HistoryPage. Assistant stream chunks/done are excluded from that ordering. |
+| Assistant/selection | Cancellation/conversation/retry, search/source partitions, result ownership and exact-context replacement; retry retirement preserves newer text, phase and busy state even after same-session close. Selection disable retires capture epochs; the publication lock covers screenshot cache and actual window publication through completion. Production owner API, source review and overlay tests. |
+| History | Multiple/shared records, consent, transactional deletion, retention/GC failures, export/leases/reprocessing; GC holds a SQLite write transaction through reference read, lease read and unlink. Mutation completion refreshes the visible filter. Terminal results/paste authorization precede archive work; persistence and actual paste completion settle independently. SQLite tests, percentile rank preservation and HistoryPage. Assistant stream chunks/done are excluded from that ordering. |
 | Windows/UI | Startup/tray/exit, manual/session generations, terminal subtitles, theme/autostart/navigation; window/overlay/tray/capability/system settings tests. |
 | Protocols/transport | Tagged JSONL replies, native streaming, cloud result/error classes, SSE timeouts/retries/cancellation; Python server and Rust protocol/transport tests. |
 | Updates/validation | Actual numeric version parser, HTTPS GitHub release URL and http(s) source/provider partitions; URL/input and normalization tests. |
@@ -113,6 +114,37 @@ an explicit contract, with actual source and evidence paths.
   and alias-ranking rules. Concrete production-path regressions pin those
   boundaries and the existing latency budget; the text-matching algorithm has
   no source-level refinement proof in these workflow models.
+
+The [2026-11-11 audit](evidence/state-machine-20261111.md) adds the following
+bounded companions. Counts are distinct states in each positive configuration;
+they do not measure source-branch coverage.
+
+| Model | Positive states | Bound |
+| --- | ---: | --- |
+| HistoryAudioGcOwnership | 16,924 | One shared audio identity, two independent tasks and three GC attempts; separate reference/lease reads, unlink, query failure and unlink failure. |
+| SelectionPublicationOwnership | 700 | Two capture workers, epochs 0/1, one disable/re-enable cycle and optional screenshots; eligibility, screenshot publication and window publication are separate steps. |
+| AssistantRetryOwnership | 51 | Two retries, one retirement by new dictation or close, and an optional same-session reopen; success, failure, finally and streamed final are distinct effects. |
+| HistoryMutationFilterOwnership | 29 | One polish/ASR/removed-delete/missing-delete mutation, one A-to-B filter switch and B load, followed by mutation/refresh success or failure. |
+| ModelCatalogLoadingOwnership | 29 | Two requests, one context/authentication/separate-mode retirement and optional eligibility restoration; late success, failure and finally remain possible. |
+| VisionCredentialOwnership | 33,362 | Two edits, two reads, two provider switches and one retry per failed latest edit; captured provider, serialized writes and dirty-at-read ownership. |
+| DownloadTaskEventOwnership | 2,783 | Two request identities, two cancellation waiters per request, preparation/progress/child-wait stages, four status classes and late promise completion. |
+
+History GC assumes initially saved paths are fresh and unique; reprocessing of
+existing audio uses leases. SQLite write exclusion and native filesystem
+operations remain trusted primitives. Selection runtime epochs must not wrap,
+and retirement must use the same lock that covers the actual screenshot cache
+and `show_selection` publication closure. Owner API tests alone do not establish
+that source binding; review checks it separately. Download cancellation progress
+requires weak fairness for cancellation observation, terminal publication and
+cleanup, without a wall-clock guarantee. Native process, HTTP, clipboard,
+screenshot and window outcomes remain external inputs.
+
+These seven families add **22 safety negatives** and **two boundary reachability
+witnesses**. The GC and selection `BoundaryNegative.cfg` configurations retain
+the correct guards and intentionally violate `BoundaryCoverageNotReached` to
+demonstrate a combined scenario. They are reachability evidence, not safety
+negatives. Configured assertions and observed state-changing actions are bound
+separately in the registry; none of these models supplies compiler refinement.
 
 ## What the gates mean
 

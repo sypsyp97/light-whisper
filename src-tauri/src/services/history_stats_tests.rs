@@ -1,5 +1,7 @@
 // Included inside history_service::tests; every public API call runs in a child
 // process whose data directory is a fresh temporary directory.
+include!("history_audio_gc_tests.rs");
+
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     mpsc, Mutex,

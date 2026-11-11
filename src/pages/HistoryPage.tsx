@@ -192,7 +192,7 @@ export default function HistoryPage({
     try {
       await reprocessTranscriptionHistory(record.id, kind);
       toast.success(t("historyPage.reprocessDone"));
-      await Promise.all([load(true), refreshStats()]);
+      await Promise.all([loadRef.current(true), refreshStats()]);
     } catch (error) {
       toast.error(t("historyPage.reprocessFailed", { error: errorMessage(error) }));
     } finally {
@@ -208,7 +208,7 @@ export default function HistoryPage({
     try {
       const removed = await deleteTranscriptionHistory(record.id);
       if (!removed) {
-        await Promise.all([load(true), refreshStats()]);
+        await Promise.all([loadRef.current(true), refreshStats()]);
         return;
       }
       if (!prefersReducedMotion()) {
@@ -218,7 +218,7 @@ export default function HistoryPage({
       setItems((previous) => previous.filter((item) => item.id !== record.id));
       setRemovingId(null);
       setTotal((value) => Math.max(0, value - 1));
-      await Promise.all([load(true), refreshStats()]);
+      await Promise.all([loadRef.current(true), refreshStats()]);
     } catch (error) {
       toast.error(t("historyPage.deleteFailed", { error: errorMessage(error) }));
     } finally {
