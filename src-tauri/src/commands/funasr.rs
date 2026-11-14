@@ -311,6 +311,24 @@ pub async fn set_gpu_idle_seconds(
 }
 
 #[tauri::command]
+pub async fn get_gpu_backend() -> Result<String, AppError> {
+    Ok(paths::read_gpu_backend())
+}
+
+#[tauri::command]
+pub async fn set_gpu_backend(backend: String) -> Result<String, AppError> {
+    let normalized = paths::parse_gpu_backend(Some(&serde_json::json!(backend)));
+    paths::write_gpu_backend(&normalized)
+        .map_err(|e| AppError::Other(format!("写入 GPU 后端设置失败: {}", e)))?;
+    Ok(normalized)
+}
+
+#[tauri::command]
+pub async fn list_gpu_backends() -> Result<Vec<String>, AppError> {
+    Ok(paths::read_installed_gpu_backends())
+}
+
+#[tauri::command]
 pub async fn get_audio_processing_enabled() -> Result<bool, AppError> {
     Ok(paths::read_audio_processing_enabled())
 }

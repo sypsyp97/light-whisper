@@ -261,6 +261,7 @@ fn configure_server_environment(cmd: &mut Command, engine: &str, gpu_idle_second
     let models_dir = paths::strip_win_prefix(&paths::get_effective_models_dir());
     cmd.env("LIGHT_WHISPER_DATA_DIR", &data_dir)
         .env("LIGHT_WHISPER_ASR_ENGINE", engine)
+        .env("LIGHT_WHISPER_GPU_BACKEND", paths::read_gpu_backend())
         .env(
             "LIGHT_WHISPER_AUDIO_PROCESSING",
             if AUDIO_PROCESSING_BOOTSTRAP_ENABLED {
