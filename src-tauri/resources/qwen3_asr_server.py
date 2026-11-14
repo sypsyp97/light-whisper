@@ -102,7 +102,12 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
     def _load_runtime(self, model_path):
         self._gpu_device_info_cache = None
         runtime_root = Path(__file__).resolve().with_name("r2t2-native")
-        preferred = ["cuda", "cpu"] if self.device == "cuda" else ["cpu"]
+        if self.device == "vulkan":
+            preferred = ["vulkan", "cpu"]
+        elif self.device == "cuda":
+            preferred = ["cuda", "vulkan", "cpu"]
+        else:
+            preferred = ["cpu"]
         errors = []
         for backend in preferred:
             try:
@@ -173,7 +178,7 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
         return self._run_inference(audio, context=context, language=language)
 
     def _create_preview_runtime(self):
-        if self.backend == "cuda":
+        if self.backend != "cpu":
             return QwenPipelineRuntime(
                 self._run_inference, prepare_audio=lambda audio: self._filter_speech(audio)[0]
             )
@@ -380,7 +385,7 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
         runtime_root = Path(__file__).resolve().with_name("r2t2-native")
         installed = model_loaded or any(
             (runtime_root / backend / "audiocpp.dll").is_file()
-            for backend in ("cuda", "cpu")
+            for backend in ("cuda", "vulkan", "cpu")
         )
         return self._with_gpu_suspend_flag({
             "success": True,

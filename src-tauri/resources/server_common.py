@@ -35,6 +35,23 @@ def _has_nvidia_gpu() -> bool:
         return False
 
 
+def _has_vulkan_gpu() -> bool:
+    """Probe for a usable Vulkan loader plus at least one registered ICD."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        import winreg
+
+        ctypes.WinDLL("vulkan-1.dll")
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SOFTWARE\\Khronos\\Vulkan\\Drivers") as key:
+            winreg.QueryValueEx(key, "")
+            return True
+    except OSError:
+        return False
+
+
 def apply_hf_env_defaults() -> None:
     """Apply safe default HF env flags for Windows/offline-first runtime."""
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
@@ -197,7 +214,12 @@ class BaseASRServer:
     # ------------------------------------------------------------------
 
     def _detect_device(self) -> str:
-        return "cuda" if _has_nvidia_gpu() else "cpu"
+        if _has_nvidia_gpu():
+            return "cuda"
+        if _has_vulkan_gpu():
+            self.logger.info("检测到 Vulkan 设备，优先使用 Vulkan 后端")
+            return "vulkan"
+        return "cpu"
 
     def _setup_runtime_environment(self) -> None:
         try:
@@ -253,12 +275,36 @@ class BaseASRServer:
             threading.Thread(target=self._cleanup_memory, daemon=True).start()
             self.logger.info(f"已完成 {self.transcription_count} 次转录，后台执行内存清理")
 
+    def _fill_vulkan_device_info(self, info, *, include_memory=False) -> dict:
+        """Best-effort adapter metadata; never block model initialization."""
+        try:
+            query = subprocess.run(
+                ["vulkaninfo", "--summary"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=3 if include_memory else 1,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            for line in query.stdout.splitlines():
+                head, sep, value = line.partition("=")
+                if sep and head.strip() == "deviceName" and value.strip():
+                    info["gpu_name"] = value.strip()
+                    break
+        except (OSError, subprocess.SubprocessError):
+            pass
+        self._gpu_device_info_cache = dict(info)
+        return info
+
     def _get_gpu_device_info(self, *, include_memory=False) -> dict:
         """Cache optional metadata for the native runtime's first GPU."""
         info = {"device": self.device}
         if not include_memory:
             info["gpu_name"] = None
-        if getattr(self, "backend", self.device) != "cuda":
+        backend = getattr(self, "backend", self.device)
+        if backend == "vulkan":
+            return self._fill_vulkan_device_info(info, include_memory=include_memory)
+        if backend != "cuda":
             return info
         cached = getattr(self, "_gpu_device_info_cache", None)
         if cached is not None:
