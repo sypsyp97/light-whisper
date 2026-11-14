@@ -102,7 +102,11 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
     def _load_runtime(self, model_path):
         self._gpu_device_info_cache = None
         runtime_root = Path(__file__).resolve().with_name("r2t2-native")
-        if self.device == "vulkan":
+        forced = os.environ.get("LIGHT_WHISPER_GPU_BACKEND", "auto").strip().lower()
+        if forced in ("cuda", "vulkan", "cpu"):
+            logger.info("GPU 后端设置: %s", forced)
+            preferred = [forced] if forced == "cpu" else [forced, "cpu"]
+        elif self.device == "vulkan":
             preferred = ["vulkan", "cpu"]
         elif self.device == "cuda":
             preferred = ["cuda", "vulkan", "cpu"]
@@ -331,6 +335,10 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
 
             text = result.text.strip()
             language = result.language or "unknown"
+            logger.info(
+                "转录完成: 后端=%s 音频=%.2fs 语音=%.2fs VAD=%.0fms 推理=%.0fms 字数=%d",
+                self.backend, duration, speech_duration, vad_ms, inference_ms, len(text),
+            )
             self._maybe_cleanup(duration)
             return {
                 "success": True,

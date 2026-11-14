@@ -470,6 +470,45 @@ pub fn write_gpu_idle_seconds(
     })
 }
 
+/// GPU 后端选择。auto 表示按 CUDA -> Vulkan -> CPU 自动选择。
+pub const GPU_BACKENDS: [&str; 4] = ["auto", "cuda", "vulkan", "cpu"];
+
+pub fn parse_gpu_backend(value: Option<&serde_json::Value>) -> String {
+    let text = value
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("auto")
+        .trim()
+        .to_ascii_lowercase();
+    if GPU_BACKENDS.contains(&text.as_str()) {
+        text
+    } else {
+        "auto".to_string()
+    }
+}
+
+pub fn read_gpu_backend() -> String {
+    parse_gpu_backend(read_engine_json().get("gpu_backend"))
+}
+
+pub fn write_gpu_backend(backend: &str) -> Result<(), std::io::Error> {
+    let normalized = parse_gpu_backend(Some(&serde_json::json!(backend)));
+    update_engine_json(|config| {
+        if let Some(map) = config.as_object_mut() {
+            map.insert("gpu_backend".to_string(), serde_json::json!(normalized));
+        }
+    })
+}
+
+/// 已解包引擎里真正存在的后端（用于禁用未安装的选项）。
+pub fn read_installed_gpu_backends() -> Vec<String> {
+    let native = get_engine_dir().join("_internal").join("r2t2-native");
+    ["cuda", "vulkan", "cpu"]
+        .into_iter()
+        .filter(|backend| native.join(backend).join("audiocpp.dll").is_file())
+        .map(str::to_string)
+        .collect()
+}
+
 /// 读取用户自定义模型目录（None 表示使用默认 HF 缓存）
 pub fn read_models_dir() -> Option<String> {
     read_engine_json()
