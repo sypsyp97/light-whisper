@@ -351,10 +351,21 @@ def create_tar_xz(engine_dir: Path, output: Path) -> float:
     return create_tar_xz_with_python(engine_dir, output)
 
 
+def native_backends():
+    """Native backends actually packaged in resources/r2t2-native."""
+    root = RESOURCES_DIR / "r2t2-native"
+    found = tuple(
+        backend
+        for backend in ("cpu", "cuda", "vulkan")
+        if (root / backend / "runtime-manifest.json").is_file()
+    )
+    return found or ("cpu",)
+
+
 def validate_r2t2_runtime():
     """Reject missing or modified native bundles before replacing engine output."""
     root = RESOURCES_DIR / "r2t2-native"
-    for backend in ("cpu", "cuda"):
+    for backend in native_backends():
         directory = root / backend
         manifest_path = directory / "runtime-manifest.json"
         if not manifest_path.is_file():
@@ -363,13 +374,15 @@ def validate_r2t2_runtime():
             )
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         patch_sha = hashlib.sha256(R2T2_PATCH.read_bytes()).hexdigest()
+        expected_reuse = None if backend == "vulkan" else reuse_source_fingerprint()
         if (manifest.get("build_id") != R2T2_BUILD_ID
                 or manifest.get("revision") != R2T2_REVISION
                 or manifest.get("patch_sha256") != patch_sha
-                or manifest.get("reuse_source_sha256") != reuse_source_fingerprint()):
+                or manifest.get("reuse_source_sha256") != expected_reuse):
             raise RuntimeError(f"Stale R2T2 {backend} runtime; rebuild the native package")
         files = manifest.get("files", {})
-        if manifest.get("backend") != backend or not {"audiocpp.dll", "reuse.dll"} <= files.keys():
+        required = {"audiocpp.dll"} if backend == "vulkan" else {"audiocpp.dll", "reuse.dll"}
+        if manifest.get("backend") != backend or not required <= files.keys():
             raise RuntimeError(f"Invalid R2T2 runtime manifest: {manifest_path}")
         actual_names = {item.name for item in directory.iterdir()}
         if actual_names != set(files) | {"runtime-manifest.json"}:
@@ -394,12 +407,8 @@ def verify_archive_sources(archive: Path) -> None:
         for name in ADD_DATA_FILES if name.endswith(".py")
     }
     seen = set()
-    native_paths = {
-        f"_internal/r2t2-native/{backend}/{filename}"
-        for backend in ("cpu", "cuda")
-        for filename in ("runtime-manifest.json", "audiocpp.dll", "reuse.dll")
-    }
-    native_prefixes = tuple(f"_internal/r2t2-native/{backend}/" for backend in ("cpu", "cuda"))
+    supported_backends = ("cpu", "cuda", "vulkan")
+    native_prefixes = tuple(f"_internal/r2t2-native/{backend}/" for backend in supported_backends)
     native = {}
     native_names = set()
     retired_packages = {"transcribe_cpp", "transcribe_cpp_native", "transcribe_cpp_native_cu12"}
@@ -412,12 +421,10 @@ def verify_archive_sources(archive: Path) -> None:
                 if (component in retired_packages
                         or component.endswith(".dist-info") and distribution in retired_packages):
                     raise RuntimeError(f"Retired transcribe.cpp package in bundled archive: {name}; rebuild the engine")
-            if (normalized == "_internal/r2t2-native/vulkan"
-                    or normalized.startswith("_internal/r2t2-native/vulkan/")
-                    or normalized.rsplit("/", 1)[-1] in {"ggml-vulkan.dll", "vulkan-1.dll"}):
+            if normalized.rsplit("/", 1)[-1] in {"ggml-vulkan.dll", "vulkan-1.dll"}:
                 raise RuntimeError(f"Retired Vulkan runtime in bundled archive: {name}; rebuild the engine")
             native_name = name.casefold()
-            if (native_name in native_paths or native_name.startswith(native_prefixes)
+            if (native_name.startswith(native_prefixes)
                     or native_name.startswith("_internal/") and name.count("/") == 1
                     and name not in expected):
                 if native_name in native_names:
@@ -453,21 +460,35 @@ def verify_archive_sources(archive: Path) -> None:
     missing = expected.keys() - seen
     if missing:
         raise RuntimeError(f"Missing bundled sources: {', '.join(sorted(missing))}; rebuild the engine")
-    missing_native = native_paths - native.keys()
+    # Which backends an archive carries is decided by the archive, not by this
+    # checkout: a reused archive may legitimately contain more or fewer packages.
+    archived_backends = [
+        backend for backend in supported_backends
+        if any(name.startswith(f"_internal/r2t2-native/{backend}/") for name in native_names)
+    ]
+    missing_native = [
+        f"_internal/r2t2-native/{backend}/runtime-manifest.json"
+        for backend in archived_backends
+        if f"_internal/r2t2-native/{backend}/runtime-manifest.json" not in native
+    ]
     if missing_native:
         raise RuntimeError(f"Missing bundled native files: {', '.join(sorted(missing_native))}; rebuild the engine")
     provenance = {"build_id": R2T2_BUILD_ID, "revision": R2T2_REVISION,
                   "patch_sha256": hashlib.sha256(R2T2_PATCH.read_bytes()).hexdigest(),
                   "reuse_source_sha256": reuse_source_fingerprint()}
-    for backend in ("cpu", "cuda"):
+    for backend in archived_backends:
         prefix = f"_internal/r2t2-native/{backend}"
         manifest = native[f"{prefix}/runtime-manifest.json"]
+        expected_provenance = dict(provenance)
+        if backend == "vulkan":
+            expected_provenance["reuse_source_sha256"] = None
         if (not isinstance(manifest, dict)
                 or manifest.get("backend") != backend
-                or any(manifest.get(key) != value for key, value in provenance.items())):
+                or any(manifest.get(key) != value for key, value in expected_provenance.items())):
             raise RuntimeError(f"Stale bundled R2T2 {backend} runtime; rebuild the engine")
         files = manifest.get("files")
-        if not isinstance(files, dict) or not {"audiocpp.dll", "reuse.dll"} <= files.keys():
+        required = {"audiocpp.dll"} if backend == "vulkan" else {"audiocpp.dll", "reuse.dll"}
+        if not isinstance(files, dict) or not required <= files.keys():
             raise RuntimeError(f"Invalid bundled R2T2 {backend} file table; rebuild the engine")
         for directory, entries in ((prefix, files), ("_internal", manifest.get("shared_files", {}))):
             if not isinstance(entries, dict):
@@ -515,7 +536,7 @@ def main():
     if WINDOWS_MANIFEST.exists():
         cmd.extend(["--manifest", str(WINDOWS_MANIFEST)])
 
-    for backend in ("cpu", "cuda"):
+    for backend in native_backends():
         cmd.extend(["--add-data", f"{native_runtime / backend}{os.pathsep}r2t2-native/{backend}"])
 
     for filename in ADD_DATA_FILES:

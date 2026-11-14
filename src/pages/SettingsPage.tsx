@@ -73,6 +73,7 @@ import PolishStructureControl from "@/components/settings/PolishStructureControl
 import ProcessingModeControl from "@/components/settings/ProcessingModeControl";
 import JevSettingsSection from "@/components/settings/JevSettingsSection";
 import GpuIdleUnloadControl from "@/components/settings/GpuIdleUnloadControl";
+import GpuBackendControl from "@/components/settings/GpuBackendControl";
 import AudioProcessingControl from "@/components/settings/AudioProcessingControl";
 import { SettingsDisclosure, SettingsReveal } from "@/components/settings/SettingsReveal";
 import ScreenVisionModelPicker from "@/components/settings/ScreenVisionModelPicker";
@@ -2458,6 +2459,7 @@ export default function SettingsPage({
               );
             })()}
             <GpuIdleUnloadControl />
+            {!isOnlineEngineKey(engine) && <GpuBackendControl />}
             <ModelConnectionTest
               disabled={engineLoading || onlineAsrRegionLoading || isRecording
                 || (isOnlineEngineKey(engine) && !onlineAsrKeyReady)}

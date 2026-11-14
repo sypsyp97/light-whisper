@@ -37,6 +37,9 @@ class WindowsBuildEnvironmentTests(unittest.TestCase):
             vcvars = installation / "VC/Auxiliary/Build/vcvars64.bat"
             vcvars.parent.mkdir(parents=True)
             vcvars.write_text("@echo off\n", encoding="utf-8")
+            ninja_file = installation / "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
+            ninja_file.parent.mkdir(parents=True)
+            ninja_file.write_bytes(b"synthetic ninja")
             responses = [
                 SimpleNamespace(stdout=str(installation) + "\n"),
                 SimpleNamespace(stdout="\n".join(f"{key}={value}" for key, value in vcvars_values.items())),
@@ -380,8 +383,8 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
         self.subprocess.assert_not_called()
         self.assertFalse(self.output.exists())
 
-    def test_vulkan_backend_rejects_before_source_or_build_work(self):
-        self.assert_cli_rejected("vulkan")
+    def test_unsupported_backend_rejects_before_source_or_build_work(self):
+        self.assert_cli_rejected("metal")
 
     def test_auto_backend_rejects_before_source_or_build_work(self):
         self.assert_cli_rejected("auto")
@@ -417,18 +420,21 @@ class CpuCudaPackageTests(unittest.TestCase):
     def native_members(self, backend, *, write_source=False):
         library = f"synthetic {backend} library".encode()
         reuse_library = f"synthetic {backend} enhancement library".encode()
+        files = {"audiocpp.dll": library}
+        file_table = {"audiocpp.dll": {"size": len(library), "sha256": hashlib.sha256(library).hexdigest()}}
+        if backend != "vulkan":
+            # The NVIDIA RE-USE enhancer is CUDA/CPU only, matching the builder.
+            files["reuse.dll"] = reuse_library
+            file_table["reuse.dll"] = {
+                "size": len(reuse_library), "sha256": hashlib.sha256(reuse_library).hexdigest()}
         manifest = {
             "backend": backend, "build_id": self.module.R2T2_BUILD_ID,
             "revision": self.module.R2T2_REVISION,
             "patch_sha256": hashlib.sha256(self.module.R2T2_PATCH.read_bytes()).hexdigest(),
-            "reuse_source_sha256": source_fingerprint(),
-            "files": {
-                "audiocpp.dll": {"size": len(library), "sha256": hashlib.sha256(library).hexdigest()},
-                "reuse.dll": {"size": len(reuse_library), "sha256": hashlib.sha256(reuse_library).hexdigest()},
-            },
+            "reuse_source_sha256": None if backend == "vulkan" else source_fingerprint(),
+            "files": file_table,
         }
-        files = {"audiocpp.dll": library, "reuse.dll": reuse_library,
-                 "runtime-manifest.json": json.dumps(manifest).encode()}
+        files["runtime-manifest.json"] = json.dumps(manifest).encode()
         if write_source:
             directory = self.resources / "r2t2-native" / backend
             directory.mkdir(parents=True)
@@ -450,16 +456,23 @@ class CpuCudaPackageTests(unittest.TestCase):
             self.fail(f"Current CPU/CUDA-only source package rejected: {error}")
         self.assertEqual(actual, self.resources / "r2t2-native")
 
-    def test_stale_extra_local_vulkan_directory_does_not_block_cpu_cuda_validation(self):
+    def test_directory_without_a_manifest_is_not_a_shipped_backend(self):
         directory = self.resources / "r2t2-native/vulkan"
         directory.mkdir()
-        (directory / "runtime-manifest.json").write_text('{"backend":"retired"}', encoding="utf-8")
-        (directory / "audiocpp.dll").write_bytes(b"old local native package")
+        (directory / "audiocpp.dll").write_bytes(b"leftover local build")
         try:
             actual = self.module.validate_r2t2_runtime()
         except RuntimeError as error:
-            self.fail(f"Unselected retired local package blocked CPU/CUDA: {error}")
+            self.fail(f"A manifest-less leftover directory blocked CPU/CUDA: {error}")
         self.assertEqual(actual, directory.parent)
+
+    def test_selected_vulkan_package_must_validate(self):
+        directory = self.resources / "r2t2-native/vulkan"
+        directory.mkdir()
+        (directory / "runtime-manifest.json").write_text('{"backend":"retired"}', encoding="utf-8")
+        (directory / "audiocpp.dll").write_bytes(b"stale local native package")
+        with self.assertRaises(RuntimeError):
+            self.module.validate_r2t2_runtime()
 
     def test_current_cpu_cuda_archive_passes_without_retired_backend(self):
         self.package()
@@ -468,10 +481,12 @@ class CpuCudaPackageTests(unittest.TestCase):
         except RuntimeError as error:
             self.fail(f"Current CPU/CUDA-only archive rejected: {error}")
 
-    def test_old_three_backend_archive_is_rejected_even_with_valid_vulkan_manifest(self):
+    def test_archive_may_carry_the_three_backends(self):
         self.package({**self.members, **self.native_members("vulkan")})
-        with self.assertRaises(RuntimeError):
+        try:
             self.module.verify_archive_sources(self.archive)
+        except RuntimeError as error:
+            self.fail(f"A cpu/cuda/vulkan archive was rejected: {error}")
 
     def test_retired_subtrees_and_dlls_are_rejected_with_normalized_slashes_and_case(self):
         self.package()
@@ -480,8 +495,6 @@ class CpuCudaPackageTests(unittest.TestCase):
         except RuntimeError as error:
             self.fail(f"Valid CPU/CUDA archive must pass before forbidden-member probes: {error}")
         for name in (
-            "_internal/r2t2-native/vulkan/retired.dat",
-            r".\_INTERNAL\R2T2-NATIVE\VULKAN\retired.dat",
             r".\_INTERNAL\TRANSCRIBE_CPP_NATIVE_CU12\_NATIVE\GGML-VULKAN.DLL",
             "_internal/vulkan-1.dll",
             r"plugins\nested\VuLkAn-1.DlL",
@@ -491,7 +504,7 @@ class CpuCudaPackageTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     self.module.verify_archive_sources(self.archive)
 
-    def test_main_selects_each_backend_directory_without_collecting_stale_vulkan_tree(self):
+    def test_main_selects_every_built_backend_directory(self):
         # Valid old files let this test reach the real CLI seam before implementation.
         self.native_members("vulkan", write_source=True)
         with mock.patch.object(self.module.subprocess, "run", return_value=SimpleNamespace(returncode=23)) as run:
@@ -505,7 +518,7 @@ class CpuCudaPackageTests(unittest.TestCase):
                   for source, destination in [value.rsplit(os.pathsep, 1)]]
         self.assertCountEqual(native, [
             (self.resources / "r2t2-native" / backend, f"r2t2-native/{backend}")
-            for backend in ("cpu", "cuda")
+            for backend in ("cpu", "cuda", "vulkan")
         ])
 
     def test_main_prunes_only_retired_collected_dlls_before_compression_preserving_source_wheel(self):

@@ -187,8 +187,8 @@ class QwenGpuMetadataTests(unittest.TestCase):
         server._close_runtime()
 
         def load_with_cpu_fallback(*args, backend, **kwargs):
-            if backend == "cuda":
-                raise RuntimeError("CUDA unavailable")
+            if backend != "cpu":
+                raise RuntimeError(f"{backend} unavailable")
             return mock.Mock()
 
         self.native_factory.side_effect = load_with_cpu_fallback
@@ -196,7 +196,7 @@ class QwenGpuMetadataTests(unittest.TestCase):
         self.assert_cpu_metadata(server.check_status())
         self.assertEqual(
             [call.kwargs["backend"] for call in self.native_factory.call_args_list],
-            ["cuda", "cuda", "cpu"],
+            ["cuda", "cuda", "vulkan", "cpu"],
         )
         self.assertEqual(self.query.call_count, 1)
 
