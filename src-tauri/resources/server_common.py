@@ -36,20 +36,29 @@ def _has_nvidia_gpu() -> bool:
 
 
 def _has_vulkan_gpu() -> bool:
-    """Probe for a usable Vulkan loader plus at least one registered ICD."""
+    """Probe the Vulkan loader and confirm it exposes at least one device."""
     if sys.platform != "win32":
         return False
     try:
         import ctypes
-        import winreg
 
         ctypes.WinDLL("vulkan-1.dll")
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
-                            r"SOFTWARE\\Khronos\\Vulkan\\Drivers") as key:
-            winreg.QueryValueEx(key, "")
-            return True
     except OSError:
         return False
+    # ICD registration differs per vendor and driver version (AMD does not use
+    # HKLM\SOFTWARE\Khronos\Vulkan\Drivers), so ask the loader for real devices.
+    try:
+        query = subprocess.run(
+            ["vulkaninfo", "--summary"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "deviceName" in query.stdout
 
 
 def apply_hf_env_defaults() -> None:
