@@ -55,7 +55,28 @@ def build_environment():
     if "VCTOOLSREDISTDIR" in env:
         env["VCToolsRedistDir"] = env.pop("VCTOOLSREDISTDIR")
     ninja = Path(installation) / "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
+    if not ninja.is_file():
+        # Visual Studio may be installed without its CMake component.
+        found = shutil.which("ninja")
+        if not found:
+            raise RuntimeError("Ninja is required; install it or add it to PATH")
+        ninja = Path(found)
     return env, ninja
+
+
+def _comparable_diff(text):
+    """Compare patch text ignoring EOL style and content-derived index hashes.
+
+    The reviewed patch is LF-only while the pinned upstream ships CRLF files, so
+    an applied diff can differ only in CRLF added lines and therefore in the
+    blob hashes. Real content changes still appear as changed lines.
+    """
+    lines = []
+    for line in text.replace("\r\n", "\n").splitlines():
+        if line.startswith("index "):
+            continue
+        lines.append(line.rstrip())
+    return "\n".join(lines).strip()
 
 
 def prepare_source(source):
@@ -67,10 +88,10 @@ def prepare_source(source):
     actual = run(["git", "-C", source, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     if actual != SOURCE_REVISION:
         raise RuntimeError(f"Expected audio.cpp {SOURCE_REVISION}, found {actual}; refusing to reset source")
-    diff_command = ["git", "-C", source, "diff", "--binary", "--unified=4", "HEAD"]
+    diff_command = ["git", "-C", source, "diff", "--binary", "--unified=4", "--abbrev=7", "HEAD"]
     reviewed = PATCH.read_text(encoding="utf-8").strip()
     modified = run(diff_command, capture_output=True, text=True).stdout.strip()
-    if modified == reviewed:
+    if _comparable_diff(modified) == _comparable_diff(reviewed):
         return
     if modified:
         raise RuntimeError("Native source contains changes other than the reviewed R2T2 patch")
@@ -94,7 +115,7 @@ def prepare_source(source):
                  "--ignore-space-change", "--whitespace=nowarn"]
         run([*apply, "--check", patch])
         run([*apply, patch])
-    if run(diff_command, capture_output=True, text=True).stdout.strip() != reviewed:
+    if _comparable_diff(run(diff_command, capture_output=True, text=True).stdout) != _comparable_diff(reviewed):
         raise RuntimeError("Native source contains changes other than the reviewed R2T2 patch")
 
 
@@ -106,9 +127,14 @@ def _assemble_runtime(source, build, output, backend, cuda_root, env, architectu
     shutil.copy2(library, output / library.name)
     from build_reuse_runtime import build as build_reuse, source_fingerprint
 
-    reuse_output = ROOT / "build/reuse" / backend
-    build_reuse(backend, source, build, reuse_output)
-    shutil.copy2(reuse_output / "reuse.dll", output / "reuse.dll")
+    if backend == "vulkan":
+        # The NVIDIA RE-USE enhancer is CUDA/CPU only; Vulkan builds skip it.
+        reuse_fingerprint = None
+    else:
+        reuse_output = ROOT / "build/reuse" / backend
+        build_reuse(backend, source, build, reuse_output)
+        shutil.copy2(reuse_output / "reuse.dll", output / "reuse.dll")
+        reuse_fingerprint = source_fingerprint()
     shutil.copy2(source / "LICENSE", output / "audio.cpp-LICENSE.txt")
     shutil.copy2(source / "external/ggml/LICENSE", output / "ggml-LICENSE.txt")
     shutil.copy2(source / "external/sentencepiece/LICENSE", output / "sentencepiece-LICENSE.txt")
@@ -132,7 +158,7 @@ def _assemble_runtime(source, build, output, backend, cuda_root, env, architectu
              for item in sorted(output.iterdir()) if item.is_file() and item.name != "runtime-manifest.json"}
     manifest = {"build_id": BUILD_ID, "source": SOURCE_URL, "revision": SOURCE_REVISION,
                 "patch_sha256": digest(PATCH), "backend": backend,
-                "reuse_source_sha256": source_fingerprint(),
+                "reuse_source_sha256": reuse_fingerprint,
                 "cuda_architectures": architectures if backend == "cuda" else None, "files": files}
     (output / "runtime-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -199,7 +225,7 @@ def portable_cuda_architectures(architectures):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=("cpu", "cuda"), required=True)
+    parser.add_argument("--backend", choices=("cpu", "cuda", "vulkan"), required=True)
     parser.add_argument("--source", type=Path, default=ROOT / "build/r2t2/source")
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--output", type=Path)
@@ -222,7 +248,7 @@ def main():
                f"-DCMAKE_MAKE_PROGRAM={ninja}", "-DAUDIOCPP_MODEL_SET=custom",
                "-DAUDIOCPP_MODELS=confucius4_r2t2,qwen3_asr", "-DAUDIOCPP_BUILD_C_API=ON",
                "-DAUDIOCPP_DEPLOYMENT_BUILD=ON", "-DENGINE_ENABLE_NATIVE_CPU=OFF",
-               "-DENGINE_ENABLE_VULKAN=OFF",
+               "-DENGINE_ENABLE_VULKAN=ON" if args.backend == "vulkan" else "-DENGINE_ENABLE_VULKAN=OFF",
                "-DENGINE_ENABLE_LLAMAFILE=OFF", f"-DAUDIOCPP_VERSION={BUILD_ID}"]
     if args.backend == "cuda":
         cuda_root = cuda_root.absolute()

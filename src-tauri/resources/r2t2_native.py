@@ -29,8 +29,8 @@ class NativeRuntime:
                  threads=None, dll_directories=(), rolling=False, adaptive_cadence=False,
                  family='confucius4_r2t2', mode='streaming'):
         self._display_name = 'R2T2' if family == 'confucius4_r2t2' else 'Qwen3-ASR'
-        if backend not in ('cpu', 'cuda'):
-            raise ValueError(f'Unsupported {self._display_name} backend')
+        if backend not in ('cpu', 'cuda', 'vulkan'):
+            raise ValueError(f'Unsupported {self._display_name} backend: {backend}')
         if not isinstance(rolling, bool):
             raise ValueError('rolling must be a boolean')
         if not isinstance(adaptive_cadence, bool):
@@ -114,7 +114,7 @@ class NativeRuntime:
         if abi >> 16 != 0 or (abi >> 8) & 0xff < 3:
             raise RuntimeError(f'Unsupported audio.cpp ABI {abi:#x}; preview requires 0.3 or newer')
         self._batch_initial_audio = (
-            self.backend == 'cuda'
+            self.backend != 'cpu'
             and self.rolling
             and (abi >> 8) & 0xff >= 4
         )

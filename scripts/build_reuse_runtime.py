@@ -18,14 +18,22 @@ def source_fingerprint():
     return digest.hexdigest()
 
 
+def _comparable(text):
+    """Ignore EOL style and content-derived index hashes when comparing patches."""
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").splitlines()
+             if not line.startswith("index ")]
+    return "\n".join(lines).strip()
+
+
 def build(backend, source, native_build_dir, output):
     source, native_build_dir, output = map(Path.absolute, (source, native_build_dir, output))
     revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
     if revision != SOURCE_REVISION:
         raise RuntimeError(f"Expected audio.cpp {SOURCE_REVISION}, found {revision}")
     modified = subprocess.check_output(
-        ["git", "-C", str(source), "diff", "--binary", "--unified=4", "HEAD"], text=True).strip()
-    if modified != PATCH.read_text(encoding="utf-8").strip():
+        ["git", "-C", str(source), "diff", "--binary", "--unified=4", "--abbrev=7", "HEAD"],
+        text=True).strip()
+    if _comparable(modified) != _comparable(PATCH.read_text(encoding="utf-8")):
         raise RuntimeError("Native source must contain exactly the reviewed R2T2 patch")
     cache = {}
     for line in (native_build_dir / "CMakeCache.txt").read_text(encoding="utf-8").splitlines():

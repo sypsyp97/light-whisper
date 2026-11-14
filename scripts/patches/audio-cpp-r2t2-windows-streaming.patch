@@ -2520,7 +2520,7 @@ index 37637bd..8bedfd3 100644
  }
  
 diff --git a/src/framework/runtime/greedy_qwen_decoder.cpp b/src/framework/runtime/greedy_qwen_decoder.cpp
-index bcbb5f5..be9f0ef 100644
+index bcbb5f5..a0944bb 100644
 --- a/src/framework/runtime/greedy_qwen_decoder.cpp
 +++ b/src/framework/runtime/greedy_qwen_decoder.cpp
 @@ -350,8 +350,76 @@ private:
@@ -2623,7 +2623,7 @@ index bcbb5f5..be9f0ef 100644
              modules::QwenCausalDecodeRuntimeWeights bound_weights;
              bound_weights.token_embedding = weights->weights().token_embedding;
              bound_weights.stack = bound.stack;
-@@ -688,35 +761,105 @@ struct GreedyQwenDecoderRuntime::Impl {
+@@ -688,35 +761,115 @@ struct GreedyQwenDecoderRuntime::Impl {
              bound_weights.lm_head = bound.lm_head;
              reusable_decoder = std::make_unique<modules::QwenCausalDecodeRuntime>(
                  *execution, config, bound_weights);
@@ -2697,6 +2697,9 @@ index bcbb5f5..be9f0ef 100644
 +        }
 +        const size_t tail_size = prompt.input_ids.size() - tail_start;
 +        std::vector<int32_t> draft;
++        // Backends without contiguous greedy token readback (Vulkan) cannot run
++        // draft verification; fall back to scalar decoding after the first refusal.
++        bool draft_verification_supported = true;
 +        if (tail_size <= previous_tail_and_output.size() &&
 +            std::equal(prompt.input_ids.begin() + tail_start, prompt.input_ids.end(), previous_tail_and_output.begin())) {
 +            draft.assign(previous_tail_and_output.begin() + tail_size, previous_tail_and_output.end());
@@ -2715,16 +2718,23 @@ index bcbb5f5..be9f0ef 100644
 +            const size_t remaining = draft.size() > out.size() ? draft.size() - out.size() : 0;
 +            const size_t verify_count = std::min<size_t>(4, remaining);
 +            // A full block avoids computing padded queries that cannot be used.
-+            if (verify_count == 4 && draft[out.size()] == token &&
++            if (verify_count == 4 && draft_verification_supported && draft[out.size()] == token &&
 +                static_cast<int64_t>(out.size() + verify_count) < max_new_tokens &&
 +                reusable_decoder->decode_current_end() + 4 <= reusable_decoder->decode_cache_steps()) {
 +                const std::vector<int32_t> proposed(draft.begin() + out.size(), draft.begin() + out.size() + verify_count);
-+                const auto verified = reusable_decoder->verify_tokens(proposed, token);
-+                out.insert(out.end(), proposed.begin(), proposed.begin() + verified.accepted_tokens);
-+                result = {};
-+                result.token_id = verified.next_token;
-+                if (verified.accepted_tokens != static_cast<int64_t>(verify_count)) { draft.clear(); }
-+                continue;
++                try {
++                    const auto verified = reusable_decoder->verify_tokens(proposed, token);
++                    out.insert(out.end(), proposed.begin(), proposed.begin() + verified.accepted_tokens);
++                    result = {};
++                    result.token_id = verified.next_token;
++                    if (verified.accepted_tokens != static_cast<int64_t>(verify_count)) { draft.clear(); }
++                    continue;
++                } catch (const std::runtime_error &) {
++                    // This backend has no contiguous greedy token readback (Vulkan):
++                    // disable draft verification and continue with scalar decoding.
++                    draft_verification_supported = false;
++                    draft.clear();
++                }
 +            }
 +            if (remaining && draft[out.size()] != token) { draft.clear(); }
              out.push_back(token);
@@ -2741,7 +2751,7 @@ index bcbb5f5..be9f0ef 100644
      }
  
  };
-@@ -754,11 +897,22 @@ std::vector<int32_t> GreedyQwenDecoderRuntime::generate(const Prompt & prompt, i
+@@ -754,11 +907,22 @@ std::vector<int32_t> GreedyQwenDecoderRuntime::generate(const Prompt & prompt, i
      }
      const auto & injection = prompt.injection;
      if (injection.tokens < 0 || injection.tokens > prompt_steps ||
