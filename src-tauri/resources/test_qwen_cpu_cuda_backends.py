@@ -73,7 +73,10 @@ class QwenCpuCudaSelectionTests(unittest.TestCase):
     def test_supported_resolved_paths_use_only_shared_cpu_cuda_runtime(self):
         for filename in self.PATHS:
             for detected, failures, expected in (
-                ("cuda", 0, ["cuda"]), ("cuda", 1, ["cuda", "cpu"]), ("cpu", 0, ["cpu"]),
+                ("cuda", 0, ["cuda"]), ("cuda", 1, ["cuda", "vulkan"]),
+                ("cuda", 2, ["cuda", "vulkan", "cpu"]),
+                ("vulkan", 0, ["vulkan"]), ("vulkan", 1, ["vulkan", "cpu"]),
+                ("cpu", 0, ["cpu"]),
             ):
                 with self.subTest(filename=filename, detected=detected, failures=failures):
                     self.native_factory.reset_mock(side_effect=True)
@@ -84,7 +87,11 @@ class QwenCpuCudaSelectionTests(unittest.TestCase):
 
     def test_exhausted_backends_clear_owner_without_importing_legacy_fallback(self):
         for filename in self.PATHS:
-            for detected, expected in (("cuda", ["cuda", "cpu"]), ("cpu", ["cpu"])):
+            for detected, expected in (
+                ("cuda", ["cuda", "vulkan", "cpu"]),
+                ("vulkan", ["vulkan", "cpu"]),
+                ("cpu", ["cpu"]),
+            ):
                 with self.subTest(filename=filename, detected=detected):
                     self.native_factory.reset_mock(side_effect=True)
                     self.native_factory.side_effect = RuntimeError("backend unavailable")
@@ -94,7 +101,6 @@ class QwenCpuCudaSelectionTests(unittest.TestCase):
                     self.assertEqual([call.kwargs["backend"] for call in self.native_factory.call_args_list], expected)
                     for backend in expected:
                         self.assertIn(backend, str(failure.exception))
-                    self.assertNotIn("vulkan", str(failure.exception).casefold())
                     self.assertNotIn("auto", str(failure.exception).casefold())
                     self.assertIsNone(server.model)
                     self.assertIsNone(server.session)
@@ -110,7 +116,7 @@ class CpuCudaAbiTests(unittest.TestCase):
         self.add_directory = self.enterContext(mock.patch("os.add_dll_directory", return_value=mock.Mock(), create=True))
 
     def test_retired_and_implicit_backends_reject_all_families_and_modes_before_dll_load(self):
-        for backend in ("vulkan", "auto", "metal", "", None):
+        for backend in ("auto", "metal", "", None):
             for family in ("qwen3_asr", "confucius4_r2t2", "unknown"):
                 for mode in ("offline", "streaming", "unknown"):
                     with self.subTest(backend=backend, family=family, mode=mode), self.assertRaises(ValueError):
@@ -118,11 +124,12 @@ class CpuCudaAbiTests(unittest.TestCase):
         self.load_library.assert_not_called()
         self.add_directory.assert_not_called()
 
-    def test_qwen_rejects_vulkan_before_dll_load(self):
-        with self.assertRaises(ValueError):
-            QwenNativeRuntime("qwen.gguf", "audio.dll", backend="vulkan")
-        self.load_library.assert_not_called()
-        self.add_directory.assert_not_called()
+    def test_qwen_accepts_vulkan_backend_and_loads_the_dll(self):
+        runtime = QwenNativeRuntime("qwen.gguf", "audio.dll", backend="vulkan")
+        self.addCleanup(runtime.close)
+        self.assertEqual(runtime.backend, "vulkan")
+        self.load_library.assert_called_once()
+        self.add_directory.assert_called_once()
 
     def test_cpu_cuda_qwen_preserve_c_abi_exact_audio_tail_options_output_and_ownership(self):
         pcm = np.linspace(-0.8, 0.8, 12813, dtype=np.float32)

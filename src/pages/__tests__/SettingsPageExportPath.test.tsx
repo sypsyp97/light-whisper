@@ -20,6 +20,9 @@ const tauriMock = vi.hoisted(() => ({
   getAudioProcessingEnabled: vi.fn(),
   setAudioProcessingEnabled: vi.fn(),
   getGpuIdleSeconds: vi.fn(),
+  getGpuBackend: vi.fn(),
+  setGpuBackend: vi.fn(),
+  listGpuBackends: vi.fn(),
   setGpuIdleSeconds: vi.fn(),
   getLlmReasoningSupport: vi.fn(),
   getModelsDir: vi.fn(),
@@ -243,6 +246,8 @@ function resetTauriMocks(exportPath: string | null = null) {
   tauriMock.getAssistantApiKey.mockResolvedValue("");
   tauriMock.getEngine.mockResolvedValue("qwen3-asr-0.6b");
   tauriMock.getAudioProcessingEnabled.mockResolvedValue(false);
+  tauriMock.getGpuBackend.mockResolvedValue("auto");
+  tauriMock.listGpuBackends.mockResolvedValue(["cpu", "vulkan"]);
   tauriMock.setAudioProcessingEnabled.mockImplementation(async (enabled: boolean) => enabled);
   tauriMock.getGpuIdleSeconds.mockResolvedValue(0);
   tauriMock.getLlmReasoningSupport.mockResolvedValue({
