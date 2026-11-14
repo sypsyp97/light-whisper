@@ -75,7 +75,12 @@ class QwenPipelineServerTests(unittest.TestCase):
         native, vad = _ServerNative(), _ServerVad()
         native.preparer_threads = vad.threads
         self.native_factory.reset_mock(side_effect=True)
-        self.native_factory.side_effect = [RuntimeError("CUDA unavailable"), native] if fallback else None
+        def _load_native(*_args, backend, **_options):
+            if fallback and backend != "cpu":
+                raise RuntimeError(f"{backend} unavailable")
+            return native
+
+        self.native_factory.side_effect = _load_native
         self.native_factory.return_value = native
         self.vad_factory.return_value = vad
         server = caller.submit(lambda: qwen3_asr_server.Qwen3ASRServer(engine="qwen3-asr-0.6b")).result()
@@ -158,13 +163,18 @@ class QwenPipelineServerTests(unittest.TestCase):
 
     def test_cpu_accepts_later_feeds_during_native_preview_and_finishes_with_tail(self):
         pcm = np.arange(12813, dtype="<i2")
-        for device in ("cpu", "cuda"):
+        expected_calls = {
+            "cpu": ["cpu"],
+            "cuda": ["cuda", "vulkan", "cpu"],
+            "vulkan": ["vulkan", "cpu"],
+        }
+        for device in ("cpu", "cuda", "vulkan"):
             with self.subTest(device=device):
                 self.detect_device.return_value = device
-                caller, server, native, vad = self.initialized_server(fallback=device == "cuda")
+                caller, server, native, vad = self.initialized_server(fallback=device != "cpu")
                 self.assertEqual(server.backend, "cpu")
                 self.assertEqual([call.kwargs["backend"] for call in self.native_factory.call_args_list],
-                                 ["cpu"] if device == "cpu" else ["cuda", "cpu"])
+                                 expected_calls[device])
                 self.start(caller, server)
                 first = caller.submit(lambda: server.handle_stream_command(feed_command(pcm[:3200])))
                 try:
