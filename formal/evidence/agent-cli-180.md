@@ -171,6 +171,14 @@ remain unchanged. The original CI collision remains an inference because that
 run did not record allocated root identities. Full native results require the
 new commit's CI; the allocator probes are not a full application run.
 
+The application formal CI job reaches its 20-minute deadline on a later runner
+after all positive models and Lean pass, while negative controls remain in
+progress. Identical hotkey models retain 318,882 states but take about 205 seconds
+each, compared with about 155 seconds in the earlier complete run. The job budget
+is increased to 30 minutes. Model bounds, commands, negative controls and required
+gates stay unchanged. The canceled run is not a pass; the final commit still
+requires a completed formal job.
+
 ## Recorded artifacts and actual inference
 
 These artifact and LLVM receipts retain their inputs from before the test-only
