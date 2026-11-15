@@ -60,7 +60,7 @@ struct QwenSink(Arc<Mutex<CaptureLog>>);
 
 impl NativeCaptureSink for QwenSink {
     fn chunk_samples(&self) -> usize {
-        640 // 40 ms at the native stream's 16 kHz input rate.
+        640
     }
 
     async fn feed(&mut self, samples: &[i16]) -> Result<NativeStreamUpdate, AppError> {

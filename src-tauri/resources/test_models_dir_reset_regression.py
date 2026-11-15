@@ -44,7 +44,7 @@ class ModelDirResetLifecycleRegressionTests(unittest.TestCase):
 
         self.assertIn("paths::get_default_models_dir()", function_block)
         self.assertIn("restore_default", function_block)
-        selection_end = function_block.index("// canonicalize")
+        selection_end = function_block.index("let canon_old = std::fs::canonicalize(&old_dir)")
         selection_block = function_block[:selection_end]
         self.assertNotIn(
             "return Ok(",

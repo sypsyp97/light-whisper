@@ -11,7 +11,7 @@ use crate::state::user_profile::{CorrectionSource, JevConfig, UserProfile};
 
 const REVIEW_TIMEOUT: Duration = Duration::from_secs(5);
 const CORRECTION_BATCH_SIZE: usize = 40;
-// Conservative initial cutoffs; model probabilities are not calibrated guarantees.
+
 const CORRECTION_REJECTION_MIN_PROBABILITY: f64 = 0.95;
 const AUDIT_WARNING_MIN_PROBABILITY: f64 = 0.90;
 static AUDIT_SLOT: Semaphore = Semaphore::const_new(1);
@@ -85,7 +85,7 @@ fn invalid_corrections(
     let mut invalid = HashSet::new();
     for (index, rule) in rules.iter().enumerate() {
         let id = format!("rule_{index}");
-        // Invalid response structure is a service failure, not an uncertain decision.
+
         jev_tasks::confident_choice(response, &id, &options, 0.0)?;
         if jev_tasks::confident_choice(
             response,

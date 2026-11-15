@@ -13,8 +13,6 @@ const INPUT_RATES: [u32; 9] = [
 #[path = "../src/services/audio_service/resample.rs"]
 mod resample;
 
-// This allocator belongs only to this integration-test executable. Const TLS
-// isolates the measured thread from the test runner without allocating itself.
 struct CountingAllocator;
 
 thread_local! {
@@ -29,29 +27,26 @@ fn record_allocation() {
     });
 }
 
-// SAFETY: Counting observes calls only. System owns every allocation and receives
-// the original arguments for allocation, reallocation, and deallocation.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         record_allocation();
-        // SAFETY: Forward the caller's valid layout unchanged to System.
+
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         record_allocation();
-        // SAFETY: Forward the caller's valid layout unchanged to System.
+
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: The pointer and its original layout come from this System wrapper.
         unsafe { System.dealloc(ptr, layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         record_allocation();
-        // SAFETY: Preserve the System pointer, its layout, and the valid new size.
+
         unsafe { System.realloc(ptr, layout, size) }
     }
 }
@@ -95,9 +90,6 @@ fn signal(len: usize) -> Vec<i16> {
         .collect()
 }
 
-// Freeze the allocating rubato flow independently of production buffering and
-// conversion helpers. Partial processing must retain rubato's zero-padding,
-// output length, interpolation history, and asymmetric i16 quantization.
 struct LegacyReference {
     inner: Option<FastFixedIn<f32>>,
     pending: Vec<f32>,
@@ -239,8 +231,7 @@ fn process_and_finish_reuse_preallocated_buffers() {
         let chunk = chunk_size(rate);
         let input = signal(chunk * 4 - 1);
         let mut subject = resample::ChunkedResampler::new(rate).unwrap();
-        // More than a full padded input packet at the ceiling of the ratio;
-        // caller output growth must never be included in the measurement.
+
         let capacity =
             (input.len() + chunk) * (TARGET_SAMPLE_RATE as usize).div_ceil(rate as usize) + 32;
         let mut output = Vec::with_capacity(capacity);

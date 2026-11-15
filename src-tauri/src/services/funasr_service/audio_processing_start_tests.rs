@@ -56,7 +56,7 @@ fn audio_processing_start_test_peer() {
         return;
     };
     let mode = std::env::var("LIGHT_WHISPER_AUDIO_START_TEST_MODE").unwrap();
-    // The loopback side channel releases an acknowledgement without sleeps.
+
     let mut gate = std::net::TcpStream::connect(address).unwrap();
     if mode == "bootstrap" {
         writeln!(
@@ -221,8 +221,6 @@ async fn managed_bootstrap_disables_saved_enhancement_before_asr_initialization(
             paths::strip_win_prefix(&model_cache)
         );
 
-        // A disable during ASR loading must not initialize enhancement from
-        // the old saved=true value after the child has bootstrapped disabled.
         paths::write_audio_processing_enabled(false).unwrap();
         let enabled_at_spawn = environment["audio_processing"] == "1";
         tokio::time::timeout(

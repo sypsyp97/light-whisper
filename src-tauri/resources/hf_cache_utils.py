@@ -1,8 +1,8 @@
-"""HuggingFace 缓存检测共享工具模块
 
-供各本地 ASR 服务与 download_models.py 共同使用，
-避免重复实现缓存路径和模型就绪检查逻辑。
-"""
+
+
+
+
 
 import os
 import json
@@ -29,15 +29,15 @@ R2T2_MODEL = {
 LOCAL_ASR_MODELS = {**QWEN3_ASR_MODELS, "confucius4-r2t2": R2T2_MODEL}
 
 _WEIGHT_EXTS = (".pt", ".bin", ".safetensors", ".onnx", ".gguf")
-_MIN_WEIGHT_SIZE = 1_000_000  # 与 Rust 端阈值一致
+_MIN_WEIGHT_SIZE = 1_000_000
 COMPLETE_MANIFEST_NAME = ".light_whisper_complete.json"
 
 
 def get_hf_cache_root():
-    """返回 HuggingFace 缓存根目录
 
-    优先级：HF_HUB_CACHE（由 Rust 设置的自定义路径）> HF_HOME/hub > 默认
-    """
+
+
+
     hf_hub_cache = os.environ.get("HF_HUB_CACHE")
     if hf_hub_cache:
         return hf_hub_cache
@@ -48,16 +48,16 @@ def get_hf_cache_root():
 
 
 def is_hf_repo_ready(repo_id):
-    """检查 HuggingFace 模型是否已缓存且包含实际模型权重文件。
 
-    仅检查目录结构不够——下载中途取消会留下空壳目录（refs/snapshots 存在但无权重文件），
-    导致后续加载卡死。这里额外验证 snapshots 中存在 >1MB 的模型权重文件。
-    """
+
+
+
+
     return any(_snapshot_is_ready(path) for path in _snapshot_paths(repo_id))
 
 
 def find_hf_snapshot_file(repo_id, filename):
-    """Resolve one exact cached file without scanning unrelated quantizations."""
+
     for snapshot_path in _snapshot_paths(repo_id):
         if _snapshot_is_ready(snapshot_path, filename):
             return os.path.join(snapshot_path, filename.replace("/", os.sep))
@@ -103,7 +103,7 @@ def _snapshot_is_ready(snapshot_path, required_file=None):
 
 
 def cleanup_incomplete_files(repo_id):
-    """删除旧 huggingface_hub blob 临时文件，保留 snapshots 下可续传的 partial。"""
+
     cache_root = get_hf_cache_root()
     dir_name = "models--" + repo_id.replace("/", "--")
     repo_dir = os.path.join(cache_root, dir_name)

@@ -1,4 +1,4 @@
-"""Common application stream contract; native inference stays deterministic."""
+
 
 import base64
 import contextlib
@@ -42,7 +42,7 @@ class FakeVad:
 
 
 class FakeStreamRuntime(CloseCounter):
-    """Only the native computation is replaced, not session validation."""
+
 
     chunk_samples = 5120
 
@@ -96,7 +96,7 @@ class SharedASRStreamContract:
         server.initialized = True
         server.backend = "cpu"
         server.native = runtime
-        # Keep the incumbent Qwen close/run APIs usable while testing stream guards.
+
         server.model = CloseCounter()
         server.session = FakeOfflineSession()
         server.vad_model = FakeVad()
@@ -375,8 +375,8 @@ class SharedASRStreamContract:
         )
         server = self._server(runtime)
         model, offline, vad = server.model, server.session, server.vad_model
-        # Start through the existing session API to isolate the unload guard
-        # from a missing server stream-command implementation.
+
+
         server.stream.start(9)
         server.stream.feed(9, np.asarray([0.1, 0.2], dtype=np.float32), offset=0)
         self.assertFalse(server._suspend_gpu_runtime())

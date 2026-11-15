@@ -9,14 +9,11 @@ use crate::state::user_profile::{JevConfig, JevConnection};
 
 use crate::services::llm_provider::KEYRING_SERVICE;
 
-// Include connection setup and body reading; share the interactive budget across callers.
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const LEGACY_VERCEL_PATH: &str = "/v4/ai/evaluation-model";
-/// Minimum probability for auto-polish bypass and its automatic screen route.
+
 pub const POLISH_ROUTING_MIN_PROBABILITY: f64 = 0.80;
-// Jev returns a probability for each of the three route choices. The API may
-// round those probabilities to two decimals, so small sum drift is accepted;
-// materially malformed distributions fail closed to ordinary polishing.
+
 const PROBABILITY_SUM_TOLERANCE: f64 = 0.02;
 
 impl JevProvider {
@@ -186,11 +183,6 @@ fn endpoint_for(provider: JevProvider, base_url: &str) -> Result<String, String>
     }
 }
 
-/// Build a Jev request for an arbitrary immutable state/questions payload.
-///
-/// Provider-specific model selection, endpoint paths, and headers stay here so
-/// all Jev tasks use the same transport contract without duplicating key
-/// handling or provider metadata.
 pub fn build_evaluation_request(
     client: &reqwest::Client,
     config: &JevConfig,
@@ -255,10 +247,6 @@ pub fn build_evaluation_request(
         .map_err(|_| "Jev request could not be constructed".to_string())
 }
 
-/// Build the immutable Jev classifier request.
-///
-/// `text` and `polishing_policy` are inserted as JSON values rather than into
-/// a prompt string, so untrusted ASR content cannot change the request shape.
 #[cfg(test)]
 pub fn build_request(
     client: &reqwest::Client,
@@ -289,7 +277,6 @@ fn probability(value: Option<&Value>) -> Option<f64> {
         .filter(|value| (0.0..=1.0).contains(value))
 }
 
-/// Return true only for a complete, confident `pass` decision.
 pub fn parse_decision(response: &str) -> bool {
     let Ok(payload) = serde_json::from_str::<Value>(response) else {
         return false;
@@ -331,7 +318,6 @@ pub fn parse_decision(response: &str) -> bool {
         && pass >= uncertain
 }
 
-/// Evaluate the gate while preserving optional-service failure diagnostics.
 pub async fn evaluate_with_warning(
     client: &reqwest::Client,
     config: &JevConfig,

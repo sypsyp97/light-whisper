@@ -1,11 +1,11 @@
-"""Check deferred multi-graph prefill, original host storage, and exact CPU traces.
 
-The caller identifies a reviewed frozen runtime by raw SHA-256. No old revision
-is silently substituted. Only test translation units are built; no GPU or model
-is used. Compilation and CPU runs are sequential at below-normal priority.
-Large-mask cap checks explicitly skip arithmetic while retaining real graph
-construction, ordered uploads, original-pointer lifetime, and byte accounting.
-"""
+
+
+
+
+
+
+
 import argparse
 import hashlib
 import json
@@ -51,8 +51,8 @@ def main():
             kwargs["creationflags"] = kwargs.get("creationflags", 0) | subprocess.BELOW_NORMAL_PRIORITY_CLASS
         if isinstance(command, str):
             return real_run(command, *positional, **kwargs)
-        # Preserve the shared runner's command list so its log/manifest records
-        # the effective linker command, including the current cache owner.
+
+
         command = command if isinstance(command, list) else list(command)
         if "/c" in command and str(command[-1]) == str(native.TEST):
             cache_command = [f"/Fo{cache_object}" if str(arg).startswith("/Fo") else arg for arg in command]

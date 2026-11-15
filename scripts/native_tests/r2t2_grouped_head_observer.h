@@ -73,12 +73,12 @@ inline std::string signature(ggml_tensor * node) {
 inline void add(Arithmetic & to, const Arithmetic & from) {
     for (const auto & item : from) to[item.first] += item.second;
 }
-}  // namespace grouped_head_observer
+}
 
 bool grouped_head_alloc(ggml_gallocr_t allocator, ggml_cgraph * graph) {
-    // Retain the actual argmax input through readback; intermediate scalar
-    // heads may otherwise share storage with later concatenation nodes.
-    // Scalar decode allocates every tensor via ggml_backend_alloc_ctx_tensors.
+
+
+
     for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
         auto * node = ggml_graph_node(graph, i);
         if (node->op == GGML_OP_ARGMAX && (node->flags & GGML_TENSOR_FLAG_OUTPUT)) {
@@ -141,4 +141,4 @@ ggml_status grouped_head_compute(ggml_backend_t backend, ggml_cgraph * graph,
     }
     return status;
 }
-}  // namespace engine::core
+}

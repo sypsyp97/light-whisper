@@ -121,7 +121,7 @@ describe("initial assistant retry ownership", () => {
     const { container } = await renderOverlay();
     await showRetryableResult(116);
     fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
-    // A streamed final can expose the dismissible result before the invoke settles.
+
     await act(async () => {
       events.emit("transcription-result", { sessionId: 116, text: "Streamed result", interim: false, mode: "assistant" });
     });
@@ -217,8 +217,8 @@ describe("initial assistant retry ownership", () => {
 
     await settle(retry, outcome, "Current retry completed after conversation action");
     if (conversationAction === "followup") {
-      // Keep the follow-up pending until after the initial retry has settled:
-      // submitting a turn must independently preserve that retry's ownership.
+
+
       fireEvent.click(screen.getByRole("button", { name: "subtitle.conversation.close" }));
       await settle(followup, "resolve", "Closed follow-up completed");
     }

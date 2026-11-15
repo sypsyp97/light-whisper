@@ -15,6 +15,8 @@ const api = vi.hoisted(() => ({
 }));
 const errorToast = vi.hoisted(() => vi.fn());
 const translate = vi.hoisted(() => (key: string) => key);
+const listen = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/event", () => ({ listen }));
 vi.mock("@/api/tauri", () => api);
 vi.mock("sonner", () => ({ toast: { error: errorToast, success: vi.fn() } }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: translate }) }));
@@ -37,6 +39,7 @@ async function mountSettings() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  listen.mockResolvedValue(vi.fn());
   vi.useFakeTimers();
   api.getEngine.mockResolvedValue("alibaba-asr");
   api.getOnlineAsrApiKey.mockResolvedValue("FAKE_STORED_KEY");

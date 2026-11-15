@@ -111,9 +111,9 @@ describe("TLC history filter ownership replay", () => {
       handled.push(event);
     }
     expect(handled).toEqual(events);
-    // Drain the corrected reset after the counterexample schedule, including
-    // error -> offset-zero retry -> replacement publication when it failed.
-    // Then exercise the model's reachable normal pagination at current offset 2.
+
+
+
     if (!dispatched) {
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
       expect(api.listTranscriptionHistory).toHaveBeenLastCalledWith(expect.objectContaining({ query: "current", offset: 0 }));

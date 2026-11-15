@@ -1,5 +1,3 @@
-//! Official local OSS Sign in with ChatGPT flow.
-//! <https://developers.openai.com/siwc/token-sharing-open-source/sign-in>
 use super::*;
 use ring::signature::{RsaPublicKeyComponents, RSA_PKCS1_2048_8192_SHA256};
 
@@ -108,7 +106,7 @@ fn forget_account_at(path: &std::path::Path, client_id: &str) -> Result<(), Stri
     if registry.last_client_id.as_deref() == Some(client_id) {
         registry.last_client_id = None;
     }
-    // Keep the host identity even when the last registration is removed.
+
     write_registry_at(path, &registry)
 }
 
@@ -209,7 +207,6 @@ fn remember_account_at(
 }
 
 pub(super) fn saved_accounts() -> Vec<ChatgptAccount> {
-    // Status reads must not register a new host or touch protected credentials.
     let Ok(raw) = std::fs::read(registry_path()) else {
         return Vec::new();
     };
@@ -431,7 +428,6 @@ fn authorize_url(
         .and_then(|r| r.registration)
         .is_some_and(|r| !r.plan_usage_enabled())
     {
-        // User explicitly asked to enable a previously declined plan grant.
         parameters.push(("prompt", "consent"));
     }
     reqwest::Url::parse_with_params(&format!("{ISSUER}/api/accounts/authorize"), &parameters)
@@ -465,7 +461,7 @@ async fn token_request_at(
         .map_err(|_| "读取 ChatGPT token 响应失败")?;
     if !status.is_success() {
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
-        // Never echo an upstream body: token endpoints can include credentials.
+
         let code = value["error"]
             .as_str()
             .or_else(|| value["error"]["code"].as_str())
@@ -555,8 +551,7 @@ pub(super) async fn login(
             (None, Some(id)) if !id.trim().is_empty() && id != "dynamic_agent_client" => id,
             _ => return Err("ChatGPT 注册没有返回客户端 ID，请重新登录。".into()),
         };
-        // The client is already registered upstream. Retain its ID before token
-        // exchange, without publishing an identity or credentials yet.
+
         if !state
             .openai_codex_oauth_state()
             .record_login_progress(login.token(), || {
@@ -631,8 +626,7 @@ pub(super) async fn refresh(
         .registration
         .as_ref()
         .ok_or("ChatGPT 客户端记录缺失")?;
-    // Fetch verification material before rotating the refresh token. A failed
-    // metadata request must not discard a successfully rotated credential.
+
     let keys = signing_keys(client).await?;
     let mut tokens = token_request(
         client,
@@ -914,7 +908,7 @@ mod tests {
         assert_eq!(remaining.host_id, "host");
         assert_eq!(remaining.accounts.len(), 1);
         assert_eq!(remaining.accounts[0].client_id, "second");
-        forget_account_at(&path, "first").unwrap(); // Retry is idempotent.
+        forget_account_at(&path, "first").unwrap();
         forget_account_at(&path, "second").unwrap();
         let empty = read_registry_at(&path).unwrap();
         assert!(empty.accounts.is_empty());
@@ -968,8 +962,7 @@ mod tests {
             .unwrap()
             .registration
             .is_some());
-        // Failed additions remain separate, but signing in to an existing
-        // registration again makes that registration the returning default.
+
         remember_pending_at(&path, "unfinished-two").unwrap();
         remember_pending_at(&path, "unfinished-three").unwrap();
         assert_eq!(

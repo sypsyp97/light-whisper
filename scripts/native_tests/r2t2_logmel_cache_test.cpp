@@ -49,7 +49,7 @@ using WhisperFrontend = r2t2::R2T2ASRWhisperFrontend;
 constexpr auto encoder_token_count = r2t2::confucius4_r2t2_audio_encoder_token_count;
 #endif
 using engine::runtime::AudioBuffer;
-// Concurrent Qwen calls leave instrumentation disabled in their own threads.
+
 thread_local bool count_work = false;
 size_t fft_frames = 0, mel_frames = 0, mel_cells = 0, assertions = 0, observations = 0, work_failures = 0;
 std::ofstream trace;
@@ -89,8 +89,8 @@ std::vector<float> normalized(const AudioBuffer & input, int target_rate) {
     return samples;
 }
 
-// Only models the publicly observable reuse boundary, never feature arithmetic.
-// Shared frontend copies receive the same ExpectedCache object.
+
+
 struct ExpectedCache { std::vector<float> samples; int64_t frames = 0; };
 struct Subject {
     FrontendConfig config;
@@ -123,7 +123,7 @@ AudioFeatures check(Subject & subject, const AudioBuffer & input, const std::str
                std::memcmp(previous.data(), samples.data(), previous.size() * sizeof(float)) == 0) {
         const int64_t stable = 1 + (static_cast<int64_t>(previous.size()) -
             (config.n_fft - config.n_fft / 2)) / config.hop_length;
-        // Last STFT column was dropped before mel/log extraction. It cannot be copied.
+
         reusable = std::min(stable, subject.cache->frames);
     }
     const size_t needed_mel_frames = static_cast<size_t>(expected.frames - reusable);
@@ -155,8 +155,8 @@ AudioFeatures check(Subject & subject, const AudioBuffer & input, const std::str
               << " fft=" << fft_frames << "/" << needed_fft_frames
               << " mel_frames=" << mel_frames << "/" << needed_mel_frames
               << " mel_cells=" << mel_cells << "/" << needed_mel_frames * config.feature_size << '\n';
-    // Tail FFT work may improve further (for example by avoiding the dropped
-    // final STFT column). It must never transform any cached stable prefix.
+
+
     const bool fft_ok = reusable == 0 ? fft_frames == needed_fft_frames : fft_frames <= needed_fft_frames;
     if (enforce_work && (!fft_ok || mel_frames != needed_mel_frames ||
                         mel_cells != needed_mel_frames * static_cast<size_t>(config.feature_size))) {
@@ -222,8 +222,8 @@ void concurrent_copies(FrontendConfig config, const std::string & name) {
             const WhisperFrontend & frontend = owners[worker];
             for (size_t round = 0; round < rounds; ++round) {
                 auto & result = results[worker * rounds + round];
-                // Release all copied owners together for every call; no timing
-                // threshold or global work/trace mutation in worker threads.
+
+
                 rendezvous();
                 try { result.features = frontend.extract(inputs[(worker + round) % inputs.size()]); }
                 catch (...) { result.error = std::current_exception(); }
@@ -268,7 +268,7 @@ void cases(FrontendConfig config, const std::string & name, bool enforce_work) {
         const auto prefix = lengths.front() == 8000 ? "append-" : "tail-";
         for (const auto count : lengths) observe(subject, mono(samples, count), prefix + std::to_string(count));
         observe(subject, mono(samples, lengths.back()), prefix + std::string("identical"));
-        // Append without adding an output frame: right-reflected columns may still change.
+
         observe(subject, mono(samples, lengths.back() + 1), prefix + std::string("one-sample"));
     }
     Subject reset(config);
@@ -327,15 +327,15 @@ void cases(FrontendConfig config, const std::string & name, bool enforce_work) {
     Subject fresh(config);
     observe(fresh, mono(samples, 16019), "fresh-owner");
 #ifdef LIGHT_WHISPER_QWEN_FRONTEND_TEST
-    // A one-sample append can change reflected data without adding a frame;
-    // another can leave every available output column stable.
+
+
     Subject reflected(config), stable(config);
     observe(reflected, mono(samples, 8000), "boundary-8000");
     observe(reflected, mono(samples, 8001), "boundary-8001");
     observe(stable, mono(samples, 8047), "boundary-8047");
     observe(stable, mono(samples, 8048), "boundary-8048");
 
-    // The cache key is the PCM after conversion, peak normalization and padding.
+
     Subject canonical(config);
     observe(canonical, mono(samples, 8000), "canonical-mono");
     AudioBuffer stereo_identity{16000, 2, {}};
@@ -360,11 +360,11 @@ void cases(FrontendConfig config, const std::string & name, bool enforce_work) {
     concurrent_copies(config, name);
 #endif
 }
-}  // namespace
+}
 
 namespace engine::audio {
-// Generated dsp.cpp redirects its sole sparse invocation here. Real arithmetic
-// remains in the unchanged sparse member; count only successfully computed cells.
+
+
 AudioTensor r2t2_test_counted_sparse(
     const std::vector<float> & magnitude, int64_t batch, int64_t bins,
     int64_t stft_frames, int64_t output_frames, const SparseMelFilterbank & filterbank) {
@@ -387,7 +387,7 @@ void real_fft_forward(
     }
     r2t2_test_real_fft_forward(shape, input_strides, output_strides, axis, data_in, data_out, scale, threads);
 }
-}  // namespace engine::audio
+}
 
 int main(int argc, char ** argv) {
     try {

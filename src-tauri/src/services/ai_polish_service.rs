@@ -63,7 +63,6 @@ where
     }
 }
 
-/// LLM 结构化输出
 #[derive(Deserialize)]
 struct StructuredResponse {
     polished: String,
@@ -77,7 +76,7 @@ struct StructuredResponse {
 struct CorrectionItem {
     original: String,
     corrected: String,
-    /// homophone | term | pronoun | style
+
     #[serde(default)]
     r#type: String,
 }
@@ -213,9 +212,6 @@ fn remove_xml_section(source: &str, tag: &str) -> String {
     format!("{}{}", &source[..start], &source[end..])
 }
 
-/// Keep the classifier policy focused on the desired text content. These
-/// removals apply only to the built-in prompt before dynamic user content is
-/// appended, so custom prompts and learned terms are preserved byte-for-byte.
 fn compact_jev_base_prompt() -> String {
     let without_role = remove_xml_section(BASE_SYSTEM_PROMPT, "role");
     let without_output_references = without_role
@@ -228,7 +224,6 @@ fn compact_jev_base_prompt() -> String {
     remove_xml_section(&without_output, "examples")
 }
 
-/// 构建动态 system prompt，注入用户画像中的热词和纠错模式
 fn build_system_prompt(
     state: &AppState,
     input_text: &str,
@@ -360,7 +355,6 @@ fn build_system_prompt_with_base(
         prompt.push_str("</known_corrections>");
     }
 
-    // 翻译指令：translation_target 非空时注入
     if let Some(ref target_lang) = translation_target {
         prompt.push_str("\n\n<translation_requirement>\n");
         prompt.push_str(&crate::utils::foreground::wrap_xml_cdata(
@@ -426,9 +420,6 @@ async fn send_ai_polish_request(
     .await
 }
 
-/// AI 润色的四段传输计划。
-///
-/// `prefer_streaming_after_partial` 只影响 stage1 已经吐出 chunk/token 后的后续顺序。
 pub(crate) fn ai_polish_transport_plan(
     reasoning_mode: LlmReasoningMode,
     session_id: u64,
@@ -547,9 +538,6 @@ async fn send_llm_request_with_transport_fallback(
             return Ok(content);
         }
         Err(err) => {
-            // 空响应是模型/prompt 层面的问题，换 transport 大概率仍然回空——
-            // 直接抛错，省下 3 次 LLM 请求；用户能从错误里看到 provider/model
-            // 诊断信息。
             if llm_client::is_empty_llm_response_error(&err)
                 || llm_client::is_terminal_provider_error(&err)
             {
@@ -755,22 +743,20 @@ async fn send_llm_request_with_fallback(
 #[derive(Debug, Clone)]
 pub struct PolishOverrides {
     pub ai_polish_enabled: Option<bool>,
-    /// The Jev gate is opt-in for ordinary dictation only. Other workflows
-    /// keep their existing polish behavior unless they explicitly opt in.
+
     pub allow_jev_gate: bool,
-    /// None = 使用全局设置；Some(None) = 禁用翻译；Some(Some(...)) = 指定目标语言。
+
     pub translation_target: Option<Option<String>>,
     pub custom_prompt: Option<String>,
     pub screen_context_enabled: Option<bool>,
     pub screen_context_explicit: bool,
-    /// 录音开始时的目标窗口。设置后，真正截图前后都必须仍是同一窗口，
-    /// 否则丢弃截图，避免异步等待期间切换到其他应用造成隐私泄露。
+
     pub screen_context_foreground: Option<ForegroundApp>,
-    /// 用于历史重新处理等非前台场景；为空时读取当前前台应用。
+
     pub app_context: Option<String>,
     pub emit_status: bool,
     pub learn_from_result: bool,
-    /// 显式重新润色时必须实际调用模型；缺少鉴权不能伪装成成功的原样返回。
+
     pub require_execution: bool,
 }
 
@@ -795,11 +781,11 @@ impl Default for PolishOverrides {
 #[derive(Debug, Clone)]
 pub struct PolishOutcome {
     pub text: String,
-    /// 只有真正向模型发送请求并获得有效响应时才为 true。
+
     pub executed: bool,
     pub provider: Option<String>,
     pub model: Option<String>,
-    /// 本次润色通过视觉代理生成的屏幕描述，可供同一语音助手会话复用。
+
     pub screen_context_description: Option<String>,
 }
 
@@ -839,10 +825,6 @@ fn passthrough_unless_required(
     }
 }
 
-/// Run the optional Jev classifier before the normal provider authentication
-/// and screenshot preparation. `Some` is reserved for a confident pass and
-/// carries the exact original text; every other outcome falls through to the
-/// existing polish path.
 pub(crate) async fn evaluate_polish_gate(
     state: &AppState,
     text: &str,
@@ -900,8 +882,6 @@ struct JevPolishDecision {
     screen_allowed: Option<bool>,
 }
 
-/// Evaluate the opt-in route and screen questions together so ordinary
-/// dictation performs at most one Jev request before screenshot preparation.
 #[allow(clippy::too_many_arguments)]
 async fn evaluate_polish_expansion(
     state: &AppState,
@@ -1099,7 +1079,6 @@ async fn polish_text_inner(
             }
             Ok(None) => {}
             Err(warning) => {
-                // One failed decision request is enough; continue with the configured polish path.
                 expansion_applied = true;
                 llm_client::emit_api_warning(
                     app_handle,
@@ -1237,9 +1216,6 @@ async fn polish_text_inner(
         }
     })?;
 
-    // `send_llm_request` 已经把"HTTP 成功但 trim 后为空"作为 Err 抛出，
-    // 所以走到这里 raw_content 至少有一个非空白字符，trim 后必然非空——
-    // 旧的 `is_empty() => return Ok(text)` 兜底已不可达，移除。
     let raw_content = raw_content.trim();
 
     let request_elapsed_ms = request_start.elapsed().as_millis();
@@ -1253,7 +1229,6 @@ async fn polish_text_inner(
 
     let (polished, corrections, key_terms) = match parse_structured_response(raw_content) {
         Some(resp) => {
-            // 只学习真正的 ASR 识别错误（homophone/term/pronoun），过滤掉风格改写
             let learnable: Vec<(String, String)> = resp
                 .corrections
                 .iter()
@@ -1307,7 +1282,6 @@ async fn polish_text_inner(
         }
     }
 
-    // AI 学习只依赖结构化纠错/术语，避免把整句改写误学成“热词”
     let has_learnable = corrections.as_ref().is_some_and(|c| !c.is_empty())
         || key_terms.as_ref().is_some_and(|t| !t.is_empty());
 
@@ -1333,7 +1307,6 @@ async fn polish_text_inner(
     })
 }
 
-/// 编辑模式：根据语音指令改写选中文本
 pub async fn edit_text(
     state: &AppState,
     selected_text: &str,
@@ -1677,16 +1650,14 @@ async fn build_polish_user_input(
     }
 }
 
-/// 剥离 LLM 返回的 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
 fn strip_markdown_code_block(s: &str) -> String {
     let trimmed = s.trim().trim_start_matches('\u{feff}');
     if trimmed.starts_with("```") {
-        // 跳过第一行（```json 或 ```）
         let after_first_line = match trimmed.find('\n') {
             Some(pos) => &trimmed[pos + 1..],
             None => return trimmed.to_string(),
         };
-        // 去掉末尾的 ```
+
         let content = after_first_line.trim_end();
         if let Some(stripped) = content.strip_suffix("```") {
             return stripped.trim().to_string();

@@ -1,4 +1,4 @@
-"""Long captures use native chunking without clipping PCM or reloading the model."""
+
 
 import os
 import sys
@@ -14,8 +14,8 @@ from test_qwen3_native import FakeLibrary
 
 
 class QwenNativeLongAudioTests(unittest.TestCase):
-    # The pinned 0.6B encoder allows 1500 positions. Each complete second
-    # consumes 13 positions, so 115 seconds (1495 positions) remains unsplit.
+
+
     UNSPLIT_SAMPLES = 115 * 16000
 
     def setUp(self):

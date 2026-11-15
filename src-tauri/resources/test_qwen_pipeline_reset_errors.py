@@ -1,4 +1,4 @@
-"""Processor cleanup failures must still drain the real Qwen native owner."""
+
 
 import os
 import sys
@@ -84,8 +84,8 @@ class QwenPipelineResetErrorTests(unittest.TestCase):
                             "invalidation never entered processor cleanup")
             self.assertFalse(native.release[1].is_set())
             self.assertEqual(native.active, 1)
-            # Cleanup has entered while native is blocked. A completed call here
-            # would let the server observe an inactive stream with native still busy.
+
+
             returned_before_native_release = invalidation.done.wait(TIMEOUT)
             native.unblock()
             expected_errors = (reset_error, feed_error) if action == "feed_error" else (reset_error,)

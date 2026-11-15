@@ -71,7 +71,7 @@ class ServerProtocolOutputTests(unittest.TestCase):
             runner = threading.Thread(target=run_server, daemon=True)
             reader.start()
             try:
-                # A real buffered pipe makes each response's flush observable.
+
                 with (
                     os.fdopen(write_fd, "w", encoding="utf-8") as protocol_output,
                     mock.patch.object(sys, "stdin", command_reader),
@@ -87,7 +87,7 @@ class ServerProtocolOutputTests(unittest.TestCase):
                             [None] + commands,
                             ("init", "action", "error", "invalidJSON", "recovery", "exit"),
                         ):
-                            # Send the next command only after receiving the prior reply.
+
                             if command is not None:
                                 command_writer.write(command + "\n")
                                 command_writer.flush()

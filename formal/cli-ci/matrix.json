@@ -1,0 +1,107 @@
+[
+  {
+    "name": "positive",
+    "kind": "positive",
+    "property": null
+  },
+  {
+    "name": "local-negative",
+    "kind": "negative",
+    "property": "LocalSafety",
+    "disabled_guard": "CheckLocal"
+  },
+  {
+    "name": "cli-negative",
+    "kind": "negative",
+    "property": "CliSafety",
+    "disabled_guard": "CheckCli"
+  },
+  {
+    "name": "existing-negative",
+    "kind": "negative",
+    "property": "ExistingSafety",
+    "disabled_guard": "CheckExisting"
+  },
+  {
+    "name": "aggregate-negative",
+    "kind": "negative",
+    "property": "AggregateSafety",
+    "disabled_guard": "CheckAggregate"
+  },
+  {
+    "name": "sha-negative",
+    "kind": "negative",
+    "property": "ShaSafety",
+    "disabled_guard": "CheckSha"
+  },
+  {
+    "name": "wait-negative",
+    "kind": "negative",
+    "property": "WaitSafety",
+    "disabled_guard": "WaitBeforeTag"
+  },
+  {
+    "name": "head-negative",
+    "kind": "negative",
+    "property": "FinalIdentitySafety",
+    "disabled_guard": "CheckHead"
+  },
+  {
+    "name": "remote-negative",
+    "kind": "negative",
+    "property": "FinalIdentitySafety",
+    "disabled_guard": "CheckRemote"
+  },
+  {
+    "name": "clean-negative",
+    "kind": "negative",
+    "property": "FinalIdentitySafety",
+    "disabled_guard": "CheckClean"
+  },
+  {
+    "name": "tag-negative",
+    "kind": "negative",
+    "property": "TagSafety",
+    "disabled_guard": "TagBeforeRelease"
+  },
+  {
+    "name": "progress-negative",
+    "kind": "temporal-negative",
+    "property": "EventuallyDecided",
+    "disabled_guard": "CompleteRelease"
+  },
+  {
+    "name": "released-witness",
+    "kind": "witness",
+    "property": "ReleasedNotReached"
+  },
+  {
+    "name": "missing-blocked-witness",
+    "kind": "witness",
+    "property": "BadCliBlockedNotReached",
+    "witness_cli": "missing"
+  },
+  {
+    "name": "skipped-blocked-witness",
+    "kind": "witness",
+    "property": "BadCliBlockedNotReached",
+    "witness_cli": "skipped"
+  },
+  {
+    "name": "failure-blocked-witness",
+    "kind": "witness",
+    "property": "BadCliBlockedNotReached",
+    "witness_cli": "failure"
+  },
+  {
+    "name": "cancelled-blocked-witness",
+    "kind": "witness",
+    "property": "BadCliBlockedNotReached",
+    "witness_cli": "cancelled"
+  },
+  {
+    "name": "drift-blocked-witness",
+    "kind": "witness",
+    "property": "DriftBlockedNotReached"
+  }
+]

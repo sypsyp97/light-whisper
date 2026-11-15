@@ -1,10 +1,10 @@
-"""Session-safe controller for an injectable native R2T2 stream runtime."""
+
 
 import numpy as np
 
 
 class R2T2StreamSession:
-    """Own one contiguous native stream at a time."""
+
 
     def __init__(self, runtime, *, audio_processor=None):
         self.runtime = runtime
@@ -48,8 +48,8 @@ class R2T2StreamSession:
             raise ValueError("session is not active")
 
     def _reset_active(self):
-        # Processor cleanup must not leave the native session running after
-        # the stream has become inactive and permits another recording.
+
+
         try:
             self._clear_active()
         finally:

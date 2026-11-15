@@ -1,4 +1,4 @@
-"""VAD keeps pause boundaries while the native rolling backend owns capacity."""
+
 import unittest
 
 import numpy as np

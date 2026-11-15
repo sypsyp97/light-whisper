@@ -22,7 +22,6 @@ pub enum ModelConnectionTarget {
     Asr,
 }
 
-// Deliberately no Debug: this transient request may contain an unsaved API key.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelConnectionRequest {
@@ -203,7 +202,6 @@ async fn asr_snapshot(
     use crate::services::glm_asr_service;
     use crate::utils::paths;
 
-    // Engine/region changes and key cache publication use the same lock.
     let _configuration = state.engine.funasr_lifecycle_op.lock().await;
     let engine = paths::read_engine_config();
     if request

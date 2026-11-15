@@ -87,7 +87,7 @@ export default function CorrectionRulesModal({
 
   const handleDialogKeyDown = useCallback((event: KeyboardEvent) => {
     if (event.key === "Escape") {
-      // Customizable native selects dispatch picker keys from their option.
+
       if (event.target instanceof HTMLOptionElement) return;
       event.preventDefault();
       event.stopPropagation();

@@ -40,8 +40,6 @@ pub fn get_qwen3_asr_server_path(app: &tauri::AppHandle) -> PathBuf {
 }
 
 pub fn get_r2t2_asr_server_path(app: &tauri::AppHandle) -> PathBuf {
-    // Development DLLs are built beside this source script. Do not depend on
-    // the launch working directory or a copied script without its DLL folder.
     #[cfg(debug_assertions)]
     {
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/r2t2_asr_server.py");
@@ -71,7 +69,6 @@ pub fn read_engine_config() -> String {
 
 fn configured_engine(engine: Option<&str>) -> &str {
     match engine {
-        // Retain old model caches; only the selected engine is migrated.
         Some("qwen3-asr-1.7b") => "confucius4-r2t2",
         Some(value @ ("qwen3-asr-0.6b" | "confucius4-r2t2" | "glm-asr" | "alibaba-asr")) => value,
         _ => "qwen3-asr-0.6b",
@@ -90,12 +87,6 @@ const ALIBABA_ENDPOINT_DOMESTIC: &str = "https://dashscope.aliyuncs.com";
 
 pub const ALIBABA_DEFAULT_MODEL: &str = "qwen-audio-3.1-asr-flash";
 
-/// 运行时抓取失败时使用的 ASR / Omni 兜底列表，更新于 2026-10-18。
-/// 抓取成功后以账号实际可见模型为准，不受此列表限制。
-///
-/// 走哪条 HTTP 路径由 `alibaba_model_uses_omni_chat` 运行时决定：
-/// - Qwen Audio / Qwen3 ASR → `/api/v1/services/aigc/multimodal-generation/generation`
-/// - `*omni*` → `/compatible-mode/v1/chat/completions`
 pub const ALIBABA_FALLBACK_MODEL_IDS: &[&str] = &[
     "qwen-audio-3.1-asr-flash",
     "qwen3-asr-flash",
@@ -106,10 +97,6 @@ pub const ALIBABA_FALLBACK_MODEL_IDS: &[&str] = &[
     "qwen-omni-turbo",
 ];
 
-/// 模型 ID 是否可能胜任 ASR（作为语音转文字使用）。
-///
-/// 用于过滤 DashScope `/v1/models` 返回的完整模型清单：包含 asr/omni/audio 关键词
-/// 的模型入围，同时排除明确不做转写的 realtime / tts / vl / coder 等家族。
 pub fn is_asr_capable_model_id(id: &str) -> bool {
     let id = id.to_ascii_lowercase();
     let looks_asr =
@@ -117,7 +104,7 @@ pub fn is_asr_capable_model_id(id: &str) -> bool {
     if !looks_asr {
         return false;
     }
-    // 精确匹配：`-vl-` / `-vl` 尾部（避免误伤 "novel"/"evaluation" 等普通词）
+
     const BLOCK_SUBSTR: &[&str] = &[
         "realtime",
         "tts",
@@ -134,15 +121,13 @@ pub fn is_asr_capable_model_id(id: &str) -> bool {
     if BLOCK_SUBSTR.iter().any(|b| id.contains(b)) {
         return false;
     }
-    // vision-language 模型（qwen2.5-vl-*, qwen3-vl-*）走段边界匹配
+
     if id.contains("-vl-") || id.ends_with("-vl") {
         return false;
     }
     true
 }
 
-/// Omni 家族模型走 OpenAI-compat chat.completions 路径；
-/// 其它走 ASR 专用的 multimodal-generation 路径。
 pub fn alibaba_model_uses_omni_chat(model: &str) -> bool {
     model.contains("omni")
 }
@@ -257,20 +242,14 @@ fn read_region_field(field: &str) -> String {
     }
 }
 
-/// 返回 GLM-ASR 区域标识：`"international"` 或 `"domestic"`
 pub fn read_glm_region() -> String {
     read_region_field("glm_endpoint")
 }
 
-/// 返回 Alibaba ASR 区域标识：`"international"` 或 `"domestic"`
 pub fn read_alibaba_region() -> String {
     read_region_field("alibaba_region")
 }
 
-/// 返回 Alibaba ASR 当前选择的模型 ID。
-///
-/// 这里不再对值做白名单校验——DashScope 上架速度快于硬编码列表的更新频率，
-/// 运行时抓取回来的新模型应该能直接用。非法字符由 write_alibaba_model 入口过滤。
 pub fn read_alibaba_model() -> String {
     read_engine_json()
         .get("alibaba_model")
@@ -280,7 +259,6 @@ pub fn read_alibaba_model() -> String {
         .unwrap_or_else(|| ALIBABA_DEFAULT_MODEL.to_string())
 }
 
-/// 返回当前活跃在线引擎的区域标识。
 pub fn read_online_asr_region() -> String {
     match read_engine_config().as_str() {
         "alibaba-asr" => read_alibaba_region(),
@@ -288,7 +266,6 @@ pub fn read_online_asr_region() -> String {
     }
 }
 
-/// 返回当前活跃在线引擎的端点域名（不含路径）。
 pub fn read_online_asr_endpoint() -> String {
     match read_engine_config().as_str() {
         "alibaba-asr" => read_alibaba_endpoint(),
@@ -296,7 +273,6 @@ pub fn read_online_asr_endpoint() -> String {
     }
 }
 
-/// 返回 GLM-ASR 端点域名（不含路径）。
 pub fn read_glm_endpoint() -> String {
     match read_glm_region().as_str() {
         "domestic" => GLM_ENDPOINT_DOMESTIC.to_string(),
@@ -304,7 +280,6 @@ pub fn read_glm_endpoint() -> String {
     }
 }
 
-/// 返回 Alibaba DashScope 端点域名（不含路径）。
 pub fn read_alibaba_endpoint() -> String {
     match read_alibaba_region().as_str() {
         "domestic" => ALIBABA_ENDPOINT_DOMESTIC.to_string(),
@@ -324,22 +299,18 @@ fn update_engine_json_field(key: &str, value: &str) -> Result<(), std::io::Error
     update_engine_json(|obj| obj[key] = serde_json::Value::String(value.to_string()))
 }
 
-/// 写入 GLM-ASR 区域。`region`: `"international"` 或 `"domestic"`
 pub fn write_glm_region(region: &str) -> Result<(), std::io::Error> {
     update_engine_json_field("glm_endpoint", region)
 }
 
-/// 写入 Alibaba ASR 区域。`region`: `"international"` 或 `"domestic"`
 pub fn write_alibaba_region(region: &str) -> Result<(), std::io::Error> {
     update_engine_json_field("alibaba_region", region)
 }
 
-/// 写入 Alibaba ASR 当前选择的模型 ID。
 pub fn write_alibaba_model(model: &str) -> Result<(), std::io::Error> {
     update_engine_json_field("alibaba_model", model)
 }
 
-/// 根据当前引擎写入对应区域配置。
 pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
     match read_engine_config().as_str() {
         "alibaba-asr" => write_alibaba_region(region),
@@ -347,9 +318,6 @@ pub fn write_online_asr_endpoint(region: &str) -> Result<(), std::io::Error> {
     }
 }
 
-/// 查找已解压的 engine.exe
-///
-/// 仅检查数据目录（从引擎归档解压后的位置）。
 pub fn get_engine_exe_path(_app: &tauri::AppHandle) -> Option<PathBuf> {
     let data_engine = get_data_dir().join("engine").join("engine.exe");
     if data_engine.exists() {
@@ -358,7 +326,6 @@ pub fn get_engine_exe_path(_app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
-/// 查找资源目录中的 engine.exe（开发时直接放置 python-dist 的情况）。
 pub fn get_resource_engine_exe_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     if let Ok(resource_dir) = app.path().resource_dir() {
         let resource_engine = resource_dir
@@ -373,9 +340,6 @@ pub fn get_resource_engine_exe_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
-/// 查找打包的引擎归档（NSIS 安装后存在于资源目录）
-///
-/// 跳过空文件（build.rs 为 dev 模式创建的占位文件）。
 pub fn get_engine_archive_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     if let Ok(resource_dir) = app.path().resource_dir() {
         let resources_dir = resource_dir.join("resources");
@@ -389,7 +353,6 @@ pub fn get_engine_archive_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
-/// 获取 engine 解压目标目录
 pub fn get_engine_dir() -> PathBuf {
     get_data_dir().join("engine")
 }
@@ -398,7 +361,6 @@ pub fn write_engine_config(engine: &str) -> Result<(), std::io::Error> {
     update_engine_json_field("engine", engine)
 }
 
-/// 用户未配置时关闭。0 表示不自动卸载 GPU 模型。
 pub const MAX_GPU_IDLE_SECONDS: u64 = 7 * 24 * 60 * 60;
 
 pub fn parse_gpu_idle_seconds(value: Option<&serde_json::Value>) -> u64 {
@@ -449,7 +411,6 @@ pub fn write_gpu_idle_seconds(
 ) -> Result<(), std::io::Error> {
     let seconds = seconds.min(MAX_GPU_IDLE_SECONDS);
     update_engine_json(|obj| {
-        // Keep the effective value (0 = off) separate from the user's last timeout.
         let remembered = timeout_seconds
             .filter(|value| *value > 0)
             .unwrap_or_else(|| {
@@ -470,7 +431,6 @@ pub fn write_gpu_idle_seconds(
     })
 }
 
-/// 读取用户自定义模型目录（None 表示使用默认 HF 缓存）
 pub fn read_models_dir() -> Option<String> {
     read_engine_json()
         .get("models_dir")
@@ -479,7 +439,6 @@ pub fn read_models_dir() -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// 写入自定义模型目录（None 表示恢复默认）
 pub fn write_models_dir(dir: Option<&str>) -> Result<(), std::io::Error> {
     update_engine_json(|obj| {
         if let Some(map) = obj.as_object_mut() {
@@ -498,7 +457,6 @@ pub fn write_models_dir(dir: Option<&str>) -> Result<(), std::io::Error> {
     })
 }
 
-/// 默认 HF 缓存根目录（不考虑自定义配置）
 pub fn get_default_models_dir() -> PathBuf {
     if let Ok(hf_home) = std::env::var("HF_HOME") {
         return PathBuf::from(hf_home).join("hub");
@@ -509,7 +467,6 @@ pub fn get_default_models_dir() -> PathBuf {
     PathBuf::from(".cache").join("huggingface").join("hub")
 }
 
-/// 获取生效的模型缓存目录：自定义路径 > HF_HOME > 默认
 pub fn get_effective_models_dir() -> PathBuf {
     if let Some(custom) = read_models_dir() {
         return PathBuf::from(custom);
@@ -586,7 +543,6 @@ mod tests {
 
     #[test]
     fn gpu_idle_timeout_survives_disable_and_restart() {
-        // A fresh process isolates DATA_DIR's OnceLock from every other test.
         if std::env::var_os("LIGHT_WHISPER_GPU_IDLE_TEST_CHILD").is_none() {
             let nonce = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

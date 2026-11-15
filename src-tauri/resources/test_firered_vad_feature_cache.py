@@ -1,4 +1,4 @@
-"""Exact-output and real fbank-work contracts for bounded prefix reuse."""
+
 
 import gc
 import inspect
@@ -20,7 +20,7 @@ REAL_ONLINE_FBANK = knf.OnlineFbank
 
 
 def _uncached_features(audio):
-    # Portable oracle copied from baseline 051ea7000b56dad9, without cache state.
+
     options = knf.FbankOptions()
     options.frame_opts.samp_freq = 16_000
     options.frame_opts.frame_length_ms = 25
@@ -120,7 +120,7 @@ class FireRedVadFeatureCacheTests(unittest.TestCase):
 
     def _vad(self):
         work = _FbankWork()
-        # Count eager and lazy fbank construction without assuming cache fields.
+
         with mock.patch.object(knf, "OnlineFbank", work.OnlineFbank):
             vad = FireRedVad(
                 model_path=RESOURCES / "fireredvad_vad.onnx",
@@ -210,7 +210,7 @@ class FireRedVadFeatureCacheTests(unittest.TestCase):
                 before = work.snapshot()
                 self._features(vad, audio.copy())
                 self.assertEqual(work.snapshot(), before)
-                # A changed non-frame tail must feed the next completed frame too.
+
                 self._features(vad, np.concatenate((audio, self.audio[20_000:20_400])))
 
     def test_clipped_noncontiguous_and_float64_inputs_match_baseline(self):

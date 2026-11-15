@@ -1,4 +1,4 @@
-"""Exercise native source preparation with real local Git repositories."""
+
 
 import os
 from pathlib import Path
@@ -72,7 +72,7 @@ class NativeSourceCheckoutTests(unittest.TestCase):
         header.write_bytes(self.expected)
         (self.upstream / self.lf_file).write_bytes(self.expected_lf)
         self.patch = self.root / "reviewed.patch"
-        # Reviewed patches are stored with LF, as required by .gitattributes.
+
         self.patch.write_bytes(self.git(
             self.upstream, "diff", "--binary", "--unified=4", "HEAD",
         ).replace(b"\r\n", b"\n"))
@@ -117,7 +117,7 @@ class NativeSourceCheckoutTests(unittest.TestCase):
     def test_existing_source_rejects_unreviewed_changes_without_resetting_them(self):
         source = self.root / "existing-source"
         self.git(self.root, "clone", self.upstream, source)
-        # Seed a previously accepted checkout from the frozen byte expectations.
+
         (source / self.header).write_bytes(self.expected)
         (source / self.lf_file).write_bytes(self.expected_lf)
         (source / "README").write_bytes(b"unchanged upstream file\n")

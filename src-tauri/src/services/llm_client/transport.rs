@@ -22,7 +22,6 @@ use super::stream::{
     stream_progress_timeout, stream_total_timeout,
 };
 
-// Preserve the previously supported Messages budget for older models.
 const ANTHROPIC_COMPAT_MAX_TOKENS: u64 = 4096;
 
 fn is_parameter_rejection(status: reqwest::StatusCode) -> bool {
@@ -621,8 +620,6 @@ pub async fn send_llm_request(
         }
     }
 
-    // 根据 body 中实际是否启用了 stream 来决定响应解析方式
-    // （build_llm_body 可能因供应商限制而跳过 stream，如 Cerebras json_object 不兼容流式）
     if transport_stream {
         if requested_stream && app_handle.is_none() {
             return Err("流式请求缺少 app_handle".to_string());

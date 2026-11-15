@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { prefersReducedMotion } from "@/lib/motion";
 
 interface SmoothTextOptions {
-  /** Bypass animation while keeping the latest text ready for re-enabling. */
+
   enabled?: boolean;
-  /** Graphemes advanced per 16.67ms baseline frame. */
+
   charsPerFrame?: number;
-  /** Snap instantly when more than this many graphemes behind. */
+
   snapThreshold?: number;
-  /** Maximum catch-up multiplier when far behind. */
+
   maxCatchup?: number;
 }
 
@@ -45,20 +45,20 @@ function getGraphemeSegmenter(): GraphemeSegmenter | null {
   return cachedGraphemeSegmenter;
 }
 
-/** Grapheme-aware split: keeps emoji + ZWJ sequences + CJK whole. */
+
 export function segmentGraphemes(text: string): string[] {
   if (!text) return [];
   const segmenter = getGraphemeSegmenter();
   if (segmenter) return Array.from(segmenter.segment(text), ({ segment }) => segment);
-  return Array.from(text); // handles BMP surrogate pairs but not ZWJ joiners
+  return Array.from(text);
 }
 
-/**
- * Smooth character-by-character reveal of streaming text.
- * - Drains incoming source at ~60fps, grapheme-aware so emoji and CJK never split.
- * - Snaps immediately on reset, divergence, very-large jumps, or reduced-motion.
- * - Catches up faster as the backlog grows, so latency stays bounded.
- */
+
+
+
+
+
+
 export function useSmoothText(source: string, options: SmoothTextOptions = {}): string {
   const { enabled, charsPerFrame, snapThreshold, maxCatchup } = { ...DEFAULTS, ...options };
 
@@ -77,8 +77,8 @@ export function useSmoothText(source: string, options: SmoothTextOptions = {}): 
   useEffect(() => {
     const cur = displayRef.current;
 
-    // Bypass animation or snap on a cleared/diverged source. Keep the state
-    // synchronized so re-enabling never replays already-visible native text.
+
+
     if (!enabled || !source.startsWith(cur) || source.length < cur.length) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -91,28 +91,28 @@ export function useSmoothText(source: string, options: SmoothTextOptions = {}): 
       return;
     }
 
-    // Already caught up.
+
     if (source === cur) {
       graphemesRef.current = segmentGraphemes(source);
       drawnRef.current = graphemesRef.current.length;
       return;
     }
 
-    // Refresh grapheme view with the latest source (prefix is stable).
+
     const nextGraphemes = segmentGraphemes(source);
     graphemesRef.current = nextGraphemes;
-    // Prefix stability assumption holds, but clamp just in case Segmenter
-    // collapses previously-drawn graphemes (e.g., partial ZWJ sequence).
+
+
     if (drawnRef.current > nextGraphemes.length) {
       drawnRef.current = nextGraphemes.length;
     }
 
     const behind = nextGraphemes.length - drawnRef.current;
     if (behind <= 0) {
-      // Same (or fewer) graphemes than we've drawn, but the *content* of an
-      // already-drawn grapheme may have changed — e.g. a ZWJ joiner or
-      // combining mark just arrived and merged into the last grapheme. Snap
-      // display to the new drawn-prefix so we never keep showing stale text.
+
+
+
+
       const expectedDisplay = nextGraphemes.slice(0, drawnRef.current).join("");
       if (expectedDisplay !== cur) {
         displayRef.current = expectedDisplay;
@@ -121,7 +121,7 @@ export function useSmoothText(source: string, options: SmoothTextOptions = {}): 
       return;
     }
 
-    // Far behind or reduced motion → snap.
+
     if (behind > snapThreshold || prefersReducedMotion()) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -133,11 +133,11 @@ export function useSmoothText(source: string, options: SmoothTextOptions = {}): 
       return;
     }
 
-    if (rafRef.current !== null) return; // loop already running, will pick up new source via refs
+    if (rafRef.current !== null) return;
 
     const tick = (time: number) => {
       if (lastTimeRef.current === null) lastTimeRef.current = time;
-      const dt = Math.min(64, time - lastTimeRef.current); // cap to tame tab-return spikes
+      const dt = Math.min(64, time - lastTimeRef.current);
       lastTimeRef.current = time;
 
       const graphemes = graphemesRef.current;

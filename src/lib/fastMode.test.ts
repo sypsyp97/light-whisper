@@ -63,7 +63,7 @@ describe("shouldShowFastModeToggle", () => {
   });
 
   it("hides in assistant block when polish is already openai (polish block owns the toggle)", () => {
-    // Prevents two toggles bound to the same flag when both sides use OpenAI.
+
     expect(
       shouldShowFastModeToggle({
         ...base,

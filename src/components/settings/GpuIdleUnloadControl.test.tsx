@@ -51,7 +51,7 @@ describe("GpuIdleUnloadControl", () => {
     fireEvent.click(screen.getByRole("switch", { name: zh.settings.gpuIdleTitle }));
     await waitFor(() => expect(api.setGpuIdleSeconds).toHaveBeenLastCalledWith(0, 180));
     await waitFor(() => expect(screen.queryByRole("textbox", { name: zh.settings.gpuIdleSeconds })).not.toBeInTheDocument());
-    // Keep the field in the document while its containing row collapses.
+
     expect(input).toBeInTheDocument();
     expect(input.closest("[aria-hidden]")).toHaveAttribute("aria-hidden", "true");
     expect(input.closest("[inert]")).not.toBeNull();

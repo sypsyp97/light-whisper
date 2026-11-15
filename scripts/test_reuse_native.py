@@ -1,11 +1,11 @@
-"""Opt-in full 30-layer RE-USE C ABI parity against precomputed ONNX outputs.
 
-Run: REUSE_NATIVE_LIBRARY=/absolute/path/reuse.dll python scripts/test_reuse_native.py -v
-REUSE_NATIVE_DLL_DIRS supplies dependency directories separated by os.pathsep.
-REUSE_NATIVE_MODEL and REUSE_NATIVE_FIXTURE_ROOT override the local investigation
-checkpoint and fixture locations. REUSE_NATIVE_BACKEND defaults to cpu; select
-cuda explicitly only when GPU execution is available. No oracle model is run.
-"""
+
+
+
+
+
+
+
 
 from contextlib import ExitStack
 import ctypes as ct
@@ -29,16 +29,16 @@ def pointer(array):
 
 
 def reconstruct_audio(magnitude, phase, samples):
-    """Independent NumPy overlap-add for NVIDIA's 16 kHz inference transform.
 
-    Mirrors inference.py's sweep suppression and stfts.py's ReLU/log1p inverse,
-    periodic Hann, unnormalized centered ISTFT; does not import native/model code.
-    Inputs are frame-major compressed magnitude and phase in radians.
-    """
+
+
+
+
+
     magnitude = np.expm1(np.maximum(magnitude.astype(np.float64), 0))
     magnitude[np.mean(magnitude == 0, axis=1) > 0.5] = 0
     spectrum = magnitude * np.exp(1j * phase.astype(np.float64))
-    window = np.hanning(FFT_SIZE + 1)[:-1]  # Periodic, like torch.hann_window.
+    window = np.hanning(FFT_SIZE + 1)[:-1]
     frames = np.fft.irfft(spectrum, n=FFT_SIZE, axis=1) * window
     padded_samples = FFT_SIZE + (len(frames) - 1) * HOP_SIZE
     audio, weights = np.zeros(padded_samples), np.zeros(padded_samples)
@@ -51,7 +51,7 @@ def reconstruct_audio(magnitude, phase, samples):
     if not np.all(weights > 0):
         raise ValueError("ISTFT fixture has an uncovered output sample")
     audio /= weights
-    # Official pad_or_trim_to_match(..., pad_value=1e-8).
+
     return np.pad(audio[:samples], (0, max(0, samples - len(audio))), constant_values=1e-8)
 
 
@@ -122,7 +122,7 @@ class ReuseNativeTests(unittest.TestCase):
 
     def test_full_model_parity_repeated_inputs_and_changed_frame_lengths(self):
         handle = self.create_handle()
-        # Same input twice, grow, shrink, then revisit: graph data must refresh.
+
         for invocation, samples in enumerate((640, 640, 8000, 2560, 640)):
             fixture = self.fixtures[samples]
             magnitude, phase = fixture["magnitude"], fixture["phase"]
@@ -144,7 +144,7 @@ class ReuseNativeTests(unittest.TestCase):
                 phase_error = float(np.max(np.abs(np.angle(np.exp(1j * (actual_phase - expected_phase))))))
                 diagnostic = (f"magnitude_max_abs={mag_error:.9g}, waveform_max_abs={waveform_error:.9g}, "
                               f"wrapped_phase_max_abs={phase_error:.9g} (phase diagnostic only)")
-                # Raw atan2 is unstable near zero; waveform parity gates phase.
+
                 self.assertTrue(np.allclose(actual_magnitude, expected_magnitude, atol=0.003, rtol=0.001), diagnostic)
                 self.assertLessEqual(waveform_error, 0.0003, diagnostic)
 

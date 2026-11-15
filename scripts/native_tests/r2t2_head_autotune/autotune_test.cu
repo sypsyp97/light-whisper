@@ -1,4 +1,4 @@
-// Real dispatcher tests. No replacement matmul, controller, or cache implementation.
+
 #include "ggml.h"
 #include "ggml-backend.h"
 #include "ggml-alloc.h"
@@ -21,7 +21,7 @@
 namespace {
 void require(bool okay, const char * message) { if (!okay) throw std::runtime_error(message); }
 void check(cudaError_t status) { require(status == cudaSuccess, cudaGetErrorString(status)); }
-constexpr int lowering = 4; // Frozen public contract; baseline enum need not declare a new name.
+constexpr int lowering = 4;
 struct Call { int n; uintptr_t context, output; };
 struct Mark { cudaEvent_t event; size_t at; };
 struct Sample { int n; float milliseconds; size_t at; };
@@ -43,7 +43,7 @@ struct Observer {
     }
 } observer;
 
-// Fault affects exactly one byte, after the real grouped kernel, on the same stream.
+
 __global__ void flip_output_byte(unsigned char * output, size_t offset) { output[offset] ^= 1; }
 unsigned next_lifetime = 0;
 struct Backend {
@@ -123,7 +123,7 @@ struct Fixture {
         observer.raw_capture = capture;
         if (capture) check(cudaStreamBeginCapture(stream, cudaStreamCaptureModeRelaxed));
         observer.active = true;
-        // Both public entries reach the real backend iface.graph_compute.
+
         auto status = capture ? ggml_backend_graph_compute_async(backend.ptr, graph)
                               : ggml_backend_graph_compute(backend.ptr, graph);
         observer.active = false;
@@ -143,8 +143,8 @@ struct Fixture {
         actual_bits.resize(actual.size());
         std::memcpy(actual_bits.data(), actual.data(), actual.size() * sizeof(float));
         size_t mismatches = 0;
-        // Unmarked operations retain the frozen default result, which may differ
-        // from scalar MMVF. The runner compares every such output bit externally.
+
+
         if (marked) for (size_t i = 0; i < actual.size(); ++i) mismatches += std::memcmp(&actual[i], &expected[i], sizeof(float)) != 0;
         return mismatches;
     }
@@ -203,7 +203,7 @@ void report(const char * name, const char * phase, Fixture & fixture, size_t mis
     std::cout << "}\n";
 }
 void cached(const char * name, Fixture & fixture, bool grouped, bool capture = false) {
-    fixture.fill(987); // Same key, different values; cached decision must remain immutable.
+    fixture.fill(987);
     observer.reset(100, grouped ? 200 : 1);
     const auto mismatches = fixture.run(capture);
     work(observer.samples == 0, "cache hit timed again");
@@ -271,7 +271,7 @@ void stock() {
     }
     std::cout << "{\"status\":\"STOCK_GREEN\",\"cases\":3,\"synthetic\":true}\n";
 }
-} // namespace
+}
 
 void head_test_mmvf(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1,
                     const ggml_tensor * ids, ggml_tensor * dst, const ggml_cuda_mm_fusion_args_host * fusion) {
@@ -295,14 +295,14 @@ cudaError_t head_test_event_record(cudaEvent_t event, cudaStream_t stream) {
     return result;
 }
 cudaError_t head_test_elapsed(float * ms, cudaEvent_t begin, cudaEvent_t end) {
-    const auto result = cudaEventElapsedTime(ms, begin, end); // Preserve real CUDA API failures.
+    const auto result = cudaEventElapsedTime(ms, begin, end);
     if (!observer.active || result != cudaSuccess) return result;
     const size_t first = observer.position(begin), last = observer.position(end);
     bool serial = false, grouped = false;
     for (size_t i = first; i < last; ++i) { serial |= observer.call[i].n == 1; grouped |= observer.call[i].n == 4; }
     require(serial != grouped, "fixture: timing range must contain exactly one real path kind");
     require(observer.samples < observer.sample.size(), "fixture observer sample capacity exhausted");
-    // Preserve elapsed-time scaling if the controller times several repetitions.
+
     const float repetitions = serial ? float(last - first) / 4.0f : float(last - first);
     *ms = (serial ? observer.serial_ms : observer.grouped_ms) * repetitions;
     observer.sample[observer.samples++] = {serial ? 1 : 4, *ms, observer.calls};
@@ -346,7 +346,7 @@ int main(int argc, char ** argv) {
                 Fixture unmarked(backend, {}, false);
                 default_request("before_marked", unmarked);
                 default_request("capture_before_marked", unmarked, true);
-                // Must still calibrate: default requests cannot occupy the slot.
+
                 calibration("default_did_not_fill_slot", backend, 100, 90, true);
                 default_request("after_marked", unmarked);
                 default_request("capture_after_marked", unmarked, true);
@@ -366,8 +366,8 @@ int main(int argc, char ** argv) {
                 Shape other_k; other_k.k = 66; fallback("different_k", backend, other_k);
                 Shape other_vocab; other_vocab.vocab = 35; fallback("different_vocab", backend, other_vocab);
                 Fixture same_key_new_tensors(backend);
-                // Both allocations stay live: neither host nor device addresses
-                // can accidentally be recycled into a pointer-keyed cache hit.
+
+
                 require(original.weight != same_key_new_tensors.weight && original.input != same_key_new_tensors.input && original.output != same_key_new_tensors.output,
                         "live same-key fixtures reused host tensor addresses");
                 require(original.weight->data != same_key_new_tensors.weight->data && original.input->data != same_key_new_tensors.input->data && original.output->data != same_key_new_tensors.output->data,

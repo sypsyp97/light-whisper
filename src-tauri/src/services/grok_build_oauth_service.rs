@@ -15,7 +15,6 @@ use crate::state::user_profile::{LlmProviderConfig, XaiAuthMode};
 use crate::state::AppState;
 use crate::utils::paths;
 
-// Bound headers and response-body reads while account switching waits for refresh.
 const TOKEN_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 
 const XAI_PROVIDER: &str = "xai";
@@ -300,7 +299,7 @@ fn save_session_to_storage(
         SESSION_KEYRING_USER,
         "删除 Grok Build OAuth legacy 会话",
     )?;
-    // Commit valid metadata last; any earlier failure leaves the intent marker.
+
     write_session_meta(session)
 }
 
@@ -412,9 +411,6 @@ pub fn is_grok_build_oauth_origin_auth(input: &str) -> bool {
     decode_grok_build_oauth_access_token(input).is_some()
 }
 
-/// Grok Build CLI proxy has not advertised image input metadata.
-/// Treat unknown support as text-only so polish/assistant do not attach
-/// full-screen screenshots that stall the request for tens of seconds.
 pub fn resolve_image_support_for_request(api_key: &str, observed: Option<bool>) -> Option<bool> {
     if observed.is_none() && is_grok_build_oauth_origin_auth(api_key) {
         return Some(false);

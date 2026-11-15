@@ -855,7 +855,6 @@ mod tests {
             },
         );
 
-        // json_object 优先于 stream：保留 response_format，放弃流式
         assert_eq!(
             body["response_format"],
             serde_json::json!({"type": "json_object"})
@@ -897,28 +896,6 @@ mod tests {
         assert_eq!(body["stream"], serde_json::json!(true));
     }
 
-    // --- Fast mode tests -------------------------------------------------
-    //
-    // Tests here deliberately do NOT import `OPENAI_FAST_MODE_SERVICE_TIER`.
-    // The wire value is hard-coded as a string literal so that test and
-    // implementation must agree *via* an independent, externally-anchored
-    // ground truth — not via a shared constant that lets a typo slip through
-    // both sides in lockstep (which was the pre-2026-04-20 tautological bug:
-    // test and impl both said "fast", both went green, backend silently
-    // ignored the field).
-    //
-    // Ground truth sources, anchored outside this repo:
-    //   1. openai/codex `codex-rs/core/src/client.rs` main branch, function
-    //      `build_responses_request` — maps `ServiceTier::Fast => "priority"`.
-    //   2. OpenAI public request docs — `service_tier` accepts exactly
-    //      `auto | default | flex | priority` (note: "fast" is NOT
-    //      in this set; sending it is a silent no-op).
-    //
-    // Two independent assertions are used for this reason:
-    //   - Literal-value test pins the current official wire value.
-    //   - Whitelist test catches any future typo that still passes #1 (e.g.
-    //      someone accidentally changes the impl to "priorty" or "urgent").
-
     #[test]
     fn chatgpt_backend_injects_service_tier_priority_when_fast_mode_enabled() {
         let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
@@ -935,8 +912,6 @@ mod tests {
 
         let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, true);
 
-        // Hard-coded literal — NOT a re-export of OPENAI_FAST_MODE_SERVICE_TIER.
-        // Changing the impl constant without updating this literal must fail.
         assert_eq!(
             adapted["service_tier"],
             serde_json::json!("priority"),
@@ -950,10 +925,6 @@ mod tests {
 
     #[test]
     fn service_tier_whitelist_matches_openai_responses_api_spec() {
-        // Meta-guard: lock the whitelist itself against drift. If someone
-        // "fixes" both impl + literal test by also adding "fast" to the
-        // whitelist to silence the tautology detector, this pin fails first.
-        // Canonical set per OpenAI Responses API public spec.
         assert_eq!(
             OPENAI_RESPONSES_SERVICE_TIER_WHITELIST,
             &["auto", "default", "flex", "priority"],
@@ -971,11 +942,6 @@ mod tests {
 
     #[test]
     fn injected_service_tier_is_in_the_openai_responses_api_whitelist() {
-        // Independent guard: whatever the impl injects, it must be a value
-        // the OpenAI Responses API will actually accept. "fast" famously
-        // passes a naive string compare but is not in the whitelist — so
-        // this test catches typos / stale labels that the literal-equality
-        // test alone would miss if someone "fixed" both sides the same way.
         let endpoint = openai_endpoint("https://api.openai.com/v1/responses");
         let api_key = chatgpt_codex_api_key();
         let body = build_llm_body(
@@ -1095,13 +1061,6 @@ mod tests {
         );
     }
 
-    // --- ensure_non_empty_llm_content tests ------------------------------
-    //
-    // Contract:
-    //   - Returns Err(...) when content.trim().is_empty()
-    //   - Error message contains endpoint.provider, endpoint.model, and source
-    //   - Otherwise returns Ok(content) — content is NOT trimmed
-
     #[test]
     fn ensure_non_empty_llm_content_rejects_empty_string() {
         let endpoint = make_test_endpoint();
@@ -1186,12 +1145,6 @@ mod tests {
         );
     }
 
-    // --- is_empty_llm_response_error tests --------------------------------
-    //
-    // 这条识别函数是 polish/assistant fallback 决定是否短路重试的依据。
-    // 如果识别失稳（漏判 → 多花 3 次请求；误判 → 把无关错误当空响应丢弃），
-    // 就退回到原始浪费/错失的状态。
-
     #[test]
     fn is_empty_llm_response_error_matches_fresh_helper_output() {
         let endpoint = make_test_endpoint();
@@ -1206,8 +1159,6 @@ mod tests {
 
     #[test]
     fn is_empty_llm_response_error_matches_each_documented_source() {
-        // 每个 callsite 都要被识别——任何一个漏掉就意味着那条路径上的空
-        // 响应仍会触发 polish 4 段 fallback 全跑。
         let endpoint = make_test_endpoint();
         for source in [
             "non_stream",
@@ -1216,10 +1167,6 @@ mod tests {
             "anthropic_sse_message_stop",
             "anthropic_sse_eos",
             "openai_responses_sse_completed",
-            // 新增的 Responses SSE finalize 路径：done 事件结束流，
-            // eos 是流意外终止后由 finalize 兜底。两条分支都必须被
-            // recognizer 识别，否则 polish/assistant fallback 链路会
-            // 误以为是真正的 transport 错误而连跑 4 段。
             "openai_responses_sse_done",
             "openai_responses_sse_eos",
         ] {
@@ -1236,8 +1183,6 @@ mod tests {
 
     #[test]
     fn is_empty_llm_response_error_rejects_unrelated_errors() {
-        // 未来加新错误时不应该误命中。这里也防止前缀被改成"空响应"等更通用
-        // 的措辞导致与 anthropic / openai 自带的错误文案撞车。
         for unrelated in [
             "HTTP 500: internal server error",
             "流式读取失败: connection reset",
@@ -1257,30 +1202,11 @@ mod tests {
 
     #[test]
     fn is_empty_llm_response_error_prefix_constant_is_load_bearing() {
-        // EMPTY_LLM_RESPONSE_ERROR_PREFIX 是 helper 与 recognizer 共用的契约
-        // 字符串。把它改了就要同步改两边——这条断言是个 wake-up，提醒读者
-        // 这个常量不是装饰品。
         assert_eq!(super::EMPTY_LLM_RESPONSE_ERROR_PREFIX, "LLM 响应为空（");
     }
 
-    // --- finalize_responses_sse_accumulated tests --------------------------
-    //
-    // OpenAI Responses SSE 在 stream 结束（done）或意外断流（eos）时，
-    // 我们手里同时握有：
-    //   - accumulated：从 delta 事件里逐段拼起来的正文
-    //   - fallback_content：completed/done 事件里附带的最终 content（可选）
-    // finalizer 的合同是：
-    //   1) accumulated 优先（含义最权威，且包含逐 token 流出的内容），
-    //      非空就直接返回，且**不** trim——和 ensure_non_empty_llm_content
-    //      对齐：只校验 trim 后是否为空，但返回原始字符串以保留前后空白。
-    //   2) accumulated 为空才退回到事件里挂的 fallback_content；同样要求非空。
-    //   3) 两者皆空再走 ensure_non_empty_llm_content，借它统一拼出
-    //      EMPTY_LLM_RESPONSE_ERROR_PREFIX 起头的错误，让 recognizer 能识别。
-
     #[test]
     fn finalize_responses_sse_accumulated_returns_accumulated_when_non_empty() {
-        // accumulated 存在就赢——即使 fallback 也非空也要被忽略。否则会出现
-        // 流式内容被 done 事件的截断 fallback 覆盖，丢字。
         let endpoint = make_test_endpoint();
         let result = finalize_responses_sse_accumulated(
             "hello".to_string(),
@@ -1298,8 +1224,6 @@ mod tests {
 
     #[test]
     fn finalize_responses_sse_accumulated_preserves_accumulated_whitespace() {
-        // 与 ensure_non_empty_llm_content 行为一致：判空用 trim，但返回原字符串。
-        // 流式拼接出来的前后空白可能是有意义的（例如续写场景）。
         let endpoint = make_test_endpoint();
         let result = finalize_responses_sse_accumulated(
             "  hi  ".to_string(),
@@ -1317,8 +1241,6 @@ mod tests {
 
     #[test]
     fn finalize_responses_sse_accumulated_falls_back_when_accumulated_empty() {
-        // 部分 provider 在 delta 里只丢 reasoning，正文只在 completed/done
-        // 事件里给一次。accumulated 为空时必须用 fallback 兜底。
         let endpoint = make_test_endpoint();
         let result = finalize_responses_sse_accumulated(
             String::new(),
@@ -1336,8 +1258,6 @@ mod tests {
 
     #[test]
     fn finalize_responses_sse_accumulated_ignores_empty_fallback() {
-        // fallback 是 Some 但内容为空，等价于没有 fallback。要走空响应错误，
-        // 而不是返回 Ok("")——后者会让上游误以为模型给了空字符串答案。
         let endpoint = make_test_endpoint();
         let result = finalize_responses_sse_accumulated(
             String::new(),
@@ -1356,7 +1276,6 @@ mod tests {
 
     #[test]
     fn finalize_responses_sse_accumulated_ignores_none_fallback() {
-        // 完全没有 fallback 也是常见场景（流被中断、只能用 eos 兜底）。
         let endpoint = make_test_endpoint();
         let result = finalize_responses_sse_accumulated(
             String::new(),
@@ -1375,9 +1294,6 @@ mod tests {
 
     #[test]
     fn finalize_responses_sse_accumulated_error_carries_provider_model_and_source() {
-        // 错误信息要能在日志里直接定位是哪个 provider/model/调用点出问题的。
-        // 这条断言把三段都钉死，避免有人把 source 标签替换成更"通用"的措辞
-        // 而让 grep 失效。
         let endpoint = make_test_endpoint();
         let err = finalize_responses_sse_accumulated(
             String::new(),

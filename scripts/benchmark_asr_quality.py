@@ -155,7 +155,7 @@ def run(args, report):
             require(directory.is_dir(), f"missing dependency directory: {directory}")
             for path in sorted(directory.glob("*.dll")):
                 if path.name.lower() == "audiocpp.dll":
-                    continue  # Target DLL identity is recorded separately.
+                    continue
                 digest = sha256(path)
                 require(path.name not in dependency_identity or dependency_identity[path.name] == digest,
                         f"ambiguous dependency identity: {path.name}")
@@ -258,8 +258,8 @@ def run(args, report):
                     require(not session.active and not native._active and native.preview_text == "",
                             "R2T2 finish retained active state")
                 else:
-                    # Qwen's full-clip callback has no native sample-count result.
-                    # Assemble every original feed byte before the production VAD.
+
+
                     pcm = np.frombuffer(b"".join(chunk for _, chunk in accepted), dtype="<i2").astype(np.float32) / np.float32(32768)
                     result = server._transcribe_stream_audio(pcm)
                     final = {"text": result.text, "language": result.language, "sample_count": count}
@@ -279,7 +279,7 @@ def run(args, report):
                 save(args.output, report)
         require(source_files == {p.name: sha256(p) for p in sorted(args.source_dir.glob("*.py"))},
                 "source files changed during quality run")
-        load_fixtures(args.manifest)  # Recheck original PCM and references after all calls.
+        load_fixtures(args.manifest)
     finally:
         for owner in (session, native):
             if owner is not None:

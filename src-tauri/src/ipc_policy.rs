@@ -9,8 +9,7 @@ where
     move |invoke| {
         let window = invoke.message.webview_ref().window();
         let command = invoke.message.command();
-        // Overlay APIs are defined by SubtitleOverlay.tsx and SelectionOverlay.tsx.
-        // All other application commands, including future additions, require main.
+
         let allowed = match window.label() {
             "main" => true,
             "subtitle" => matches!(

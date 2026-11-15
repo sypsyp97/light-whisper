@@ -1,4 +1,4 @@
-"""Focused tests for R2T2 native startup and first-caption batching."""
+
 import ctypes as ct
 import os
 import sys

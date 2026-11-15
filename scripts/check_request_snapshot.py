@@ -1,4 +1,4 @@
-"""Source conformance guard for provider/key snapshots; not a Rust execution proof."""
+
 
 import argparse
 import re
@@ -42,7 +42,7 @@ def check_cloud_asr_snapshot(source: str, engine: str) -> None:
 
     reject_live_reads(request)
     if glm and "fn transcribe_request(" not in source:
-        # Earlier revisions sent directly from transcribe with owned strings.
+
         if ".post(&url) .bearer_auth(&api_key)" not in request:
             raise ValueError(f"{engine}: inline request must use the captured URL and API key")
         return

@@ -98,7 +98,7 @@ function normalizeInvokeError(command: string, err: unknown): Error {
     try {
       return new Error(JSON.stringify(err));
     } catch {
-      // Fall through to generic message.
+
     }
   }
   return new Error(i18n.t("toast.invokeFailed", { command }));
@@ -300,7 +300,7 @@ export interface AssistantConversationTurn {
   content: string;
 }
 
-// Profile commands
+
 export const getUserProfile = createNoArgCommand<UserProfile>("get_user_profile");
 export interface ProfileSaveStatus {
   revision: number;
@@ -451,7 +451,7 @@ export function setRecordingMode(toggle: boolean): Promise<void> {
   return invokeCommand<void>("set_recording_mode", { toggle });
 }
 
-/** 设置翻译目标语言。返回是否自动开启了 AI 润色。 */
+
 export function setTranslationTarget(target: string | null): Promise<boolean> {
   return invokeCommand<boolean>("set_translation_target", { target });
 }
@@ -642,10 +642,10 @@ export function setCorrectionValidationConfig(params: {
   return invokeCommand<void>("set_correction_validation_config", args);
 }
 
-/**
- * 保存在线 ASR 的 API Key。`keyringUser` 由调用方在用户键入瞬间就锁定，
- * 避免 debounce 与 engine/region 切换产生的 race。
- */
+
+
+
+
 export function setOnlineAsrApiKey(apiKey: string, keyringUser?: string): Promise<void> {
   return invokeCommand<void>("set_online_asr_api_key", {
     apiKey,

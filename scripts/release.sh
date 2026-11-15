@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 在本机完成完整验证和打包，候选提交的 CI 通过后才创建 tag 和 GitHub Release。
-# 用法:
-#   bash scripts/release.sh 1.6.0 "Concise English release notes." [--rebuild-engine|--reuse-engine]
-#   bash scripts/release.sh 1.6.0 --generate-notes --reuse-engine
+
+
+
+
 
 set -euo pipefail
 
@@ -153,6 +153,10 @@ run_local_checks() {
     uv run --no-sync python scripts/test_release_ci.py
     uv run --no-sync python scripts/test_check_verus.py
     uv run --no-sync python scripts/test_verus_ci.py
+    uv run --no-sync python -m unittest discover -s scripts -p "test_*cli*.py"
+
+    cargo test --manifest-path formal/agent-api-security/Cargo.toml --locked -j2 -- --test-threads=1
+    cargo test --manifest-path formal/agent-api-transport/Cargo.toml --locked -j2 -- --test-threads=1
 
     cargo fmt --manifest-path "$CARGO_TOML" --all -- --check
     cargo clippy --manifest-path "$CARGO_TOML" --all-targets --locked -- -D warnings
@@ -193,6 +197,7 @@ verify_engine_archive() {
 
 build_installer() {
     echo "[5/9] 在本机构建安装包"
+    uv run --locked python scripts/build_cli.py
     pnpm tauri build
 }
 
@@ -280,7 +285,7 @@ wait_for_ci() {
     [[ "$run_head" == "$candidate_sha" ]] || fail "CI run 的 headSha 与候选提交不一致"
     [[ "$run_conclusion" == "success" ]] || fail "CI 未成功: $run_conclusion"
 
-    for required_job in Frontend Python Rust "Application formal contracts" "Verus implementation proofs"; do
+    for required_job in Frontend Python Rust "Application formal contracts" "Verus implementation proofs" "CLI contracts"; do
         job_conclusion="$(
             gh run view "$run_id" \
                 --json jobs \
@@ -302,6 +307,8 @@ publish_release() {
     [[ "$(git rev-parse "origin/$RELEASE_BRANCH")" == "$candidate_sha" ]] || {
         fail "origin/${RELEASE_BRANCH} 已离开候选提交，请重新建立发布候选"
     }
+    [[ "$(git rev-parse HEAD)" == "$candidate_sha" ]] || fail "HEAD 已离开候选提交"
+    [[ -z "$(git status --porcelain)" ]] || fail "打 tag 前工作区不干净"
 
     git tag -a "$TAG" "$candidate_sha" -m "Release $TAG"
     git push origin "refs/tags/$TAG"

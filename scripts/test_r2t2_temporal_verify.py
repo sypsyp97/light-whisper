@@ -20,7 +20,7 @@ from build_r2t2_runtime import ROOT, build_environment
 TESTS = ROOT / "scripts/native_tests"
 RUNTIME = "src/framework/modules/transformers/qwen_causal_decode_runtime.cpp"
 GREEDY = "src/framework/runtime/greedy_qwen_decoder.cpp"
-# Frozen asr10 control; normalize only Windows CRLF for the identity check.
+
 BASELINE_LF_SHA256 = {
     RUNTIME: "d3b6749bb96cbee62718448a676bda86e041af15aae1cdfb446f2986f84f3ac9",
     GREEDY: "940fc637fefc152e0d5439f5a7af9a8b45684e966ffd2828964838048577f9aa",

@@ -76,7 +76,7 @@ def compare(left, right):
 
 
 def observed(enhancer, action):
-    """Keep real buffers alive; inspect ownership after the measured action."""
+
     import numpy as np
 
     original_run = enhancer.runtime.run
@@ -136,7 +136,7 @@ def stream(enhancer, audio, *, paced, pattern):
             captured += len(chunk)
             deadline = started + round(captured / RATE * 1_000_000_000)
             if paced:
-                # Absolute capture deadlines preserve processing backlog.
+
                 while (remaining := deadline - time.perf_counter_ns()) > 0:
                     time.sleep(remaining / 1_000_000_000)
             feed_started = time.perf_counter_ns()
@@ -228,7 +228,7 @@ def measure(audio, enhancer_class, options, iterations, first_instance, resource
                        if row["first_nonempty_output"] is not None]
         result["steady_first_output_wall"] = summary(first_walls) if first_walls else None
 
-        # This guard runs after paced measurements, preserving the first call.
+
         (full, full_ms), full_native = observed(enhancer, lambda _: timed(lambda: enhancer.enhance(audio)))
         _, full_checks = output_checks([full], audio, result["input_pcm_sha256"])
         segmented, segmented_row = stream(enhancer, audio, paced=False, pattern=GUARD_CHUNKS)
@@ -262,7 +262,7 @@ def measure(audio, enhancer_class, options, iterations, first_instance, resource
             try:
                 point("after_close_gc")
             finally:
-                # Keep the sampler loaded through the post-close CUDA query.
+
                 cuda = None
                 sampler_directories.close()
     return result
@@ -308,7 +308,7 @@ def main():
         if not (resources / name).is_file():
             parser.error(f"INTERFACE_PENDING: --resources lacks {name}: {resources}")
     incoming_env = {key: os.environ.get(key) for key in ENV_KEYS}
-    # Bound process-local CPU concurrency before NumPy/native libraries load.
+
     for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ[name] = str(args.threads)
     sys.path.insert(0, str(resources))

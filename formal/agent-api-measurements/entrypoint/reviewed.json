@@ -1,0 +1,70 @@
+{
+  "kind": "reviewed-native-entrypoint-variants-v1",
+  "identity_basis": "frozen-content",
+  "inventory_sha256": "5f2ec4296e00adda13b935b5c2cd861722e16a7387268026e4ef50bf562fd312",
+  "frozen": {
+    "src-tauri/src/agent_api/secure_files.rs": "5bfc5b3054b7d246776782271051ab2a7d156b25ac701e4d9de4d21bc6ed166c",
+    "src-tauri/src/agent_api/transport.rs": "4a6e139ae4f567be2bf0132a8452e4fa99be80d6501d73606710b98538f1ce21",
+    "src-tauri/src/agent_api/controller.rs": "46f5a457464422f9117e01a8d9679578ef4ae433e17dc5b0616c7f77c2cefb7f",
+    "src-tauri/src/agent_api/host.rs": "7d9e4f79835117d4ef28c1064aa5820678f44cd1a9b03b7d74ad4efbdf28bd4c",
+    "src-tauri/src/agent_api/mod.rs": "b1e7048f949951f341179918c36fe732ab80c9079a963050c282911eb986a9bf",
+    "src-tauri/src/lib.rs": "6be5037b0b08894a4b0bcd2e87d95cbd719de201bfaa1c148349f1197b541085",
+    "src-tauri/src/commands/funasr.rs": "2aeaf87634db346bfdd59cfc5cea57226bf199d29a58ecd9bf9f59053115bd21",
+    "src-tauri/src/services/funasr_service.rs": "0075b7919660f0159bd2c6a7b6e9a696bb237c83a8d21efda4234b43550866b9",
+    "src-tauri/src/services/funasr_service/protocol.rs": "56b564c3bfb772d35f5cb99737a28923bd83ff3df58ced45c4fc7c2f9d4f3b7d",
+    "src-tauri/build_support.rs": "c688c3db7cf7e3584fdb8c3627d67cfcfcb0ab60101666234d03cb636c28f159",
+    "formal/agent-api-security/tests/private_files.rs": "76c48186ddd28ab05475983674186d04d11f8a876477bf854a395d8fab4710cb",
+    "formal/agent-api-transport/tests/transport.rs": "924b12ecb19e011955606ce4cae73f00a849ffe95096b4ea18910d7c72102bce",
+    "src-tauri/src/agent_api/tests.rs": "cd83679507d9148514b5cca2e9f868fd372a9d3975e7f9a4087f6d0edb407809",
+    "formal/agent-api-host/run.py": "d10f7d4c9ad175abb6bd4bd40fc207837e8a25aa21e0acb89acf59752143a3d7",
+    "formal/cli-packaging/selector_tests.rs": "4040cad210229bb0fbd3c5592aee6737bf8663d633149422b6adf153c9220824",
+    "src-tauri/src/utils/paths.rs": "daf66c7ac40ffe35fc2ac09eaaec97ccdcb6597288c97a3520a8ffa4105295ed",
+    "src-tauri/src/main.rs": "530c9fdd99977abe280ab19d9df64c7ac7b9ce38702cbd63f91e42a4b5c66670",
+    "formal/agent-api-measurements/native_measurement.rs": "1d9ae04914f979aaf150082dd374cb83430949e3424207d0760a4d558bac514b",
+    "formal/agent-api-measurements/prepare.py": "1d02f9472f7bc7d2d0476e4ae1c376b41ae9013b23cedd5b21230ef59bea3bc7",
+    "formal/agent-api-measurements/profile_flush.py": "c4cfdd292343bf2ec22361125c9e91becb219c03bec84a57267d5615a46bd672",
+    "formal/agent-api-measurements/cohort.json": "522a95b47d8c7783efcf0f083bc04727a3b62c177c6821d30233e0e4c3f17b8a"
+  },
+  "variants": [
+    {
+      "key": "initial-host-inverse",
+      "name": "src-tauri/src/lib.rs:16:49: replace == with != in run",
+      "span": {
+        "end": {
+          "column": 51,
+          "line": 16
+        },
+        "start": {
+          "column": 49,
+          "line": 16
+        }
+      },
+      "replacement": "!=",
+      "diff": "--- src-tauri/src/lib.rs\n+++ replace == with != in run\n@@ -8,17 +8,17 @@\n \n #[cfg(test)]\n mod ipc_dto_contract_tests;\n \n use state::{AppState, RecordingSlot};\n use tauri::{Emitter, Manager};\n \n pub fn run() {\n-    if std::env::args().any(|argument| argument == \"--agent-host\")\n+    if std::env::args().any(|argument| argument != /* ~ changed by cargo-mutants ~ */ \"--agent-host\")\n         && std::env::var_os(\"LIGHT_WHISPER_DATA_DIR\").is_none_or(|directory| directory.is_empty())\n     {\n         eprintln!(\"--agent-host requires LIGHT_WHISPER_DATA_DIR\");\n         std::process::exit(2);\n     }\n     if std::env::args().any(|argument| argument == \"--agent-client\") {\n         if let Err(error) = agent_api::run_client() {\n             eprintln!(\"Agent client failed: {error}\");\n",
+      "line": 16,
+      "before": "    if std::env::args().any(|argument| argument == \"--agent-host\")",
+      "after": "    if std::env::args().any(|argument| argument != /* ~ changed by cargo-mutants ~ */ \"--agent-host\")",
+      "sha256": "644a7587fcf6191a2410b83c07c3ed75c0a00909b802068c3b0af0200ac300ba"
+    },
+    {
+      "key": "final-host-inverse",
+      "name": "src-tauri/src/lib.rs:29:49: replace == with != in run",
+      "span": {
+        "end": {
+          "column": 51,
+          "line": 29
+        },
+        "start": {
+          "column": 49,
+          "line": 29
+        }
+      },
+      "replacement": "!=",
+      "diff": "--- src-tauri/src/lib.rs\n+++ replace == with != in run\n@@ -21,17 +21,17 @@\n     }\n     if std::env::args().any(|argument| argument == \"--agent-client\") {\n         if let Err(error) = agent_api::run_client() {\n             eprintln!(\"Agent client failed: {error}\");\n             std::process::exit(1);\n         }\n         return;\n     }\n-    if std::env::args().any(|argument| argument == \"--agent-host\") {\n+    if std::env::args().any(|argument| argument != /* ~ changed by cargo-mutants ~ */ \"--agent-host\") {\n         if let Err(error) = agent_api::run_host() {\n             eprintln!(\"Agent host failed: {error}\");\n             std::process::exit(1);\n         }\n         return;\n     }\n     tauri::Builder::default()\n         .plugin(tauri_plugin_clipboard_manager::init())\n",
+      "line": 29,
+      "before": "    if std::env::args().any(|argument| argument == \"--agent-host\") {",
+      "after": "    if std::env::args().any(|argument| argument != /* ~ changed by cargo-mutants ~ */ \"--agent-host\") {",
+      "sha256": "1565eab8e19141c5865d8550b95a102a1c95d3de45e240977b6f5e97a1449dfb"
+    }
+  ]
+}

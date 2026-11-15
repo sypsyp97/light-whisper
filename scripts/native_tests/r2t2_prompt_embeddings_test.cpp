@@ -1,4 +1,4 @@
-// Reuse the established real decoder fixture; no duplicate synthetic model.
+
 #define main established_qwen_test_main
 #include "qwen_shared_decoder_test.cpp"
 #undef main
@@ -20,9 +20,9 @@ size_t cases = 0, failures = 0, failed_graph_cases = 0, generic_guards = 0;
 size_t total_lookup_graphs = 0, total_lookup_rows = 0, total_lookup_bytes = 0;
 std::vector<float> embedding_weights = pattern(vocabulary * width, 101);
 
-// An embedding-only graph has one weight-table GET_ROWS and structural views.
-// Decoder graphs contain attention/MLP/LM-head arithmetic, even when they also
-// look up a decoded token. No production names or source-text matches are used.
+
+
+
 const ggml_tensor * table_lookup(const ggml_tensor * node) {
     return node->op == GGML_OP_GET_ROWS && node->src[0] && node->src[1] &&
         node->src[0]->ne[0] == width && node->src[0]->ne[1] == vocabulary &&
@@ -237,7 +237,7 @@ void prompt_suite(core::ExecutionContext & execution, std::ofstream & trace, boo
     std::cout << "PROMPT_WORK lookup_graphs=" << total_lookup_graphs << " lookup_rows=" << total_lookup_rows
               << " row_bytes=" << total_lookup_bytes << " work_failures=" << failures << '\n';
 }
-}  // namespace
+}
 
 namespace engine::core {
 ggml_status prompt_test_compute_backend_graph(
@@ -266,7 +266,7 @@ ggml_status prompt_test_compute_backend_graph(
     }
     return status;
 }
-}  // namespace engine::core
+}
 
 void prompt_test_backend_tensor_get(const ggml_tensor * tensor, void * data, size_t offset, size_t size) {
     ggml_backend_tensor_get(tensor, data, offset, size);

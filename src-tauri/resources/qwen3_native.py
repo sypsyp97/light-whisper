@@ -1,4 +1,4 @@
-"""Resident Qwen audio.cpp inference and sample-driven caption previews."""
+
 
 import ctypes as ct
 from concurrent.futures import Future
@@ -17,13 +17,13 @@ def _validate_pcm(pcm):
 
 
 class QwenNativeRuntime(NativeRuntime):
-    # Pinned 0.6B encoder: 1,500 positions, 13 per complete second. Keep at
-    # most 115 seconds (1,495 positions) unsplit; native auto chunking handles
-    # longer captures in contiguous 30-second pieces, including the last tail.
+
+
+
     MAX_UNCHUNKED_SAMPLES = 115 * NativeRuntime.SAMPLE_RATE
 
     def __init__(self, model_path, library_path, *, backend='cuda',
-                 dll_directories=(), threads=4):
+                 dll_directories=(), threads=None):
         super().__init__(model_path, library_path, backend=backend,
                          dll_directories=dll_directories, threads=threads,
                          family='qwen3_asr', mode='offline')
@@ -40,7 +40,7 @@ class QwenNativeRuntime(NativeRuntime):
             raise RuntimeError('Cannot allocate audio.cpp request')
         result = ct.c_void_p()
         try:
-            # Fresh requests clear both context and forced language between runs.
+
             self._call('request_set_text', request, context.encode('utf-8'),
                        language.encode('utf-8') if language else None)
             for key, value in ((b'max_tokens', b'512'),
@@ -60,7 +60,7 @@ class QwenNativeRuntime(NativeRuntime):
 
 
 class QwenPreviewRuntime:
-    """Revise bounded previews; finalize from the complete captured audio."""
+
 
     supports_preview_suppression = True
 
@@ -76,8 +76,8 @@ class QwenPreviewRuntime:
         self._transcribe = transcribe
         self._minimum_samples = sample_rate // 2
         self._preview_samples = preview_samples
-        # Three 40-ms capture polls give the first recognizable word an earlier
-        # attempt; steady previews retain their lower inference frequency.
+
+
         self._startup_preview_samples = min(preview_samples, sample_rate * 120 // 1000)
         self._window_samples = window_samples
         self.reset()
@@ -90,8 +90,8 @@ class QwenPreviewRuntime:
         self._language = language
 
     def _pad_audio(self, pcm):
-        # A short first preview/final needs acoustic context, without changing
-        # the captured samples retained for the eventual full-clip decode.
+
+
         if len(pcm) < self._minimum_samples:
             pcm = np.pad(pcm, (0, self._minimum_samples - len(pcm)))
         return pcm
@@ -130,7 +130,7 @@ class QwenPreviewRuntime:
             except BaseException:
                 self.reset()
                 raise
-        # Window hypotheses may change; only finish publishes committed text.
+
         return '', self._language
 
     @property
@@ -143,8 +143,8 @@ class QwenPreviewRuntime:
         try:
             if not self._chunks:
                 return '', self._language
-            # Reuse only a preview of every captured sample. A single new
-            # sample or earlier audio outside the window needs a full decode.
+
+
             if (self._preview_sample_count == self._sample_count
                     and self._sample_count <= self._window_samples):
                 return self._preview_text, self._language
@@ -168,7 +168,7 @@ class QwenPreviewRuntime:
 
 
 class QwenPipelineRuntime(QwenPreviewRuntime):
-    """Overlap one CPU preparer and one native worker behind bounded slots."""
+
 
     def __init__(self, transcribe, *, prepare_audio, sample_rate=16000,
                  preview_samples=3200, window_samples=192000):
@@ -257,7 +257,7 @@ class QwenPipelineRuntime(QwenPreviewRuntime):
                     future.set_result(result)
                 del result
             finally:
-                # An idle worker must not pin the last prepared audio.
+
                 del audio, future, context, language
                 with self._condition:
                     self._running = None
@@ -275,13 +275,13 @@ class QwenPipelineRuntime(QwenPreviewRuntime):
             self._discard_slot('_raw_pending', keep=keep)
             self._discard_slot('_pending', keep=keep)
             if self._preparing is not None and self._preparing is not keep:
-                # Preparation cannot be aborted, but its result can be skipped.
+
                 self._preparing.cancel()
             self._jobs = [(count, future) for count, future in self._jobs if not future.cancelled()]
 
     def _fail(self, future, error):
-        # A cancelled CPU job can still fail while draining. Preserve that
-        # original error even though its Future can no longer accept it.
+
+
         if self._failure is None:
             self._failure = error
         if not future.done():
@@ -295,7 +295,7 @@ class QwenPipelineRuntime(QwenPreviewRuntime):
             self._collect_previews()
             self._discard_slot('_raw_pending')
             self._raw_pending = (audio, future, self._context, self._forced_language)
-            # Futures carry results and counts, never queued PCM work items.
+
             self._jobs.append((sample_count, future))
             if self._preparer is None:
                 preparer = Thread(target=self._prepare_loop,
@@ -363,8 +363,8 @@ class QwenPipelineRuntime(QwenPreviewRuntime):
                         and (self._preview_sample_count == self._sample_count or exact is not None)):
                     self._discard_pending(keep=exact)
                 else:
-                    # Cancel obsolete CPU work before it can enter native;
-                    # the complete capture is next on the same CPU owner.
+
+
                     self._discard_pending()
                     self._submit(np.concatenate(self._chunks), self._sample_count)
             self._collect_previews(wait=True)

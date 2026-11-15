@@ -37,7 +37,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-// Every rendered statistic identifies the request that supplied the snapshot.
+
 function stats(id: number): PersistentHistoryStats {
   return {
     total: id * 101, success: id * 100, failed: id,
@@ -150,14 +150,14 @@ describe("TLC history statistics ownership replay", () => {
     expect(handled).toEqual(events);
 
     if (mounted) {
-      // Complete the newest request if the negative stopped at an older error.
+
       if (!settled.has(latest)) await complete(latest, false);
       const recovery = requests.length + 1;
       await begin(recovery);
       await complete(recovery, true);
       expectSnapshot(recovery);
-      // Native failure after disposal is observable even though React 19 drops
-      // unmounted state updates without warning.
+
+
       const pendingAtDisposal = requests.length + 1;
       await begin(pendingAtDisposal);
       dispose();

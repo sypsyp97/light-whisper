@@ -251,7 +251,7 @@ export default function SettingsPage({
   const [profileLoadPending, setProfileLoadPending] = useState(false);
   const settingsReady = profile !== null && !profileLoadError;
 
-  // --- Settings nav sections ---
+
   const navSections = useMemo(() => [
     { id: "appearance", labelKey: "settings.appearance" },
     { id: "engine", labelKey: "settings.engine" },
@@ -276,8 +276,8 @@ export default function SettingsPage({
   const isNavClickScrolling = useRef(false);
   const navScrollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Measure the scroll position instead of relying on a narrow intersection
-  // band that the final sections cannot reach. Keep click intent until scrollend.
+
+
   useEffect(() => {
     const container = settingsContentRef.current;
     if (!container) return;
@@ -306,8 +306,8 @@ export default function SettingsPage({
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(updateSection);
       clearTimeout(navScrollTimer.current);
-      // Fallback for WebView versions without scrollend: wait for silence,
-      // restarting on every scroll frame instead of guessing journey duration.
+
+
       navScrollTimer.current = setTimeout(finishScroll, 180);
     };
     const interruptScroll = () => { finishScroll(); };
@@ -367,14 +367,14 @@ export default function SettingsPage({
     return () => window.removeEventListener("resize", updateIndicator);
   }, [activeNavSection, active, t, settingsReady]);
 
-  // --- Picker group (mutually exclusive dropdowns) ---
+
   type PickerId = "provider" | "model" | "assistantModel" | "assistantProvider" | "assistantReasoning" | "polishReasoning" | "recordingMode" | "microphone" | "webSearchProvider" | "language" | "alibabaModel" | "engine" | "chatgptAccount" | "assistantChatgptAccount" | "selectionChatgptAccount";
   const picker = useExclusivePicker<PickerId>();
   const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
   const modelSearchInputRef = useRef<HTMLInputElement | null>(null);
   const assistantModelSearchInputRef = useRef<HTMLInputElement | null>(null);
 
-  // --- Hotkey capture (3 instances share 1 hook) ---
+
   const [translationHotkeyDisplay, setTranslationHotkeyDisplay] = useState("");
   const [assistantHotkeyDisplay, setAssistantHotkeyDisplay] = useState("");
   const mainHotkeyCapture = useHotkeyCapture({
@@ -396,7 +396,7 @@ export default function SettingsPage({
     label: t("settings.assistantHotkeyLabel"),
   });
 
-  // --- Core state ---
+
   const [recordingMode, setRecordingModeState] = useState<"hold" | "toggle">(() => {
     return readLocalStorage(RECORDING_MODE_KEY) === "toggle" ? "toggle" : "hold";
   });
@@ -422,7 +422,7 @@ export default function SettingsPage({
   const [providerSearch, setProviderSearch] = useState("");
   const [assistantProviderSearch, setAssistantProviderSearch] = useState("");
 
-  // --- LLM provider ---
+
   const [providerDrafts, setProviderDrafts] = useState<LlmProviderDraftMap>(() => readLlmProviderDrafts());
   const [llmProvider, setLlmProvider] = useState("cerebras");
   const polishProviderRef = useRef(llmProvider);
@@ -443,7 +443,7 @@ export default function SettingsPage({
     id: number;
     status: "saving" | "saved" | "error";
   }>>({});
-  // null = 用户未显式选择，effectiveOpenaiAuthMode 会根据 OAuth 登录态给出智能默认
+
   const [openaiAuthMode, setOpenaiAuthModeState] = useState<OpenaiAuthMode | null>(null);
   const [xaiAuthMode, setXaiAuthModeState] = useState<XaiAuthMode | null>(null);
   const [openaiFastMode, setOpenaiFastModeState] = useState<boolean>(false);
@@ -483,9 +483,9 @@ export default function SettingsPage({
   const assistantManualApiKey =
     assistantApiKeyState.trim()
     || (effectiveAssistantProvider === llmProvider ? polishManualApiKey : "");
-  // openaiAuthMode 为 null 表示用户没在设置页里明确点过，沿用智能默认：
-  // 已登录 OAuth → oauth；否则 → api_key。前端和后端 resolve_api_key_for_provider
-  // 的默认推断逻辑完全对齐，避免 UI 显示和实际请求走向不一致。
+
+
+
   const effectiveOpenaiAuthMode: OpenaiAuthMode =
     openaiAuthMode ?? (openaiCodexOauthStatus.loggedIn ? "oauth" : "api_key");
   const openaiPlanReady = openaiCodexOauthStatus.loggedIn
@@ -549,7 +549,7 @@ export default function SettingsPage({
         : `key:${assistantManualApiKey}`,
   ]);
 
-  // --- Profile & misc ---
+
   const [newHotWord, setNewHotWord] = useState("");
   const [translationTarget, setTranslationTargetState] = useState<string | null>(null);
   const [customPromptState, setCustomPromptState] = useState<string>("");
@@ -575,7 +575,7 @@ export default function SettingsPage({
   const [webSearchApiKey, setWebSearchApiKeyState] = useState("");
   const webSearchKeyRequestIdRef = useRef(0);
 
-  // --- Correction validation ---
+
   const [validationEnabled, setValidationEnabled] = useState(false);
   const [validationUseSeparateModel, setValidationUseSeparateModel] = useState(false);
   const [validationProvider, setValidationProvider] = useState<string | null>(null);
@@ -592,7 +592,7 @@ export default function SettingsPage({
         delete polishKeyDraftsRef.current[provider];
       }
     } catch {
-      // Keep the provider's draft available when credential storage fails.
+
     }
   }, 600, { onUnmount: "flush" });
 
@@ -1251,8 +1251,8 @@ export default function SettingsPage({
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("settings.chatgptRemoveFailed"));
     } finally {
-      // Revocation can fail after successful local removal. Read authoritative
-      // state on both paths so the deleted record cannot reappear in the UI.
+
+
       const status = await refreshOpenaiCodexOauthStatus();
       if (openaiCodexOauthStatus.loggedIn && !status.loggedIn) {
         invalidateModels({ clearPolish: llmProvider === "openai", clearAssistant: effectiveAssistantProvider === "openai" });
@@ -2316,7 +2316,6 @@ export default function SettingsPage({
           </div>
         ) : (
           <>
-        {/* Settings nav */}
         <nav className="settings-nav" ref={navScrollRef}>
           {navIndicatorStyle && (
             <div
@@ -2338,7 +2337,6 @@ export default function SettingsPage({
           ))}
         </nav>
 
-        {/* Content */}
         <div className="settings-content" ref={settingsContentRef} style={{ padding: `16px ${PADDING}px 16px` }}>
           <div className="settings-sections">
 
@@ -2353,7 +2351,6 @@ export default function SettingsPage({
             }}
           />
 
-          {/* Engine */}
           <section
             className="settings-card"
             data-nav-id="engine"
@@ -2573,7 +2570,6 @@ export default function SettingsPage({
                 </fieldset>
               </div>
             )}
-            {/* Model Directory */}
             {!isOnlineEngineKey(engine) && (
               <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
                 <div className="settings-row" style={{ gap: 6, alignItems: "center" }}>
@@ -2608,7 +2604,6 @@ export default function SettingsPage({
             )}
           </section>
 
-          {/* Hotkey */}
           <section
             className="settings-card"
             data-nav-id="hotkey"
@@ -2714,7 +2709,6 @@ export default function SettingsPage({
             </div>
           </section>
 
-          {/* Microphone */}
           <section
             className="settings-card"
             data-nav-id="microphone"
@@ -2832,7 +2826,6 @@ export default function SettingsPage({
             </div>
           </section>
 
-          {/* Input Method */}
           <section className="settings-card" data-nav-id="input">
             <div className="settings-section-header">
               <ClipboardPaste size={15} className="icon-accent" />
@@ -2877,7 +2870,6 @@ export default function SettingsPage({
             </div>
           </section>
 
-          {/* AI Polish + LLM Backend */}
           <section
             className="settings-card"
             data-nav-id="ai-polish"
@@ -2956,7 +2948,6 @@ export default function SettingsPage({
                           )) : (
                             <div className="picker-empty">{t("settings.noMatchingProvider")}</div>
                           )}
-                          {/* 添加自定义服务商 */}
                           {!addingProvider ? (
                             <button
                               type="button"
@@ -2998,9 +2989,9 @@ export default function SettingsPage({
                                       setNewProviderBaseUrl("");
                                       setNewProviderModel("");
                                       setNewProviderFormat("openai_compat");
-                                      // 先刷新 profile 拿到最新 customProviders，再切换
+
                                       await refreshProfile();
-                                      // 直接设置状态，不依赖 resolveProviderDraft（避免竞态）
+
                                       const nextAssistantModel = resolveAssistantModelForPolishProviderChange({
                                         assistantUseSeparateModel,
                                         assistantProviderToPersist,
@@ -3370,7 +3361,6 @@ export default function SettingsPage({
                 </div>
               </SettingsReveal>
 
-              {/* 联网搜索 */}
 
               <ProcessingModeControl label={t("settings.webSearch")}
                 value={!webSearchEnabled ? "off" : profile?.jev?.search_routing ? "auto" : "on"}
@@ -3389,7 +3379,6 @@ export default function SettingsPage({
 
               <SettingsReveal open={webSearchEnabled} gap={16}>
                 <div className="settings-column" style={{ gap: 10 }}>
-                  {/* 搜索方式（下拉列表） */}
                   <div className="settings-column" style={{ gap: 6 }}>
                     <span className="settings-option-desc">{t("settings.webSearchProvider")}</span>
                     <div ref={picker.setRef("webSearchProvider")} style={{ position: "relative" }}>
@@ -3431,7 +3420,6 @@ export default function SettingsPage({
                     </div>
                   </div>
 
-                  {/* 搜索结果条数（Exa / Tavily / Google） */}
                   {selectedWebSearchProviderOption.key !== "model_native" && (
                     <div className="settings-column" style={{ gap: 6 }}>
                       <div className="settings-row">
@@ -3451,7 +3439,6 @@ export default function SettingsPage({
                     </div>
                   )}
 
-                  {/* 第三方搜索 API Key */}
                   {webSearchProviderNeedsKey(selectedWebSearchProviderOption.key) && (
                     <div className="settings-column" style={{ gap: 6 }}>
                       <span className="settings-option-desc">
@@ -3566,7 +3553,6 @@ export default function SettingsPage({
 
               <SettingsReveal open={assistantUseSeparateModel} gap={10}>
                 <div className="settings-column" style={{ gap: 6 }}>
-                  {/* 助手供应商选择器 */}
                   <span className="settings-option-desc">{t("settings.assistantProvider")}</span>
                   <div className="picker-shell" ref={picker.setRef("assistantProvider")}>
                     <button
@@ -3619,7 +3605,6 @@ export default function SettingsPage({
                     )}
                   </div>
 
-                  {/* 助手独立 API Key（仅当 provider 与润色不同时显示） */}
                   {assistantProviderDiffers ? (
                     <>
                       {effectiveAssistantProvider === "openai" && renderOpenaiAuthModeToggle()}
@@ -3671,7 +3656,6 @@ export default function SettingsPage({
                     </div>
                   ))}
 
-                  {/* 助手模型选择器 */}
                   <div className="settings-row">
                     <span className="settings-option-desc">{t("settings.assistantModel")}</span>
                     <span className="settings-option-desc">{filteredAssistantModels.length}/{effectiveAssistantModels.length}</span>
@@ -3919,7 +3903,6 @@ export default function SettingsPage({
             onSaved={() => { void refreshProfile(); }}
           />
 
-          {/* Smart Vocabulary */}
           <section className="settings-card" data-nav-id="vocabulary">
             <div className="settings-section-header">
               <BookOpen size={15} className="icon-accent" />
@@ -3931,7 +3914,6 @@ export default function SettingsPage({
               )}
             </div>
             <div className="settings-column" style={{ gap: 8 }}>
-              {/* Add hot word */}
               <div style={{ display: "flex", gap: 6 }}>
                 <input
                   type="text"
@@ -3964,7 +3946,6 @@ export default function SettingsPage({
                 </button>
               </div>
 
-              {/* Hot word list */}
               {profile && profile.hot_words.length > 0 && (
                 <div style={{
                   display: "flex", flexWrap: "wrap", gap: 4,
@@ -4007,7 +3988,6 @@ export default function SettingsPage({
                 </div>
               )}
 
-              {/* Correction rules management */}
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-border-subtle)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <label style={{ fontSize: 13, color: "var(--color-text-primary)", flex: 1 }}>
@@ -4027,7 +4007,6 @@ export default function SettingsPage({
                 </div>
               </div>
 
-              {/* Legend + actions */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 {Object.entries(sourceLabels).map(([key, label]) => (
                   <span key={key} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "var(--color-text-tertiary)" }}>
@@ -4064,7 +4043,6 @@ export default function SettingsPage({
         </div>
       </div>
 
-        {/* Footer */}
         <div className="settings-footer" style={{ padding: `10px ${PADDING}px` }}>
           <p className="settings-footer-text">
             {t("settings.footer")} <span className="settings-footer-version">v{appVersion}</span>

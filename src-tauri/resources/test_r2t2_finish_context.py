@@ -1,4 +1,4 @@
-"""Adapter contract for opt-in native final acoustic context (no model/GPU)."""
+
 import ctypes as ct
 import unittest
 from unittest.mock import Mock, patch
@@ -11,7 +11,7 @@ from r2t2_stream import R2T2StreamSession
 
 
 class FinishLibrary:
-    """Only existing C ABI symbols; records actual adapter calls and PCM."""
+
 
     SYMBOLS = (
         "abi_version last_error registry_create model_load options_create options_set "
@@ -64,7 +64,7 @@ class FinishLibrary:
             return 1
         if name == "result_text":
             args[1]._obj.value = "完整句子".encode("utf-8")
-            args[2]._obj.value = None  # Exercise forced-language fallback.
+            args[2]._obj.value = None
         return 0
 
     def count(self, name):

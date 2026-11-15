@@ -72,7 +72,7 @@ export function App() {
     return () => window.clearTimeout(preloadTimer);
   }, []);
 
-  // Page navigation with directional slide while only mounting the active page
+
   const navigateTo = useCallback((target: View) => {
     if (isTransitioning.current || target === view) return;
     isTransitioning.current = true;

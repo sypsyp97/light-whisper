@@ -12,7 +12,8 @@
       "engine"
     ],
     "commands::funasr::set_engine": [
-      "engine"
+      "engine",
+      "saved-engine-invalidation"
     ],
     "commands::funasr::check_funasr_status": [
       "engine"
@@ -554,6 +555,9 @@
       "recording",
       "history",
       "clipboard"
+    ],
+    "engine-config-changed": [
+      "saved-engine-invalidation"
     ]
   },
   "lifecycle": {
@@ -614,6 +618,19 @@
     ],
     "timer.gpu-idle-unload-and-command-lock": [
       "gpu-idle"
+    ],
+    "react.saved-engine-invalidation-and-listener-cleanup": [
+      "saved-engine-invalidation"
+    ],
+    "cli.child-acquisition-and-session-reap": [
+      "agent-cli"
+    ],
+    "agent.endpoint-lease-admission-and-shutdown": [
+      "agent-transport",
+      "agent-host"
+    ],
+    "build.cli-artifact-and-candidate-publication": [
+      "cli-delivery"
     ]
   },
   "protocols": {
@@ -678,6 +695,16 @@
     ],
     "build.cuda-architecture-selection": [
       "cuda-architecture-selection"
+    ],
+    "cli.jsonl.command-session-and-correlation": [
+      "agent-cli"
+    ],
+    "agent.authenticated-loopback-broker-and-controller": [
+      "agent-transport",
+      "agent-host"
+    ],
+    "release.exact-candidate-required-cli-job": [
+      "cli-delivery"
     ]
   },
   "contracts": {
@@ -1879,6 +1906,453 @@
         "docs/exact-head-verification.md"
       ],
       "assumptions": "Two contexts and two abstract K/vocabulary keys; four-column requests only, two calls per context for policy and three across at most two lifetimes for restart. One eligible application head per backend context; serialized synchronous application commands and idle-lock exclusion. Actual stock-kernel/device/layout guards narrow eligibility. Other column counts retain their actual scalar shape outside this model. Calibration effects/ticks are conservative abstract observations; native parity rejection skips timing. First-input parity is not all-input arithmetic proof. No compiler/driver refinement, unrestricted concurrent C ABI calls, universal GPU validation or performance proof."
+    },
+    "saved-engine-invalidation": {
+      "obligation": "Successful native engine setters emit saved-configuration invalidation after the backend transition. Initial authoritative reads follow listener acquisition, with visible failure fallback. Delivered events retire earlier settings reads and GUI continuations; only current saved-state reads may publish, retain loading ownership or refresh model status. Unknown identity blocks credential edits, current failures remain visible, user drafts survive old key reads, and retired listeners release their subscription.",
+      "models": {
+        "asr-agent-settings/AsrAgentSettings": [
+          "NoStalePublication",
+          "NoObsoletePersistence",
+          "LatestReadKeepsLoading",
+          "UnknownIdentityBlocksCredentials",
+          "OnlyCurrentListenerReads",
+          "RetiredListenerReleased",
+          "SubscriptionFailureVisible",
+          "CurrentReadFailureVisible",
+          "UserDraftSurvives",
+          "LatestReadRefreshes",
+          "RetiredSubscriptionSettles"
+        ],
+        "asr-subscription-bootstrap/AsrSubscriptionBootstrap": [
+          "TypeOK",
+          "PublicationProvenance",
+          "PublicationGenerationOwned",
+          "PublicationNeverRegresses",
+          "NoReadAfterDispose",
+          "ListenerReleasedAfterAck",
+          "FailureVisible",
+          "SettledSavedConfig",
+          "LatestSavedEventually",
+          "FallbackEventuallyUsable",
+          "ReadRequestsSettle"
+        ]
+      },
+      "implementation": [
+        "src-tauri/src/commands/funasr.rs#pub async fn set_engine(",
+        "src-tauri/src/agent_api/controller.rs#async fn dispatch_request(",
+        "src/hooks/useAsrEngineSettings.ts#const readAsrConfig = useCallback",
+        "src/hooks/useAsrEngineSettings.ts#const hydrateInitialConfig = () =>",
+        "src/hooks/useAsrEngineSettings.ts#void listen(\"engine-config-changed\""
+      ],
+      "evidence": [
+        "src/hooks/__tests__/useAsrEngineSettingsExternalChanges.test.tsx",
+        "formal/asr-agent-settings/README.md",
+        "formal/asr-agent-settings/run_checks.ps1",
+        "src/hooks/__tests__/useAsrEngineSettingsSubscriptionBootstrap.test.tsx",
+        "formal/asr-subscription-bootstrap/verify.py",
+        "formal/asr-subscription-bootstrap/SourceControls.md",
+        "src/hooks/__tests__/useAsrEngineSettingsTransitionOwnership.test.tsx",
+        "formal/agent-api-host/run.py"
+      ],
+      "assumptions": "AsrAgentSettings bounds two external events/reads, one GUI engine-or-region mutation, two effect owners and nonwrapping epochs; local reads, GUI promises and listener registration eventually settle under weak fairness. It begins with delivered invalidations; native emission ordering and delivery remain source/native correspondence obligations, not an event-bus proof. AsrSubscriptionBootstrap separates native installation, JS acknowledgment, writes, emissions, snapshots and completions for one engine field. Three positive workloads contain exactly zero, one or two sequential writes and one, two or three reads respectively. Their union covers stopping after each write count; weak fairness completes only each profile's scheduled work. The single mount may dispose; failed registration reports a diagnostic and hydrates once. Multi-field transactions, overlapping writers and engine/model correctness are outside this bootstrap model. The coupled transition, invalidation and effect-replay combination is not formally qualified. Hook tests mock Tauri and local storage; native host tests are a separate surface. These path-qualified models are checked by the separate required CLI contracts job, not the application runner runs/actions matrix or its check_model_bindings loop. Registry anchor validation alone does not establish property activation, reachability, completed model matrices or final source/model correspondence."
+    },
+    "agent-cli": {
+      "obligation": "Target/configuration precedence and local-engine validation precede acquisition. Desktop sessions reuse one owned broker, correlate replies, retain explicit backend failures, stop without queued reads or retry after fatal transport failure, and reap only their owned child. Frozen/bootstrap resources, native thread options and doctor diagnostics retain their declared boundaries. Preserve decoded admitted JSON string contents across the Python client/backend byte protocol, including escaped unpaired surrogates; unsupported backend values may be rejected without silent client-side replacement. Desktop-bound invalid scalar strings and exact physical serialized records over 65536 bytes fail before broker acquisition/write; session input errors retain caller IDs, the live owner and continuation.",
+      "models": {
+        "cli/Configuration": [
+          "SelectionPrecedence",
+          "InvalidConfigurationBlocks",
+          "OperationalLocalGuard",
+          "SafeDiagnostics"
+        ],
+        "cli/Bootstrap": [
+          "FrozenResources",
+          "ResourceMetadata",
+          "MarkerRequired",
+          "RuntimeLaunchGuard",
+          "CacheEnvironment",
+          "UTF8InputPreserved"
+        ],
+        "cli/EngineClient": [
+          "OnlyCorrelated",
+          "ReadyRequiresStartup",
+          "ReapedMeansReleased",
+          "FaultRetainsOwnership",
+          "EventuallyReaped"
+        ],
+        "cli/Session": [
+          "SingleOwner",
+          "LazyAcquisition",
+          "ClientIdentity",
+          "NoPostFailureDispatch",
+          "ExitAckAfterReap",
+          "CleanupFailureReported",
+          "EventuallyDone"
+        ],
+        "cli/TargetRouting": [
+          "TargetPrecedence",
+          "ConflictBlocks",
+          "EnvironmentBoundary",
+          "DataBoundary",
+          "OwnedResourceCleanup",
+          "DesktopSurvives"
+        ],
+        "cli/NativeThreads": [
+          "CLIRejectsBeforeSpawn",
+          "EngineEnvironment",
+          "AppEnvironment",
+          "ValidationBeforeAllocation",
+          "ABIExactness"
+        ],
+        "cli/CommandSurface": [
+          "DefaultApp",
+          "Admission",
+          "WireActionMatches",
+          "FatalTerminates",
+          "FatalDoesNotReadTail",
+          "NoAutomaticRetry",
+          "ReplyIdentity",
+          "NonFatalContinues",
+          "OwnedCleanup",
+          "DoctorReadOnly",
+          "EventuallyDone"
+        ],
+        "cli/SenderHandoff": [
+          "NoExtraTailBudget",
+          "NoPrematureHandoff",
+          "NoLostSenderSlot",
+          "GracefulExitNotSkipped",
+          "ReapedMeansReleased",
+          "EventuallyReaped",
+          "RequestEventuallySettles"
+        ],
+        "cli/UnicodeSerialization": [
+          "DecodedStringsPreserved",
+          "Encode",
+          "Pipe",
+          "Decode"
+        ],
+        "cli/DesktopAdmission": [
+          "NoInvalidEffects",
+          "DecisionMatches",
+          "LazyFirstRecord",
+          "LiveClientPreserved",
+          "InternalSequence",
+          "CallerIdentity",
+          "EngineUnchanged",
+          "ClientReused",
+          "OneShotError",
+          "SessionContinuation",
+          "OwnedCleanup",
+          "EventuallyFinished"
+        ]
+      },
+      "implementation": [
+        "scripts/light_whisper_cli.py#class EngineClient:",
+        "scripts/light_whisper_cli.py#def request_client(",
+        "scripts/light_whisper_cli.py#def run_session(",
+        "scripts/light_whisper_cli.py#def main(",
+        "src-tauri/resources/r2t2_native.py#class _BackendConfig(",
+        "src-tauri/resources/r2t2_native.py#class NativeRuntime:",
+        "src-tauri/resources/qwen3_native.py#class QwenNativeRuntime(",
+        "scripts/light_whisper_cli.py#def _send(",
+        "scripts/light_whisper_cli.py#def session_request(",
+        "scripts/light_whisper_cli.py#def session_reply(",
+        "scripts/light_whisper_cli.py#DESKTOP_REQUEST_MAX = 64 * 1024",
+        "scripts/light_whisper_cli.py#def validate_desktop_request("
+      ],
+      "evidence": [
+        "scripts/test_cli_configuration.py",
+        "scripts/test_cli_bootstrap.py",
+        "scripts/test_cli_session.py",
+        "scripts/test_cli_target.py",
+        "scripts/test_cli_native_threads.py",
+        "scripts/test_cli_commands.py",
+        "formal/cli/CommandSurface.md",
+        ".github/workflows/ci.yml#Run complete CLI formal matrices",
+        "src-tauri/resources/test_native_thread_budget.py",
+        "scripts/test_cli_unicode_serialization.py",
+        "formal/cli/UnicodeSerialization.md",
+        "scripts/test_cli_desktop_admission.py",
+        "formal/cli/DesktopAdmission.md",
+        "formal/cli/README.md#Desktop admission source correspondence"
+      ],
+      "assumptions": "Each companion retains its own finite input partitions, acquisition/response/cleanup steps and local-step fairness; command sessions contain at most two records. Python children in unit tests are synthetic JSONL fixtures. Model inference, live desktop behavior, unrestricted concurrent callers and native dependency correctness need separate evidence. These path-qualified models are checked by the separate required CLI contracts job, not the application runner runs/actions matrix or its check_model_bindings loop. Registry anchor validation alone does not establish property activation, reachability, completed model matrices or final source/model correspondence. UnicodeSerialization bounds five representative strings at key/value positions and abstracts JSON syntax/recursive containers. No native serde/ASR acceptance, arbitrary Unicode sequence, size or progress proof; response fields and signed external identity are executable controls. DesktopAdmission is an additional generic application runs/actions matrix entry: one-shot or two session records, optional prior live owner at internal sequence 8/9, physical LF/CRLF widths and scalar/escaped-size partitions. Its Guard maps to validate_desktop_request in reviewed CLI SHA256 d1a9f86c0bcc3419ad7f1b1872a24a7e44d11bb552bb0860eda34f67884ac09b; main and run_session validate app payloads before acquisition/send, while engine, doctor and local exit bypass it. Existing companions retain their own narrower contracts: admitted app dispatch assumes this separate scalar/size guard, Session invalid input refines its recoverable bad_fields branch, and UnicodeSerialization still covers unchanged direct-client/engine serialization. See formal/cli/README.md for each model correspondence. This source review is not a current TLC receipt or a native decoder proof."
+    },
+    "agent-transport": {
+      "obligation": "A private endpoint is published under one stable host lease. Authenticated bounded frames preserve server identity and request correlation, validate before dispatch, and retain absolute ingress/client/egress deadlines. Worker slots remain owned through actual dispatch and egress; shutdown drains admitted work, removes only its endpoint and releases the lease after cleanup. The stdin broker flushes readiness and replies, keeps exit local, and stops before another read after terminal failure.",
+      "models": {
+        "agent-api-security/PrivateFiles": [
+          "PrivateBeforeSecret",
+          "PublishedPrivate",
+          "UnpublishedDestinationUnchanged",
+          "FailureCleansTemp",
+          "CreationFailureCleansEmpty",
+          "CleanupOwnsOnlyTemp",
+          "PublicationSettles"
+        ],
+        "agent-api-transport/Protocol": [
+          "PrivateEndpoint",
+          "AuthenticatedDispatch",
+          "VerifiedRequestMAC",
+          "ValidatedDispatch",
+          "BoundedCompleteFrame",
+          "SanitizedReply",
+          "ServerOwnsIdentity",
+          "CorrelatedClient",
+          "VerifiedResponseMAC",
+          "EventuallySettled"
+        ],
+        "agent-api-transport/Lifecycle": [
+          "SingleHost",
+          "PublishedUnderLease",
+          "WorkerBound",
+          "NoCanceledDispatch",
+          "NoPostCloseAdmission",
+          "DrainedCleanup",
+          "PreserveForeignDescriptor",
+          "ReleaseAfterCleanup",
+          "StableLeasePath",
+          "AdmittedSettles",
+          "DropCompletes"
+        ],
+        "agent-api-transport/Deadlines": [
+          "AbsoluteDeadline",
+          "EgressStartsAfterDispatch",
+          "EventuallySettled"
+        ],
+        "agent-api-transport/Workers": [
+          "WorkerBound",
+          "NoPostCloseReservation",
+          "ClosingDrains"
+        ],
+        "agent-api-transport/Broker": [
+          "StartupBeforeInput",
+          "NoStartupProbe",
+          "LocalExitOnly",
+          "NoQueuedRead",
+          "CorrelatedFatal",
+          "RecoverableFailures",
+          "NoRetry",
+          "FlushedReplies",
+          "EventuallySettled"
+        ]
+      },
+      "implementation": [
+        "src-tauri/src/agent_api/secure_files.rs#pub fn publish_private_file(",
+        "src-tauri/src/agent_api/transport.rs#pub struct AgentServer",
+        "src-tauri/src/agent_api/transport.rs#pub fn request(",
+        "src-tauri/src/agent_api/transport.rs#pub fn run_client("
+      ],
+      "evidence": [
+        "formal/agent-api-security/tests/private_files.rs",
+        "formal/agent-api-security/check_model.py",
+        "formal/agent-api-transport/tests/transport.rs",
+        "formal/agent-api-transport/check_model.py",
+        "formal/agent-api-transport/README.md"
+      ],
+      "assumptions": "The models abstract Windows ACL/filesystem primitives, HMAC authenticity and nonce freshness, finite workers/frames and eventually returning local dispatch/I/O/cleanup. Concrete authenticated native packets, ACLs, byte limits and controlled native socket-write schedules require the source-importing Rust harnesses. No cryptographic proof, arbitrary dispatch timeout or kernel-backpressure guarantee is implied. These path-qualified models are checked by the separate required CLI contracts job, not the application runner runs/actions matrix or its check_model_bindings loop. Registry anchor validation alone does not establish property activation, reachability, completed model matrices or final source/model correspondence."
+    },
+    "agent-host": {
+      "obligation": "The headless desktop host and GUI register the same managed controller boundary. Recording, Processing, native ownership and invalid input exclude incompatible effects; admitted operations retain their lease until settlement. Observed runtime identity/stats come from native replies, explicit empty transcripts remain valid silence, and missing transcripts/backend errors remain visible. Client exit leaves the host running; owner shutdown retires starts, cancels/reaps owned work and cleans owned audio before releasing resources.",
+      "models": {
+        "agent-api-app/AppQuery": [
+          "PermitUntilSettled",
+          "RecordingGuard",
+          "ProcessingGuard",
+          "ExternalOwnerGuard",
+          "NoEffectsForInvalidInput",
+          "NoTemporaryAfterReturn",
+          "NoOwnedLeaseAfterReturn",
+          "BusyRuntimeUnknown",
+          "ActualRuntimeIdentity",
+          "ActualStats",
+          "BackendErrorsExplicit",
+          "SilenceIsEmpty",
+          "EngineGetNoIpc",
+          "OwnerAbortStopsNative",
+          "AllQueriesSettle",
+          "OwnerAbortEventuallyReaps"
+        ],
+        "agent-api-host/AgentHost": [
+          "EndpointHasOneOwner",
+          "AdmittedOperationRetainsLease",
+          "ClientExitIsLocal",
+          "BusyAndInvalidHaveNoEffects",
+          "RetiredStartCannotPublish",
+          "OwnedAudioLifetime",
+          "StoppedIsClean",
+          "ObservedIdentityIsActual",
+          "ShutdownProgress",
+          "OperationProgress"
+        ],
+        "agent-api-host/admission/ControllerAdmission": [
+          "InitialShutdownNoEffects",
+          "ObservedShutdownNoEffects",
+          "InvalidEngineNoEffects",
+          "RecordingNoEffects",
+          "ProcessingNoEffects",
+          "LeaseUnavailableNoEffects",
+          "StartingNoEffects",
+          "DownloadNoEffects",
+          "LifecycleHeldAtWrite",
+          "AsrHeldAtWrite",
+          "RejectedGuardsReleased",
+          "LeaseRetainedBeforeWrite",
+          "LifecycleRetainedBeforeWrite",
+          "RejectionMatchesObservedGuard",
+          "AdmissionCompletes"
+        ],
+        "agent-api-host/admission/RuntimeConfiguration": [
+          "TypeOK",
+          "InvalidSavedConfigurationNoEffects",
+          "InvalidSavedConfigurationRejected",
+          "AdmittedIdentityIsCurrentLocal",
+          "LifecycleHeldDuringValidation",
+          "TerminalGuardsReleased",
+          "AdmissionCompletes",
+          "ValidateInitialConfiguration",
+          "AcquireLifecycle",
+          "ChangeConfigurationWhileWaiting",
+          "ReleaseExternalLifecycle",
+          "ValidateCurrentConfiguration",
+          "BeginRestartStop",
+          "TransferStartAdmission",
+          "AcquireActorAsr",
+          "SettleActorStop",
+          "ReleaseActorAsr",
+          "SettleRestartStop",
+          "TransferRestartAdmission"
+        ]
+      },
+      "implementation": [
+        "src-tauri/src/lib.rs#pub fn run()",
+        "src-tauri/src/agent_api/host.rs#pub(crate) fn register(",
+        "src-tauri/src/agent_api/host.rs#pub(crate) fn shutdown(",
+        "src-tauri/src/agent_api/host.rs#pub(crate) fn run_host(",
+        "src-tauri/src/agent_api/controller.rs#pub(crate) async fn query<",
+        "src-tauri/src/agent_api/controller.rs#pub(crate) async fn dispatch(",
+        "src-tauri/src/commands/funasr.rs#pub async fn set_engine(",
+        "src-tauri/src/utils/paths.rs#pub fn read_engine_config()",
+        "src-tauri/src/services/funasr_service.rs#pub async fn stop_server("
+      ],
+      "evidence": [
+        "src-tauri/src/agent_api/tests.rs",
+        "formal/agent-api-app/check_model.py",
+        "formal/agent-api-host/check_model.py",
+        "formal/agent-api-host/admission/check_model.py",
+        "formal/agent-api-host/admission/source-bindings.json",
+        "formal/agent-api-host/run.py",
+        "formal/agent-api-host/native-fixture/src/main.rs",
+        "src-tauri/src/agent_api/tests.rs#async fn controller_lifecycle_admission_engine_start_rechecks_saved_configuration()",
+        "src-tauri/src/agent_api/tests.rs#async fn controller_lifecycle_admission_engine_restart_rechecks_saved_configuration()",
+        "scripts/test_cli_runtime_configuration_formal.py",
+        "formal/agent-api-host/admission/RuntimeConfiguration.md"
+      ],
+      "assumptions": "AppQuery bounds two callers and one native owner; AgentHost bounds two clients, two operations and two start/restart attempts with two engine identities. Native replies and local process reap are environmental inputs under declared fairness. Managed-state tests use MockRuntime and synthetic native children; the headless host recipe separately drives an explicitly supplied own-build executable. Neither establishes live GUI event delivery, microphones, models or provider behavior. These path-qualified models are checked by the separate required CLI contracts job, not the application runner runs/actions matrix or its check_model_bindings loop. Registry anchor validation alone does not establish property activation, reachability, completed model matrices or final source/model correspondence. RuntimeConfiguration is an additional exception executed by the generic application runs/actions matrix: two runtime actions, two local identities plus cloud/raw-unknown classes, and one optional configuration writer while dispatch waits on lifecycle. Raw unknown values normalize to the default local engine. This is the validated Stage A lifecycle-before-ASR checkpoint, where a pending CLI request owns no ASR lease; no third ASR owner is present. The actor acquires ASR before an allowlisted write, settles its owned stop/reap with false readiness, releases ASR, then releases lifecycle. Starting the actor is optional; once started, successful actor stop/reap and internal settlement are assumed fair. CLI restart invocation, pending stop with lifecycle held and no reply, successful stop settlement, and explicit lifecycle release are separate actions. Actor and CLI stop settlement have independent typed temporal sensitivity controls. Prefix completion ends at rejection or transfer to common startup, with no accepted response projected at transfer; common service completion, final reply, provider behavior, post-transfer configuration changes and wall-clock bounds remain outside scope."
+    },
+    "cli-delivery": {
+      "obligation": "Only a verified CLI artifact matching original source/package inputs may replace the previous executable; failed builds preserve unrelated files and release owned staging. Release selection requires a nonempty artifact. Publication requires local checks plus all six named CI jobs on the frozen SHA, post-fetch HEAD/remote/clean observations, and an explicit candidate tag before release creation.",
+      "models": {
+        "cli-packaging/Packaging": [
+          "OnlyVerifiedPublication",
+          "OriginalInputsRequired",
+          "UnrelatedSurvives",
+          "SettledOwnStageReleased",
+          "ReleaseRequiresNonempty",
+          "ExistingArtifactPreserved",
+          "SelectionTruth",
+          "MetadataFailurePreserved",
+          "EventuallySettled"
+        ],
+        "cli-ci/ReleaseGate": [
+          "LocalSafety",
+          "CliSafety",
+          "ExistingSafety",
+          "AggregateSafety",
+          "ShaSafety",
+          "WaitSafety",
+          "FinalIdentitySafety",
+          "TagSafety",
+          "EventuallyDecided"
+        ]
+      },
+      "implementation": [
+        "scripts/build_cli.py#def verify_cli(",
+        "scripts/build_cli.py#def build_cli(",
+        "src-tauri/build_support.rs#pub fn select_cli_executable(",
+        "scripts/release.sh#wait_for_ci()",
+        "scripts/release.sh#publish_release()"
+      ],
+      "evidence": [
+        "scripts/test_build_cli.py",
+        "scripts/test_cli_ci.py",
+        "scripts/test_release_ci.py",
+        "formal/cli-packaging/selector_tests.rs",
+        "formal/cli-packaging/run_models.py",
+        "formal/cli-ci/check_model.py",
+        ".github/workflows/ci.yml#name: CLI contracts"
+      ],
+      "assumptions": "One artifact builder, two input revisions, atomic filesystem replacement and eventual local cleanup. ReleaseGate models one candidate and assumes an exclusive publisher with no external writes after the final observations through tagging; it does not make those observations atomic across Git/GitHub. Tests execute controlled local boundaries, not remote publication or NSIS installation. These path-qualified models are checked by the separate required CLI contracts job, not the application runner runs/actions matrix or its check_model_bindings loop. Registry anchor validation alone does not establish property activation, reachability, completed model matrices or final source/model correspondence."
+    },
+    "entrypoint-routing-observation": {
+      "obligation": "Verification support: admit only the reviewed source identity, observe explicit-empty client routing and the original/minimized desktop boundary before GUI construction, and remove the test-only overlay on valid restoration. Exact predicate inversions must violate their expected observation.",
+      "models": {
+        "agent-api-measurements/entrypoint/EntrypointObservation": [
+          "IdentityGate",
+          "BeforeGui",
+          "NoAbsentCase",
+          "Restored",
+          "ExpectedObservation"
+        ]
+      },
+      "implementation": [
+        "src-tauri/src/lib.rs#pub fn run()",
+        "formal/agent-api-measurements/entrypoint/entrypoint_probe.py#def _overlay(",
+        "formal/agent-api-measurements/entrypoint/entrypoint_probe.py#def client_probe(",
+        "formal/agent-api-measurements/entrypoint/entrypoint_probe.py#def desktop_probe("
+      ],
+      "evidence": [
+        "formal/agent-api-measurements/entrypoint/reviewed.json",
+        "formal/agent-api-measurements/entrypoint/test_entrypoint_probe.py#def test_overlay_preserves_every_original_byte_and_stops_before_builder(",
+        "formal/agent-api-measurements/entrypoint/test_entrypoint_probe.py#def test_client_guard_exit_and_wrong_route_are_assertion_failures(",
+        "formal/agent-api-measurements/entrypoint/test_entrypoint_probe.py#def test_host_readiness_and_noop_never_pass_for_desktop_boundary(",
+        "formal/agent-api-measurements/entrypoint/README.md"
+      ],
+      "assumptions": "Test-only observation, not a live GUI claim. Three input partitions are explicit-empty client, normal desktop and minimized desktop; absent data is excluded. Identity is the complete existing 21-pin/variant/path conjunction. No scheduler, provider, native process or arbitrary argv proof is claimed. The generic application formal matrix executes the original routing positive and two predicate-inversion cases; registry anchors alone do not establish actual TLC completion."
+    },
+    "entrypoint-prepared-provenance": {
+      "obligation": "Verification support: matching reviewed content admits any well-formed prepared owner HEAD, records that actual HEAD in the overlay receipt, and requires current owner/receipt equality plus all identity gates before launch admission or restore. Rejected helper calls perform no writes or launch admission.",
+      "models": {
+        "agent-api-measurements/entrypoint/provenance/EntrypointProvenance": [
+          "TypeOK",
+          "ValidHeadAdmission",
+          "RecordedOwnerProvenance",
+          "ContentIdentityGate",
+          "LaunchAdmissionGate",
+          "RestorationGate",
+          "RefusalHasNoEffects",
+          "VerificationIsReadOnly",
+          "OverlayLifecycle"
+        ]
+      },
+      "implementation": [
+        "formal/agent-api-measurements/entrypoint/entrypoint_probe.py#def _mirror(",
+        "formal/agent-api-measurements/entrypoint/entrypoint_probe.py#def apply_overlay(",
+        "formal/agent-api-measurements/entrypoint/entrypoint_probe.py#def _applied(",
+        "formal/agent-api-measurements/entrypoint/entrypoint_probe.py#def verify_launch(",
+        "formal/agent-api-measurements/entrypoint/entrypoint_probe.py#def restore("
+      ],
+      "evidence": [
+        "formal/agent-api-measurements/entrypoint/reviewed.json",
+        "formal/agent-api-measurements/entrypoint/test_entrypoint_probe.py#def test_matching_content_admits_public_and_other_prepared_heads(",
+        "formal/agent-api-measurements/entrypoint/test_entrypoint_probe.py#def test_missing_or_malformed_prepared_head_is_refused_before_writes(",
+        "formal/agent-api-measurements/entrypoint/test_entrypoint_probe.py#def test_prepared_head_drift_refuses_launch_and_restore_before_writes(",
+        "formal/agent-api-measurements/entrypoint/test_entrypoint_probe.py#def test_receipt_head_mismatch_refuses_launch_and_restore_before_writes(",
+        "scripts/test_cli_ci.py#def test_entrypoint_unit_contracts_execute_in_required_cli_unit_step(",
+        "formal/agent-api-measurements/entrypoint/provenance/README.md"
+      ],
+      "assumptions": "Two valid HEAD partitions and one invalid partition; one apply, at most one owner edit, one receipt edit and one identity loss between invocations, then one verify or restore. Each helper call is exclusive and synchronous with successful filesystem operations. Complete stage-specific identity and app/fixture checks are Boolean conjunctions, not removed concrete gates. verify_launch returns read-only admission metadata and does not launch a process. No intra-call TOCTOU, partial-I/O/crash durability, cryptographic metadata authentication, live Git validation, repeated calls or native application execution is proved. The generic application formal matrix checks the positive configuration, four semantic controls and six reachability witnesses; witnesses are not safety-mutant kills."
     }
   },
   "runs": {
@@ -2068,6 +2542,21 @@
     ],
     "DownloadTaskEventOwnership": [
       "DownloadTaskEventOwnership.cfg"
+    ],
+    "agent-api-measurements/entrypoint/EntrypointObservation": [
+      "agent-api-measurements/entrypoint/EntrypointObservationPositive.cfg"
+    ],
+    "agent-api-measurements/entrypoint/provenance/EntrypointProvenance": [
+      "agent-api-measurements/entrypoint/provenance/EntrypointProvenancePositive.cfg"
+    ],
+    "agent-api-host/admission/RuntimeConfiguration": [
+      "agent-api-host/admission/RuntimeConfigurationPositive.cfg"
+    ],
+    "cli/UnicodeSerialization": [
+      "cli/UnicodeSerialization.cfg"
+    ],
+    "cli/DesktopAdmission": [
+      "cli/DesktopAdmission.cfg"
     ]
   },
   "actions": {
@@ -2313,6 +2802,32 @@
       "Ack",
       "Event",
       "PromiseFinish"
+    ],
+    "agent-api-host/admission/RuntimeConfiguration": [
+      "ValidateInitialConfiguration",
+      "AcquireLifecycle",
+      "ChangeConfigurationWhileWaiting",
+      "ReleaseExternalLifecycle",
+      "ValidateCurrentConfiguration",
+      "BeginRestartStop",
+      "TransferStartAdmission",
+      "AcquireActorAsr",
+      "SettleActorStop",
+      "ReleaseActorAsr",
+      "SettleRestartStop",
+      "TransferRestartAdmission"
+    ],
+    "cli/UnicodeSerialization": [
+      "Encode",
+      "Pipe",
+      "Decode"
+    ],
+    "cli/DesktopAdmission": [
+      "Validate",
+      "Acquire",
+      "Send",
+      "Reply",
+      "Close"
     ]
   },
   "negative": [
@@ -3206,6 +3721,349 @@
       "config": "SelectionPublicationOwnershipBoundaryNegative.cfg",
       "invariant": "BoundaryCoverageNotReached",
       "purpose": "Positive bounded boundary reachability witness with unmodified guards; intentionally violates the reachability target, not a safety negative or proof."
+    },
+    {
+      "name": "entrypoint-observation-initial-host-inverse",
+      "model": "agent-api-measurements/entrypoint/EntrypointObservation",
+      "config": "agent-api-measurements/entrypoint/initial-host-inverse.cfg",
+      "invariant": "ExpectedObservation",
+      "purpose": "Semantic routing control: the exact reviewed predicate inversion must violate the expected client or desktop observation."
+    },
+    {
+      "name": "entrypoint-observation-final-host-inverse",
+      "model": "agent-api-measurements/entrypoint/EntrypointObservation",
+      "config": "agent-api-measurements/entrypoint/final-host-inverse.cfg",
+      "invariant": "ExpectedObservation",
+      "purpose": "Semantic routing control: the exact reviewed predicate inversion must violate the expected client or desktop observation."
+    },
+    {
+      "name": "entrypoint-provenance-negative-bad-head",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/negative-bad-head.cfg",
+      "invariant": "ValidHeadAdmission",
+      "purpose": "Semantic provenance control: the deliberately altered single guard or receipt stamping rule must violate the named safety invariant."
+    },
+    {
+      "name": "entrypoint-provenance-negative-fixed-head",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/negative-fixed-head.cfg",
+      "invariant": "RecordedOwnerProvenance",
+      "purpose": "Semantic provenance control: the deliberately altered single guard or receipt stamping rule must violate the named safety invariant."
+    },
+    {
+      "name": "entrypoint-provenance-negative-skip-drift-launch",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/negative-skip-drift-launch.cfg",
+      "invariant": "LaunchAdmissionGate",
+      "purpose": "Semantic provenance control: the deliberately altered single guard or receipt stamping rule must violate the named safety invariant."
+    },
+    {
+      "name": "entrypoint-provenance-negative-skip-drift-restore",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/negative-skip-drift-restore.cfg",
+      "invariant": "RestorationGate",
+      "purpose": "Semantic provenance control: the deliberately altered single guard or receipt stamping rule must violate the named safety invariant."
+    },
+    {
+      "name": "entrypoint-provenance-witness-valid-new-head",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/witness-valid-new-head.cfg",
+      "invariant": "NoValidNewHeadApply",
+      "purpose": "Reachability witness with correct guards: the named target must be reached. Expected invariant failure is not a safety-mutant kill."
+    },
+    {
+      "name": "entrypoint-provenance-witness-bad-head-refusal",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/witness-bad-head-refusal.cfg",
+      "invariant": "NoBadHeadRefusal",
+      "purpose": "Reachability witness with correct guards: the named target must be reached. Expected invariant failure is not a safety-mutant kill."
+    },
+    {
+      "name": "entrypoint-provenance-witness-owner-drift-launch-refusal",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/witness-owner-drift-launch-refusal.cfg",
+      "invariant": "NoOwnerDriftLaunchRefusal",
+      "purpose": "Reachability witness with correct guards: the named target must be reached. Expected invariant failure is not a safety-mutant kill."
+    },
+    {
+      "name": "entrypoint-provenance-witness-owner-drift-restore-refusal",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/witness-owner-drift-restore-refusal.cfg",
+      "invariant": "NoOwnerDriftRestoreRefusal",
+      "purpose": "Reachability witness with correct guards: the named target must be reached. Expected invariant failure is not a safety-mutant kill."
+    },
+    {
+      "name": "entrypoint-provenance-witness-receipt-drift-launch-refusal",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/witness-receipt-drift-launch-refusal.cfg",
+      "invariant": "NoReceiptDriftLaunchRefusal",
+      "purpose": "Reachability witness with correct guards: the named target must be reached. Expected invariant failure is not a safety-mutant kill."
+    },
+    {
+      "name": "entrypoint-provenance-witness-receipt-drift-restore-refusal",
+      "model": "agent-api-measurements/entrypoint/provenance/EntrypointProvenance",
+      "config": "agent-api-measurements/entrypoint/provenance/witness-receipt-drift-restore-refusal.cfg",
+      "invariant": "NoReceiptDriftRestoreRefusal",
+      "purpose": "Reachability witness with correct guards: the named target must be reached. Expected invariant failure is not a safety-mutant kill."
+    },
+    {
+      "name": "runtime-configuration-legacy-snapshot",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationLegacySnapshotNegative.cfg",
+      "invariant": "InvalidSavedConfigurationNoEffects",
+      "purpose": "Semantic negative: use the original pre-lifecycle configuration snapshot instead of the current saved value."
+    },
+    {
+      "name": "runtime-configuration-identity-guard",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationIdentityNegative.cfg",
+      "invariant": "AdmittedIdentityIsCurrentLocal",
+      "purpose": "Semantic negative: bypass the actual local-engine allowlist after reading the current saved value."
+    },
+    {
+      "name": "runtime-configuration-start-changed-witness",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationStartChangedWitness.cfg",
+      "invariant": "NoStartChangedConfigurationRejection",
+      "purpose": "Reachability witness: saved local configuration changes to cloud while engine_start waits; current-value rejection releases ownership. Expected invariant failure is not a safety-mutant kill."
+    },
+    {
+      "name": "runtime-configuration-restart-changed-witness",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationRestartChangedWitness.cfg",
+      "invariant": "NoRestartChangedConfigurationRejection",
+      "purpose": "Reachability witness: saved local configuration changes to cloud while engine_restart waits; current-value rejection releases ownership. Expected invariant failure is not a safety-mutant kill."
+    },
+    {
+      "name": "runtime-configuration-local-changed-witness",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationLocalChangedWitness.cfg",
+      "invariant": "NoChangedLocalIdentityAdmission",
+      "purpose": "Reachability witness: a different local configuration published during the wait is sampled and admitted. Expected invariant failure is not a safety-mutant kill."
+    },
+    {
+      "name": "runtime-configuration-validation-lease",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationValidationLeaseNegative.cfg",
+      "invariant": "LifecycleHeldDuringValidation",
+      "purpose": "Lifecycle ownership must be retained before the current saved-configuration read and validation."
+    },
+    {
+      "name": "runtime-configuration-restart-lease",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationRestartLeaseNegative.cfg",
+      "invariant": "LifecycleHeldDuringValidation",
+      "purpose": "The actual controller retains lifecycle across the awaited stop; releasing it at invocation must fail ownership."
+    },
+    {
+      "name": "runtime-configuration-terminal-release",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationTerminalReleaseNegative.cfg",
+      "invariant": "TerminalGuardsReleased",
+      "purpose": "Shared lifecycle release mechanism for post-gate rejection and both actual startup-transfer boundaries."
+    },
+    {
+      "name": "runtime-configuration-actor-progress",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationActorProgressNegative.cfg",
+      "property": "AdmissionCompletes",
+      "purpose": "Temporal sensitivity: disable stop settlement after the optional configuration actor has started; keep a legal wait self-loop."
+    },
+    {
+      "name": "runtime-configuration-restart-progress",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationRestartProgressNegative.cfg",
+      "property": "AdmissionCompletes",
+      "purpose": "Temporal sensitivity: disable the CLI restart-stop settlement while its lifecycle guard remains held; keep a legal wait self-loop."
+    },
+    {
+      "name": "runtime-configuration-restart-pending-witness",
+      "model": "agent-api-host/admission/RuntimeConfiguration",
+      "config": "agent-api-host/admission/RuntimeConfigurationRestartPendingWitness.cfg",
+      "invariant": "NoPostActorRestartPending",
+      "purpose": "Reachability witness: the actor has settled and released ASR, then CLI restart waits with lifecycle held and reply pending. Expected invariant failure is not a safety-control kill."
+    },
+    {
+      "name": "cli-unicode-lossy-negative",
+      "model": "cli/UnicodeSerialization",
+      "config": "cli/UnicodeSerializationLossyNegative.cfg",
+      "invariant": "DecodedStringsPreserved",
+      "purpose": "Legacy ensure_ascii=False literal unpaired surrogates become question marks in the UTF-8 replace pipe."
+    },
+    {
+      "name": "cli-unicode-scalar-witness",
+      "model": "cli/UnicodeSerialization",
+      "config": "cli/UnicodeSerializationScalarWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness; expected invariant failure is not a safety-control kill."
+    },
+    {
+      "name": "cli-unicode-high-witness",
+      "model": "cli/UnicodeSerialization",
+      "config": "cli/UnicodeSerializationHighWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness; expected invariant failure is not a safety-control kill."
+    },
+    {
+      "name": "cli-unicode-low-witness",
+      "model": "cli/UnicodeSerialization",
+      "config": "cli/UnicodeSerializationLowWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness; expected invariant failure is not a safety-control kill."
+    },
+    {
+      "name": "cli-unicode-mixed-witness",
+      "model": "cli/UnicodeSerialization",
+      "config": "cli/UnicodeSerializationMixedWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness; expected invariant failure is not a safety-control kill."
+    },
+    {
+      "name": "cli-desktop-admission-legacy-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionLegacyNegative.cfg",
+      "invariant": "NoInvalidEffects",
+      "purpose": "Sensitivity control for desktop admission: Legacy."
+    },
+    {
+      "name": "cli-desktop-admission-unicode-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionUnicodeNegative.cfg",
+      "invariant": "NoInvalidEffects",
+      "purpose": "Sensitivity control for desktop admission: SkipUnicode."
+    },
+    {
+      "name": "cli-desktop-admission-size-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionSizeNegative.cfg",
+      "invariant": "NoInvalidEffects",
+      "purpose": "Sensitivity control for desktop admission: SkipSize."
+    },
+    {
+      "name": "cli-desktop-admission-newline-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionNewlineNegative.cfg",
+      "invariant": "NoInvalidEffects",
+      "purpose": "Sensitivity control for desktop admission: OmitNewline."
+    },
+    {
+      "name": "cli-desktop-admission-nextid-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionNextIdNegative.cfg",
+      "invariant": "NoInvalidEffects",
+      "purpose": "Sensitivity control for desktop admission: FixedId."
+    },
+    {
+      "name": "cli-desktop-admission-callerwidth-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionCallerWidthNegative.cfg",
+      "invariant": "DecisionMatches",
+      "purpose": "Sensitivity control for desktop admission: ExternalId."
+    },
+    {
+      "name": "cli-desktop-admission-eager-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionEagerNegative.cfg",
+      "invariant": "LazyFirstRecord",
+      "purpose": "Sensitivity control for desktop admission: EagerAcquire."
+    },
+    {
+      "name": "cli-desktop-admission-liveowner-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionLiveOwnerNegative.cfg",
+      "invariant": "LiveClientPreserved",
+      "purpose": "Sensitivity control for desktop admission: DropClient."
+    },
+    {
+      "name": "cli-desktop-admission-sequence-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionSequenceNegative.cfg",
+      "invariant": "InternalSequence",
+      "purpose": "Sensitivity control for desktop admission: ConsumeRejected."
+    },
+    {
+      "name": "cli-desktop-admission-identity-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionIdentityNegative.cfg",
+      "invariant": "CallerIdentity",
+      "purpose": "Sensitivity control for desktop admission: WrongCaller."
+    },
+    {
+      "name": "cli-desktop-admission-engine-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionEngineNegative.cfg",
+      "invariant": "EngineUnchanged",
+      "purpose": "Sensitivity control for desktop admission: RejectEngine."
+    },
+    {
+      "name": "cli-desktop-admission-exitcode-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionExitCodeNegative.cfg",
+      "invariant": "OneShotError",
+      "purpose": "Sensitivity control for desktop admission: WrongExitCode."
+    },
+    {
+      "name": "cli-desktop-admission-recovery-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionRecoveryNegative.cfg",
+      "invariant": "SessionContinuation",
+      "purpose": "Sensitivity control for desktop admission: StopAfterInvalid."
+    },
+    {
+      "name": "cli-desktop-admission-cleanup-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionCleanupNegative.cfg",
+      "invariant": "OwnedCleanup",
+      "purpose": "Sensitivity control for desktop admission: ForgetCleanup."
+    },
+    {
+      "name": "cli-desktop-admission-progress-negative",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionProgressNegative.cfg",
+      "property": "EventuallyFinished",
+      "purpose": "Sensitivity control for desktop admission: StallAfterInvalid."
+    },
+    {
+      "name": "cli-desktop-admission-freshrecovery-witness",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionFreshRecoveryWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness: fresh_recovery; not a safety-control kill."
+    },
+    {
+      "name": "cli-desktop-admission-liverecovery-witness",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionLiveRecoveryWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness: live_recovery; not a safety-control kill."
+    },
+    {
+      "name": "cli-desktop-admission-id9exact-witness",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionId9ExactWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness: id9_exact; not a safety-control kill."
+    },
+    {
+      "name": "cli-desktop-admission-id10over-witness",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionId10OverWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness: id10_over; not a safety-control kill."
+    },
+    {
+      "name": "cli-desktop-admission-engineunicode-witness",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionEngineUnicodeWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness: engine_unicode; not a safety-control kill."
+    },
+    {
+      "name": "cli-desktop-admission-escapedoverflow-witness",
+      "model": "cli/DesktopAdmission",
+      "config": "cli/DesktopAdmissionEscapedOverflowWitness.cfg",
+      "invariant": "WitnessNotReached",
+      "purpose": "Reachability witness: escaped_overflow; not a safety-control kill."
     }
   ],
   "command_implementation": {

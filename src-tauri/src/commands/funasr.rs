@@ -11,7 +11,6 @@ pub async fn set_r2t2_config(
     context: String,
     language: Option<String>,
 ) -> Result<(), AppError> {
-    // ISO language identifiers from the pinned Confucius4-R2T2 model spec.
     const LANGUAGES: &[&str] = &[
         "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th", "vi", "ja",
         "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro",
@@ -32,7 +31,7 @@ pub async fn set_r2t2_config(
     Ok(())
 }
 
-fn lock_idle_asr(state: &AppState) -> Result<tokio::sync::MutexGuard<'_, ()>, AppError> {
+pub(crate) fn lock_idle_asr(state: &AppState) -> Result<tokio::sync::MutexGuard<'_, ()>, AppError> {
     let recording = state.recording.recording.lock().is_some();
     let processing = state
         .recording
@@ -59,12 +58,6 @@ pub async fn start_funasr(
     Ok("FunASR 服务器启动成功".to_string())
 }
 
-/// IPC 音频上限。前端是受信任的（同进程渲染器），但仍统一卡上限：
-/// 1) 防御异常路径（漏网录音、bug、未来其他调用方）一次性吃光内存。
-/// 2) 在线引擎本身就有更严的上限（DashScope 10MB、GLM 类似），统一卡口
-///    让本地引擎也享受同一份保护。base64 比原始字节大 4/3，按 64MB 原始
-///    对应 ~85MB base64，对 16kHz/16bit 单声道相当于约 33 分钟，足够覆盖
-///    常规交互式录音；超长音频应走分段方案。
 const MAX_TRANSCRIBE_AUDIO_BYTES: usize = 64 * 1024 * 1024;
 const MAX_TRANSCRIBE_AUDIO_BASE64_BYTES: usize =
     MAX_TRANSCRIBE_AUDIO_BYTES.saturating_mul(4) / 3 + 4;
@@ -159,13 +152,11 @@ pub async fn restart_funasr(
     let asr_guard = lock_idle_asr(state.inner())?;
     let engine = paths::read_engine_config();
     if paths::is_online_engine(&engine) {
-        // 在线引擎无需重启 Python，仅刷新就绪状态
         let has_key = !state.read_online_asr_api_key().is_empty();
         state.set_funasr_ready(has_key);
         return Ok("在线引擎状态已刷新".to_string());
     }
 
-    // 首次启动可能仍在解压 engine.zip 或加载模型，自动重启不应打断这一过程。
     if state.engine.is_funasr_starting() {
         log::info!("FunASR 正在启动中，跳过本次重启请求");
         return Ok("FunASR 正在启动中，跳过重启".to_string());
@@ -195,10 +186,6 @@ const VALID_ONLINE_KEYRING_USERS: &[&str] = &[
     ALIBABA_ASR_CN_KEYRING_USER,
 ];
 
-/// 计算当前活跃在线引擎对应的 keyring user 名称。
-///
-/// GLM 全区共享一个 entry（沿用历史行为），Alibaba 按 CN / Intl 分开存，
-/// 因为 Alibaba Cloud 域外与域内是两个独立控制台、两份独立的 DashScope API Key。
 pub(crate) fn active_online_keyring_user() -> &'static str {
     let engine = paths::read_engine_config();
     if engine == "alibaba-asr" {
@@ -211,7 +198,6 @@ pub(crate) fn active_online_keyring_user() -> &'static str {
     }
 }
 
-/// 从密钥环加载 active online provider 的 API Key 到运行时缓存。
 pub(crate) fn reload_online_asr_key(app_handle: &tauri::AppHandle, state: &AppState) {
     use tauri_plugin_keyring::KeyringExt;
     let user = active_online_keyring_user();
@@ -270,15 +256,13 @@ pub async fn set_engine(
             "模型正在下载，请等待完成或取消下载后再切换引擎".to_string(),
         ));
     }
-    // 配置文件使用原子替换；只有提交成功后才停止旧服务。这样磁盘/权限错误
-    // 不会把仍然有效的旧引擎留在“配置未变但进程已停”的状态。
+
     paths::write_engine_config(&engine)
         .map_err(|e| AppError::Other(format!("写入引擎配置失败: {}", e)))?;
     state.engine.block_funasr_starting();
     let switch_result: Result<(), AppError> = async {
         funasr_service::stop_server(state.inner()).await?;
 
-        // 在线引擎：切换后从密钥环重新加载对应的 API Key，然后刷新就绪状态。
         if paths::is_online_engine(&engine) {
             reload_online_asr_key(&app_handle, state.inner());
             let has_key = !state.read_online_asr_api_key().is_empty();
@@ -291,6 +275,7 @@ pub async fn set_engine(
     state.engine.unblock_funasr_starting();
     switch_result?;
 
+    app_handle.emit("engine-config-changed", &engine)?;
     log::info!("引擎已切换为: {}", engine);
     Ok(engine)
 }
@@ -320,7 +305,7 @@ pub async fn set_gpu_idle_seconds(
     }
     paths::write_gpu_idle_seconds(seconds, timeout_seconds)
         .map_err(|e| AppError::Other(format!("写入 GPU 空闲设置失败: {}", e)))?;
-    // 正在运行的本地引擎立刻生效；没启动或在线引擎只记在 engine.json。
+
     funasr_service::push_gpu_idle_seconds(state.inner(), seconds).await?;
     Ok(seconds)
 }
@@ -357,25 +342,17 @@ pub async fn set_online_asr_api_key(
     api_key: String,
     keyring_user: Option<String>,
 ) -> Result<(), AppError> {
-    // 调用方可以显式指定 keyring 槽，用于避免 debounce 与 set_engine 的 race：
-    // 用户在 GLM 输入框里打字→切到 Alibaba，debounced save 就在切换之后落地。
-    // 此时按"当前活跃引擎"算槽会把 GLM 的 key 写进 Alibaba 的 entry。把槽由
-    // 发起方传入，就能锁定键入瞬间的槽位。
     let active_user = active_online_keyring_user();
     let target_user: &str = match keyring_user.as_deref() {
         Some(user) if VALID_ONLINE_KEYRING_USERS.contains(&user) => user,
         _ => active_user,
     };
 
-    // Serialize storage and cache publication with region/engine changes and
-    // other saves. The captured target slot remains the caller's intent.
     let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
     llm_provider::save_or_delete_api_key(&app_handle, target_user, &api_key)
         .map_err(AppError::Other)?;
     let current_active_user = active_online_keyring_user();
 
-    // 只有当目标槽和当前活跃槽一致时，才更新运行时缓存与就绪状态，
-    // 否则会把一个不相关的 key 写进 state 造成状态与 UI 不一致。
     if target_user == current_active_user {
         state.set_online_asr_api_key(&api_key);
         let engine = paths::read_engine_config();
@@ -418,7 +395,6 @@ pub async fn set_online_asr_endpoint(
     paths::write_online_asr_endpoint(&region)
         .map_err(|e| AppError::Other(format!("写入端点配置失败: {}", e)))?;
 
-    // 区域切换对 Alibaba 意味着换了 API Key 来源；重新加载缓存并刷新就绪状态。
     let engine = paths::read_engine_config();
     if paths::is_online_engine(&engine) {
         reload_online_asr_key(&app_handle, state.inner());
@@ -439,8 +415,8 @@ pub async fn get_alibaba_asr_config() -> Result<serde_json::Value, AppError> {
         "region": paths::read_alibaba_region(),
         "url": paths::read_alibaba_endpoint(),
         "model": paths::read_alibaba_model(),
-        // 兜底模型列表：用户没填 key 时也能看到一份可选集。拿到 key 后前端会调
-        // list_alibaba_asr_models 刷新为运行时抓取结果。
+
+
         "models": paths::ALIBABA_FALLBACK_MODEL_IDS,
     }))
 }
@@ -451,8 +427,7 @@ pub async fn set_alibaba_asr_model(model: String) -> Result<serde_json::Value, A
     if trimmed.is_empty() {
         return Err(AppError::Other("模型 ID 不能为空".into()));
     }
-    // 轻量白名单：模型 ID 只允许 ascii 字母数字以及 `.-_`，防止被注入到 JSON body
-    // 里产生奇怪的 URL / 字段。DashScope 的模型命名规范本身就在这个范围内。
+
     if !trimmed
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
@@ -469,11 +444,6 @@ pub async fn set_alibaba_asr_model(model: String) -> Result<serde_json::Value, A
     }))
 }
 
-/// 调 DashScope `/compatible-mode/v1/models` 拉取账号可见模型列表，过滤出
-/// 能做语音转文字的 ASR / Omni 家族；抓取失败则回退到静态白名单。
-///
-/// Return live or built-in models. Failed refreshes carry a user-visible warning;
-/// an initial built-in list without a configured key remains quiet.
 #[tauri::command]
 pub async fn list_alibaba_asr_models(
     app_handle: tauri::AppHandle,
@@ -566,7 +536,6 @@ pub async fn list_alibaba_asr_models(
         return Ok(fallback(true));
     }
 
-    // 稳定排序 + 去重，并把默认模型 qwen3-asr-flash 顶到第一位，其它按字典序。
     ids.sort();
     ids.dedup();
     if let Some(pos) = ids.iter().position(|id| id == paths::ALIBABA_DEFAULT_MODEL) {
@@ -641,9 +610,8 @@ pub async fn set_models_dir(
         _ => paths::get_default_models_dir(),
     };
 
-    // canonicalize 后比较，避免 Windows 大小写/尾部斜杠差异
     let canon_old = std::fs::canonicalize(&old_dir).unwrap_or_else(|_| old_dir.clone());
-    // 目标目录可能还不存在，canonicalize 会失败，回退到原始路径比较
+
     let canon_new = std::fs::canonicalize(&new_dir).unwrap_or_else(|_| new_dir.clone());
     if canon_old == canon_new {
         if restore_default {
@@ -657,7 +625,6 @@ pub async fn set_models_dir(
         });
     }
 
-    // 确保目标目录存在（放 spawn_blocking 避免网络驱动器阻塞 async 线程）
     let new_dir_clone = new_dir.clone();
     tokio::task::spawn_blocking(move || std::fs::create_dir_all(&new_dir_clone))
         .await
@@ -683,8 +650,6 @@ pub async fn set_models_dir(
         Vec::new()
     };
 
-    // prepare 失败只留下可安全覆盖的目标副本；源和旧运行时都保持不变。
-    // 配置原子提交成功之后才取消旧启动并停止旧服务。
     let dir_str = paths::strip_win_prefix(&new_dir);
     paths::write_models_dir((!restore_default).then_some(dir_str.as_str()))
         .map_err(|e| AppError::Other(format!("写入配置失败: {}", e)))?;
@@ -724,8 +689,6 @@ pub async fn set_models_dir(
             state.set_funasr_ready(false);
             runtime_warning = Some(format!("目录配置已保存，但服务启动失败: {}", err));
         } else if !prepared_sources.is_empty() {
-            // start 完成到 cleanup 之间可能有另一次目录切换。重新进入 lifecycle
-            // 并确认当前配置仍指向本次目标，避免删除已经被切回使用的旧目录。
             let _cleanup_guard = state.engine.funasr_lifecycle_op.lock().await;
             let effective_dir = paths::get_effective_models_dir();
             let canonical_effective =
@@ -769,10 +732,6 @@ pub async fn set_models_dir(
     Ok(result)
 }
 
-/// 迁移 models--* 目录从 src 到 dst
-///
-/// 准备阶段只复制，不 rename/删除源目录。调用方必须先原子提交新配置，
-/// 并确认新运行时可用后，才能 best-effort 清理返回的源目录。
 fn migrate_model_dirs(
     src: &std::path::Path,
     dst: &std::path::Path,
@@ -799,7 +758,6 @@ fn migrate_model_dirs(
     let total = entries.len();
     let mut copied_sources = Vec::with_capacity(total);
 
-    // prepare 阶段：即使目标已存在也递归补齐/覆盖源文件；源始终保留。
     for (i, entry) in entries.iter().enumerate() {
         let name = entry.file_name();
         let src_path = entry.path();

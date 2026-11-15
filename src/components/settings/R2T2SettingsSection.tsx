@@ -5,8 +5,8 @@ import { setR2T2Config } from "@/api/tauri";
 import type { UserProfile } from "@/types";
 import { COMMON_LANGUAGE_OPTIONS } from "@/lib/languages";
 
-// R2T2 has one Chinese code for both scripts. Use translation's common presets
-// without pretending the model accepts separate script codes.
+
+
 const LANGUAGES = COMMON_LANGUAGE_OPTIONS.filter(
   ({ code }, index, options) => options.findIndex((option) => option.code === code) === index,
 );

@@ -1,5 +1,5 @@
 #pragma once
-// Force-include only in isolated runtime/greedy test translation units.
+
 #include "engine/framework/core/backend.h"
 #include <ggml-alloc.h>
 

@@ -56,7 +56,7 @@ describe("Windows app icon contract", () => {
         })),
       ),
     );
-    // Tauri decodes the first ICO entry into the default window/taskbar icon.
+
     expect(entries[0].width, "taskbar source image width").toBeGreaterThanOrEqual(
       128,
     );

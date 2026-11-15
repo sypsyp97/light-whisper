@@ -18,7 +18,7 @@ namespace core = engine::core;
 namespace qwen = engine::models::qwen3_asr;
 namespace runtime = engine::runtime;
 constexpr int64_t width = 64;
-constexpr int64_t vocabulary = 97;  // Distinct from K/V head width for output identification.
+constexpr int64_t vocabulary = 97;
 constexpr int64_t layers = 2;
 constexpr size_t arena = 8 * 1024 * 1024;
 size_t assertions = 0, generated_cases = 0, classified_cases = 0, guard_cases = 0, work_failures = 0;
@@ -43,8 +43,8 @@ std::vector<float> pattern(size_t count, uint32_t seed, float scale = 0.08F) {
     return values;
 }
 
-// Synthetic weights only. TensorSource remains the actual production upload
-// boundary; all embedding, attention, RoPE, normalization and decoding are real.
+
+
 class TinySource final : public assets::TensorSource {
 public:
     struct Entry { assets::TensorMetadata metadata; std::vector<float> values; };
@@ -121,8 +121,8 @@ std::shared_ptr<qwen::Qwen3ASRAssets> make_assets(bool hf, bool tie) {
         source->add(base + ".mlp.down_proj.weight", {width, 128}, seed + 10);
     }
     source->add(prefix + ".norm.weight", {width}, 401, true);
-    // HF tied intentionally has no separate head. Legacy tie=true still must
-    // load its distinct head, matching the preexisting Qwen family contract.
+
+
     if (!(hf && tie)) {
         source->add(hf ? "lm_head.weight" : "thinker.lm_head.weight", {vocabulary, width}, 501);
     }
@@ -264,7 +264,7 @@ void suite(core::ExecutionContext & execution, std::ofstream & trace, bool enfor
         qwen::Qwen3ASRThinkerRuntime thinker(assets, execution, arena, arena, arena, assets::TensorStorageType::F32);
         guards(thinker, trace);
         size_t index = 0;
-        // One owner crosses fixed-block boundaries and returns from long to short.
+
         for (const int64_t steps : {1, 63, 64, 65, 129, 3}) {
             std::vector<int32_t> without_audio;
             for (const bool inject : {false, true}) {
@@ -323,7 +323,7 @@ void suite(core::ExecutionContext & execution, std::ofstream & trace, bool enfor
               << " distinct_tokens=" << generated_tokens.size() << " tied_differences=" << tied_differences
               << " injection_differences=" << injection_differences << " assertions=" << assertions << '\n';
 }
-}  // namespace
+}
 
 namespace engine::core {
 ggml_status qwen_test_compute_backend_graph(
@@ -333,8 +333,8 @@ ggml_status qwen_test_compute_backend_graph(
         ++work.graphs;
         for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
             const auto * node = ggml_graph_node(graph, i);
-            // Actual exported K/V copies: graph output CPY with head-width rows.
-            // No tensor names. Logits width=97; embedding lookup uses GET_ROWS.
+
+
             if (node->op == GGML_OP_CPY && (node->flags & GGML_TENSOR_FLAG_OUTPUT) && node->ne[0] == width) {
                 work.output_tensors.insert(node);
                 ++work.kv_outputs;
@@ -343,7 +343,7 @@ ggml_status qwen_test_compute_backend_graph(
     }
     return status;
 }
-}  // namespace engine::core
+}
 
 void qwen_test_backend_tensor_get(const ggml_tensor * tensor, void * data, size_t offset, size_t size) {
     ggml_backend_tensor_get(tensor, data, offset, size);

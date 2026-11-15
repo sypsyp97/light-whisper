@@ -173,7 +173,7 @@ describe("model discovery publication contracts", () => {
     const assistant = deferred<Payload>();
     hook.fetchAssistantModels.mockReturnValueOnce(assistant.promise);
     let pending!: Promise<void>;
-    // The immediate refresh cancels the assistant's initially queued 700ms fetch.
+
     act(() => { pending = hook.result.current.refreshAssistantModelsNow(); });
     await act(async () => { await hook.result.current.refreshAiModelsNow(); });
     expect(hook.fetchAssistantModels).toHaveBeenCalledTimes(1);

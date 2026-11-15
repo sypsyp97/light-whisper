@@ -40,7 +40,7 @@ void crypto_check(NTSTATUS status) {
     if (status < 0) throw std::runtime_error("Windows SHA256 operation failed");
 }
 
-// Platform SHA256 runs outside every timed extract; no feature arithmetic here.
+
 class Sha256 {
 public:
     Sha256() {
@@ -118,7 +118,7 @@ std::vector<Observation> replay(const std::vector<float> & pcm, const std::vecto
             elapsed, features.frames, features.encoder_tokens});
     };
 
-    // The first resident decode primes this owner outside measured extraction.
+
     qwen::Qwen3ASRWhisperFrontend resident(assets);
     const AudioBuffer resident_pcm{static_cast<int>(sample_rate), 1, public_pcm};
     resident.extract(resident_pcm);
@@ -131,8 +131,8 @@ std::vector<Observation> replay(const std::vector<float> & pcm, const std::vecto
         extract(growing, crop(pcm, 0, end), "growing_preview", "capture-" + std::to_string(end), end);
         last_growing = end;
     }
-    // Continue the same 120-ms startup/200-ms steady cadence. Every subsequent
-    // preview contains exactly the latest 12 s, rather than the R2T2 trim policy.
+
+
     qwen::Qwen3ASRWhisperFrontend sliding(assets);
     sliding.extract(crop(pcm, 0, last_growing));
     size_t last_preview = last_growing;
@@ -141,8 +141,8 @@ std::vector<Observation> replay(const std::vector<float> & pcm, const std::vecto
                 "capture-" + std::to_string(end), end);
         last_preview = end;
     }
-    // Finish receives the entire captured 36 s, including the final sub-interval
-    // tail absent from the last preview. The next input rewrites that same size.
+
+
     qwen::Qwen3ASRWhisperFrontend final(assets);
     final.extract(crop(pcm, last_preview - window_limit, last_preview));
     extract(final, crop(pcm, 0, pcm.size()), "final_and_rewrite", "final-whole-clip", pcm.size());
@@ -153,7 +153,7 @@ std::vector<Observation> replay(const std::vector<float> & pcm, const std::vecto
             "final_and_rewrite", "rewrite-rotate-200ms", pcm.size());
     return observations;
 }
-}  // namespace
+}
 
 namespace engine::audio {
 AudioTensor r2t2_test_counted_sparse(
@@ -176,10 +176,10 @@ void real_fft_forward(
         for (size_t dim = 0; dim < shape.size(); ++dim) if (dim != axis) frames *= shape[dim];
         fft_frames += frames;
     }
-    // Bound both real implementations to one FFT worker for this CPU benchmark.
+
     r2t2_test_real_fft_forward(shape, input_strides, output_strides, axis, data_in, data_out, scale, 1);
 }
-}  // namespace engine::audio
+}
 
 int main(int argc, char ** argv) {
     try {

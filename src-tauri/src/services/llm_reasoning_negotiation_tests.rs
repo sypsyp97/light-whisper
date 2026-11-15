@@ -2351,7 +2351,6 @@ async fn anthropic_sse_loopback_surfaces_error_event() {
     );
 }
 
-// Exercise the same public readers as transport, using only the loopback SSE server.
 async fn read_sse_visibility(protocol: &str, body: &str) -> Result<String, String> {
     let (response, server) = open_sse_response(body).await;
     let endpoint = streaming_test_endpoint(

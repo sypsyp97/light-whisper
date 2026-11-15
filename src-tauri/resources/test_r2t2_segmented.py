@@ -44,7 +44,7 @@ class RecordingNative:
 
 
 class MarkerVad:
-    """Return one speech region for positive marker samples, otherwise silence."""
+
 
     def __init__(self):
         self.inputs = []

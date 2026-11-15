@@ -28,8 +28,8 @@ export default function TitleBar({ title, leftAction, rightActions }: TitleBarPr
   };
 
   return (
-    // Window dragging is a pointer-only desktop affordance; keyboard actions
-    // remain on the real buttons rendered in the action slots.
+
+
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <header
       onMouseDown={startDrag}

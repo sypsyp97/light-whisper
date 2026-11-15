@@ -15,7 +15,7 @@ export default defineConfig(async () => ({
     target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
     cssTarget: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
     rolldownOptions: {
-      // Concurrent hook wall times are diagnostic noise, not build failures.
+
       checks: { pluginTimings: false },
     },
   },

@@ -1,11 +1,11 @@
-"""Opt-in stateful Real-time RE-USE spectral C ABI acceptance tests.
 
-REUSE_RT_LIBRARY=/absolute/path/reuse.dll python scripts/test_reuse_realtime_native.py -v
-REUSE_RT_MODEL and REUSE_RT_AUDIO_FIXTURE override pinned local research inputs.
-REUSE_RT_BACKEND is strictly cpu (default) or cuda; REUSE_NATIVE_DLL_DIRS supplies
-dependency directories. The independent NumPy batch oracle uses at most two BLAS
-threads. No model download, dependency install, app integration, or benchmark.
-"""
+
+
+
+
+
+
+
 
 from contextlib import ExitStack
 import ctypes as ct
@@ -29,9 +29,9 @@ from native_tests.reuse_realtime_reference import BINS, Reference, frequency_shu
 
 ROOT = Path(__file__).resolve().parents[1]
 FLOAT_POINTER = ct.POINTER(ct.c_float)
-# Gate raw decoder heads, avoiding atan2's singularity around (0, 0).
-# F32/F64 calibration across CONFIGURATIONS records the error relative to
-# ATOL + RTOL*abs(reference); the margin permits different F32 reduction orders.
+
+
+
 ATOL, RTOL = 0.0003, 0.0003
 CONFIGURATIONS = ((3, 0), (12, 0), (3, 1), (8, 1), (12, 1), (3, 2), (12, 2))
 
@@ -72,7 +72,7 @@ def load_api(library, stack):
 
 
 def probe_create(path, backend, exit_layers, lookahead):
-    """Crash-prone checkpoint validation runs in a child process, never the suite."""
+
     with ExitStack() as stack:
         api = load_api(os.environ["REUSE_RT_LIBRARY"], stack)
         handle = api.reuse_rt_create(os.fsencode(path), backend.encode(), 2, exit_layers, lookahead)
@@ -83,7 +83,7 @@ def probe_create(path, backend, exit_layers, lookahead):
 
 class ReferenceLayoutTests(unittest.TestCase):
     def test_frequency_subpixel_matches_documented_index_equation(self):
-        # Literal index equation derived from pinned codec's [R,C,H,W] view.
+
         frames, frequencies, ratio, channels = 2, 3, 2, 4
         source = np.arange(frames * frequencies * ratio * channels).reshape(frames, frequencies, ratio * channels)
         expected = np.empty((frames, frequencies * ratio, channels), dtype=source.dtype)
@@ -118,7 +118,7 @@ class ReuseRealtimeNativeTests(unittest.TestCase):
         return handle
 
     def run_frame(self, handle, magnitude, phase):
-        # Guard suffix catches implementations writing K output frames on priming.
+
         outputs = [np.full(3 * BINS + 8, 12345.0, dtype=np.float32) for _ in range(3)]
         for output in outputs:
             output[:BINS] = np.nan
@@ -198,7 +198,7 @@ class ReuseRealtimeNativeTests(unittest.TestCase):
             for lane in (1, 0):
                 actual[lane].append(self.run_frame(handles[lane], *streams[lane][index]))
         self.assert_spectra_close(np.stack(actual[0], axis=1), self.expected(2)[3])
-        # Separate fresh handles establish isolation for a distinct nonzero history.
+
         fresh = self.stream(self.create(8, 1), 1, altered_mag, altered_pha)
         np.testing.assert_array_equal(np.stack(actual[1], axis=1), fresh)
 
@@ -232,7 +232,7 @@ class ReuseRealtimeNativeTests(unittest.TestCase):
                 header_bytes = struct.unpack("<Q", source.read(8))[0]
                 header = json.loads(source.read(header_bytes))
                 payload = source.read()
-            # Keep the byte count valid: only architecture-specific shape validation rejects this.
+
             name = "dense_encoder.dense_conv_1_1.0.weight"
             shape = header[name]["shape"]
             self.assertNotEqual(shape[0], shape[1])

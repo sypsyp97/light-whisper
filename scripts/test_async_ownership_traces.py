@@ -1,4 +1,4 @@
-"""Provenance gate regressions; existing verifier tests remain unchanged."""
+
 
 import json
 import shutil
@@ -63,7 +63,7 @@ class TraceProvenance(unittest.TestCase):
             traces.verify_trace(self.path)
 
 
-# Portability regression ownership: byte hashes must survive Windows/Linux checkout.
+
 class TraceCheckoutPortability(unittest.TestCase):
     @staticmethod
     def hashed_inputs():

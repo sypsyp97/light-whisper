@@ -41,12 +41,12 @@ def build_environment():
     vcvars = Path(installation) / "VC/Auxiliary/Build/vcvars64.bat"
     if not installation or not vcvars.is_file():
         raise RuntimeError("Visual Studio x64 C++ tools are required")
-    # The command is a fixed system-installed batch path, not user shell input.
+
     output = subprocess.run(
         f'cmd.exe /d /s /c ""{vcvars}" >nul && set"', check=True,
         capture_output=True, text=True, errors="replace",
     ).stdout
-    # Windows names are case-insensitive, unlike this plain Python dictionary.
+
     env = {key.upper(): value for key, value in os.environ.items()}
     for line in output.splitlines():
         key, separator, value = line.partition("=")
@@ -74,8 +74,8 @@ def prepare_source(source):
         return
     if modified:
         raise RuntimeError("Native source contains changes other than the reviewed R2T2 patch")
-    # The reviewed patch is LF-only, while this pinned upstream has mixed CRLF
-    # files. Restore added-line endings without rewriting untouched source lines.
+
+
     sections = []
     for section in re.split(rb"(?=^diff --git )", (reviewed + "\n").encode("utf-8"), flags=re.M):
         if not section:
@@ -165,7 +165,7 @@ def copy_runtime(source, build, output, backend, cuda_root, env, architectures):
                     raise RuntimeError(f"Previous native package retained at {previous}") from error
             raise
     finally:
-        # Only remove the unique staging directory created by this invocation.
+
         if not preserve_backup and staging.resolve().parent == parent.resolve():
             shutil.rmtree(staging)
     print(f"R2T2 {backend} runtime: {output}")
@@ -189,7 +189,7 @@ def resolved_cuda_architectures(configure_output):
 
 def portable_cuda_architectures(architectures):
     targets = architectures.split(";")
-    # Keep upstream PTX and future targets; restore native code shipped by asr11.
+
     for architecture in ("80", "90"):
         if (f"{architecture}-virtual" in targets
                 and architecture not in targets and f"{architecture}-real" not in targets):
@@ -207,8 +207,8 @@ def main():
     parser.add_argument("--cuda-architectures")
     parser.add_argument("--parallel", type=int, default=6)
     args = parser.parse_args()
-    # Keep the caller's spelling: resolving MSIX aliases changes compiler paths
-    # and makes CMake discard its configured cache as if the compiler changed.
+
+
     source = args.source.absolute()
     build = (args.build_dir or ROOT / f"build/r2t2/{args.backend}").absolute()
     output = (args.output or ROOT / f"src-tauri/resources/r2t2-native/{args.backend}").absolute()

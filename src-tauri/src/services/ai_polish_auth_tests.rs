@@ -9,10 +9,8 @@ use crate::state::{user_profile::OpenaiAuthMode, AppState};
 
 #[test]
 fn missing_auth_is_reported_through_the_public_polish_operation() {
-    // Every credential lookup uses an empty in-memory entry, never the OS keyring.
     keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
-    // The public API takes the native AppHandle. Build its runtime without any
-    // windows, app setup, persisted profiles, or startup OAuth session loading.
+
     let app = tauri::Builder::default()
         .any_thread()
         .plugin(tauri_plugin_keyring::init())

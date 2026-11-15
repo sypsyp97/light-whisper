@@ -56,7 +56,7 @@ interface TranscriptionPayload {
   timing?: TranscriptionTiming;
 }
 
-/** 封装 Tauri 事件监听的 useEffect 样板 */
+
 function useTauriEvent<T>(event: string, handler: (payload: T) => void) {
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -75,7 +75,7 @@ function useTauriEvent<T>(event: string, handler: (payload: T) => void) {
       disposed = true;
       unlisten?.();
     };
-  // handler is intentionally excluded - callers use refs or stable callbacks
+
   }, [event]);
 }
 
@@ -198,8 +198,8 @@ export function useRecording(): UseRecordingReturn {
       : { ...payload.timing, totalMs: outputTotalMs };
     const now = Date.now();
     const historyId = sessionId > 0 ? `session-${sessionId}` : `session-local-${now}`;
-    // 旧 session 的 final 结果可以进 history，但不能覆盖当前显示。避免的是
-    // 用户已经开始下一段录音后，上一段 ASR 延迟回来闪一下当前画面。
+
+
     const staleForDisplay = sessionId > 0 && sessionId < latestSessionIdRef.current;
 
     if (!staleForDisplay && sessionId >= latestDisplayedFinalSessionIdRef.current) {

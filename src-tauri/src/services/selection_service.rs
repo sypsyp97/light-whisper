@@ -57,7 +57,7 @@ impl SelectionPublicationOwner {
         if !state.enabled || state.epoch != epoch {
             return None;
         }
-        // Retirement takes the same lock, after all cache and window effects.
+
         Some(publish())
     }
 }
@@ -283,9 +283,7 @@ pub fn start_selection_window_drag(app_handle: &tauri::AppHandle) -> Result<(), 
                     .map_err(|error| tauri_error("启动划词窗口拖动失败", error));
             }
             ReleaseCapture();
-            // WM_NCLBUTTONDOWN expects screen coordinates packed into LPARAM.
-            // Passing 0 makes Tao treat the drag as originating at (0, 0),
-            // which is unreliable on multi-monitor and scaled desktops.
+
             let cursor_lparam =
                 (((cursor.y as u16 as u32) << 16) | cursor.x as u16 as u32) as isize;
             SendMessageW(hwnd.0, WM_NCLBUTTONDOWN, HTCAPTION as usize, cursor_lparam);
@@ -479,9 +477,6 @@ fn compute_selection_window_position(
     let edge_margin = (EDGE_MARGIN_LOGICAL * scale).round() as i32;
     let direction_threshold = (VERTICAL_DIRECTION_THRESHOLD_LOGICAL * scale).round() as i32;
 
-    // Keep the popup close to the release cursor, but pull its center one step
-    // toward the selection midpoint so long drags do not leave it hanging off
-    // the far edge of the selected text.
     let selection_mid_x = midpoint(gesture.start.x, gesture.end.x);
     let focus_x = midpoint(selection_mid_x, gesture.end.x);
     let desired_x = focus_x - window_width / 2;
@@ -1811,9 +1806,6 @@ fn foreground_app_source(excluded_apps: &[String]) -> Option<String> {
             return None;
         }
 
-        // Borderless monitor-sized windows are typically games or capture
-        // overlays. Maximized normal applications retain WS_CAPTION and remain
-        // eligible for selection.
         let mut rect: RECT = std::mem::zeroed();
         let monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
         let mut info: MONITORINFO = std::mem::zeroed();

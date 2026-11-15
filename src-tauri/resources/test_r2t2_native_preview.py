@@ -1,4 +1,4 @@
-"""Native event previews must survive empty committed deltas and corrections."""
+
 import ctypes as ct
 import unittest
 from types import SimpleNamespace

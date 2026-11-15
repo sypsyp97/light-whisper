@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-PyInstaller 打包入口脚本。
 
-通过子命令分发到不同功能：
-  engine.exe serve --engine qwen3-asr-0.6b → 启动 Qwen3-ASR 0.6B Q8 服务器
-  engine.exe serve --engine confucius4-r2t2 → 启动 R2T2 Q8 原生流式服务器
-"""
+
+
+
+
+
+
 
 import sys
 import os
@@ -14,7 +14,7 @@ import argparse
 
 
 def _setup_frozen_paths():
-    """PyInstaller frozen 环境下，将 _internal/ 加入 sys.path"""
+
     if getattr(sys, "frozen", False):
         base = os.path.dirname(sys.executable)
         internal = os.path.join(base, "_internal")

@@ -148,13 +148,11 @@ pub struct RecordingSession {
     pub interim_task: Option<tokio::task::JoinHandle<()>>,
     pub native_recording: Option<crate::services::audio_service::NativeRecording>,
     pub interim_cache: Arc<parking_lot::Mutex<Option<InterimCache>>>,
-    /// 录音热键触发时的前台应用快照。规则、历史元数据和截图授权都必须基于
-    /// 同一个边界，避免收尾阶段切换窗口后套用错误的隐私策略。
+
     pub foreground_app: Option<crate::utils::foreground::ForegroundApp>,
-    /// Exact window identity captured before asynchronous recording startup.
+
     pub paste_target: Option<isize>,
-    /// 热键按下时并行抓取的选中文本任务。与会话同生同死，避免全局共享导致的
-    /// 跨会话污染（finalize_N 读到 hotkey_{N+1} 的 grab）。
+
     pub edit_grab: Option<tokio::task::JoinHandle<Option<String>>>,
 }
 
@@ -217,7 +215,7 @@ pub struct HotkeyDiagnosticState {
     pub is_pressed: bool,
     pub last_error: Option<String>,
     pub warning: Option<String>,
-    /// Non-empty when another program has registered the same hotkey via RegisterHotKey
+
     pub system_conflict: Option<String>,
     pub last_event: Option<String>,
     pub last_event_at_ms: Option<u64>,
@@ -245,29 +243,24 @@ impl Default for HotkeyDiagnosticState {
     }
 }
 
-// ---------- AppState 按领域分组的子结构 ----------
-
-/// ASR 引擎生命周期 + 下载 + 传输能力探测
 pub struct EngineState {
-    /// Serialize entire native utterances, including final flush and cancellation.
     pub native_asr_owner: Arc<Mutex<()>>,
     pub funasr_process: Arc<Mutex<Option<FunasrProcess>>>,
-    /// 已生成但尚未完成初始化的子进程。使用同步句柄以便取消/Drop 时立即 start_kill。
+
     pub funasr_starting_process: Arc<parking_lot::Mutex<Option<StartingFunasrProcess>>>,
-    /// 串行化 restart / engine switch / model-dir migration 等生命周期操作。
+
     pub funasr_lifecycle_op: Mutex<()>,
-    /// 引擎归档解压 singleflight，防止多个启动/下载任务并行替换引擎目录。
+
     pub engine_install_op: Mutex<()>,
-    /// 将解压进度的代数检查与状态广播组成原子提交，避免旧 loading
-    /// 在 stop/switch 的最终状态之后才抵达前端。
+
     pub funasr_status_commit: Arc<parking_lot::Mutex<()>>,
     pub funasr_ready: Arc<AtomicBool>,
-    /// 当前 FunASR 启动所有者。0=空闲，u64::MAX=迁移期间禁止启动。
+
     funasr_starting_owner: AtomicU64,
-    /// 引擎生命周期代数，stop_server 递增，start_server 据此检测是否被取消
+
     pub funasr_generation: Arc<AtomicU64>,
     pub download_task: Arc<Mutex<Option<DownloadTask>>>,
-    /// 内存音频传输支持状态：0=未知, 1=支持, 2=不支持
+
     pub inline_audio_transport: AtomicU8,
 }
 
@@ -289,7 +282,6 @@ impl Default for EngineState {
     }
 }
 
-/// 当前录音会话 + 粘贴队列 + 麦克风相关运行时
 pub struct RecordingState {
     pub recording: Arc<parking_lot::Mutex<Option<RecordingSlot>>>,
     recording_snapshot: Arc<parking_lot::Mutex<Option<RecordingSnapshot>>>,
@@ -374,9 +366,6 @@ impl RecordingState {
         self.recording_snapshot.lock().clone()
     }
 
-    /// Updates presentation state while the caller holds `recording`. Keeping
-    /// the lock order `recording -> recording_snapshot` makes slot promotion
-    /// and its UI revision one atomic transition.
     pub fn transition_snapshot_while_recording_locked(
         &self,
         session_id: u64,
@@ -399,8 +388,6 @@ impl RecordingState {
         Some(snapshot)
     }
 
-    /// Acquires locks in the canonical order for transitions made outside a
-    /// slot mutation (for example terminal outcomes from finalize tasks).
     pub fn transition_snapshot_if_current(
         &self,
         session_id: u64,
@@ -413,7 +400,6 @@ impl RecordingState {
         self.transition_snapshot_while_recording_locked(session_id, phase, mode, outcome, detail)
     }
 
-    /// Clears presentation state while the caller holds `recording`.
     pub fn clear_snapshot_while_recording_locked(&self, session_id: u64) -> bool {
         let mut snapshot = self.recording_snapshot.lock();
         if snapshot
@@ -426,14 +412,12 @@ impl RecordingState {
         false
     }
 
-    /// Clears presentation state without touching a newer session.
     pub fn clear_snapshot_if_session(&self, session_id: u64) -> bool {
         let _recording = self.recording.lock();
         self.clear_snapshot_while_recording_locked(session_id)
     }
 }
 
-/// 用户配置 + 各类 AI / ASR API key + 能力缓存
 #[derive(Default)]
 pub struct ProfileState {
     pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
@@ -447,7 +431,6 @@ pub struct ProfileState {
     pub ai_polish_stream_started_sessions: Arc<parking_lot::Mutex<HashSet<u64>>>,
 }
 
-/// UI / 交互类偏好 + 诊断
 pub struct UiState {
     api_warning_session: AtomicU64,
     pub input_method: Arc<parking_lot::Mutex<String>>,
@@ -528,7 +511,6 @@ impl UiState {
 
     pub fn subtitle_hide_delay_ms(&self, session_id: u64, delay_ms: u64) -> u64 {
         if session_id > 0 && self.api_warning_session.load(Ordering::Acquire) == session_id {
-            // Eight seconds to read, plus the overlay fade/cleanup buffer.
             delay_ms.max(8500)
         } else {
             delay_ms
@@ -592,7 +574,6 @@ impl Default for AppState {
             ui: Default::default(),
             http_client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(3))
-                // Provider redirects must not forward API keys or private request bodies.
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .expect("failed to create the application HTTP client"),
@@ -642,12 +623,10 @@ impl AppState {
         self.profile.user_profile.lock().clone()
     }
 
-    /// 借用 profile 执行只读操作，无需克隆
     pub fn with_profile<R>(&self, f: impl FnOnce(&UserProfile) -> R) -> R {
         f(&self.profile.user_profile.lock())
     }
 
-    /// 修改 profile，不返回克隆（无需持久化时使用）
     pub fn update_profile_mut<R>(&self, f: impl FnOnce(&mut UserProfile) -> R) -> R {
         f(&mut self.profile.user_profile.lock())
     }

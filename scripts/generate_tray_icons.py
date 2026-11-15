@@ -1,8 +1,8 @@
-"""Generate pixel-sized Whisper marks using only the Python standard library.
 
-Each size has its own geometry; the 512px application artwork stays unchanged.
-RGBA files feed Tauri without adding an image decoder. PNGs make review easy.
-"""
+
+
+
+
 import math
 from pathlib import Path
 import struct
@@ -13,7 +13,7 @@ SIZES = (16, 20, 24, 32)
 
 
 def icon(size, recording=False):
-    # Whole-pixel centers and strokes chosen independently for each tray size.
+
     pad, radius, stroke = {16: (1, 4, 1.5), 20: (1, 5, 2), 24: (2, 6, 2), 32: (2, 8, 3)}[size]
     cy = size / 2
     arcs = [(size * 0.51, size * 0.78, size * 0.25)]
@@ -73,7 +73,7 @@ def main():
 
     (ICONS / "32x32.png").write_bytes(small[32])
 
-    # Replace only small ICO entries; retain all larger images byte-for-byte.
+
     path = ICONS / "icon.ico"
     original = path.read_bytes()
     entries = [(size, size, data) for size, data in small.items()]

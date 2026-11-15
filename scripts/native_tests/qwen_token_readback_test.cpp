@@ -19,7 +19,7 @@ namespace core = engine::core;
 namespace qwen = engine::models::qwen3_asr;
 namespace runtime = engine::runtime;
 constexpr int64_t width = 64;
-constexpr int64_t vocabulary = 97;  // Distinct from K/V head width for output identification.
+constexpr int64_t vocabulary = 97;
 constexpr int64_t layers = 2;
 constexpr size_t arena = 8 * 1024 * 1024;
 size_t assertions = 0;
@@ -38,8 +38,8 @@ std::vector<float> pattern(size_t count, uint32_t seed, float scale = 0.08F) {
     return values;
 }
 
-// Synthetic weights only. TensorSource remains the actual production upload
-// boundary; all embedding, attention, RoPE, normalization and decoding are real.
+
+
 class TinySource final : public assets::TensorSource {
 public:
     struct Entry { assets::TensorMetadata metadata; std::vector<float> values; };
@@ -116,8 +116,8 @@ std::shared_ptr<qwen::Qwen3ASRAssets> make_assets(bool hf, bool tie) {
         source->add(base + ".mlp.down_proj.weight", {width, 128}, seed + 10);
     }
     source->add(prefix + ".norm.weight", {width}, 401, true);
-    // HF tied intentionally has no separate head. Legacy tie=true still must
-    // load its distinct head, matching the preexisting Qwen family contract.
+
+
     if (!(hf && tie)) {
         source->add(hf ? "lm_head.weight" : "thinker.lm_head.weight", {vocabulary, width}, 501);
     }
@@ -228,8 +228,8 @@ void suite(core::ExecutionContext & execution, std::ofstream & trace, bool enfor
                 ++index;
             }
         }
-        // Nonreuse remains a full-logits positive control. This catches a
-        // candidate accidentally linking an uninstrumented runtime library.
+
+
         reads = {};
         const auto control = decoder.generate(input_for(65, true), 3, false);
         require(control.size() == 3 && reads.full_reads > 0 && reads.full_bytes >= vocabulary * sizeof(float),
@@ -288,9 +288,9 @@ void finite_ties(core::ExecutionContext & execution, std::ofstream & trace, bool
         } else {
             require(logits[11] > logits[3] && logits[11] - logits[3] < 0.0001F, "adjacent-F32 near-tie fixture invalid");
         }
-        // classify_prompt builds the existing default GreedyDecodeModule. Its
-        // CPU backend deliberately retains LAST equal max, unlike generation's
-        // FIRST equal max. A global argmax semantic change must fail this check.
+
+
+
         qwen::Qwen3ASRThinkerRuntime classifier(assets, execution, arena, arena, arena,
                                                assets::TensorStorageType::F32);
         const auto classification_prompt = make_prompt(3, false);
@@ -319,7 +319,7 @@ void finite_ties(core::ExecutionContext & execution, std::ofstream & trace, bool
 }
 
 void observe_read(const ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
-    // Fixed 64-wide embeddings cannot match a complete 97-logit vector.
+
     if (tensor->type == GGML_TYPE_F32 && ggml_nelements(tensor) == vocabulary) {
         ++reads.full_reads;
         reads.full_bytes += size;
@@ -332,7 +332,7 @@ void observe_read(const ggml_tensor * tensor, const void * data, size_t offset, 
         reads.token_bytes += size;
     }
 }
-}  // namespace
+}
 
 namespace engine::core {
 ggml_status qwen_token_compute_graph(ggml_backend_t backend, ggml_cgraph * graph,
@@ -360,7 +360,7 @@ void qwen_token_read_f32_into(const ggml_tensor * tensor, std::vector<float> & v
     read_tensor_f32_into(tensor, values);
     observe_read(tensor, values.data(), 0, values.size() * sizeof(float));
 }
-}  // namespace engine::core
+}
 
 void qwen_token_tensor_get(const ggml_tensor * tensor, void * data, size_t offset, size_t size) {
     ggml_backend_tensor_get(tensor, data, offset, size);

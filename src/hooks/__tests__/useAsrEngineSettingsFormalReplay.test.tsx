@@ -10,6 +10,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("@/api/tauri", () => api);
 const translate = vi.hoisted(() => (key: string) => key);
+const listen = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/event", () => ({ listen }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: translate }) }));
 
@@ -29,6 +31,7 @@ const slotFor = (engine: string) => engine === "alibaba" ? "alibaba-asr-cn-api-k
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
+  listen.mockResolvedValue(vi.fn());
   api.getAlibabaAsrConfig.mockResolvedValue({ model: "qwen-audio-3.1-asr-flash", models: [] });
   api.listAlibabaAsrModels.mockResolvedValue({ models: [], source: "fallback" });
 });
@@ -72,9 +75,10 @@ describe("TLC online ASR identity replay", () => {
       return save.promise;
     });
     const hook = renderHook(() => useAsrEngineSettings({ engineLabel: (value) => value, retryModel: vi.fn() }));
+    await act(async () => { await Promise.resolve(); });
 
-    // Independent oracle: successful environmental responses establish identity;
-    // displayed hook defaults and returned readiness flags never authorize a write.
+
+
     let engineKnown = false;
     let endpointKnown = false;
     let displayedEngine = "qwen3-asr-0.6b";
@@ -172,8 +176,8 @@ describe("TLC online ASR identity replay", () => {
         await act(async () => { mutation.reject(new Error("switch failed")); await switching; });
         busy = false;
       } else if (event === "switch:settled") {
-        // Check the visible release before awaiting the aggregate. Replacing
-        // Promise.all with allSettled must fail here, not via a test timeout.
+
+
         expect(hook.result.current.engineLoading).toBe(false);
         await act(async () => { await switching; });
         busy = false;
@@ -207,8 +211,8 @@ describe("TLC online ASR identity replay", () => {
       expect(expectedWrites).not.toEqual([]);
       expect(expectedWrites[expectedWrites.length - 1]?.[1]).toBe("alibaba-asr-cn-api-key");
     }
-    // Unmount preserves the real debouncer's flush behavior. Outstanding reads
-    // remain unresolved; cancellation is never used to make this replay pass.
+
+
     dispatch();
     hook.unmount();
     await act(async () => { for (const save of saves) save.resolve(); });

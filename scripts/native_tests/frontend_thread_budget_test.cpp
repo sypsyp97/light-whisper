@@ -14,8 +14,8 @@
 #include <string>
 #include <vector>
 
-// Rename only fft.cpp's symbol. Observe STFT's actual request, then run the
-// unchanged FFT with that request; this does not measure an OS thread cap.
+
+
 namespace engine::audio {
 void frontend_budget_real_fft_forward(
     const TensorShape &, const TensorStrideBytes &, const TensorStrideBytes &,
@@ -39,7 +39,7 @@ void require(bool condition, const std::string & message) {
 std::vector<float> signal(size_t count) {
     std::vector<float> samples(count);
     for (size_t i = 0; i < count; ++i) {
-        // Bounded below unity: appending cannot renormalize the stable prefix.
+
         samples[i] = static_cast<float>(static_cast<int>(i % 97) - 48) / 64.0F;
     }
     return samples;
@@ -119,7 +119,7 @@ void frontend_case(const std::string & family, size_t threads, bool use_default,
         check_request(label, threads, step, expected.frames + 1);
     }
 }
-}  // namespace
+}
 
 namespace engine::audio {
 void real_fft_forward(
@@ -131,7 +131,7 @@ void real_fft_forward(
     calls.push_back({threads, frames});
     frontend_budget_real_fft_forward(shape, input_strides, output_strides, axis, data_in, data_out, scale, threads);
 }
-}  // namespace engine::audio
+}
 
 int main() {
     try {

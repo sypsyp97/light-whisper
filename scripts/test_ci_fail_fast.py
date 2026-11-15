@@ -1,4 +1,4 @@
-"""Exercise actual CI PowerShell blocks with failing native commands."""
+
 import re
 import shutil
 import subprocess

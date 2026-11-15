@@ -42,7 +42,7 @@ pub(super) struct WindowsSpeechCapture {
     capture_client: AudioCaptureClient,
     event: Handle,
     raw_buffer: Vec<u8>,
-    // 必须最后析构，确保所有 COM 音频对象先释放。
+
     _com: ComGuard,
 }
 

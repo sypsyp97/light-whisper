@@ -60,8 +60,7 @@ fn finished_caption_update(
     if !result.success || result.text.trim().is_empty() {
         return None;
     }
-    // ASR has finished, but polishing/history work is still pending. Publish
-    // the flushed tail now without starting the overlay's final-result timer.
+
     Some(serde_json::json!({
         "sessionId": recording_id,
         "text": result.text,
@@ -114,8 +113,7 @@ impl<'a> AppSink<'a> {
             state,
             app,
             client,
-            // Qwen owns its preview cadence; forward capture every 40 ms so
-            // its first hypothesis need not wait for an R2T2-sized batch.
+
             chunk_samples: if qwen { 640 } else { 2560 },
             coalesce_feeds: qwen,
         }
@@ -169,7 +167,6 @@ pub(crate) fn spawn_native_recording(
     let config = state.with_profile(|profile| stream_config(&engine, &profile.r2t2));
     let (sender, mut control) = oneshot::channel();
     let task = tokio::spawn(async move {
-        // Preserve the mutex queue position if Finish arrives before ownership.
         let lease = owner.lock_owned();
         tokio::pin!(lease);
         let mut finish_waiting = false;
@@ -191,8 +188,7 @@ pub(crate) fn spawn_native_recording(
         } else {
             control
         };
-        // Backend identities follow actual ownership order, independently of
-        // UI recording ids, so a queued short recording cannot become stale.
+
         let native_id = NEXT_NATIVE_SESSION.fetch_add(1, Ordering::Relaxed);
         let client = NativeStreamClient::start(
             app.state::<AppState>().inner(),
@@ -310,8 +306,7 @@ mod capture_route_tests {
         let client = NativeStreamClient::start(&state, None, 91, String::new(), None)
             .await
             .unwrap();
-        // Exercise the same constructor and adapter used by spawn_native_recording.
-        // The optional app handle only suppresses GUI error notifications.
+
         let sink = AppSink::new(&state, None, client, engine);
         let qwen = engine == "qwen3-asr-0.6b";
         let chunk_samples = sink.chunk_samples();
@@ -339,8 +334,7 @@ mod capture_route_tests {
         let final_sample = pcm[160_000];
         let result = run_capture(sink, captured.clone(), 16_000, control_rx, |update| {
             updates.lock().push(update);
-            // A completed real IPC feed is the barrier. Append the final sample
-            // and request Stop before the capture loop can send another feed.
+
             if let Some(sender) = finish_control.lock().take() {
                 captured.lock().push(final_sample);
                 sender.send(NativeCaptureControl::Finish).ok().unwrap();
@@ -357,7 +351,7 @@ mod capture_route_tests {
                 1
             }
         } else {
-            63 // 62 full 160 ms chunks, followed by the exact 1,281-sample tail.
+            63
         };
         assert_eq!(
             updates.len(),

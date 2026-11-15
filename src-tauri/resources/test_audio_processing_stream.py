@@ -1,4 +1,4 @@
-"""Processor integration through public streaming APIs; no models or devices."""
+
 
 import os
 import sys
@@ -15,7 +15,7 @@ from test_r2t2_stream import RecordingRuntime
 
 
 class BufferedProcessor:
-    """Emit complete blocks at half amplitude; flush the delayed final block."""
+
 
     def __init__(self, block=4):
         self.block = block
@@ -108,7 +108,7 @@ class AudioProcessingStreamTests(unittest.TestCase):
         for action in ("cancel", "replace", "close"):
             with self.subTest(action=action):
                 processor, runtime = BufferedProcessor(), RecordingRuntime()
-                processor.pending = pcm(99)  # A reused processor must be reset at start.
+                processor.pending = pcm(99)
                 session = R2T2StreamSession(runtime, audio_processor=processor)
                 session.start(1)
                 self.assertGreater(processor.reset_calls, 0)

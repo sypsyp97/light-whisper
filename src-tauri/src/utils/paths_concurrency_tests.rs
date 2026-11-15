@@ -114,9 +114,7 @@ fn concurrent_config_writers_preserve_each_others_updates() {
                     completed_tx.send(write_second()).unwrap();
                 });
                 started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-                // Without serialization the second write completes while the first
-                // holds its old snapshot. With serialization this wait only bounds
-                // how long we hold the transaction before letting both finish.
+
                 let completed = completed_rx.recv_timeout(Duration::from_secs(1));
                 release_tx.send(()).unwrap();
                 first.join().unwrap().unwrap();

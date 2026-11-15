@@ -13,7 +13,7 @@ class EngineArchiveLayoutTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.engine_dir = self.root / "engine 源"
-        # Deliberately mix sizes and reverse the equal-size names at creation.
+
         self.payloads = {
             "z-equal.bin": b"Z" * 9,
             "_internal/模型.bin": bytes(range(64)),
@@ -37,7 +37,7 @@ class EngineArchiveLayoutTests(unittest.TestCase):
 
     def assert_round_trip(self, compressor, *arguments):
         output = self.root / "engine.tar.xz"
-        # Freeze discovery order; filesystem enumeration differs by platform.
+
         discovery = [self.engine_dir / "nested"] + [
             self.engine_dir / name for name in self.payloads
         ]

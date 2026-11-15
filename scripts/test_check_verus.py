@@ -1,4 +1,4 @@
-"""Runner acceptance only: fake Verus output is never mathematical proof evidence."""
+
 
 import hashlib
 import json
@@ -22,7 +22,7 @@ DOMAINS = {
 }
 TEMPLATES = {name: Path(f"formal/verus/{name}.template.rs") for name in DOMAINS}
 CONSTANTS = Path("src-tauri/src/services/audio_service/mod.rs")
-# The pinned verifier counts seven interval constant initializers plus the controller.
+
 PROOF_COUNTS = {"capture_bounds": 1, "hotkey_ownership": 4, "interim_interval": 8}
 INTERVAL_CONSTANTS = {
     "INTERIM_INTERVAL_MIN_MS": 140,
@@ -36,7 +36,7 @@ INTERVAL_CONSTANTS = {
 
 
 def records(value):
-    """Inspect evidence without prescribing the runner's nested summary layout."""
+
     if isinstance(value, dict):
         yield value
         for child in value.values():
@@ -60,8 +60,8 @@ class VerusRunnerAcceptance(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.original = {}
         for relative in (RUNNER, *DOMAINS.values(), CONSTANTS, *TEMPLATES.values()):
-            # New templates are intentionally absent during the initial RED run.
-            # Required outputs/interfaces are asserted below, never skipped.
+
+
             if not (ROOT / relative).is_file():
                 continue
             target = self.root / relative
@@ -136,7 +136,7 @@ class VerusRunnerAcceptance(unittest.TestCase):
 
     def run_gate(self, mode="normal", verus=None, domain="*"):
         self.invocation += 1
-        # Exercise path aliases on every platform, even without Windows 8.3 names.
+
         self.logs = self.root / ".." / self.root.name / f"logs-{self.invocation}"
         self.calls = self.root / f"calls-{self.invocation}.jsonl"
         environment = os.environ.copy()
@@ -193,7 +193,7 @@ class VerusRunnerAcceptance(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = self.recorded_calls()
         proofs = [call for call in calls if "--no-verify" not in call["args"]]
-        # This assertion is semantic RED on the old, otherwise successful CLI.
+
         self.assertEqual({call["domain"] for call in proofs}, set(DOMAINS),
                          "default CLI must verify exactly the three production domains")
         return calls, proofs
@@ -363,7 +363,7 @@ class VerusRunnerAcceptance(unittest.TestCase):
             relative = DOMAINS[domain]
             original = self.original[relative]
             variants = [original.replace(before, after) for before, after in edits]
-            # Duplicate before the test boundary, not hidden behind #[cfg(test)].
+
             production, separator, tests = original.partition("#[cfg(test)]")
             variants.append(production + production + separator + tests)
             for index, source in enumerate(variants):
@@ -429,7 +429,7 @@ class VerusRunnerAcceptance(unittest.TestCase):
             with self.subTest(path=str(relative)):
                 self.assertTrue(relative in self.original, f"INTERFACE_PENDING: {relative}")
                 original = self.original[relative]
-                # Prefixes remain inside the production scope, before #[cfg(test)].
+
                 for escape in ("#[verifier::external_body]", "#[verifier::external]", "#[verifier::axiom]",
                                "assume(false);", "admit();",
                                "assume_specification[core::mem::replace::<u64>](dst: &mut u64, src: u64) -> u64;"):

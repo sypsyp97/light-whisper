@@ -53,7 +53,7 @@ class Qwen3ASRServerTests(unittest.TestCase):
             "transcribe_cpp": None, "transcribe_cpp_native": None,
             "transcribe_cpp_native_cu12": None,
         }))
-        # Model and VAD tests must not query GPU metadata from the host machine.
+
         gpu_info_patcher = mock.patch.object(
             qwen3_asr_server.Qwen3ASRServer,
             "_get_gpu_device_info",

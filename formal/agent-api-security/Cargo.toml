@@ -1,0 +1,14 @@
+[package]
+name = "agent-api-security-verification"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rand = "=0.8.5"
+serde_json = "=1.0.149"
+windows-sys = { version = "=0.59.0", features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_SystemServices"] }
+
+[[bin]]
+name = "private-file-probe"
+path = "src/bin/private_file_probe.rs"

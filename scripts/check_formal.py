@@ -1,4 +1,4 @@
-"""Run the checked application contracts; model checks are not source proofs."""
+
 
 import argparse
 import hashlib
@@ -14,7 +14,7 @@ TLC_SHA256 = "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
 
 
 def tla_code(source: str) -> str:
-    """Keep code/line structure, excluding comments and literal contents."""
+
     code, depth, index = [], 0, 0
     while index < len(source):
         pair = source[index:index + 2]
@@ -112,26 +112,37 @@ def check_inventory(manifest: dict) -> None:
 
 
 def tlc(jar: Path, model: str, config: Path, source: Path, directory: Path,
-        expected_violation: str | None = None) -> dict:
+        expected_violation: str | None = None, expected_property: str | None = None) -> dict:
+    if expected_property is not None:
+        config_code = tla_code(config.read_text(encoding="utf-8"))
+        headers = re.findall(r"\bPROPERT(?:Y|IES)\b", config_code)
+        target = re.search(r"(?m)^[ \t]*PROPERTY[ \t]+(\w+)[ \t]*\s*\Z", config_code)
+        if expected_violation is not None or len(headers) != 1 or not target or target[1] != expected_property:
+            raise ValueError("temporal negative requires one final PROPERTY and no invariant expectation")
     directory.mkdir(parents=True, exist_ok=True)
     result = subprocess.run([
-        "java", "-XX:+UseParallelGC", "-jar", str(jar), "-workers", "2",
+        "java", "-Xmx512m", "-XX:+UseParallelGC", "-jar", str(jar), "-workers", "1",
         "-coverage", "1",
         "-metadir", str(directory / "states"), "-config", str(config), str(source),
     ], cwd=source.parent, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=480)
     (directory / "tlc.log").write_text(result.stdout + result.stderr, encoding="utf-8")
-    if expected_violation:
+    if expected_property is not None:
+        if result.returncode != 13 or "Temporal properties were violated." not in result.stdout:
+            raise ValueError(f"negative check did not expose {expected_property}: {directory / 'tlc.log'}")
+    elif expected_violation:
         if result.returncode != 12 or f"Invariant {expected_violation} is violated" not in result.stdout:
             raise ValueError(f"negative check did not expose {expected_violation}: {directory / 'tlc.log'}")
     elif result.returncode or "Model checking completed. No error has been found." not in result.stdout:
         raise ValueError(f"TLC did not pass: {directory / 'tlc.log'}")
     counts = re.findall(r"([\d,]+) states generated, ([\d,]+) distinct states found", result.stdout)
     count = int(counts[-1][1].replace(",", "")) if counts else None
-    print(f"{'NEGATIVE' if expected_violation else 'PASS'} {model}/{config.name}: {count} distinct states", flush=True)
+    print(f"{'NEGATIVE' if expected_violation or expected_property else 'PASS'} {model}/{config.name}: {count} distinct states", flush=True)
     record = {"model": model, "config": config.name, "distinct": count,
               "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
               "config_sha256": hashlib.sha256(config.read_bytes()).hexdigest(),
               "expected_violation": expected_violation}
+    if expected_property is not None:
+        record["expected_property"] = expected_property
     (directory / "result.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     return record
 
@@ -148,8 +159,8 @@ def check_model_bindings(manifest: dict, model: str, logs: Path) -> None:
         output = (logs / Path(config).stem / "tlc.log").read_text(encoding="utf-8")
         observed.update(name for name, count in re.findall(
             r"^<(\w+) line [^\n]+>: \d+:(\d+)$", output, re.M) if int(count) > 0)
-    # Only a positive conjunction or alias entails its operands. Merely naming
-    # a predicate in a negation, implication, string or comment proves nothing.
+
+
     while True:
         closure = set(checked)
         for name in checked:
@@ -249,11 +260,12 @@ def main() -> int:
                     raise ValueError(f"mutation target changed: {case['name']}")
                 source = Path(temporary) / f"{model}.tla"
                 source.write_text(content.replace(original, replacement), encoding="utf-8")
-                # TLC 1.7.4 resolves configs beside the module, including mutations.
+
                 local_config = Path(temporary) / config.name
                 local_config.write_bytes(config.read_bytes())
                 config = local_config
-            results.append(tlc(jar, model, config, source, logs / f"negative-{case['name']}", case["invariant"]))
+            results.append(tlc(jar, model, config, source, logs / f"negative-{case['name']}",
+                               case.get("invariant"), expected_property=case.get("property")))
     summary = "negative-summary.json" if args.negative_only else "summary.json"
     (logs / summary).write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
     return 0

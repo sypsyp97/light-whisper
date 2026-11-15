@@ -1,6 +1,6 @@
-// Real GGML graphs, synthetic finite inputs, and actual CUDA kernel-node counts.
-// Capture wraps only graph_compute_async: allocation, uploads, warmup and reads
-// stay outside it. No engine hooks, source assertions, models or timing gates.
+
+
+
 #include "ggml.h"
 #include "ggml-alloc.h"
 #include "ggml-backend.h"
@@ -118,7 +118,7 @@ std::vector<float> read(ggml_tensor * tensor) {
     return result;
 }
 
-// Round the host fixture too, so the independent reference sees stored F16 data.
+
 void upload(ggml_tensor * tensor, std::vector<float> & values) {
     if (tensor->type == GGML_TYPE_F16) {
         std::vector<ggml_fp16_t> half(values.size());
@@ -187,14 +187,14 @@ Result run_case(ggml_backend_t backend, const std::string & kind, const Case & i
     const size_t n = size_t(item.cols * item.rows * item.batch2 * item.batch3);
     auto * input = ggml_new_tensor_4d(owner.ctx, GGML_TYPE_F32, item.cols, item.rows, item.batch2, item.batch3);
     ggml_set_input(input);
-    ggml_set_output(input); // The retained input, including self-residuals, must survive all computes.
+    ggml_set_output(input);
     const int64_t affine_cols = item.affine == Affine::row ? 1 : item.cols;
     const int64_t affine_rows = item.affine == Affine::channel ? 1 : item.rows;
     auto * gamma = ggml_new_tensor_2d(owner.ctx, GGML_TYPE_F32, affine_cols, affine_rows);
     auto * beta = ggml_new_tensor_2d(owner.ctx, GGML_TYPE_F32, affine_cols, affine_rows);
     ggml_set_input(gamma); ggml_set_input(beta);
-    // Updated parameters must not alias an output and accidentally refresh it
-    // by upload alone. This also models retained, immutable model weights.
+
+
     ggml_set_output(gamma); ggml_set_output(beta);
     auto * norm = ggml_norm(owner.ctx, input, EPS);
     auto * mul = ggml_mul(owner.ctx, norm, gamma);
@@ -214,8 +214,8 @@ Result run_case(ggml_backend_t backend, const std::string & kind, const Case & i
                                      residual_storage->nb[1], residual_storage->nb[2], residual_storage->nb[3], 0)
                        : residual_storage;
     }
-    // Existing CUDA binbcast supports F16 as src0 with an F32 result. Its
-    // F32-src0/F16-src1 direction is not implemented in this pinned baseline.
+
+
     auto * output = item.residual == Residual::half ? ggml_add_cast(owner.ctx, residual, affine, GGML_TYPE_F32) :
                    residual ? ggml_add(owner.ctx, affine, residual) : affine;
     ggml_set_output(output);
@@ -260,15 +260,15 @@ Result run_case(ggml_backend_t backend, const std::string & kind, const Case & i
         residual_before.resize(ggml_nbytes(residual_storage));
         ggml_backend_tensor_get(residual_storage, residual_before.data(), 0, residual_before.size());
     }
-    // Repeated warmup also detects a fused implementation that destructively
-    // normalizes a retained input before using its original residual value.
+
+
     for (int i = 0; i < 2; ++i) {
         require(ggml_backend_graph_compute_async(backend, graph) == GGML_STATUS_SUCCESS, "warmup compute failed");
         ggml_backend_synchronize(backend);
     }
     const auto warmup_output = read(output);
-    // Capture must compute fresh values, not leave a warmup result behind.
-    // Constant rows remain constant, but their changed bias changes the result.
+
+
     for (size_t i = 0; i < x.size(); ++i) {
         x[i] = item.constant ? x[i] + 0.25F : -0.5F * x[i] + float(i % 5) * 0.25F + 0.125F;
     }
@@ -336,9 +336,9 @@ Result run_case(ggml_backend_t backend, const std::string & kind, const Case & i
         } else if (item.eligible && work) {
             result.work = result.launches.kernels == 1;
         } else if (!item.eligible) {
-            // Excluded affine layouts and broadcast/strided/F16 residuals use
-            // existing paths. Observable intermediates cannot vanish, while a
-            // three-op prefix may still fuse when its affine output is retained.
+
+
+
             result.work = result.launches.kernels >= 2;
         }
         result.work = result.work && result.launches.memcpy_nodes == 0;
@@ -357,7 +357,7 @@ int suite(ggml_backend_t backend, const std::string & kind, bool unfused, bool w
          << (unfused ? "true" : "false") << ",\"cases\":[";
     int total = 0, failed = 0, eligible = 0;
     for (const auto & item : cases()) {
-        // F16 mixed arithmetic has a CUDA-only fixture; F32 cases also run on CPU.
+
         if (kind == "cpu" && item.residual == Residual::half) { continue; }
         const auto result = run_case(backend, kind, item, unfused, work);
         const bool pass = result.numerical && result.retained_inputs && result.refreshed_output && result.work;
@@ -393,7 +393,7 @@ int suite(ggml_backend_t backend, const std::string & kind, bool unfused, bool w
               << " eligible=" << eligible << " failures=" << failed << '\n';
     return failed ? 1 : 0;
 }
-} // namespace
+}
 
 int main(int argc, char ** argv) {
     ggml_backend_t backend = nullptr;

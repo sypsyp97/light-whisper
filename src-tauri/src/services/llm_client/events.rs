@@ -3,7 +3,6 @@ use tauri::{Emitter, Manager};
 
 use crate::state::AppState;
 
-/// Report recoverable feature loss without replacing the operation's result.
 pub(crate) fn emit_api_warning(
     app_handle: &tauri::AppHandle,
     message: &str,

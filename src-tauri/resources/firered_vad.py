@@ -4,7 +4,7 @@
 # Adapted from FireRedTeam/FireRedVAD, licensed under Apache-2.0.
 # Modified by Light-Whisper contributors; see THIRD_PARTY_NOTICES.md.
 
-"""Small offline FireRedVAD runtime for the bundled Qwen3-ASR engines."""
+
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def _resource_path(filename: str) -> Path:
 
 
 class FireRedVad:
-    """Run the official non-streaming FireRedVAD ONNX model on 16 kHz PCM."""
+
 
     def __init__(
         self,
@@ -87,7 +87,7 @@ class FireRedVad:
 
     def _extract_features(self, audio: np.ndarray) -> np.ndarray:
         cache = self._feature_cache
-        # Drop partially advanced fbank state if any extraction step raises.
+
         self._feature_cache = None
         samples = np.asarray(audio, dtype=np.float32).reshape(-1)
         pcm = np.clip(samples * 32768.0, -32768.0, 32767.0)

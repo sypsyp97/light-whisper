@@ -6,8 +6,6 @@ use super::TARGET_SAMPLE_RATE;
 
 const MAX_RESAMPLE_CHUNK_FRAMES: usize = 4096;
 
-// ---------- 采样格式转换 ----------
-
 pub(super) fn f32_to_i16(s: f32) -> i16 {
     let c = s.clamp(-1.0, 1.0);
     if c < 0.0 {
@@ -20,8 +18,6 @@ pub(super) fn f32_to_i16(s: f32) -> i16 {
 pub(super) fn u16_to_i16(s: u16) -> i16 {
     (s as i32 - 32768) as i16
 }
-
-// ---------- 重采样（rubato 快速插值） ----------
 
 pub(super) struct ChunkedResampler {
     input_rate: u32,
@@ -105,7 +101,6 @@ impl ChunkedResampler {
             return Ok(());
         }
 
-        // Match rubato's partial flush padding without allocating temporary buffers.
         self.pending.resize(self.chunk_size, 0.0);
         self.process_ready_chunks(output)
     }
@@ -157,8 +152,7 @@ impl ResamplerState {
                 as usize)
                 + 8,
         );
-        // rubato's exact streaming contract is fixed-input chunks. For interim ASR we flush
-        // each delta with process_partial so latency stays low; final ASR uses bounded chunks.
+
         self.inner.process_chunk(input, &mut output)?;
         self.inner.finish(&mut output)?;
         Ok(Cow::Owned(output))

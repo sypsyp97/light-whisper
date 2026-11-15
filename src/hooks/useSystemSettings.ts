@@ -98,8 +98,8 @@ export function useSystemSettings({
     if (autostartLoading) return;
     const prev = autostart;
     const next = !prev;
-    // Reflect the requested state immediately, then reconcile it with the
-    // plugin's authoritative value before reporting success.
+
+
     setAutostart(next);
     setAutostartLoading(true);
     try {
@@ -117,8 +117,8 @@ export function useSystemSettings({
         duration: 1100,
       });
     } catch {
-      // A failed operation or unreadable confirmation leaves no authoritative
-      // new value, so return to the last confirmed UI state.
+
+
       setAutostart(prev);
       toast.error(t("toast.autostartFailed"));
     } finally {

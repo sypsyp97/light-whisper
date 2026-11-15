@@ -94,7 +94,7 @@ fn pending_registration_progress_cannot_recreate_a_removed_or_signed_out_record(
     let login = state.begin_login();
     let token = login.token();
     assert_eq!(state.record_login_progress(token, || Ok(())), Ok(true));
-    assert!(state.read().is_none()); // No credentials published before identity verification.
+    assert!(state.read().is_none());
     state.invalidate_matching(|_| false, |_| Ok(())).unwrap();
     assert_eq!(
         state.record_login_progress(token, || panic!("removed registration must stay removed")),
@@ -497,7 +497,7 @@ async fn account_switch_waits_for_rotated_token_and_failed_login_keeps_it() {
     drop(refresh_guard);
     let login = switch.await;
     assert!(state.snapshot_for_refresh().is_none());
-    drop(login); // Browser cancellation or a failed exchange.
+    drop(login);
     assert_eq!(
         state.snapshot_for_refresh().unwrap().1,
         "rotated-refresh-token"
@@ -540,8 +540,6 @@ impl LegacyUnversionedSession {
     }
 }
 
-// Evidence-only abstraction of the audited pre-coordinator service behavior.
-// It models the unversioned late publication; it does not call production code.
 #[test]
 #[ignore = "intentional legacy RED; run explicitly for audit evidence"]
 fn legacy_unversioned_late_login_publication_violates_logout_contract() {

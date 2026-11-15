@@ -13,8 +13,8 @@
 #include <string>
 #include <vector>
 
-// Only fft.cpp is compiled with real_fft_forward renamed. This wrapper counts
-// actual transformed frames, then delegates to the unchanged real FFT.
+
+
 namespace engine::audio {
 void r2t2_test_real_fft_forward(
     const TensorShape &, const TensorStrideBytes &, const TensorStrideBytes &,
@@ -66,7 +66,7 @@ std::vector<float> normalized(const AudioBuffer & audio) {
 }
 
 engine::audio::WhisperLogMelFeatures reference(const AudioBuffer & audio) {
-    // Fresh full extraction: no subject frontend state participates in the oracle.
+
     return engine::audio::WhisperLogMelExtractor(
         {16000, 400, 160, 128, engine::audio::STFTFamily::Default}).compute(normalized(audio), 1);
 }
@@ -88,8 +88,8 @@ Observation check(R2T2ASRWhisperFrontend & frontend, const AudioBuffer & audio, 
             label + ": attention mask differs");
     require(actual.encoder_tokens == r2t2::confucius4_r2t2_audio_encoder_token_count(expected.frames),
             label + ": encoder token count differs");
-    // Raw magnitudes use the same FFT and mel arithmetic. Reuse must preserve
-    // each value exactly, including the reflected tail and global log-mel floor.
+
+
     for (size_t i = 0; i < actual.values.size(); ++i) {
         if (!std::isfinite(actual.values[i]) || actual.values[i] != expected.values[i]) {
             throw std::runtime_error(label + ": feature differs at " + std::to_string(i) +
@@ -207,9 +207,9 @@ void reuse_cases() {
             if (previous == 0) {
                 require(observed.transformed == total_frames, "FFT counter missed cold frames");
             } else {
-                // Centered 400-sample STFT frame f reads through f*160+199.
-                // Only frames wholly inside the old PCM prefix are reusable;
-                // all old right-reflected frames must be recomputed on append.
+
+
+
                 const size_t stable_previous = 1 + (previous - 200) / 160;
                 const size_t maximum_new_frames = total_frames - stable_previous;
                 require(observed.transformed <= maximum_new_frames,
@@ -223,7 +223,7 @@ void reuse_cases() {
         }
     }
 }
-}  // namespace
+}
 
 namespace engine::audio {
 void real_fft_forward(
@@ -239,7 +239,7 @@ void real_fft_forward(
     fft_frames += transformed;
     r2t2_test_real_fft_forward(shape, input_strides, output_strides, axis, data_in, data_out, scale, threads);
 }
-}  // namespace engine::audio
+}
 
 int main(int argc, char ** argv) {
     try {

@@ -1,10 +1,10 @@
-"""Bounded VAD segmentation around the native R2T2 streaming runtime."""
+
 
 import numpy as np
 
 
 class SegmentedR2T2:
-    """Keep native streaming bounded while preserving its committed text."""
+
 
     def __init__(
         self,
@@ -185,8 +185,8 @@ class SegmentedR2T2:
 
     def _process_block(self, block):
         if self._native_active and self._segment_samples + block.size < self.min_segment_samples:
-            # No pause can end this segment yet. Preserve the exact VAD window
-            # for the first eligible boundary without recomputing its features.
+
+
             self._vad_tail = self._vad_window(block)
             observed, regions, trailing_silence = self._vad_tail, [], 0
         else:

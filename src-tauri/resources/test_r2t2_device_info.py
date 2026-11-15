@@ -1,4 +1,4 @@
-"""Device badges use real hardware metadata without loading PyTorch."""
+
 import subprocess
 import unittest
 from unittest.mock import patch

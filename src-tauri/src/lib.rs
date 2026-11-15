@@ -1,3 +1,4 @@
+mod agent_api;
 mod commands;
 mod ipc_policy;
 mod services;
@@ -12,6 +13,26 @@ use state::{AppState, RecordingSlot};
 use tauri::{Emitter, Manager};
 
 pub fn run() {
+    if std::env::args().any(|argument| argument == "--agent-host")
+        && std::env::var_os("LIGHT_WHISPER_DATA_DIR").is_none_or(|directory| directory.is_empty())
+    {
+        eprintln!("--agent-host requires LIGHT_WHISPER_DATA_DIR");
+        std::process::exit(2);
+    }
+    if std::env::args().any(|argument| argument == "--agent-client") {
+        if let Err(error) = agent_api::run_client() {
+            eprintln!("Agent client failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if std::env::args().any(|argument| argument == "--agent-host") {
+        if let Err(error) = agent_api::run_host() {
+            eprintln!("Agent host failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(
@@ -25,7 +46,7 @@ pub fn run() {
             if should_start_hidden(minimized, args.into_iter()) {
                 return;
             }
-            // 已有实例运行时，聚焦主窗口
+
             focus_main_window(app);
         }))
         .plugin(tauri_plugin_keyring::init())
@@ -56,16 +77,14 @@ pub fn run() {
                 utils::paths::get_data_dir()
             );
 
-            // 启动时加载用户画像
             {
                 let state = app_handle.state::<AppState>();
                 let loaded = services::profile_service::load_profile();
-                // The main window starts hidden to avoid a flash during autostart.
-                // A normal launch still opens it, regardless of this preference.
+
                 if !should_start_hidden(loaded.autostart_minimized, std::env::args()) {
                     focus_main_window(&app_handle);
                 }
-                // 迁移旧版 custom API key 到新 keyring key（仅在目标 key 不存在时执行）
+
                 if loaded.llm_provider.active == "custom_migrated" {
                     use tauri_plugin_keyring::KeyringExt;
                     let new_user =
@@ -127,7 +146,6 @@ pub fn run() {
                 });
             }
 
-            // 注册翻译/助手热键
             {
                 type HotkeyRegisterFn =
                     dyn Fn(tauri::AppHandle, Option<String>) -> Result<String, utils::AppError>;
@@ -153,7 +171,6 @@ pub fn run() {
                 }
             }
 
-            // 启动时从系统密钥环加载 API Key
             {
                 use tauri_plugin_keyring::KeyringExt;
                 let state = app_handle.state::<AppState>();
@@ -162,7 +179,7 @@ pub fn run() {
                 if !key.is_empty() {
                     log::info!("已从密钥环加载 AI 润色 API Key (provider: {})", provider);
                 }
-                // 从密钥环加载当前活跃在线引擎对应的 API Key（GLM / Alibaba-CN / Alibaba-Intl）
+
                 commands::funasr::reload_online_asr_key(&app_handle, state.inner());
                 if !state.read_online_asr_api_key().is_empty() {
                     log::info!(
@@ -170,7 +187,7 @@ pub fn run() {
                         commands::funasr::active_online_keyring_user()
                     );
                 }
-                // 加载需要密钥的联网搜索提供商（密钥始终保存在系统密钥环）。
+
                 for search_provider in [
                     crate::state::user_profile::WebSearchProvider::Exa,
                     crate::state::user_profile::WebSearchProvider::Tavily,
@@ -211,6 +228,7 @@ pub fn run() {
                 }
             }
 
+            agent_api::register(&app_handle)?;
             spawn_funasr_startup(app_handle.clone());
             spawn_subtitle_prewarm(app_handle.clone());
             spawn_profile_maintenance(app_handle.clone());
@@ -373,8 +391,14 @@ pub fn run() {
             commands::history::export_transcription_history,
             commands::history::reprocess_transcription_history,
         ]))
-        .run(tauri::generate_context!())
-        .expect("启动轻语 Whisper 时发生错误");
+        .build(tauri::generate_context!())
+        .expect("启动轻语 Whisper 时发生错误")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                agent_api::shutdown(app);
+                stop_funasr_on_exit(app);
+            }
+        });
 }
 
 fn mark_setup_once() -> bool {
@@ -509,7 +533,6 @@ fn spawn_profile_maintenance(app_handle: tauri::AppHandle) {
                 }
             }
 
-            // LLM 纠错审核：启用且距上次超过 24h 时自动执行
             let should_validate = {
                 let state = app_handle.state::<AppState>();
                 state.with_profile(|p| {
@@ -635,7 +658,6 @@ fn setup_system_tray(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::e
             "hide" => hide_main_window(app),
             "quit" => {
                 log::info!("用户请求退出应用");
-                stop_funasr_on_exit(app);
                 app.exit(0);
             }
             _ => log::warn!("未知托盘菜单项: {:?}", event.id()),
@@ -654,8 +676,6 @@ fn setup_system_tray(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::e
 
     let app = app_handle.clone();
     app_handle.listen("recording-state", move |_| {
-        // Read canonical state so a delayed event from an older session cannot
-        // clear the mark while a newer recording is active.
         let recording = app
             .state::<AppState>()
             .recording

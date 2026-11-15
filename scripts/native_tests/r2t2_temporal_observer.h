@@ -42,7 +42,7 @@ inline std::vector<Graph> graphs;
 inline std::map<ggml_cgraph *, std::vector<ggml_backend_buffer_t>> live_verification;
 inline size_t uploads = 0, readbacks = 0, readback_bytes = 0, drains = 0, calls = 0;
 inline size_t queued_consumed = 0, max_live_verification = 0;
-// One-shot faults: queued upload ordinal; compute pre/after real arithmetic.
+
 inline int fail_upload = 0;
 inline bool fail_compute_before = false, fail_compute_after = false;
 inline bool preserve_intermediates = true;
@@ -85,7 +85,7 @@ inline bool collect_logits(ggml_tensor * tensor, std::vector<ggml_tensor *> & ou
     if (!tensor || tensor->ne[0] != vocabulary) { return false; }
     if (tensor->op == GGML_OP_MUL_MAT) { out.push_back(tensor); return true; }
     if (tensor->op == GGML_OP_CONCAT) {
-        // Token rows occupy dimension1; concatenation order is token order.
+
         if (tensor->op_params[0] != 1) { return false; }
         return collect_logits(tensor->src[0], out) && collect_logits(tensor->src[1], out);
     }
@@ -133,7 +133,7 @@ inline std::vector<float> row(const std::vector<float> & values, size_t index, s
     check(values.size() >= (index + 1) * size, "observed output row unavailable");
     return {values.begin() + index * size, values.begin() + (index + 1) * size};
 }
-}  // namespace temporal_observer
+}
 
 void temporal_set_async(ggml_backend_t backend, ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
     using namespace temporal_observer;
@@ -159,8 +159,8 @@ void temporal_sync(ggml_backend_t backend) {
     ggml_backend_synchronize(backend);
 }
 bool temporal_alloc(ggml_gallocr_t allocator, ggml_cgraph * graph) {
-    // Preserve transient arithmetic results for exact numerical observation.
-    // No extra graph nodes, host production reads, or arithmetic substitutions.
+
+
     if (temporal_observer::preserve_intermediates) {
         for (auto * logits : temporal_observer::logits_nodes(graph)) {
             ggml_set_output(logits);
@@ -228,8 +228,8 @@ ggml_status temporal_compute(ggml_backend_t backend, ggml_cgraph * graph, ggml_b
             auto * mask_root = root(masks.front());
             check(position_root->type == GGML_TYPE_I32 && mask_root->type == GGML_TYPE_F16,
                   "verification root input types differ");
-            check_row_views(positions, position_root, 1, 4);  // Q/K RoPE in each of two layers.
-            check_row_views(slots, position_root, 1, 4);      // K/V SET_ROWS in each of two layers.
+            check_row_views(positions, position_root, 1, 4);
+            check_row_views(slots, position_root, 1, 4);
             check_row_views(masks, mask_root, ggml_nelements(mask_root) / 4, 2);
             for (const auto & item : cache_slots) { check_row_views(item.second, position_root, 1, 1); }
             observation.positions = read<int32_t>(position_root);
@@ -298,4 +298,4 @@ ggml_status temporal_compute(ggml_backend_t backend, ggml_cgraph * graph, ggml_b
     if (fail_compute_after) { fail_compute_after = false; return GGML_STATUS_FAILED; }
     return status;
 }
-}  // namespace engine::core
+}

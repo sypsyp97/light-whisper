@@ -1,4 +1,4 @@
-// Real CPU allocations; fixture-local registry exposes a delayed byte-memset hook.
+
 #include "engine/framework/runtime/kv_cache.h"
 #include "ggml-backend-impl.h"
 #include "ggml-cpu.h"
@@ -30,7 +30,7 @@ template<class T> void record(std::ofstream & trace, const T & value) {
     trace.write(reinterpret_cast<const char *>(&value), sizeof(value));
 }
 
-// Baseline numerical oracle is the frozen production method, never a test reimplementation.
+
 void clear(runtime::TransformerKVCache & cache, ggml_backend_t backend, int64_t keep) {
 #ifdef BASELINE
     (void)backend;
@@ -102,7 +102,7 @@ struct Fixture {
         }
         cache.import_state(state);
 
-        // CPU's process-wide device/registry interfaces remain untouched.
+
         original_device = backend->device;
         original_registry = original_device->reg;
         device = *original_device;
@@ -116,8 +116,8 @@ struct Fixture {
         backend->iface.synchronize = synchronize;
         backend->iface.graph_compute = compute;
         if (allocation) {
-            // Saved CPU get/set/memset callbacks address tensor->data directly.
-            // The local buffer clone only adds an owner for counting fallback writes.
+
+
             observed_buffer = *allocation;
             observed_buffer.context = this;
             real_memset = allocation->iface.memset_tensor;
@@ -127,7 +127,7 @@ struct Fixture {
     }
 
     ~Fixture() {
-        // A failing test must never silently discard borrowed queued tensor pointers.
+
         if (!pending.empty()) { std::cerr << "FAIL pending work survived clear boundary\n"; std::terminate(); }
         for (auto * tensor : tensors) { tensor->buffer = allocation; }
         backend->device = original_device;
@@ -178,7 +178,7 @@ struct Fixture {
             f.old_metadata();
             require(f.bytes() == f.before, "queued bytes changed before drain");
             for (const auto & p : f.pending) {
-                // Physical emulation must not count as native synchronous fallback.
+
                 f.real_memset(f.allocation, p.tensor, p.value, p.offset, p.bytes);
                 ++f.consumed; ++total_consumed;
             }
@@ -295,7 +295,7 @@ void successful_suite(std::ofstream & trace) {
 void failure_suite() {
 #ifndef BASELINE
     Fixture f(GGML_TYPE_F32);
-    f.poison(); f.observe(3, 3); // two deferred suffix writes exist when callback three throws.
+    f.poison(); f.observe(3, 3);
     bool injected_error = false;
     try { clear(f.cache, f.backend, 3); }
     catch (const std::runtime_error & error) { injected_error = std::string(error.what()) == "injected async memset failure"; }
@@ -326,7 +326,7 @@ void failure_suite() {
     ++injected;
 #endif
 }
-} // namespace
+}
 
 int main(int argc, char ** argv) {
     try {

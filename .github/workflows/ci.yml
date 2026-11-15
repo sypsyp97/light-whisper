@@ -20,20 +20,20 @@ jobs:
   formal:
     name: Application formal contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version-file: .python-version
 
       - name: Set up Java
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
           distribution: temurin
           java-version: '21'
@@ -56,7 +56,7 @@ jobs:
 
       - name: Upload formal evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: formal-contract-results
           path: |
@@ -73,12 +73,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version-file: .python-version
 
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload Verus evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: verus-contract-results
           path: ${{ runner.temp }}/verus-results/**
@@ -125,7 +125,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -142,13 +142,13 @@ jobs:
           }
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22.14.0
           package-manager-cache: false
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
         with:
           version: 10.28.2
           run_install: false
@@ -165,6 +165,155 @@ jobs:
       - name: Verify tracked files are unchanged
         run: git diff --exit-code
 
+  cli:
+    name: CLI contracts
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: "1"
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: 0.11.30
+
+      - name: Install CLI Python dependencies
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          uv lock --check
+          uv sync --frozen
+
+      - name: Set up CLI Rust
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          rustup toolchain install 1.93.0 --profile minimal
+          rustup default 1.93.0
+          rustc --version
+
+      - name: Cache CLI Rust dependencies and build outputs
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+            !src-tauri/target/**/incremental/**
+          key: rust-${{ runner.os }}-1.93.0-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('src-tauri/src/**/*.rs', 'src-tauri/build.rs', 'src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json') }}
+          restore-keys: |
+            rust-${{ runner.os }}-1.93.0-${{ hashFiles('src-tauri/Cargo.lock') }}-
+
+      - name: Set up Java for CLI models
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Run CLI unit contracts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          uv run --no-sync python -m unittest discover -s scripts -p "test_*cli*.py"
+          uv run --no-sync python -m unittest discover -s formal/agent-api-measurements/entrypoint -p "test_*.py" -v
+          uv run --no-sync python -m unittest discover -s formal/agent-api-host/admission -p test_runner.py
+          uv run --no-sync python -m unittest discover -s formal/cli/json-numbers -p test_runner.py
+          uv run --no-sync python scripts/test_release_ci.py
+          uv run --no-sync python scripts/test_ci_fail_fast.py
+
+      - name: Build and verify standalone CLI
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $receipts = Join-Path $env:RUNNER_TEMP 'cli-receipts/package'
+          New-Item -ItemType Directory -Force -Path $receipts | Out-Null
+          uv run --no-sync python scripts/build_cli.py
+          $verification = uv run --no-sync python scripts/build_cli.py --verify
+          $verification | Set-Content -LiteralPath (Join-Path $receipts 'verification.json')
+          $env:LIGHT_WHISPER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'cli-doctor-state'
+          $doctor = & ./src-tauri/resources/light-whisper-cli.exe doctor
+          $doctor | Set-Content -LiteralPath (Join-Path $receipts 'doctor.json')
+          if (($doctor | ConvertFrom-Json).success -ne $true) {
+            throw 'Packaged CLI doctor failed'
+          }
+
+      - name: Run native CLI contracts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo test --manifest-path formal/agent-api-security/Cargo.toml --locked -j2 -- --test-threads=1
+          cargo test --manifest-path formal/agent-api-transport/Cargo.toml --locked -j2 -- --test-threads=1
+          cargo build --manifest-path src-tauri/Cargo.toml --bin light-whisper --locked -j2
+          cargo build --manifest-path formal/agent-api-host/native-fixture/Cargo.toml --bin agent-host-native-fixture --locked -j2 --target-dir src-tauri/target
+
+      - name: Run native headless host contracts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          uv run --no-sync python formal/agent-api-host/run.py --app-exe src-tauri/target/debug/light-whisper.exe --fixture-exe src-tauri/target/debug/agent-host-native-fixture.exe --evidence (Join-Path $env:RUNNER_TEMP 'cli-receipts/native-host')
+
+      - name: Run complete CLI formal matrices
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $java = Join-Path $env:JAVA_HOME 'bin/java.exe'
+          $jar = Join-Path $env:RUNNER_TEMP 'tla2tools.jar'
+          Invoke-WebRequest -Uri 'https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar' -OutFile $jar
+          if ((Get-FileHash -LiteralPath $jar -Algorithm SHA256).Hash.ToLowerInvariant() -ne '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88') {
+            throw 'TLA+ JAR SHA256 mismatch'
+          }
+          $receipts = Join-Path $env:RUNNER_TEMP 'cli-receipts/models'
+          uv run --no-sync python formal/cli/run_models.py --jar $jar --output (Join-Path $receipts 'cli')
+          uv run --no-sync python formal/cli/run_configuration_models.py --jar $jar --output (Join-Path $receipts 'configuration')
+          uv run --no-sync python formal/cli/run_session_models.py --jar $jar --output (Join-Path $receipts 'session')
+          uv run --no-sync python formal/cli/run_target_models.py --jar $jar --output (Join-Path $receipts 'target')
+          uv run --no-sync python formal/cli/run_bootstrap_models.py --jar $jar --output (Join-Path $receipts 'bootstrap')
+          uv run --no-sync python formal/cli/run_native_thread_models.py --java $java --jar $jar --output (Join-Path $receipts 'native-thread')
+          uv run --no-sync python formal/cli/CommandSurfaceCheck.py --java $java --jar $jar --output (Join-Path $receipts 'command-surface')
+          uv run --no-sync python formal/cli/json-numbers/check_model.py --java $java --jar $jar --output (Join-Path $receipts 'json-numbers')
+          uv run --no-sync python formal/cli-packaging/run_models.py --java $java --jar $jar --output (Join-Path $receipts 'packaging')
+          uv run --no-sync python formal/agent-api-security/check_model.py --jar $jar --output (Join-Path $receipts 'private-files')
+          uv run --no-sync python formal/agent-api-transport/check_model.py --jar $jar --output (Join-Path $receipts 'transport')
+          uv run --no-sync python formal/agent-api-app/check_model.py --jar $jar --output (Join-Path $receipts 'app-query')
+          uv run --no-sync python formal/agent-api-host/check_model.py --java $java --jar $jar --output (Join-Path $receipts 'native-host')
+          uv run --no-sync python formal/agent-api-host/admission/check_model.py --java $java --jar $jar --output (Join-Path $receipts 'native-admission')
+          uv run --no-sync python formal/cli-ci/check_model.py --java $java --jar $jar --output (Join-Path $receipts 'ci-gates')
+          uv run --no-sync python formal/asr-subscription-bootstrap/verify.py --java $java --jar $jar --output (Join-Path $receipts 'asr-subscription-bootstrap')
+          pwsh -NoProfile -File formal/asr-agent-settings/run_checks.ps1 -Java $java -Jar $jar -OutputDirectory (Join-Path $receipts 'asr-agent-settings')
+
+      - name: Verify CLI checks preserved tracked files
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          git diff --exit-code
+
+      - name: Upload CLI contract evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cli-contract-results
+          path: |
+            ${{ runner.temp }}/cli-receipts/**/*.json
+            ${{ runner.temp }}/cli-receipts/**/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
   python:
     name: Python
     runs-on: windows-latest
@@ -176,17 +325,17 @@ jobs:
       PYTHONUTF8: "1"
     steps:
       - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version-file: .python-version
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
         with:
           version: 0.11.30
 
@@ -226,7 +375,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -238,7 +387,7 @@ jobs:
           rustc --version
 
       - name: Cache Rust dependencies and build outputs
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: |
             ~/.cargo/registry

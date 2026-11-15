@@ -43,23 +43,16 @@ pub(crate) use start_owner::HotkeyStartOwner;
 
 const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
 
-/// RegisterHotKey probe uses this atom ID
 #[cfg(target_os = "windows")]
-const PROBE_HOTKEY_ID: i32 = 0x4C57; // "LW"
+const PROBE_HOTKEY_ID: i32 = 0x4C57;
 
-/// Counter for injected events ignored by the LLKH filter
 #[cfg(target_os = "windows")]
 static IGNORED_INJECTED_COUNT: AtomicU64 = AtomicU64::new(0);
 
-// ---------------------------------------------------------------------------
-// HotkeyBackend — selects between RegisterHotKey and low-level hook
-// ---------------------------------------------------------------------------
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HotkeyBackend {
-    /// Standard Windows RegisterHotKey — most stable, toggle-only
     RegisterHotKey,
-    /// WH_KEYBOARD_LL — for hold mode, modifier-only, Win combos
+
     LowLevelHook,
 }
 
@@ -74,14 +67,9 @@ fn classify_backend(spec: &HotkeySpec) -> HotkeyBackend {
             HotkeySpec::Standard { .. } => HotkeyBackend::RegisterHotKey,
         }
     } else {
-        // Hold mode always needs LLKH for key-up detection
         HotkeyBackend::LowLevelHook
     }
 }
-
-// ---------------------------------------------------------------------------
-// Dispatch channel — moves heavy work off the hook thread
-// ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
 enum DispatchEvent {
@@ -125,14 +113,11 @@ fn dispatch_channel() -> &'static std::sync::mpsc::Sender<DispatchEvent> {
     })
 }
 
-/// Send dispatch event from hook callback — never blocks.
 #[cfg(target_os = "windows")]
 fn send_dispatch(event: DispatchEvent) {
     let _ = dispatch_channel().send(event);
 }
 
-/// Probe whether a hotkey is already registered system-wide via RegisterHotKey.
-/// Returns a human-readable warning if conflicting, None otherwise.
 #[cfg(target_os = "windows")]
 fn probe_system_hotkey_conflict(spec: &HotkeySpec) -> Option<String> {
     let (win_mods, vk) = match spec {
@@ -154,11 +139,10 @@ fn probe_system_hotkey_conflict(spec: &HotkeySpec) -> Option<String> {
             }
             (m, *main_vk as u32)
         }
-        // Modifier-only, side-specific, and consumed lock keys require LLKH.
+
         _ => return None,
     };
 
-    // Attempt to register — success means no conflict
     let ok = unsafe { RegisterHotKey(std::ptr::null_mut(), PROBE_HOTKEY_ID, win_mods, vk) };
     if ok != 0 {
         unsafe { UnregisterHotKey(std::ptr::null_mut(), PROBE_HOTKEY_ID) };
@@ -171,25 +155,20 @@ fn probe_system_hotkey_conflict(spec: &HotkeySpec) -> Option<String> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// HotkeySpec — describes what key combination triggers the hotkey
-// ---------------------------------------------------------------------------
-
 #[derive(Clone, Debug)]
 enum HotkeySpec {
-    /// Pure modifier-key combination (e.g. Ctrl+Win, Alt alone)
     ModifierOnly {
         label: String,
         required_modifiers: Vec<ModifierKey>,
     },
-    /// Modifier(s) + a main key (e.g. F2, Ctrl+Space)
+
     Standard {
         label: String,
         modifiers: ShortcutModifiers,
         main_vk: u16,
-        /// Side-specific modifiers and lock keys cannot use RegisterHotKey.
+
         force_low_level_hook: bool,
-        /// Consume both key-down and key-up so lock keys do not change OS state.
+
         consume_main_key: bool,
     },
 }
@@ -369,10 +348,6 @@ impl ShortcutModifiers {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Event gate — deduplicates press/release across rapid repeats
-// ---------------------------------------------------------------------------
-
 struct HotkeyEventGate {
     is_pressed: AtomicBool,
     last_release_ms: AtomicU64,
@@ -425,15 +400,10 @@ fn hotkey_gate_is_current(_trigger: RecordingTrigger, _gate: &Arc<HotkeyEventGat
     true
 }
 
-// Configuration publication and dispatch must see one mode/registration pair.
 fn hotkey_configuration_lock() -> &'static parking_lot::Mutex<()> {
     static LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
     &LOCK
 }
-
-// ---------------------------------------------------------------------------
-// Toggle mode — persisted as a static AtomicBool
-// ---------------------------------------------------------------------------
 
 fn toggle_mode_flag() -> &'static AtomicBool {
     static FLAG: OnceLock<AtomicBool> = OnceLock::new();
@@ -443,10 +413,6 @@ fn toggle_mode_flag() -> &'static AtomicBool {
 fn is_toggle_mode() -> bool {
     toggle_mode_flag().load(Ordering::Acquire)
 }
-
-// ---------------------------------------------------------------------------
-// Diagnostic & error helpers
-// ---------------------------------------------------------------------------
 
 fn emit_recording_error(app_handle: &tauri::AppHandle, message: &str) {
     let _ = app_handle.emit(
@@ -526,10 +492,6 @@ where
     let _ = app_handle.emit("hotkey-diagnostic", snapshot);
 }
 
-// ---------------------------------------------------------------------------
-// Recording start/stop business logic
-// ---------------------------------------------------------------------------
-
 fn update_hotkey_diagnostic_for_trigger<F>(
     app_handle: &tauri::AppHandle,
     trigger: RecordingTrigger,
@@ -542,10 +504,6 @@ fn update_hotkey_diagnostic_for_trigger<F>(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Unified low-level keyboard hook (Windows)
-// ---------------------------------------------------------------------------
-
 #[cfg(target_os = "windows")]
 struct UnifiedHookState {
     app_handle: tauri::AppHandle,
@@ -554,13 +512,13 @@ struct UnifiedHookState {
     gate: Arc<HotkeyEventGate>,
     backend: HotkeyBackend,
     reg_hotkey_id: Option<i32>,
-    /// Per-VK key-down tracking for modifier-only mode
+
     key_down: Vec<AtomicBool>,
-    /// Hotkey combination currently active
+
     activated: AtomicBool,
-    /// A non-hotkey key was pressed during modifier-only hold → taint (cancel)
+
     tainted: AtomicBool,
-    /// A modifier key leaked to OS before the combo was complete
+
     modifier_leaked: AtomicBool,
 }
 
@@ -632,7 +590,7 @@ fn get_unified_hook_states() -> UnifiedHookBundle {
 }
 
 #[cfg(target_os = "windows")]
-const SYNTHETIC_KEY_MARKER: usize = 0x4C575F53; // "LW_S"
+const SYNTHETIC_KEY_MARKER: usize = 0x4C575F53;
 
 #[cfg(target_os = "windows")]
 fn send_synthetic_key_up(vk: u16) {
@@ -683,8 +641,6 @@ fn is_alt_vk(vk: u32) -> bool {
     vk as u16 == VK_LMENU || vk as u16 == VK_RMENU
 }
 
-/// Map a VK code to an index in UnifiedHookState::key_down for ModifierOnly specs.
-/// Returns None if the physical key is not one of the required modifiers.
 #[cfg(target_os = "windows")]
 fn vk_to_required_index(spec: &HotkeySpec, vk: u32) -> Option<usize> {
     if let HotkeySpec::ModifierOnly {
@@ -706,8 +662,6 @@ fn accepts_right_alt(required_modifiers: &[ModifierKey]) -> bool {
         .any(|required| required.matches_vk(VK_RMENU as u32))
 }
 
-// --- Standard mode helpers ---
-
 #[cfg(target_os = "windows")]
 fn is_key_physically_down(vk: u16) -> bool {
     unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk as i32) < 0 }
@@ -717,10 +671,6 @@ fn is_key_physically_down(vk: u16) -> bool {
 fn all_modifiers_down(mods: &ShortcutModifiers) -> bool {
     mods.keys.iter().all(|key| key.is_physically_down())
 }
-
-// ---------------------------------------------------------------------------
-// The unified hook callback
-// ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn unified_low_level_keyboard_proc(
@@ -741,13 +691,10 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
 
     let keyboard = unsafe { &*(l_param as *const KBDLLHOOKSTRUCT) };
 
-    // Skip our own synthetic keys
     if keyboard.dwExtraInfo == SYNTHETIC_KEY_MARKER {
         return pass_through();
     }
 
-    // Filter injected input (macro tools, automation, drivers).
-    // LLKHF_INJECTED = 0x10 — set by SendInput / keybd_event from other processes.
     if keyboard.flags & 0x10 != 0 {
         IGNORED_INJECTED_COUNT.fetch_add(1, Ordering::Relaxed);
         return pass_through();
@@ -802,9 +749,6 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
     }
 }
 
-/// Returns `true` if the event should be swallowed (not forwarded to OS).
-/// All heavy work (mutex, IPC) is dispatched via channel — the hook thread
-/// only touches atomics.
 #[cfg(target_os = "windows")]
 fn handle_modifier_only_event(
     state: &Arc<UnifiedHookState>,
@@ -814,8 +758,7 @@ fn handle_modifier_only_event(
     required_modifiers: &[ModifierKey],
 ) -> bool {
     let is_required = vk_to_required_index(&state.spec, vk).is_some();
-    // Windows represents AltGr as a synthetic Left Ctrl followed by Right Alt.
-    // Do not taint a Right Alt binding with that companion event.
+
     let is_altgr_ctrl_companion = vk as u16 == VK_LCONTROL && accepts_right_alt(required_modifiers);
     let was_activated = state.activated.load(Ordering::Acquire);
 
@@ -834,7 +777,6 @@ fn handle_modifier_only_event(
                 ));
             }
         } else if !is_altgr_ctrl_companion {
-            // Non-required key pressed → taint
             state.tainted.store(true, Ordering::Release);
             if was_activated {
                 state.activated.store(false, Ordering::Release);
@@ -845,7 +787,6 @@ fn handle_modifier_only_event(
             }
         }
     } else {
-        // Key up
         if is_required {
             if let Some(idx) = vk_to_required_index(&state.spec, vk) {
                 state.key_down[idx].store(false, Ordering::Release);
@@ -860,7 +801,6 @@ fn handle_modifier_only_event(
             }
         }
 
-        // When all required modifiers are up, clear taint and handle cleanup
         let any_still_down = state.key_down.iter().any(|b| b.load(Ordering::Acquire));
         if !any_still_down {
             let need_cleanup = was_activated && state.modifier_leaked.swap(false, Ordering::AcqRel);
@@ -884,10 +824,8 @@ fn handle_modifier_only_event(
         }
     }
 
-    // Decide whether to swallow — must happen AFTER state updates above
     let swallow = should_swallow_modifier_only(state, vk);
 
-    // Track modifier leak: key-down of a required modifier that we didn't swallow
     if is_key_down && is_required && !swallow && is_modifier_vk(vk) {
         state.modifier_leaked.store(true, Ordering::Release);
     }
@@ -905,18 +843,13 @@ fn should_swallow_modifier_only(state: &UnifiedHookState, vk: u32) -> bool {
     let currently_activated = state.activated.load(Ordering::Acquire);
     let any_required_down = state.key_down.iter().any(|b| b.load(Ordering::Acquire));
 
-    // For Win/Alt keys: swallow whenever any required key is down or was activated.
-    // This prevents Win from opening start menu, Alt from activating menus.
     if is_win_vk(vk) || is_alt_vk(vk) {
         return currently_activated || any_required_down;
     }
 
-    // For other modifiers (Ctrl, Shift): only swallow when activated
     currently_activated
 }
 
-/// Returns `true` if the event should be swallowed.
-/// All heavy work (mutex, IPC) is dispatched via channel.
 #[cfg(target_os = "windows")]
 fn handle_standard_event(
     state: &Arc<UnifiedHookState>,
@@ -947,7 +880,6 @@ fn handle_standard_event(
                 format!("{} 松开，停止录音", label),
             ));
 
-            // Clean up leaked modifier state in one read
             let leaked = state.modifier_leaked.swap(false, Ordering::AcqRel);
             if leaked {
                 if modifiers.has_super() {
@@ -962,15 +894,8 @@ fn handle_standard_event(
         }
     }
 
-    // Read activated state AFTER updates — swallow the main key while hotkey is active.
-    // This correctly swallows:
-    //   - The triggering key-down (activated just set to true above)
-    //   - Repeated key-downs while held
-    // And does NOT swallow:
-    //   - The key-up that deactivated (activated just set to false above)
     let currently_activated = state.activated.load(Ordering::Acquire);
 
-    // Track modifier leaks for Win/Alt (key-down that we won't swallow)
     if is_key_down
         && !currently_activated
         && ((is_win_vk(vk) && modifiers.has_super()) || (is_alt_vk(vk) && modifiers.has_alt()))
@@ -980,10 +905,6 @@ fn handle_standard_event(
 
     is_main_key && (consume_main_key || currently_activated)
 }
-
-// ---------------------------------------------------------------------------
-// RegisterHotKey backend — dedicated thread with message pump
-// ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
 enum RegHotkeyCmd {
@@ -1026,8 +947,6 @@ fn reg_backend_slot() -> &'static Mutex<Option<RegisterHotkeyBackend>> {
     SLOT.get_or_init(|| Mutex::new(None))
 }
 
-/// Windows application hotkey IDs are 0x0000..=0xBFFF. Never reuse one in this
-/// process: an old WM_HOTKEY may remain queued after UnregisterHotKey.
 #[cfg(target_os = "windows")]
 fn allocate_reg_hotkey_id(next: &AtomicU32) -> Option<i32> {
     next.fetch_update(Ordering::AcqRel, Ordering::Acquire, |id| {
@@ -1043,7 +962,6 @@ fn next_reg_hotkey_id() -> Option<i32> {
     allocate_reg_hotkey_id(&NEXT)
 }
 
-/// Build MOD_ flags for RegisterHotKey from ShortcutModifiers
 #[cfg(target_os = "windows")]
 fn shortcut_mods_to_reg_mods(mods: &ShortcutModifiers) -> u32 {
     let mut m = MOD_NOREPEAT;
@@ -1082,7 +1000,6 @@ fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
         .spawn(move || {
             let thread_id = unsafe { GetCurrentThreadId() };
 
-            // Ensure message queue exists
             let mut peek_msg: MSG = unsafe { std::mem::zeroed() };
             let _ = unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
 
@@ -1090,7 +1007,6 @@ fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
                 return;
             }
 
-            // Registered hotkey states, keyed by id
             let mut registered: std::collections::HashMap<i32, Arc<UnifiedHookState>> =
                 std::collections::HashMap::new();
 
@@ -1112,7 +1028,6 @@ fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
                         }
                     }
                     WM_NULL => {
-                        // Drain command channel
                         let rx_guard = match reg_hotkey_cmd_channel().1.lock() {
                             Ok(g) => g,
                             Err(p) => p.into_inner(),
@@ -1159,7 +1074,6 @@ fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
                 }
             }
 
-            // Cleanup all registered hotkeys
             for &id in registered.keys() {
                 unsafe { UnregisterHotKey(std::ptr::null_mut(), id) };
             }
@@ -1179,8 +1093,6 @@ fn ensure_reg_hotkey_backend() -> Result<(), AppError> {
     Ok(())
 }
 
-/// Register a hotkey via the RegisterHotKey backend.
-/// Blocks until the registration is confirmed or rejected.
 #[cfg(target_os = "windows")]
 fn register_via_reg_hotkey(
     mods: &ShortcutModifiers,
@@ -1206,7 +1118,6 @@ fn register_via_reg_hotkey(
         })
         .map_err(|_| AppError::Other("RegisterHotKey 命令通道已关闭".into()))?;
 
-    // Wake the backend thread
     let tid = {
         let guard = match reg_backend_slot().lock() {
             Ok(g) => g,
@@ -1224,7 +1135,6 @@ fn register_via_reg_hotkey(
         .map_err(AppError::Other)
 }
 
-/// Unregister a hotkey from the RegisterHotKey backend.
 #[cfg(target_os = "windows")]
 fn unregister_via_reg_hotkey(kind: HotkeyKind) {
     let bundle = get_unified_hook_states();
@@ -1272,10 +1182,6 @@ fn stop_reg_hotkey_backend() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Monitor thread management (LLKH backend)
-// ---------------------------------------------------------------------------
-
 #[cfg(target_os = "windows")]
 struct UnifiedHotkeyMonitor {
     thread_id: u32,
@@ -1308,7 +1214,6 @@ fn stop_unified_hotkey_monitor() {
 fn stop_unified_hotkey_monitor() {}
 
 #[cfg(target_os = "windows")]
-/// HHOOK is *mut c_void in windows-sys
 type HookHandle = *mut std::ffi::c_void;
 
 fn install_hook_on_thread() -> Result<HookHandle, String> {
@@ -1360,7 +1265,6 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
             };
             let hook_handle: HookHandle = hook;
 
-            // Ensure message queue exists
             let mut peek_msg: MSG = unsafe { std::mem::zeroed() };
             let _ = unsafe { PeekMessageW(&mut peek_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
 
@@ -1369,8 +1273,6 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
                 return;
             }
 
-            // Simple message loop — the hook callback is kept fast enough that
-            // Windows will not silently remove it.
             let mut message: MSG = unsafe { std::mem::zeroed() };
             loop {
                 let result = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
@@ -1489,7 +1391,6 @@ fn sync_hotkey_monitor_lifecycle(app_handle: tauri::AppHandle) -> Result<(), App
         (has_llkh, has_any)
     };
 
-    // Only install LLKH when at least one hotkey actually needs it
     if has_llkh {
         ensure_unified_hotkey_monitor(app_handle)
     } else {
@@ -1502,10 +1403,6 @@ fn sync_hotkey_monitor_lifecycle(app_handle: tauri::AppHandle) -> Result<(), App
 fn sync_hotkey_monitor_lifecycle(app_handle: tauri::AppHandle) -> Result<(), AppError> {
     ensure_unified_hotkey_monitor(app_handle)
 }
-
-// ---------------------------------------------------------------------------
-// Key parsing
-// ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
 fn parse_main_key_to_vk(main_key: &str) -> Option<u16> {
@@ -1547,10 +1444,6 @@ fn parse_main_key_to_vk(main_key: &str) -> Option<u16> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// normalize_shortcut → HotkeySpec
-// ---------------------------------------------------------------------------
-
 fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
     let mut modifiers = ShortcutModifiers::default();
     let mut main_key: Option<String> = None;
@@ -1590,7 +1483,6 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
         }
     }
 
-    // Build ordered label
     let mut label_parts = Vec::with_capacity(5);
     label_parts.extend(
         modifiers
@@ -1618,7 +1510,6 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
             consume_main_key,
         })
     } else {
-        // Pure modifier-only hotkey
         if modifiers.is_empty() {
             return Err(AppError::Other(
                 "快捷键格式无效：请至少指定一个按键".to_string(),
@@ -1638,9 +1529,6 @@ fn normalize_shortcut(raw: &str) -> Result<HotkeySpec, AppError> {
     }
 }
 
-/// Register a hotkey on the appropriate backend. Returns the backend label on success.
-/// Caller holds the configuration lock. Retired Arcs are snapshots of settings,
-/// never candidates for publication during rollback.
 #[cfg(target_os = "windows")]
 fn restore_hotkey_registrations(
     app_handle: &tauri::AppHandle,
@@ -1684,7 +1572,6 @@ fn rollback_hotkey_error(
     }
 }
 
-/// Register a hotkey on the appropriate backend. Returns the backend label on success.
 #[cfg(target_os = "windows")]
 fn register_on_chosen_backend(
     app_handle: &tauri::AppHandle,
@@ -1702,7 +1589,6 @@ fn register_on_chosen_backend(
             let (mods_copy, vk_copy) = (modifiers.clone(), *main_vk);
             match register_via_reg_hotkey(&mods_copy, vk_copy, hook_state.clone()) {
                 Ok(()) => {
-                    // Sync LLKH lifecycle — may stop hook if not needed by others
                     if let Err(error) = sync_hotkey_monitor_lifecycle(app_handle.clone()) {
                         return Err(rollback_hotkey_error(
                             app_handle,
@@ -1714,8 +1600,7 @@ fn register_on_chosen_backend(
                 }
                 Err(reg_err) => {
                     force_release_hotkey(&hook_state);
-                    // RegisterHotKey failed — rebuild state with LowLevelHook backend
-                    // so the LLKH callback will process this hotkey.
+
                     log::warn!(
                         "RegisterHotKey 注册 {} 失败，回退到低层键盘钩子: {}",
                         label,
@@ -1728,13 +1613,11 @@ fn register_on_chosen_backend(
                         HotkeyBackend::LowLevelHook,
                     );
                     set_unified_hook_state(kind, Some(fallback_state));
-                    // Fall through to LLKH path below
                 }
             }
         }
     }
 
-    // LLKH path (either direct or fallback from RegisterHotKey failure)
     if let Err(err) = sync_hotkey_monitor_lifecycle(app_handle.clone()) {
         let err = rollback_hotkey_error(app_handle, &[(kind, previous_state)], err);
         let now_ms = now_unix_ms();
@@ -1754,8 +1637,6 @@ fn register_on_chosen_backend(
     Ok("lowLevelHook")
 }
 
-/// Try to register a hotkey via RegisterHotKey if its backend demands it.
-/// On failure, rebuilds state with LowLevelHook backend in the slot.
 #[cfg(target_os = "windows")]
 fn try_register_hotkey_backend(kind: HotkeyKind, state: &Arc<UnifiedHookState>) {
     if state.backend != HotkeyBackend::RegisterHotKey {
@@ -1784,10 +1665,6 @@ fn try_register_hotkey_backend(kind: HotkeyKind, state: &Arc<UnifiedHookState>) 
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tauri commands
-// ---------------------------------------------------------------------------
-
 #[tauri::command]
 pub async fn register_custom_hotkey(
     app_handle: tauri::AppHandle,
@@ -1815,14 +1692,11 @@ pub async fn register_custom_hotkey(
     let label = spec.label().to_string();
     ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Dictation, &label)?;
 
-    // Unregister from the previous backend BEFORE probing — otherwise our own
-    // RegisterHotKey registration would cause a false positive system conflict.
     #[cfg(target_os = "windows")]
     {
         unregister_via_reg_hotkey(HotkeyKind::Dictation);
     }
 
-    // Probe system-wide conflict
     #[cfg(target_os = "windows")]
     let system_conflict = probe_system_hotkey_conflict(&spec);
     #[cfg(not(target_os = "windows"))]
@@ -2019,12 +1893,10 @@ pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<Stri
     let _configuration = hotkey_configuration_lock().lock();
     #[cfg(target_os = "windows")]
     {
-        // Unregister from RegisterHotKey backend
         unregister_via_reg_hotkey(HotkeyKind::Dictation);
         unregister_via_reg_hotkey(HotkeyKind::Translation);
         unregister_via_reg_hotkey(HotkeyKind::Assistant);
 
-        // Unregister from LLKH backend
         if let Some(previous) = set_unified_hook_state(HotkeyKind::Dictation, None) {
             force_release_hotkey(&previous);
         }
@@ -2062,7 +1934,7 @@ pub async fn set_recording_mode(
     if previous_mode == toggle {
         return Ok(());
     }
-    // If switching from toggle→hold while toggle is active, stop recording
+
     if !toggle {
         let state = _app_handle.state::<AppState>();
         let active_session = state
@@ -2081,8 +1953,6 @@ pub async fn set_recording_mode(
         }
     }
 
-    // Mode change may require backend migration for all registered hotkeys.
-    // Re-register each active hotkey so classify_backend picks the right backend.
     #[cfg(target_os = "windows")]
     {
         let bundle = get_unified_hook_states();
@@ -2101,11 +1971,8 @@ pub async fn set_recording_mode(
                     new_backend
                 );
 
-                // Retire even when the backend is unchanged: queued events
-                // must not reinterpret an old press using the new mode.
                 force_release_hotkey(old_state);
 
-                // Rebuild state with new backend classification
                 let new_state = build_hook_state(
                     old_state.app_handle.clone(),
                     old_state.spec.clone(),
@@ -2271,8 +2138,8 @@ mod tests {
             .expect("low-level hook callback should exist");
         let hook_rest = &source[hook_start..];
         let hook_end = hook_rest
-            .find("/// Returns `true` if the event should be swallowed")
-            .expect("hook callback section should end before helper docs");
+            .find("fn handle_modifier_only_event(")
+            .expect("hook callback section should end before the modifier handler");
         let hook_body = &hook_rest[..hook_end];
 
         assert!(

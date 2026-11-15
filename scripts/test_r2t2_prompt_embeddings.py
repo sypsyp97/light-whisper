@@ -51,7 +51,7 @@ def main():
     for path in paths:
         if not path.is_file():
             parser.error(f"required test input missing: {path}")
-    # Identity tolerates checkout line endings; fingerprints retain raw bytes.
+
     if hashlib.sha256((baseline / OWNER).read_bytes().replace(b"\r\n", b"\n")).hexdigest() != BASELINE_LF_SHA256:
         parser.error("frozen greedy owner normalized-LF SHA256 mismatch")
     fingerprint = {str(path): sha256(path) for path in paths}

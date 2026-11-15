@@ -121,7 +121,6 @@ pub struct HistoryStats {
 }
 
 struct StatsCache {
-    // SQLite data_version is comparable only on the same connection.
     connection: Connection,
     value: Option<(i64, HistoryStats)>,
 }
@@ -294,8 +293,7 @@ pub async fn initialize() -> Result<(), String> {
             tokio::task::spawn_blocking(|| {
                 let connection = open_connection()?;
                 configure_connection(&connection)?;
-                // 初始化完成前所有历史操作都会等待此 OnceCell，因此这里清理的
-                // 只能是上次进程崩溃遗留的租约和孤立音频。
+
                 connection
                     .execute("DELETE FROM history_audio_leases", [])
                     .map_err(|error| format!("清理过期历史音频租约失败: {error}"))?;
@@ -451,8 +449,6 @@ pub async fn get(id: i64) -> Result<Option<StoredHistoryRecord>, String> {
     .map_err(|error| format!("读取转写历史任务失败: {error}"))?
 }
 
-/// 原子读取待重处理记录并为其音频建立租约。删除命令与这里都使用 IMMEDIATE
-/// 事务，因此不可能在“读到记录”和“保护音频”之间把最后一个 WAV 引用删掉。
 fn get_for_reprocess_with_connection(
     connection: &mut Connection,
     id: i64,
@@ -645,7 +641,7 @@ pub async fn stats() -> Result<HistoryStats, String> {
                 return Ok(value.clone());
             }
         }
-        // Both queries must see the same database snapshot, even during writes.
+
         let transaction = cache
             .connection
             .transaction()
@@ -732,8 +728,6 @@ fn read_stats(connection: &Connection) -> Result<HistoryStats, String> {
 }
 
 fn cleanup_audio_if_unreferenced_with_connection(connection: &Connection, audio_file: &str) {
-    // Keep ownership checks and unlink in one write transaction so a completed
-    // reprocess cannot transfer its lease to a row between these operations.
     let transaction =
         match rusqlite::Transaction::new_unchecked(connection, TransactionBehavior::Immediate) {
             Ok(transaction) => transaction,
@@ -767,8 +761,6 @@ fn cleanup_audio_if_unreferenced_with_connection(connection: &Connection, audio_
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
-            // 数据库操作已经提交，文件回收属于可重试垃圾回收，不能把已经
-            // 成功的删除伪装成整体失败。
             log::warn!("删除历史音频失败，保留到下次启动重试: {audio_file}: {error}");
         }
     }
@@ -1263,7 +1255,6 @@ mod tests {
     }
 }
 
-// Formal replay ownership: separate append-only test module.
 #[cfg(test)]
 mod async_ownership_replay_tests {
     use super::*;
@@ -1360,8 +1351,7 @@ mod async_ownership_replay_tests {
                 ["release", "commit"] => {
                     assert_eq!(phase, "commit");
                     let (task, audio) = release.take().unwrap();
-                    // SQL microsteps belong to this actual IMMEDIATE transaction.
-                    // Its public return is the observable commit boundary.
+
                     release_audio_lease(format!("formal-{audio}.wav"))
                         .await
                         .unwrap();

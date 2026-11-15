@@ -1,4 +1,4 @@
-/** Map backend search failure codes to localized, actionable messages. */
+
 export function searchNoticeKey(message?: string): string {
   if (message?.includes("SEARCH_RATE_LIMITED")) return "subtitle.conversation.searchRateLimited";
   if (message?.includes("SEARCH_AUTH_REQUIRED")) return "subtitle.conversation.searchAuthRequired";

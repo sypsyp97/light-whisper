@@ -1,5 +1,3 @@
-//! Golden outputs protect conversion/mixing while frame-count arithmetic moves.
-
 use super::capture::{mix_to_mono_capped_f32, mix_to_mono_capped_i16, mix_to_mono_capped_u16};
 
 #[test]

@@ -155,7 +155,11 @@ describe("SettingsPage Grok Build dual-auth contract", () => {
   });
 
   it("places the xAI auth-mode toggle above the assistant API key when the assistant provider differs", () => {
-    const assistantKeySlice = sliceBetween(settingsPage, "助手独立 API Key", "助手模型选择器");
+    const assistantKeySlice = sliceBetween(
+      settingsPage,
+      "{assistantProviderDiffers ? (",
+      "{Object.entries(assistantKeySaves)",
+    );
 
     expect(assistantKeySlice).toContain("shouldShowGrokBuildAuth(effectiveAssistantProvider)");
     expect(assistantKeySlice).toContain("renderXaiAuthModeToggle");

@@ -1,4 +1,4 @@
-"""CPU exact-output and actual graph-work regression for unchanged Qwen prefix reuse."""
+
 import argparse
 import json
 from pathlib import Path
@@ -31,8 +31,8 @@ def main():
     if "--no-build" in sys.argv and json.loads(provenance.read_text()) != extra_inputs:
         parser.error("inherited suite, cache source, or wrapper changed; rerun without --no-build")
 
-    # The cache owner must precede the cached engine library: its new overload
-    # cannot be resolved from an older static library. Reuse discovered cl/env.
+
+
     real_run = subprocess.run
     cache_object = build / "prefix_cache.obj"
 
@@ -62,8 +62,8 @@ def main():
     provenance.write_text(json.dumps(extra_inputs, indent=2) + "\n", encoding="utf-8")
     if args.mode == "equivalence":
         return result
-    # Independent negative control: the frozen arithmetic passes but its full
-    # recompute behavior must fail the same work requirement after all cases.
+
+
     control = real_run([build / "r2t2_prefill_baseline.exe", "work", build / "baseline-work.bin"],
                        capture_output=True, text=True, errors="replace")
     (build / "baseline-work.log").write_text(control.stdout + control.stderr, encoding="utf-8")

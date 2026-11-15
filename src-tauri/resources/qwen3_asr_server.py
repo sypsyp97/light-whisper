@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Resident Qwen3-ASR GGUF server with a shared audio.cpp streaming path."""
+
 
 import os
 from pathlib import Path
@@ -30,11 +30,11 @@ QWEN3_VAD_SAMPLE_RATE = 16_000
 
 
 class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
-    """Keep one GGUF model and one KV session resident across requests.
 
-    Idle unload, when the user turns it on, closes both and the next
-    transcribe calls initialize() again. FireRedVAD stays loaded.
-    """
+
+
+
+
 
     _stream_display_name = "Qwen3-ASR"
 
@@ -64,7 +64,7 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
         )
 
     def _suspend_gpu_runtime(self):
-        """Unload the GGUF model and KV session. FireRedVAD stays on CPU."""
+
         if not self.initialized or self._stream_is_active():
             return False
         vad = self.vad_model
@@ -156,8 +156,8 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
             self._vad_rejected += 1
             return np.empty(0, dtype=np.float32), 0, vad_ms
 
-        # Preserve pauses between spoken regions. Qwen still receives natural
-        # phrase timing; only idle time before/after the utterance is removed.
+
+
         return np.ascontiguousarray(audio[start:end]), len(chunks), vad_ms
 
     def _run_inference(self, audio, *, context="", language=None):
@@ -165,8 +165,8 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
             return self.session.run(audio, timestamps="none", context=context, language=language)
 
     def _transcribe_stream_audio(self, audio, *, context="", language=None):
-        # Stream callbacks bypass the offline busy guard. VAD runs once for
-        # each preview/final, preserving pauses and skipping silence entirely.
+
+
         audio, segments, _ = self._filter_speech(audio)
         if not segments:
             return SimpleNamespace(text="", language=language)
@@ -177,8 +177,8 @@ class Qwen3ASRServer(ASRStreamServerMixin, BaseASRServer):
             return QwenPipelineRuntime(
                 self._run_inference, prepare_audio=lambda audio: self._filter_speech(audio)[0]
             )
-        # CPU VAD and CPU inference share the native worker so they do not
-        # compete for cores while new capture packets arrive.
+
+
         return QwenPipelineRuntime(self._transcribe_stream_audio, prepare_audio=lambda audio: audio)
 
     def initialize(self):

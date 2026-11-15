@@ -10,13 +10,13 @@ import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import type { HotkeyDiagnostic } from "@/types";
 
 interface UseHotkeyReturn {
-  /** A human-readable string describing the current hotkey (e.g. "F2"). */
+
   hotkeyDisplay: string;
-  /** Update hotkey, persist it locally and re-register immediately. */
+
   setHotkey: (shortcut: string) => Promise<void>;
-  /** Error message if registration failed. */
+
   error: string | null;
-  /** Runtime diagnostic state emitted by the backend hotkey layer. */
+
   diagnostic: HotkeyDiagnostic | null;
 }
 
@@ -30,12 +30,12 @@ function writeStoredHotkey(shortcut: string): void {
   writeLocalStorage(HOTKEY_STORAGE_KEY, shortcut);
 }
 
-/**
- * Registers and manages the global push-to-talk hotkey.
- *
- * Recording start/stop is handled in the Rust backend so the UI only needs
- * to keep the registration in sync and surface any registration errors.
- */
+
+
+
+
+
+
 export function useHotkey(): UseHotkeyReturn {
   const [error, setError] = useState<string | null>(null);
   const [hotkeyRaw, setHotkeyRaw] = useState<string>(() => readStoredHotkey());
@@ -84,8 +84,8 @@ export function useHotkey(): UseHotkeyReturn {
     }
   }, [registerShortcut]);
 
-  // Register on mount. Do not unregister all hotkeys on cleanup because
-  // translation/assistant hotkeys are owned by other settings flows.
+
+
   useEffect(() => {
     mountedRef.current = true;
     void register();
@@ -115,7 +115,7 @@ export function useHotkey(): UseHotkeyReturn {
           unlisten = null;
         }
       } catch {
-        // 忽略热键诊断监听失败
+
       }
     })();
 

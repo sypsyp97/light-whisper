@@ -77,8 +77,8 @@ def main():
                   "/DNOMINMAX", "/D_CRT_SECURE_NO_WARNINGS", f"/I{source / 'include'}",
                   f"/I{source / 'external/ggml/include'}"]
         objects = []
-        # Check the typed API first. Missing declarations are INTERFACE_PENDING,
-        # never semantic RED; a declaration scaffold may then expose behavior.
+
+
         sources = [TEST, EMPTY, *[source / name for name in (*OWNERS, *SUPPORT, FFT)]]
         for index, path in enumerate(sources):
             obj = build / f"{index}_{path.stem}.obj"

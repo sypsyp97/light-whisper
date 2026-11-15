@@ -1,25 +1,25 @@
-/**
- * Tests for `useRecording`.
- *
- * Note on state:
- *
- *   - The four session-ID filter assertions (late-arriving final must not
- *     overwrite current display, newer session's text must not be demoted,
- *     history must include both sessions, older recording-state must be
- *     ignored) are **characterization / regression tests**. They correspond
- *     to the existing `latestSessionIdRef` / `latestDisplayedFinalSessionIdRef`
- *     protections in `useRecording.ts` and should pass against the current
- *     implementation — they lock that behaviour in place against future
- *     refactors.
- *
- *   - The `stopRecording` return-type test locks in the current public
- *     contract: the hook resolves to `undefined` after the Tauri command
- *     completes.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Hoisted: shared handler registry for the mocked `@tauri-apps/api/event`.
+
 const tauriEvents = vi.hoisted(() => {
   type Handler = (event: { payload: unknown }) => void;
   const handlers = new Map<string, Set<Handler>>();
@@ -82,7 +82,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-/** Wait until the most recently registered `listen()` handler resolves. */
+
 async function flushMicrotasks() {
   await act(async () => {
     await Promise.resolve();
@@ -99,16 +99,16 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
     const { result } = renderHook(() => useRecording());
     await flushMicrotasks();
 
-    // Session 5 start
-    await act(async () => {
-      await result.current.startRecording();
-    });
-    // Session 6 start (becomes the current session)
+
     await act(async () => {
       await result.current.startRecording();
     });
 
-    // Late final for session 5 — must be filtered from display
+    await act(async () => {
+      await result.current.startRecording();
+    });
+
+
     await act(async () => {
       tauriEvents.emit("transcription-result", {
         sessionId: 5,
@@ -117,7 +117,7 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
       });
     });
 
-    // Final for current session 6
+
     await act(async () => {
       tauriEvents.emit("transcription-result", {
         sessionId: 6,
@@ -142,7 +142,7 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
       await result.current.startRecording();
     });
 
-    // Session 7 final first
+
     await act(async () => {
       tauriEvents.emit("transcription-result", {
         sessionId: 7,
@@ -151,7 +151,7 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
       });
     });
 
-    // Then a late final from older session 6 — must not replace "hello"
+
     await act(async () => {
       tauriEvents.emit("transcription-result", {
         sessionId: 6,
@@ -343,7 +343,7 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
     const { result } = renderHook(() => useRecording());
     await flushMicrotasks();
 
-    // Session 10 marks recording=true
+
     await act(async () => {
       tauriEvents.emit("recording-state", {
         sessionId: 10,
@@ -353,7 +353,7 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
     });
     expect(result.current.isRecording).toBe(true);
 
-    // Older session 5 tries to mark recording=false — must be ignored
+
     await act(async () => {
       tauriEvents.emit("recording-state", {
         sessionId: 5,

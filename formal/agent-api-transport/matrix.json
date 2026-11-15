@@ -1,0 +1,464 @@
+[
+  {
+    "name": "protocol-positive",
+    "module": "Protocol",
+    "config": "configs/protocol-positive.cfg",
+    "kind": "positive",
+    "property": null
+  },
+  {
+    "name": "lifecycle-positive",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-positive.cfg",
+    "kind": "positive",
+    "property": null
+  },
+  {
+    "name": "broker-positive",
+    "module": "Broker",
+    "config": "configs/broker-positive.cfg",
+    "kind": "positive",
+    "property": null
+  },
+  {
+    "name": "deadlines-ingress-positive",
+    "module": "Deadlines",
+    "config": "configs/deadlines-ingress-positive.cfg",
+    "kind": "positive",
+    "property": null
+  },
+  {
+    "name": "deadlines-client-positive",
+    "module": "Deadlines",
+    "config": "configs/deadlines-client-positive.cfg",
+    "kind": "positive",
+    "property": null
+  },
+  {
+    "name": "deadlines-egress-positive",
+    "module": "Deadlines",
+    "config": "configs/deadlines-egress-positive.cfg",
+    "kind": "positive",
+    "property": null
+  },
+  {
+    "name": "protocol-endpoint-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-endpoint-negative.cfg",
+    "kind": "safety-negative",
+    "property": "PrivateEndpoint"
+  },
+  {
+    "name": "protocol-auth-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-auth-negative.cfg",
+    "kind": "safety-negative",
+    "property": "AuthenticatedDispatch"
+  },
+  {
+    "name": "protocol-request-mac-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-request-mac-negative.cfg",
+    "kind": "safety-negative",
+    "property": "VerifiedRequestMAC"
+  },
+  {
+    "name": "protocol-request-nonce-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-request-nonce-negative.cfg",
+    "kind": "safety-negative",
+    "property": "RequestNonceValid"
+  },
+  {
+    "name": "protocol-inner-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-inner-negative.cfg",
+    "kind": "safety-negative",
+    "property": "ValidatedDispatch"
+  },
+  {
+    "name": "protocol-frame-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-frame-negative.cfg",
+    "kind": "safety-negative",
+    "property": "BoundedCompleteFrame"
+  },
+  {
+    "name": "protocol-payload-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-payload-negative.cfg",
+    "kind": "safety-negative",
+    "property": "SanitizedReply"
+  },
+  {
+    "name": "protocol-panic-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-panic-negative.cfg",
+    "kind": "safety-negative",
+    "property": "SanitizedReply"
+  },
+  {
+    "name": "protocol-server-id-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-server-id-negative.cfg",
+    "kind": "safety-negative",
+    "property": "ServerOwnsIdentity"
+  },
+  {
+    "name": "protocol-correlation-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-correlation-negative.cfg",
+    "kind": "safety-negative",
+    "property": "CorrelatedClient"
+  },
+  {
+    "name": "protocol-response-mac-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-response-mac-negative.cfg",
+    "kind": "safety-negative",
+    "property": "VerifiedResponseMAC"
+  },
+  {
+    "name": "protocol-response-nonce-negative",
+    "module": "Protocol",
+    "config": "configs/protocol-response-nonce-negative.cfg",
+    "kind": "safety-negative",
+    "property": "ResponseNonceValid"
+  },
+  {
+    "name": "lifecycle-lease-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-lease-negative.cfg",
+    "kind": "safety-negative",
+    "property": "SingleHost"
+  },
+  {
+    "name": "lifecycle-capacity-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-capacity-negative.cfg",
+    "kind": "safety-negative",
+    "property": "WorkerBound"
+  },
+  {
+    "name": "lifecycle-cancel-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-cancel-negative.cfg",
+    "kind": "safety-negative",
+    "property": "NoCanceledDispatch"
+  },
+  {
+    "name": "lifecycle-late-admit-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-late-admit-negative.cfg",
+    "kind": "safety-negative",
+    "property": "NoPostCloseAdmission"
+  },
+  {
+    "name": "lifecycle-early-cleanup-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-early-cleanup-negative.cfg",
+    "kind": "safety-negative",
+    "property": "DrainedCleanup"
+  },
+  {
+    "name": "lifecycle-foreign-delete-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-foreign-delete-negative.cfg",
+    "kind": "safety-negative",
+    "property": "PreserveForeignDescriptor"
+  },
+  {
+    "name": "lifecycle-early-release-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-early-release-negative.cfg",
+    "kind": "safety-negative",
+    "property": "ReleaseAfterCleanup"
+  },
+  {
+    "name": "lifecycle-replace-lock-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-replace-lock-negative.cfg",
+    "kind": "safety-negative",
+    "property": "StableLeasePath"
+  },
+  {
+    "name": "lifecycle-stalled-dispatch-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-stalled-dispatch-negative.cfg",
+    "kind": "temporal-negative",
+    "property": "AdmittedSettles"
+  },
+  {
+    "name": "lifecycle-stalled-cleanup-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-stalled-cleanup-negative.cfg",
+    "kind": "temporal-negative",
+    "property": "DropCompletes"
+  },
+  {
+    "name": "deadlines-ingress-reset-negative",
+    "module": "Deadlines",
+    "config": "configs/deadlines-ingress-reset-negative.cfg",
+    "kind": "safety-negative",
+    "property": "AbsoluteDeadline"
+  },
+  {
+    "name": "deadlines-client-reset-negative",
+    "module": "Deadlines",
+    "config": "configs/deadlines-client-reset-negative.cfg",
+    "kind": "safety-negative",
+    "property": "AbsoluteDeadline"
+  },
+  {
+    "name": "deadlines-egress-reset-negative",
+    "module": "Deadlines",
+    "config": "configs/deadlines-egress-reset-negative.cfg",
+    "kind": "safety-negative",
+    "property": "AbsoluteDeadline"
+  },
+  {
+    "name": "deadlines-egress-origin-negative",
+    "module": "Deadlines",
+    "config": "configs/deadlines-egress-origin-negative.cfg",
+    "kind": "safety-negative",
+    "property": "EgressStartsAfterDispatch"
+  },
+  {
+    "name": "deadlines-stalled-expiry-negative",
+    "module": "Deadlines",
+    "config": "configs/deadlines-stalled-expiry-negative.cfg",
+    "kind": "temporal-negative",
+    "property": "EventuallySettled"
+  },
+  {
+    "name": "broker-startup-flush-negative",
+    "module": "Broker",
+    "config": "configs/broker-startup-flush-negative.cfg",
+    "kind": "safety-negative",
+    "property": "StartupBeforeInput"
+  },
+  {
+    "name": "broker-startup-probe-negative",
+    "module": "Broker",
+    "config": "configs/broker-startup-probe-negative.cfg",
+    "kind": "safety-negative",
+    "property": "NoStartupProbe"
+  },
+  {
+    "name": "broker-exit-dispatch-negative",
+    "module": "Broker",
+    "config": "configs/broker-exit-dispatch-negative.cfg",
+    "kind": "safety-negative",
+    "property": "LocalExitOnly"
+  },
+  {
+    "name": "broker-post-terminal-read-negative",
+    "module": "Broker",
+    "config": "configs/broker-post-terminal-read-negative.cfg",
+    "kind": "safety-negative",
+    "property": "NoQueuedRead"
+  },
+  {
+    "name": "broker-fatal-id-negative",
+    "module": "Broker",
+    "config": "configs/broker-fatal-id-negative.cfg",
+    "kind": "safety-negative",
+    "property": "CorrelatedFatal"
+  },
+  {
+    "name": "broker-stop-recoverable-negative",
+    "module": "Broker",
+    "config": "configs/broker-stop-recoverable-negative.cfg",
+    "kind": "safety-negative",
+    "property": "RecoverableFailures"
+  },
+  {
+    "name": "broker-retry-negative",
+    "module": "Broker",
+    "config": "configs/broker-retry-negative.cfg",
+    "kind": "safety-negative",
+    "property": "NoRetry"
+  },
+  {
+    "name": "broker-reply-flush-negative",
+    "module": "Broker",
+    "config": "configs/broker-reply-flush-negative.cfg",
+    "kind": "safety-negative",
+    "property": "FlushedReplies"
+  },
+  {
+    "name": "protocol-valid-witness",
+    "module": "Protocol",
+    "config": "configs/protocol-valid-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "protocol-backend-failure-witness",
+    "module": "Protocol",
+    "config": "configs/protocol-backend-failure-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "protocol-rejected-auth-witness",
+    "module": "Protocol",
+    "config": "configs/protocol-rejected-auth-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "protocol-sanitized-witness",
+    "module": "Protocol",
+    "config": "configs/protocol-sanitized-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "lifecycle-capacity-witness",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-capacity-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "lifecycle-disconnect-witness",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-disconnect-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "lifecycle-preserved-witness",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-preserved-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "lifecycle-successor-witness",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-successor-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "lifecycle-drained-witness",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-drained-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "broker-recovery-witness",
+    "module": "Broker",
+    "config": "configs/broker-recovery-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "broker-backend-recovery-witness",
+    "module": "Broker",
+    "config": "configs/broker-backend-recovery-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "broker-fatal-witness",
+    "module": "Broker",
+    "config": "configs/broker-fatal-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "broker-local-exit-witness",
+    "module": "Broker",
+    "config": "configs/broker-local-exit-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "broker-empty-eof-witness",
+    "module": "Broker",
+    "config": "configs/broker-empty-eof-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "deadlines-expired-witness",
+    "module": "Deadlines",
+    "config": "configs/deadlines-expired-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "deadlines-dispatch-outlives-witness",
+    "module": "Deadlines",
+    "config": "configs/deadlines-dispatch-outlives-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "deadlines-partial-witness",
+    "module": "Deadlines",
+    "config": "configs/deadlines-partial-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "lifecycle-unleased-publish-negative",
+    "module": "Lifecycle",
+    "config": "configs/lifecycle-unleased-publish-negative.cfg",
+    "kind": "safety-negative",
+    "property": "PublishedUnderLease"
+  },
+  {
+    "name": "workers-positive",
+    "module": "Workers",
+    "config": "configs/workers-positive.cfg",
+    "kind": "positive",
+    "property": null
+  },
+  {
+    "name": "workers-post-auth-capacity-negative",
+    "module": "Workers",
+    "config": "configs/workers-post-auth-capacity-negative.cfg",
+    "kind": "safety-negative",
+    "property": "WorkerBound"
+  },
+  {
+    "name": "workers-early-egress-release-negative",
+    "module": "Workers",
+    "config": "configs/workers-early-egress-release-negative.cfg",
+    "kind": "safety-negative",
+    "property": "WorkerBound"
+  },
+  {
+    "name": "workers-late-reservation-negative",
+    "module": "Workers",
+    "config": "configs/workers-late-reservation-negative.cfg",
+    "kind": "safety-negative",
+    "property": "NoPostCloseReservation"
+  },
+  {
+    "name": "workers-stalled-egress-negative",
+    "module": "Workers",
+    "config": "configs/workers-stalled-egress-negative.cfg",
+    "kind": "temporal-negative",
+    "property": "ClosingDrains"
+  },
+  {
+    "name": "workers-preauth-full-witness",
+    "module": "Workers",
+    "config": "configs/workers-preauth-full-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  },
+  {
+    "name": "workers-egress-full-witness",
+    "module": "Workers",
+    "config": "configs/workers-egress-full-witness.cfg",
+    "kind": "witness",
+    "property": "WitnessNotReached"
+  }
+]

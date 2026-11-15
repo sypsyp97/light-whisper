@@ -11,8 +11,6 @@ use super::MICROPHONE_LEVEL_EMIT_INTERVAL_MS;
 use crate::state::{AppState, MicrophoneLevelMonitor};
 use crate::utils::AppError;
 
-// ---------- peak 计算 ----------
-
 fn mono_peak_i16(data: &[i16], ch: usize) -> u32 {
     if ch <= 1 {
         data.iter()
@@ -71,8 +69,6 @@ fn monitor_start_is_current(
     current_generation == requested_generation && !recording_active
 }
 
-// ---------- 麦克风测试 / 预览 ----------
-
 pub fn stop_microphone_level_monitor(state: &AppState) {
     let old_monitor = {
         let mut monitor = state.recording.microphone_level_monitor.lock();
@@ -98,8 +94,6 @@ pub fn start_microphone_level_monitor(
 
     stop_microphone_level_monitor(state);
 
-    // Reserve and publish under the same lock order as recording startup. Stop
-    // invalidates reservations even when the worker has not published yet.
     let requested_generation = {
         let recording = state.recording.recording.lock();
         let _monitor = state.recording.microphone_level_monitor.lock();

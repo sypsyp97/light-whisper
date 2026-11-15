@@ -1,4 +1,4 @@
-"""Offline retirement guards through supported runtime and real packager seams."""
+
 
 import hashlib
 import importlib.metadata
@@ -54,8 +54,8 @@ class SingleNativePackageTests(unittest.TestCase):
             explicit = set(self.flag_values(command, "--collect-all") + self.flag_values(command, "--hidden-import"))
             metadata = {name.replace("-", "_") for name in self.flag_values(command, "--copy-metadata")}
             output = self.module.DIST_DIR / "engine"
-            # Simulate installed modules reaching COLLECT unless excluded; explicit
-            # collection and metadata requests remain visible even with exclusions.
+
+
             for relative, data in original.items():
                 owner = relative.split("/")[1] if relative.startswith("_internal/") else ""
                 package = owner.split("-0.1.3.dist-info")[0]
@@ -135,7 +135,7 @@ class SharedCudaDependencyTests(unittest.TestCase):
 
 class DependencyDeclarationTests(unittest.TestCase):
     def test_declared_and_locked_dependencies_have_no_legacy_transcribe_packages(self):
-        # Parse requirements/package records without requiring a new TOML dependency.
+
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
         retired = {name.replace("_", "-") for name in LEGACY}

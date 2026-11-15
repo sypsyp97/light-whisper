@@ -1,4 +1,4 @@
-"""Offline C ABI ownership and sample-driven Qwen caption previews; no DLL/GPU."""
+
 
 import ctypes as ct
 import os
@@ -24,7 +24,7 @@ class BackendConfig(ct.Structure):
 
 
 class FakeLibrary:
-    """Implements public audio.cpp ABI symbols and copies borrowed PCM immediately."""
+
 
     def __init__(self, *, fail_at=None, abi=0x0400, null_request=False):
         self.fail_at, self.abi, self.null_request = fail_at, abi, null_request
@@ -238,7 +238,7 @@ class QwenPreviewRuntimeTests(unittest.TestCase):
         first = np.linspace(-0.5, 0.5, 1920, dtype=np.float32)
         original = first.copy()
         self.assertEqual(runtime.feed(first[:1919]), ("", "zh"))
-        first[:1919] = 0  # The adapter owns samples already accepted from the caller.
+        first[:1919] = 0
         self.assertEqual(calls, [])
         self.assertEqual(runtime.feed(first[1919:]), ("", "Chinese"))
         self.assertEqual(runtime.preview_text, "今天是周三")
@@ -276,8 +276,8 @@ class QwenPreviewRuntimeTests(unittest.TestCase):
                 preview_polls.append(poll)
                 hypotheses[poll] = runtime.preview_text
 
-        # Empty initial attempts retain 120 ms; even an empty later revision
-        # keeps the normal 200 ms cadence after the first nonempty hypothesis.
+
+
         self.assertEqual(preview_polls, [3, 6, 9, 14, 19])
         self.assertEqual(hypotheses, {
             3: "", 6: "", 9: "首个草稿", 14: "", 19: "后续修订",
@@ -391,7 +391,7 @@ class QwenPreviewRuntimeTests(unittest.TestCase):
         runtime.start()
         runtime.feed(np.ones(3200, dtype=np.float32))
         self.assertEqual(runtime.preview_text, "旧窗口草稿")
-        # Require a new final decode: an unchanged full preview may be reused.
+
         runtime.feed(np.full(13, 0.25, dtype=np.float32))
         with self.assertRaisesRegex(RuntimeError, "full capture decode failed"):
             runtime.finish()

@@ -31,7 +31,7 @@ async fn operation_deadline_is_shared_by_preparation_and_all_retries() {
         let guard = DropFlag(dropped.clone());
         async move {
             let _guard = guard;
-            // Preparation/auth and each transport attempt share one budget.
+
             for _ in 0..4 {
                 stages.fetch_add(1, Ordering::AcqRel);
                 sleep(Duration::from_secs(50)).await;

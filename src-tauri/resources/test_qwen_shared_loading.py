@@ -1,4 +1,4 @@
-"""Offline package and server ownership checks for Qwen's shared audio.cpp path."""
+
 
 import base64
 import contextlib
@@ -119,7 +119,7 @@ class QwenSharedLoadingTests(unittest.TestCase):
 
     def test_shared_package_download_preserves_original_legacy_cache_file_and_ref(self):
         selected = hf_cache_utils.QWEN3_ASR_MODELS["qwen3-asr-0.6b"]
-        # Scale only payload size/hash; exercise the selected real cache destination.
+
         data = b"shared audio.cpp format fixture"
         request = {
             "name": selected["repo_id"], "type": "asr", "revision": selected["revision"],

@@ -1,16 +1,16 @@
-"""Independent, test-only NumPy equations for the pinned Real-time RE-USE model.
 
-Research/noncommercial validation only. No NVIDIA implementation is imported,
-executed, or reproduced. Layout is [time, frequency, channels]; convolutions run
-over a complete sequence, independently of native streaming caches.
 
-Architecture/weights: https://huggingface.co/nvidia/Real-time_RE-USE/tree/
-4c0c186272ca853cd18d832fc5c28777b62f32d1, specifically config.json,
-models/streaming_codec_module_time_d1_input_ahead_sep_conv.py,
-models/streaming_mamba_block2_SEMamba.py, and online_inference.py. The latter
-specifies K=lookahead+1 for priming and lookahead zero frames at EOF.
-Selective state-space equations: https://arxiv.org/abs/2312.00752, section 3.
-"""
+
+
+
+
+
+
+
+
+
+
+
 
 import hashlib
 import json
@@ -25,7 +25,7 @@ BINS, FFT_SIZE, HOP_SIZE = 321, 640, 320
 
 
 def load_weights(path, dtype=np.float32):
-    """Read the original F32 safetensors payload without another dependency."""
+
     blob = Path(path).read_bytes()
     digest = hashlib.sha256(blob).hexdigest()
     if digest != MODEL_SHA256:
@@ -52,14 +52,14 @@ def channel_norm(x, scale, bias):
 
 
 def frequency_shuffle(x):
-    """y[t, 2*f+r, c] = x[t, f, r*C+c], for r in {0, 1}."""
+
     t, f, channels = x.shape
     return x.reshape(t, 2 * f, channels // 2)
 
 
 def convolution(x, weight, bias, *, time_padding=(0, 0), freq_padding=0,
                 time_dilation=1, freq_stride=1):
-    """Cross-correlation; materialize patches then one ordinary matrix product."""
+
     kt, kf = weight.shape[2:]
     span = (kt - 1) * time_dilation + 1
     padded = np.pad(x, (time_padding, (freq_padding, freq_padding), (0, 0)))
@@ -71,7 +71,7 @@ def convolution(x, weight, bias, *, time_padding=(0, 0), freq_padding=0,
 
 
 class Reference:
-    """Batch reference; no native code and no streaming-state representation."""
+
 
     def __init__(self, weights):
         self.w = weights
@@ -98,7 +98,7 @@ class Reference:
         return y
 
     def selective(self, x, name):
-        """x[B,L,C]; h <- exp(delta*A)h + delta*B*u; y <- C*h+D*u."""
+
         projected = self.linear(x, name + ".in_proj")
         u, gate = np.split(projected, 2, axis=-1)
         kernel = self.w[name + ".conv1d.weight"][:, 0]
@@ -136,7 +136,7 @@ class Reference:
         x = self.conv(x, name + ".up_conv1.0.conv", freq_padding=1)
         x = frequency_shuffle(x)
         x = self.activate(x, name + ".up_conv1.1.norm", name + ".up_conv1.2")
-        # The second decoder kernel acts on time, with temporal ratio exactly one.
+
         kernel = self.w[name + ".up_conv2.0.conv.weight"].transpose(0, 1, 3, 2)
         x = convolution(x, kernel, self.w[name + ".up_conv2.0.conv.bias"], time_padding=(2, 0))
         x = self.activate(x, name + ".up_conv2.1.norm", name + ".up_conv2.2")
@@ -144,7 +144,7 @@ class Reference:
         return tuple(self.conv(x, name + "." + head)[:, :BINS, 0] for head in heads)
 
     def enhance(self, logmag, phase, lookahead, exits=(3, 12)):
-        """Return frame-major (logmag, phase-head real, phase-head imag) by exit."""
+
         x = np.stack((logmag, phase), axis=-1).astype(next(iter(self.w.values())).dtype)
         x = np.pad(x, ((0, 0), (0, 2), (0, 0)))
         p = f"dense_encoder.dense_conv_1_{lookahead + 1}"
@@ -167,11 +167,11 @@ class Reference:
 
 
 def spectral_inputs(audio_fixture):
-    """19 analytic history frames followed by real audio STFT frames (16 kHz)."""
+
     t, f = np.arange(19)[:, None], np.arange(BINS)[None, :]
     magnitude = np.log1p(0.2 + (1 + np.sin(0.37 * t + 0.071 * f)) ** 2)
     phase = 2.7 * np.sin(0.41 * t - 0.017 * f)
-    magnitude[8, ::17] += 0.8  # Nonzero taps beyond the longest dense dilation.
+    magnitude[8, ::17] += 0.8
     with np.load(audio_fixture, allow_pickle=False) as fixture:
         audio = fixture["audio"].astype(np.float64)
     if audio.ndim != 1 or len(audio) < FFT_SIZE:

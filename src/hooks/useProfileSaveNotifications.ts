@@ -21,7 +21,7 @@ export function useProfileSaveNotifications(): void {
         action: {
           label: i18n.t("common.retry"),
           onClick: (event) => {
-            // Sonner otherwise dismisses the error before the write has completed.
+
             event.preventDefault();
             if (disposed || retrying) return;
             retrying = true;

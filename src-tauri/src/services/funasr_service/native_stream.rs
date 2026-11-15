@@ -1,5 +1,3 @@
-//! Native streaming IPC client for the resident local ASR server.
-
 use super::{
     profile_hot_words, send_command_to_server, ServerCommand, ServerResponse, TranscriptionResult,
 };

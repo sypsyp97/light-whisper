@@ -138,7 +138,7 @@ def selected_cases(args):
 
 
 def replay(runtime, pcm, variant, scenario, clock=time.perf_counter, sleep=time.sleep, row=None):
-    """Check Stop between feed batches, including completion of in-flight work."""
+
     runtime.start()
     start = clock()
     deadline = start + len(pcm) / 16000 if scenario == "paced" else start
@@ -175,7 +175,7 @@ def replay(runtime, pcm, variant, scenario, clock=time.perf_counter, sleep=time.
         if available <= offset:
             sleep(min(.001, max(0, deadline - clock())))
             continue
-        # One sink call is indivisible; Stop is checked after it returns.
+
         feed_to(min(offset + 640, available) if variant == "A" else available, True)
     stop_observed = clock()
     feed_to(len(pcm), False)
@@ -296,7 +296,7 @@ def worker(args, report):
         report["warmup"] = []
         for name, pcm in clips.items():
             for scenario in (SCENARIOS if args.scenario == "all" else (args.scenario,)):
-                # Complete-clip warmup through the same callback; excluded from rows.
+
                 for trace in (decodes, cpu_filters, callbacks):
                     trace.clear()
                 report["stage"] = {"fixture": name, "scenario": scenario, "phase": "warmup"}
@@ -372,7 +372,7 @@ def controller(args, report):
         env = os.environ | {"PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "1"}
         env["PATH"] = os.pathsep.join(str(p.resolve()) for p in args.dependencies) + os.pathsep + env.get("PATH", "")
         try:
-            # run() kills and waits for a timed-out child; each worker owns one model.
+
             with path.with_suffix(".log").open("x", encoding="utf-8") as log:
                 completed = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout,
                     cwd=ROOT, env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -544,7 +544,7 @@ def self_test():
         finally:
             closed.append("native.close")
         assert closed == ["body", "runtime.close", "native.close"]
-    with closing_runtime(object()):  # Old synchronous runtimes have no close().
+    with closing_runtime(object()):
         pass
     print("self-test PASS: paced/backlog A/B; exact PCM/tail; arrival bounds; in-flight sink batch; "
           "Stop/finish wall latency; interval unions/intersections; callback tracing; product factory; close on failure")

@@ -344,7 +344,7 @@ export default function MarkdownContent({ content, streaming = false, ...props }
   return <MarkdownBody content={display} {...props} />;
 }
 
-// Keep parsing tied to displayed content, including while the outer stream receives more chunks.
+
 const MarkdownBody = memo(function MarkdownBody({ content, className, onOpenLink, onContentRendered }: MarkdownContentProps) {
   const normalized = useMemo(() => normalizeSelectionMath(content), [content]);
   const renderable = useMemo(() => addFallbackMacroDefinitions(normalized), [normalized]);

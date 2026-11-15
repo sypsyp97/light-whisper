@@ -6,6 +6,8 @@ const api = vi.hoisted(() => ({ getEngine: vi.fn(), getOnlineAsrApiKey: vi.fn(),
 const errorToast = vi.hoisted(() => vi.fn());
 const warningToast = vi.hoisted(() => vi.fn());
 const translate = vi.hoisted(() => (key: string) => key);
+const listen = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/event", () => ({ listen }));
 vi.mock("@/api/tauri", () => api);
 vi.mock("sonner", () => ({ toast: { error: errorToast, warning: warningToast, success: vi.fn() } }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: translate }) }));
@@ -22,6 +24,7 @@ async function setup(engine = "glm-asr") {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  listen.mockResolvedValue(vi.fn());
   api.getOnlineAsrApiKey.mockResolvedValue("FAKE_OLD_KEY");
   api.getOnlineAsrEndpoint.mockResolvedValue({ region: "international", url: "https://old.example" });
   api.getAlibabaAsrConfig.mockResolvedValue({ model: "qwen3-asr-flash", models: [] });

@@ -95,7 +95,7 @@ describe("useModelStatus manual model downloads", () => {
     await flushMicrotasks();
     expect(hook.result.current.stage).toBe("ready");
 
-    // Engine settings recheck the new selection with retryModel (the hook's retry).
+
     act(() => hook.result.current.retry());
     await flushMicrotasks();
     await advancePolling();

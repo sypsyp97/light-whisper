@@ -87,9 +87,7 @@ pub(crate) async fn start_recording_inner(
     app_handle: tauri::AppHandle,
     state: &AppState,
     trigger: RecordingTrigger,
-    // 调用方（如 hotkey 路径）在 start 之前已 spawn 的选中文本抓取任务，
-    // 会被存进最终创建的 RecordingSession，由 finalize/discard 路径负责回收。
-    // 本函数如果在任何路径上提前失败，这个本地 Option 会自然 drop，JoinHandle 被 detach。
+
     edit_grab: Option<tokio::task::JoinHandle<Option<String>>>,
 ) -> Result<u64, AppError> {
     start_recording_with_start_owner(app_handle, state, trigger, edit_grab, None).await
@@ -103,14 +101,12 @@ pub(crate) async fn start_recording_with_start_owner(
     start_owner: Option<(Arc<crate::commands::hotkey::HotkeyStartOwner>, u64)>,
 ) -> Result<u64, AppError> {
     let lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
-    // Starting a recording and dispatching queued output share the same boundary.
+
     let paste_guard = state.recording.paste_dispatch.lock().await;
     if !state.is_funasr_ready() {
         return Err(AppError::Audio(RECORDING_NOT_READY_ERROR.into()));
     }
 
-    // 在任何字幕窗口/异步任务启动前抓取目标应用。后续收尾可能延迟数秒，
-    // 不能再读取届时的前台窗口来决定历史或截图策略。
     let foreground_app = crate::utils::foreground::get_foreground_app();
     let paste_target = crate::services::selection_service::foreground_window_id();
 
@@ -124,18 +120,14 @@ pub(crate) async fn start_recording_with_start_owner(
             .session_counter
             .fetch_add(1, Ordering::Relaxed)
             + 1;
-        // Bind while holding the recording slot lock. A concurrent release
-        // either cancels this pending intent or obtains this exact session ID
-        // and waits for installation before the guarded stop can run.
+
         if start_owner
             .as_ref()
             .is_some_and(|(owner, generation)| !owner.bind(*generation, session_id))
         {
             return Err(AppError::Audio(RECORDING_START_CANCELLED_ERROR.into()));
         }
-        // Reserve the generation before spawning any async window work. A
-        // delayed show from this session can never advance the generation
-        // after a newer session has already reserved its own.
+
         let show_gen = crate::commands::window::reserve_subtitle_show_generation(&app_handle);
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_notify = Arc::new(tokio::sync::Notify::new());
@@ -168,9 +160,6 @@ pub(crate) async fn start_recording_with_start_owner(
 
     emit_recording_state(&app_handle, &starting_snapshot, true, false, false, None);
 
-    // Window creation/layout and the synchronous cpal startup happen in
-    // parallel. We still join the show task before interpreting the capture
-    // result so a start_error cannot schedule a hide against a pre-show gen.
     let show_task = {
         let app = app_handle.clone();
         tauri::async_runtime::spawn(async move {
@@ -207,8 +196,6 @@ pub(crate) async fn start_recording_with_start_owner(
         Err(err) => Err(AppError::Audio(format!("录音启动任务异常结束: {}", err))),
     };
 
-    // Cancellation wins over a simultaneous capture error. This keeps a
-    // quick tap from being presented as a microphone failure.
     if stop_flag.load(Ordering::Acquire) {
         if let Ok((audio_thread, actual_sample_rate)) = capture_result {
             audio_service::discard_recording(RecordingSession {
@@ -586,9 +573,6 @@ pub async fn set_input_method(
     state: tauri::State<'_, AppState>,
     method: String,
 ) -> Result<(), AppError> {
-    // 仅允许这两个取值。clipboard.rs 的 paste_text_impl 把 "clipboard" 单独
-    // 分支处理，其余值都走 SendInput，所以"任意 String"等于把所有未知值悄悄
-    // 解释为 sendInput。这里在入口卡死，避免 UI 错位/typo 写入静默退化。
     match method.as_str() {
         "sendInput" | "clipboard" => {
             *state.ui.input_method.lock() = method;

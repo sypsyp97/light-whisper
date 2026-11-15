@@ -149,7 +149,7 @@ export default function SelectionOverlay() {
       setLoadingAction(null);
       void resizeSelectionWindow(false).catch(() => undefined);
     };
-    // Poll only if event registration failed, and wait for each request to settle.
+
     const snapshot = async (fallback: boolean) => {
       if (disposed) return;
       await applySelection(await getSelectionOverlayState().catch(() => null));
@@ -165,7 +165,7 @@ export default function SelectionOverlay() {
         return;
       }
       unlisten = stop;
-      // Subscribe first so a concurrent selection cannot fall between snapshot and listener.
+
       void snapshot(false);
     }).catch(() => { void snapshot(true); });
     return () => {

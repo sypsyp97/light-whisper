@@ -1,4 +1,4 @@
-"""Shared stdio stream commands and guards for resident local ASR servers."""
+
 
 import base64
 import time
@@ -6,13 +6,13 @@ import time
 import numpy as np
 
 
-# Bounds for hotwords accepted by the stdio stream protocol.
+
 MAX_ASR_HOT_WORDS = 100
 MAX_HOT_WORD_CHARS = 80
 
 
 class ASRStreamServerMixin:
-    """Use an initialized stream with the common session and PCM protocol."""
+
 
     def _stream_is_active(self):
         stream = getattr(self, "stream", None)

@@ -14,8 +14,6 @@ use super::{
     HOTKEY_REPRESS_DEBOUNCE_MS,
 };
 
-// Recording start/stop business logic
-
 pub(super) fn is_ignorable_start_audio_error(message: &str) -> bool {
     message == RECORDING_NOT_READY_ERROR
         || message == RECORDING_ALREADY_ACTIVE_ERROR
@@ -32,9 +30,6 @@ pub(super) fn handle_hotkey_start(
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();
 
-        // 选中文本抓取并行化：立即 spawn 到后台，作为参数交给 start_recording_inner。
-        // handle 由该会话的 RecordingSession.edit_grab 持有，finalize_recording 会以
-        // 短超时 join；结果只在 finalize 的本地变量里流转，不写全局，避免跨会话串位。
         let grab_handle =
             tokio::task::spawn_blocking(crate::commands::clipboard::grab_selected_text);
 
@@ -67,10 +62,7 @@ pub(super) fn handle_hotkey_start(
                 if gate.start_owner.fail(generation) {
                     reset_hotkey_event_gate(&gate);
                 }
-                // Audio startup failures already publish a session-scoped
-                // recording-state + start_error from start_recording_inner.
-                // Keep diagnostics here without a second unscoped event that
-                // could land after a newer session has started.
+
                 log::warn!("热键 {} 开始录音失败: {}", shortcut_label, message);
                 update_hotkey_diagnostic_for_trigger(&app_handle, trigger, |diagnostic| {
                     let now_ms = now_unix_ms();
@@ -139,10 +131,6 @@ pub(super) fn handle_hotkey_stop(
     });
 }
 
-// ---------------------------------------------------------------------------
-// Dispatch — supports both hold and toggle modes
-// ---------------------------------------------------------------------------
-
 pub(super) fn dispatch_hotkey_press(
     app_handle: &tauri::AppHandle,
     gate: &Arc<HotkeyEventGate>,
@@ -177,10 +165,8 @@ pub(super) fn dispatch_hotkey_press(
     }
 
     if is_toggle_mode() {
-        // Toggle mode: each press flips recording on/off
         let was_active = gate.toggle_active.load(Ordering::Acquire);
         if was_active {
-            // Turn off
             gate.toggle_active.store(false, Ordering::Release);
             gate.is_pressed.store(false, Ordering::Release);
             let now_ms = now_unix_ms();
@@ -202,7 +188,6 @@ pub(super) fn dispatch_hotkey_press(
                 );
             }
         } else {
-            // Turn on — apply debounce
             let now_ms = now_unix_ms();
             let last_release_ms = gate.last_release_ms.load(Ordering::Acquire);
             if now_ms.saturating_sub(last_release_ms) < HOTKEY_REPRESS_DEBOUNCE_MS {
@@ -230,7 +215,6 @@ pub(super) fn dispatch_hotkey_press(
         return;
     }
 
-    // Hold mode (original behavior)
     let now_ms = now_unix_ms();
     let last_release_ms = gate.last_release_ms.load(Ordering::Acquire);
 
@@ -276,7 +260,7 @@ pub(super) fn dispatch_hotkey_release(
 ) {
     let _configuration = hotkey_configuration_lock().lock();
     let _transition = gate.transition.lock();
-    // In toggle mode, release is a no-op (press handles both start and stop)
+
     if is_toggle_mode() {
         return;
     }

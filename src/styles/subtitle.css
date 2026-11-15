@@ -1,10 +1,10 @@
-/* ============================================================
-   Subtitle Overlay Window Styles
-   Transparent background, bottom-center capsule with glassmorphism.
-   Only loaded in the subtitle window.
-   ============================================================ */
 
-/* Force fully transparent background — override theme.css body gradient */
+
+
+
+
+
+
 html,
 body,
 #root {
@@ -15,7 +15,7 @@ body,
   overflow: hidden;
 }
 
-/* Root container — full viewport, bottom-center aligned */
+
 .subtitle-root {
   --subtitle-assistant-strong: oklch(55% 0.24 293);
   --subtitle-assistant-surface: color-mix(in srgb, var(--color-bg-overlay) 94%, var(--color-assistant) 6%);
@@ -35,7 +35,7 @@ body,
   pointer-events: auto;
 }
 
-/* Capsule container — glassmorphism pill, auto-expands for long content */
+
 .subtitle-capsule {
   pointer-events: none;
   display: inline-flex;
@@ -80,7 +80,7 @@ body,
   pointer-events: auto;
 }
 
-/* Single-line capsule (status hints) reverts to pill shape */
+
 .subtitle-capsule:has(.subtitle-hint) {
   align-items: center;
   border-radius: var(--radius-full);
@@ -89,7 +89,7 @@ body,
   overflow: visible;
 }
 
-/* Reset dot / waveform-indicator margins inside pill-shaped status capsule */
+
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-recording,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-assistant,
 .subtitle-capsule:has(.subtitle-hint) .subtitle-dot-assistant-processing,
@@ -99,21 +99,21 @@ body,
   margin-top: 0;
 }
 
-/* Light theme capsule */
+
 [data-theme="light"] .subtitle-capsule {
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
-/* subtitle-text and subtitle-hint now use CSS vars that auto-switch per theme */
 
-/* Fade-out state */
+
+
 .subtitle-capsule.subtitle-fade-out {
   animation: subtitle-fade-out var(--dur-exit) var(--ease-out-quart) forwards;
 }
 
-/* Text content */
+
 .subtitle-text {
   font-family: var(--font-sans);
   font-size: var(--text-body-lg);
@@ -122,7 +122,7 @@ body,
   white-space: pre-wrap;
   word-break: break-word;
   min-width: 0;
-  /* Smooth the subtle size adjustments when new lines wrap in */
+
   font-variant-ligatures: common-ligatures contextual;
   font-kerning: normal;
 }
@@ -133,9 +133,9 @@ body,
   opacity: 1;
 }
 
-/* Per-character fade-in for streaming text.
-   Each new grapheme mounts as its own span and opacity-fades on mount,
-   so newly-arriving text genuinely eases in instead of popping. */
+
+
+
 .stream-char {
   animation: stream-char-in 260ms var(--ease-out-expo) both;
 }
@@ -145,8 +145,8 @@ body,
   to   { opacity: 1; }
 }
 
-/* Streaming caret — inline block that follows the last character.
-   Uses ::after so it lives at the end of the text flow and wraps with it. */
+
+
 .subtitle-text-streaming::after {
   content: "";
   display: inline-block;
@@ -175,7 +175,7 @@ body,
   --markdown-link-color: var(--color-assistant);
 }
 
-/* Status hint text */
+
 .subtitle-hint {
   font-family: var(--font-sans);
   font-size: var(--text-sm);
@@ -184,7 +184,7 @@ body,
   animation: subtitle-fade-in-subtle var(--dur-3) var(--ease-out-expo);
 }
 
-/* Streaming token counter badge */
+
 .subtitle-stream-badge {
   font-family: var(--font-mono, monospace);
   font-size: var(--text-2xs);
@@ -195,7 +195,7 @@ body,
   align-self: center;
 }
 
-/* subtitle-stream-badge uses --color-text-tertiary which auto-switches */
+
 
 .subtitle-assistant-actions {
   position: absolute;
@@ -222,7 +222,7 @@ body,
   transform: translateY(0);
 }
 
-/* subtitle-copy-status uses --color-text-tertiary which auto-switches */
+
 
 .subtitle-action-button {
   position: static;
@@ -643,9 +643,9 @@ body,
   flex: 0 0 auto;
 }
 
-/* ---- Indicator dots ---- */
 
-/* Recording dot — pulsing terracotta */
+
+
 .subtitle-dot-recording {
   width: 8px;
   height: 8px;
@@ -670,13 +670,13 @@ body,
   animation: subtitle-sparkle 1.6s ease-in-out infinite;
 }
 
-/* Polishing dot — sparkle shimmer */
+
 .subtitle-dot-polishing {
   background: var(--color-accent);
   animation: subtitle-sparkle 1.6s ease-in-out infinite;
 }
 
-/* Processing dot — spinning with fade-in entrance */
+
 .subtitle-dot-processing {
   width: 12px;
   height: 12px;
@@ -713,7 +713,7 @@ body,
   box-shadow: 0 0 10px color-mix(in srgb, var(--color-assistant) 18%, transparent);
 }
 
-/* ---- Waveform indicator (replaces dot during recording) ---- */
+
 
 .subtitle-waveform-indicator {
   display: flex;
@@ -741,9 +741,9 @@ body,
   background: var(--color-assistant);
 }
 
-/* ---- Animations ---- */
 
-/* Indicator entrance — opacity + scale (for elements without conflicting transform animations) */
+
+
 @keyframes subtitle-indicator-enter {
   from {
     opacity: 0;
@@ -755,7 +755,7 @@ body,
   }
 }
 
-/* Subtle opacity-only fade-in (safe to compose with transform-based animations) */
+
 @keyframes subtitle-fade-in-subtle {
   from {
     opacity: 0;
@@ -805,7 +805,7 @@ body,
   50% { opacity: 0.6; }
 }
 
-/* ---- Accessibility ---- */
+
 
 @media (prefers-reduced-motion: reduce) {
   .subtitle-capsule,
@@ -844,7 +844,7 @@ body,
   }
 }
 
-/* Keep the capsule content-sized, with the status slot stable at finalization. */
+
 .subtitle-status-indicator { transition: opacity var(--transition-fast); }
 .subtitle-status-indicator[data-visible="false"] { opacity: 0; }
 

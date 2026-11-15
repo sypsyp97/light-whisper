@@ -1,3 +1,7 @@
+#[expect(
+    dead_code,
+    reason = "CLI selection is covered by the CLI packaging contract."
+)]
 #[path = "../build_support.rs"]
 mod build_support;
 

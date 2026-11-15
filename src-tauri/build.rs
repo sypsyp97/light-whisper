@@ -6,13 +6,14 @@ use std::path::{Path, PathBuf};
 
 mod build_support;
 
-use build_support::{select_engine_archive, ENGINE_ARCHIVE_CANDIDATES};
+use build_support::{select_cli_executable, select_engine_archive, ENGINE_ARCHIVE_CANDIDATES};
 
 fn emit_rerun_hints() {
     for path in ENGINE_ARCHIVE_CANDIDATES {
         println!("cargo:rerun-if-changed={path}");
     }
     println!("cargo:rerun-if-changed=windows-app-manifest.xml");
+    println!("cargo:rerun-if-changed=resources/light-whisper-cli.exe");
 }
 
 fn compute_file_fingerprint(path: &Path) -> String {
@@ -42,13 +43,14 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && env::var("PROFILE").as_deref() == Ok("debug")
     {
-        // Library test harnesses need the same Common Controls v6 manifest.
         println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
         println!("cargo:rustc-link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'");
-        // The application binary already receives its manifest from tauri_build.
+
         println!("cargo:rustc-link-arg-bin=light-whisper=/MANIFEST:NO");
     }
     let allow_placeholder = env::var("PROFILE").map_or(true, |profile| profile != "release");
+    select_cli_executable(&manifest_dir, allow_placeholder)
+        .unwrap_or_else(|message| panic!("{message}"));
     let engine_archive = select_engine_archive(&manifest_dir, allow_placeholder)
         .unwrap_or_else(|message| panic!("{message}"));
     println!(

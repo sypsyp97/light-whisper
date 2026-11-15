@@ -7,8 +7,8 @@
 namespace {
 bool emulate_cuda = true;
 
-// The backend is always real CPU. Only the runtime's saved dispatch type is
-// changed; restore the public config immediately after base construction.
+
+
 struct ScopedBackendType {
     engine::core::BackendConfig & config;
     engine::core::BackendType original;
@@ -32,8 +32,8 @@ public:
 };
 }
 
-// Reuse all synthetic weights, output modes, boundary cases, and continuation
-// checks. No inherited test or production implementation is edited.
+
+
 #define QwenCausalDecodeRuntime PrefillQueueRuntime
 #define main r2t2_original_main
 #define r2t2_test_compute_backend_graph r2t2_original_compute_backend_graph
@@ -82,8 +82,8 @@ size_t graphs_pending_at_failure = 0;
 
 void observe_release(void * pointer) noexcept {
     if (!watch_releases || !pointer || pointer == sources.data()) { return; }
-    // MSVC's ordinary new/delete use the CRT heap. Mark the containing
-    // allocation, including uploads borrowed from the middle of a vector.
+
+
     const auto begin = reinterpret_cast<uintptr_t>(pointer);
     const size_t size = _msize(pointer);
     for (auto & source : sources) {
@@ -97,8 +97,8 @@ void append_kv(ggml_cgraph * graph) {
     for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
         const auto * node = ggml_graph_node(graph, i);
         if (node->op != GGML_OP_SET_ROWS) { continue; }
-        // FastKVSetRowsModule attaches the original cache as src[2]. Capture
-        // every allocated byte, including masked/padded rows, after execution.
+
+
         const auto * cache = node->src[2];
         require(cache != nullptr, "KV update lost its destination tensor");
         const size_t bytes = ggml_nbytes(cache);
@@ -115,8 +115,8 @@ void append_kv(ggml_cgraph * graph) {
 
 ggml_status execute_graph(ggml_backend_t backend, ggml_cgraph * graph,
                           ggml_backend_graph_plan_t plan = nullptr, const char * label = nullptr) {
-    // Large-mask cases test scheduling/storage only. Graph construction and
-    // original-pointer uploads remain real; outputs are discarded, not scored.
+
+
     if (structural_only) {
         ++structural_graphs;
         return GGML_STATUS_SUCCESS;
@@ -153,7 +153,7 @@ void drain(ggml_backend_t backend) {
             require(!source.released, "queued host allocation released before synchronization");
             require(std::memcmp(source.pointer, operation.snapshot.data(), source.size) == 0,
                     "queued host source overwritten before synchronization");
-            // Consume the ORIGINAL address, never the observer's snapshot.
+
             ggml_backend_tensor_set(operation.tensor, source.pointer, operation.offset, source.size);
             ++consumed_sources;
         }
@@ -241,8 +241,8 @@ void failure_suite(bool require_queued_failure) {
     catch (const std::runtime_error &) { failed = true; }
     require(failed && injected_failures == failures_before + 1,
             "injected second prefill submission did not fail");
-    // Check before retry/release, while an unsafe implementation still has
-    // dangling borrowed inputs. Never consume such pointers in the test.
+
+
     require(pending.empty() && sources.empty(), "failed prefill returned with undrained borrowed storage");
     work.clear();
     const auto recovered = runtime.prefill_embeddings_into_cache(original, 193, 320, 64);
@@ -259,9 +259,9 @@ void failure_suite(bool require_queued_failure) {
 }
 
 void structural_staging_case(bool oversized) {
-    // Production policy: 32 MiB of input/mask/position/last staging, with one
-    // oversized block allowed. These dimensions avoid large KV allocations:
-    // one decoder layer, 8192 cache slots, and no attention arithmetic.
+
+
+
     constexpr size_t cap_bytes = 32 * 1024 * 1024;
     constexpr int64_t capacity = 8192;
     const int64_t chunk = oversized ? 2048 : 512;
@@ -330,10 +330,10 @@ void observer_controls() {
     }
     std::cout << "CONTROLS_OK overwritten=1 released=1\n";
 }
-}  // namespace
+}
 
-// Windows-only harness: MSVC's default operator new allocates on the CRT heap.
-// Observe release without throwing, then preserve normal allocator behavior.
+
+
 void operator delete(void * pointer) noexcept { observe_release(pointer); std::free(pointer); }
 void operator delete[](void * pointer) noexcept { ::operator delete(pointer); }
 void operator delete(void * pointer, size_t) noexcept { ::operator delete(pointer); }
@@ -382,7 +382,7 @@ ggml_status r2t2_queue_compute_backend_graph(ggml_backend_t backend, ggml_cgraph
     drain(backend);
     return fail ? GGML_STATUS_FAILED : execute_graph(backend, graph, plan, label);
 }
-}  // namespace engine::core
+}
 
 int main(int argc, char ** argv) {
     try {

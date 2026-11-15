@@ -69,8 +69,8 @@ def sha256(path):
 
 
 def extract_body(source):
-    # Deliberately accept one context-free, straight-line Rust function only.
-    # New syntax needs an explicit review of the extraction boundary.
+
+
     signature = (
         r"\s*pub\(crate\)\s+fn\s+capped_frame_count\s*\(\s*"
         r"input_len\s*:\s*usize\s*,\s*channels\s*:\s*usize\s*,\s*"
@@ -141,8 +141,8 @@ def instantiate(template, pieces):
 
 
 def hotkey_programs(source, template):
-    # This complete context is deliberately small: two structs, the locking
-    # wrapper, and four pure methods. Reject new context rather than guessing.
+
+
     structure, _ = block(source, r"^struct\s+StartOwnership", "StartOwnership structure")
     require(re.fullmatch(r"struct\s+StartOwnership\s*\{\s*generation:\s*u64,\s*"
                          r"active:\s*bool,\s*session_id:\s*Option<u64>,\s*\}", structure),
@@ -167,7 +167,7 @@ def hotkey_programs(source, template):
         pieces[f"/*__{name.upper()}_BODY__*/"] = reviewed_body(body)
         remaining = remaining.replace(method, "", 1)
     require(not remaining.strip(), "unexpected hotkey methods or attributes")
-    # Keep the caller link explicit, including holding the guard across expect.
+
     expected_wrapper = '''
     pub(crate) fn begin(&self) -> u64 {
         let mut inner = self.inner.lock();
@@ -307,8 +307,8 @@ def main():
         evidence["runner_sha256"] = sha256(Path(__file__))
         constants = production_scope(read_input(CONSTANT_SOURCE))
         evidence["constants"] = inputs[CONSTANT_SOURCE]
-        # Finish all source/template checks before executing any proof. A broken
-        # later domain must not disappear behind successful earlier domains.
+
+
         for domain, (source_path, functions) in DOMAINS.items():
             template_path = ROOT / f"formal/verus/{domain}.template.rs"
             source = production_scope(read_input(source_path))

@@ -37,7 +37,7 @@ def sha256(path):
 
 
 def model_geometry(path):
-    """Extract embedded config.json via GGUF names/offsets; never read weights."""
+
     with path.open("rb") as file:
         prefix = file.read(1024 * 1024)
     if prefix[:4] != b"GGUF" or struct.unpack_from("<I", prefix, 4)[0] not in (2, 3):
@@ -154,7 +154,7 @@ def main():
     def execute(command, log_name):
         command = list(map(str, command))
         commands.append(command)
-        # Sequential single-TU compile and at most two backend threads; low priority.
+
         result = subprocess.run(command, cwd=build, env=env, capture_output=True,
                                 text=True, errors="replace", creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS)
         with (build / log_name).open("a", encoding="utf-8") as log:

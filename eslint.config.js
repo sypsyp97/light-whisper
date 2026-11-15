@@ -27,6 +27,7 @@ export default tseslint.config(
     },
     rules: {
       ...jsxA11y.configs.recommended.rules,
+      "no-empty": ["error", { allowEmptyCatch: true }],
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "off",
       "@typescript-eslint/no-explicit-any": "off",

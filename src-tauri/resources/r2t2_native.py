@@ -1,9 +1,9 @@
-"""Resident Windows-native ASR inference through audio.cpp's C ABI.
 
-The caller serializes access. Native push/finish cannot be interrupted safely
-from another thread; cancellation happens between bounded calls or by stopping
-the isolated engine process.
-"""
+
+
+
+
+
 import ctypes as ct
 import os
 from pathlib import Path
@@ -21,18 +21,25 @@ class _BackendConfig(ct.Structure):
 
 class NativeRuntime:
     SAMPLE_RATE = 16000
-    # Acoustic end context for immediate Stop: 80/160 ms still lost Chinese
-    # tails in paired GPU checks; 320 ms also aligns both native chunk sizes.
+
+
     FINISH_CONTEXT_SAMPLES = SAMPLE_RATE * 320 // 1000
 
     def __init__(self, model_path, library_path, *, backend='cuda', chunk_ms=320,
-                 threads=4, dll_directories=(), rolling=False,
+                 threads=None, dll_directories=(), rolling=False,
                  family='confucius4_r2t2', mode='streaming'):
         self._display_name = 'R2T2' if family == 'confucius4_r2t2' else 'Qwen3-ASR'
         if backend not in ('cpu', 'cuda'):
             raise ValueError(f'Unsupported {self._display_name} backend')
         if not isinstance(rolling, bool):
             raise ValueError('rolling must be a boolean')
+        if threads is None:
+            try:
+                threads = int(os.environ.get('LIGHT_WHISPER_NATIVE_THREADS', '4'))
+            except ValueError as error:
+                raise ValueError('LIGHT_WHISPER_NATIVE_THREADS must be an integer from 1 to 2147483647') from error
+        if type(threads) is not int or not 1 <= threads <= 2 ** 31 - 1:
+            raise ValueError('Native threads must be an integer from 1 to 2147483647')
         self.backend = backend
         self._mode = mode
         self.rolling = rolling
@@ -74,12 +81,12 @@ class NativeRuntime:
                 raise RuntimeError('Cannot allocate audio.cpp options')
             try:
                 if family == 'confucius4_r2t2':
-                    # Keep the upstream validated conservative rollback defaults.
+
                     self._call('options_set', options, b'confucius4_r2t2.chunk_size_ms', str(chunk_ms).encode())
                     if rolling:
                         self._call('options_set', options, b'confucius4_r2t2.rolling_window', b'true')
-                        # Commit sentence endings using R2T2's native policy, so a
-                        # completed suffix is not kept behind rollback at a roll.
+
+
                         self._call('options_set', options, b'confucius4_r2t2.rollback_punctuation', b'true')
                     if coalesced_finish:
                         self._call('options_set', options, b'confucius4_r2t2.coalesced_finish', b'true')
@@ -146,7 +153,7 @@ class NativeRuntime:
     def _read_text(self, result):
         text, language = ct.c_char_p(), ct.c_char_p()
         status = self.functions['result_text'](result, ct.byref(text), ct.byref(language))
-        if status == 7:  # Empty events are normal before the first stable word.
+        if status == 7:
             return '', None
         if status:
             detail = self.functions['last_error']().decode('utf-8', errors='replace')
@@ -160,7 +167,7 @@ class NativeRuntime:
         if not request:
             raise RuntimeError('Cannot allocate audio.cpp request')
         try:
-            # Fresh request avoids retaining the previous stream's forced language.
+
             self._call('request_set_text', request, context.encode('utf-8'),
                        language.encode('utf-8') if language else None)
             self._call('stream_start', self.session, request)
@@ -183,7 +190,7 @@ class NativeRuntime:
             raise ValueError('Expected finite 1-D float32 PCM')
 
         push_size = self.chunk_samples
-        # ABI 0.4 decodes the bounded initial VAD prefix once on CUDA.
+
         if (
             self._offset == 0
             and getattr(self, '_batch_initial_audio', False)
@@ -193,8 +200,8 @@ class NativeRuntime:
         ):
             push_size = len(pcm)
 
-        # All other pushes must decode at most one internal chunk: the C ABI
-        # event container otherwise retains only the last delta.
+
+
         for start in range(0, len(pcm), push_size):
             chunk = np.ascontiguousarray(pcm[start:start + push_size])
             event = ct.c_void_p()
@@ -210,7 +217,7 @@ class NativeRuntime:
                     status = self.functions['result_preview_text'](result, ct.byref(preview))
                     if status == 0:
                         self._preview_text = (preview.value or b'').decode('utf-8')
-                    elif status != 7:  # No decode yet for a partial audio chunk.
+                    elif status != 7:
                         raise RuntimeError(f'R2T2 result_preview_text failed ({status})')
                     if not self._preview_text.startswith(self._committed):
                         raise RuntimeError('R2T2 preview conflicts with committed text')
@@ -225,9 +232,9 @@ class NativeRuntime:
             raise RuntimeError('No active R2T2 stream')
         coalesced_finish = getattr(self, '_coalesced_finish', False)
         if self._offset and not coalesced_finish:
-            # Decode the last spoken word without waiting for more microphone
-            # packets. This context stays inside the native runtime; captured
-            # sample counts, durations and live captions remain unchanged.
+
+
+
             self.feed(np.zeros(self.FINISH_CONTEXT_SAMPLES, dtype=np.float32))
         result = ct.c_void_p()
         try:

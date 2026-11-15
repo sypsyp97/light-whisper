@@ -1,4 +1,4 @@
-// Reuse synthetic weights, all boundary/cache cases, and exact trace format.
+
 #define main r2t2_original_main
 #define r2t2_test_compute_backend_graph r2t2_original_compute_backend_graph
 #include "r2t2_prefill_test.cpp"
@@ -29,12 +29,12 @@ void drain(ggml_backend_t backend) {
         require(std::memcmp(upload.source, upload.snapshot.data(), upload.snapshot.size()) == 0,
                 "queued input source changed before compute consumed it");
         ++stable_sources;
-        // Deliberately consume the ORIGINAL pointer only now, not its snapshot.
+
         ggml_backend_tensor_set(upload.tensor, upload.source, upload.offset, upload.snapshot.size());
     }
     pending.clear();
 }
-}  // namespace
+}
 
 void r2t2_deferred_tensor_set(ggml_backend_t backend, ggml_tensor * tensor,
                             const void * data, size_t offset, size_t size) {
@@ -64,8 +64,8 @@ void r2t2_observed_synchronize(ggml_backend_t backend) {
 namespace engine::core {
 ggml_status r2t2_deferred_compute_backend_graph(
     ggml_backend_t backend, ggml_cgraph * graph, ggml_backend_graph_plan_t plan, const char * label) {
-    // Chunk prefill writes F32 embeddings, I32 positions, F16 mask, I32 last.
-    // Token continuation starts with I32; graph setup may precede these four.
+
+
     if (since_compute.size() >= 4) {
         const auto start = since_compute.size() - 4;
         const ggml_type expected[] = {GGML_TYPE_F32, GGML_TYPE_I32, GGML_TYPE_F16, GGML_TYPE_I32};
@@ -89,15 +89,15 @@ ggml_status r2t2_deferred_compute_backend_graph(
     require(pending.empty(), "compute returned with undrained input uploads");
     return status;
 }
-}  // namespace engine::core
+}
 
 int main(int argc, char ** argv) {
     try {
         require(argc == 3, "usage: r2t2_prefill_async_test.exe equivalence|work trace.bin");
         const std::string mode = argv[1];
         require(mode == "equivalence" || mode == "work", "unknown test mode");
-        // Baseline queue-work control must fail on uploads, independently of
-        // the earlier LM-head optimization's work criterion.
+
+
         char equivalence[] = "equivalence";
         char * original_args[] = {argv[0], equivalence, argv[2]};
         const int result = r2t2_original_main(argc, original_args);
