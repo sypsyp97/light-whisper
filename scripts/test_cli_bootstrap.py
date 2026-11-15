@@ -394,7 +394,7 @@ class BootstrapTests(support.BackendCase):
             reads = []
 
             def read(path, *args, **kwargs):
-                if path == paths["config"] / "engine.json":
+                if path == (paths["config"] / "engine.json").resolve():
                     reads.append(path)
                 return original(path, *args, **kwargs)
 

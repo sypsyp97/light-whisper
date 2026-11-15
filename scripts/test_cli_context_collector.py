@@ -40,7 +40,7 @@ class CollectorOwnershipTests(unittest.TestCase):
         def construct(*args, **kwargs):
             self.assertFalse(args)
             self.assertEqual(kwargs["config_file"], str(ROOT / "formal/cli/coverage.ini"))
-            self.assertEqual(kwargs["data_file"], str(output / ".coverage"))
+            self.assertEqual(kwargs["data_file"], str(output.resolve() / ".coverage"))
             self.assertTrue(output.is_dir(), "coverage activation preceded owned directory creation")
             constructions.append(kwargs)
             events.append("construct")
@@ -69,7 +69,7 @@ class CollectorOwnershipTests(unittest.TestCase):
             self.assertTrue(output.is_dir())
             if parent is None:
                 self.assertEqual(os.environ.get("COVERAGE_PROCESS_START"), str(ROOT / "formal/cli/coverage.ini"))
-                self.assertEqual(os.environ.get("COVERAGE_FILE"), str(output / ".coverage"))
+                self.assertEqual(os.environ.get("COVERAGE_FILE"), str(output.resolve() / ".coverage"))
                 self.assertEqual(os.environ.get("COVERAGE_CORE"), "ctrace")
                 self.assertEqual(os.environ.get("PYTHONDONTWRITEBYTECODE"), "1")
                 self.assertEqual(os.environ.get("OMP_NUM_THREADS"), "2")
@@ -141,7 +141,7 @@ class CollectorOwnershipTests(unittest.TestCase):
             receipt = json.loads((output / "receipt.json").read_text())
             self.assertEqual(receipt["tests"], 1)
             self.assertEqual(set(receipt["source_paths"]), set(collector.SOURCES))
-            result.combined.combine.assert_called_once_with(data_paths=[str(output)], keep=True)
+            result.combined.combine.assert_called_once_with(data_paths=[str(output.resolve())], keep=True)
 
     def test_preexisting_payload_is_rejected_without_reusing_or_modifying_it(self):
         for directory in (False, True):
