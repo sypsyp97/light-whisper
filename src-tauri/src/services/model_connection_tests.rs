@@ -17,7 +17,7 @@ const ANTHROPIC_OK: &[u8] =
 const DECISION_OK: &[u8] = br#"{"answers":{"route":{"type":"choice","choice":"pass","probabilities":{"pass":0.98,"polish":0.01,"uncertain":0.01}}}}"#;
 const PRIVATE_ERROR: &[u8] =
     br#"{"error":{"message":"private-body-sentinel connection-test-key-sentinel"}}"#;
-// Wire fixture: deterministic 32x32 solid-red RGB PNG, never a screen capture.
+
 const SYNTHETIC_RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg==";
 
 fn client() -> reqwest::Client {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Python ASR server shared utilities."""
+
 
 import base64
 import contextlib
@@ -23,7 +23,7 @@ from gpu_idle import GPU_IDLE_ACTIVITY_ACTIONS, GPU_IDLE_LOCKED_ACTIONS
 
 
 def _has_nvidia_gpu() -> bool:
-    """Probe the NVIDIA driver; native model loading validates CUDA availability."""
+
     if sys.platform != "win32":
         import glob as _glob
         return bool(_glob.glob("/dev/nvidia[0-9]*"))
@@ -36,13 +36,13 @@ def _has_nvidia_gpu() -> bool:
 
 
 def apply_hf_env_defaults() -> None:
-    """Apply safe default HF env flags for Windows/offline-first runtime."""
+
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "10")
 
 
 def get_log_path(log_filename: str) -> str:
-    """Resolve the server log path under app data dir or temp fallback."""
+
     if "LIGHT_WHISPER_DATA_DIR" in os.environ:
         log_dir = os.path.join(os.environ["LIGHT_WHISPER_DATA_DIR"], "logs")
     else:
@@ -53,7 +53,7 @@ def get_log_path(log_filename: str) -> str:
 
 
 def setup_rotating_logger(module_name: str, log_filename: str, service_name: str) -> logging.Logger:
-    """Initialize a rotating file logger + stderr stream logger."""
+
     log_file_path = get_log_path(log_filename)
     logging.basicConfig(
         level=logging.INFO,
@@ -74,7 +74,7 @@ def setup_rotating_logger(module_name: str, log_filename: str, service_name: str
 
 
 class StdoutSuppressor:
-    """Reference-counted stdout suppressor for noisy third-party libs."""
+
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -108,7 +108,7 @@ def decode_inline_audio(
     audio_format: Optional[str],
     sample_rate: Optional[int],
 ) -> Tuple["object", float]:
-    """Decode inline audio payload into an in-memory input accepted by ASR backends."""
+
     if not audio_base64:
         raise ValueError("缺少内存音频数据")
 
@@ -159,15 +159,15 @@ CLEANUP_EVERY_N = 20
 
 
 class BaseASRServer:
-    """Base class for ASR server implementations.
 
-    Subclasses must implement:
-      - engine (str attribute)
-      - initialize() -> dict
-      - check_status() -> dict
-      - get_performance_stats() -> dict
-      - transcribe_audio(audio_path, options=None) -> dict
-    """
+
+
+
+
+
+
+
+
 
     def __init__(self, engine: str, logger: logging.Logger) -> None:
         self.engine = engine
@@ -178,7 +178,7 @@ class BaseASRServer:
         self.total_audio_duration = 0.0
         self.device = self._detect_device()
         self.stdout_suppressor = StdoutSuppressor()
-        # 0 = 关闭。未开启时不启动计时器，命令路径与以前相同。
+
         self._gpu_idle_seconds = 0
         self._gpu_idle_lock = threading.Lock()
         self._gpu_idle_stop = None
@@ -192,9 +192,9 @@ class BaseASRServer:
         signal.signal(signal.SIGINT, self._signal_handler)
         self._setup_runtime_environment()
 
-    # ------------------------------------------------------------------
-    # Shared helpers
-    # ------------------------------------------------------------------
+
+
+
 
     def _detect_device(self) -> str:
         return "cuda" if _has_nvidia_gpu() else "cpu"
@@ -242,19 +242,19 @@ class BaseASRServer:
         ).astype(np.float32)
 
     def _cleanup_memory(self) -> None:
-        # Native runtimes own their model and CUDA allocations.
+
         import gc
 
         gc.collect()
 
     def _maybe_cleanup(self, duration: float) -> None:
-        """Run periodic memory cleanup after transcription (in background thread)."""
+
         if self.transcription_count % CLEANUP_EVERY_N == 0 or duration > 120:
             threading.Thread(target=self._cleanup_memory, daemon=True).start()
             self.logger.info(f"已完成 {self.transcription_count} 次转录，后台执行内存清理")
 
     def _get_gpu_device_info(self, *, include_memory=False) -> dict:
-        """Cache optional metadata for the native runtime's first GPU."""
+
         info = {"device": self.device}
         if not include_memory:
             info["gpu_name"] = None
@@ -287,9 +287,9 @@ class BaseASRServer:
         self._gpu_device_info_cache = dict(info)
         return info
 
-    # ------------------------------------------------------------------
-    # Hooks for subclasses
-    # ------------------------------------------------------------------
+
+
+
 
     def initialize(self) -> dict:
         raise NotImplementedError
@@ -312,7 +312,7 @@ class BaseASRServer:
         raise NotImplementedError
 
     def handle_stream_command(self, command: dict) -> dict:
-        """Handle a stream command in subclasses that provide streaming."""
+
         return {
             "success": False,
             "error": f"不支持流式命令: {command.get('action')}",
@@ -320,7 +320,7 @@ class BaseASRServer:
 
 
     def _with_gpu_suspend_flag(self, payload):
-        """Add gpu_suspended only while the model is actually unloaded."""
+
         if not isinstance(payload, dict) or not getattr(self, "_gpu_suspended", False):
             return payload
         if payload.get("gpu_suspended") is True:
@@ -333,7 +333,7 @@ class BaseASRServer:
         return False
 
     def _suspend_gpu_runtime(self) -> bool:
-        """Release the resident GPU model. Subclasses own the close API."""
+
         return False
 
     def _adopt_gpu_idle_from_env(self) -> None:
@@ -490,13 +490,13 @@ class BaseASRServer:
             processor.close()
             self._audio_processor = None
 
-    # ------------------------------------------------------------------
-    # Command dispatch loop
-    # ------------------------------------------------------------------
+
+
+
 
     def run(self) -> None:
-        # Native inference may suppress global stdout on a background worker.
-        # Keep protocol replies on the original pipe, including their flush.
+
+
         protocol_output = sys.stdout
 
         def send(result):
@@ -528,13 +528,13 @@ class BaseASRServer:
                 try:
                     command = json.loads(line)
                 except json.JSONDecodeError:
-                    # 无 request_id 可回传——JSON 解析就失败了。Rust 端按旧协议兼容。
+
                     result = {"success": False, "error": "无效的JSON命令"}
                     send(result)
                     continue
 
-                # Rust 端给每条命令打的 request_id；所有响应必须原样回传，
-                # 否则乱序/延迟响应防护退化为旧协议兼容路径。
+
+
                 if isinstance(command, dict):
                     rid = command.get("request_id")
                     if isinstance(rid, int):

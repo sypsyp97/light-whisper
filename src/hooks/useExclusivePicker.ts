@@ -3,14 +3,14 @@ import { prefersReducedMotion } from "@/lib/motion";
 
 const POPOVER_EXIT_MS = 160;
 
-/**
- * Manages a group of mutually-exclusive dropdown pickers.
- *
- * At most one picker is open at a time. Clicking outside the active picker's
- * ref container or pressing Escape closes it automatically.
- *
- * Closing plays a brief exit animation before the popover is removed from DOM.
- */
+
+
+
+
+
+
+
+
 export function useExclusivePicker<T extends string>() {
   const [active, setActive] = useState<T | null>(null);
   const [closing, setClosing] = useState<T | null>(null);
@@ -21,7 +21,7 @@ export function useExclusivePicker<T extends string>() {
   const typeaheadBuffer = useRef("");
   activeRef.current = active;
 
-  // Popover stays rendered during both "active" and "closing" phases
+
   const isOpen = useCallback(
     (id: T) => active === id || closing === id,
     [active, closing],
@@ -31,13 +31,13 @@ export function useExclusivePicker<T extends string>() {
   const toggle = useCallback((id: T) => {
     setActive((prev) => {
       if (prev === id) {
-        // Close with exit animation
+
         setClosing(prefersReducedMotion() ? null : id);
         clearTimeout(closingTimer.current);
         closingTimer.current = setTimeout(() => setClosing(null), POPOVER_EXIT_MS);
         return null;
       }
-      // Opening a new picker — cancel any pending exit
+
       clearTimeout(closingTimer.current);
       setClosing(null);
       return id;
@@ -59,7 +59,7 @@ export function useExclusivePicker<T extends string>() {
     });
   }, []);
 
-  /** Returns the correct class name for the popover (entrance or exit). */
+
   const popoverClass = useCallback(
     (id: T) =>
       closing === id
@@ -78,7 +78,7 @@ export function useExclusivePicker<T extends string>() {
     const onPointerDown = (e: PointerEvent) => {
       const ref = refs.current.get(active);
       if (ref && !ref.contains(e.target as Node)) {
-        // Close via animated path
+
         setActive(null);
         setClosing(prefersReducedMotion() ? null : active);
         clearTimeout(closingTimer.current);
@@ -122,8 +122,8 @@ export function useExclusivePicker<T extends string>() {
         ? "top"
         : "bottom";
     }
-    // Account popovers contain selection and management buttons. Keep ordinary
-    // tab navigation instead of treating their actions as listbox options.
+
+
     if (isDialog) {
       const onEscape = (event: globalThis.KeyboardEvent) => {
         if (event.key === "Escape") {
@@ -156,7 +156,7 @@ export function useExclusivePicker<T extends string>() {
       if (options.length && !options.some((option) => option.tabIndex === 0)) options[0].tabIndex = 0;
     };
     updateOptions();
-    // Model fetches and search can replace the options while the picker stays open.
+
     const observer = new MutationObserver(updateOptions);
     observer.observe(listbox, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-active", "disabled"] });
 
@@ -173,7 +173,7 @@ export function useExclusivePicker<T extends string>() {
       });
       const option = options[normalized];
       option.focus({ preventScroll: true });
-      // Scroll only the options, keeping the surrounding page still.
+
       const optionRect = option.getBoundingClientRect();
       const listRect = listbox.getBoundingClientRect();
       if (optionRect.top < listRect.top) listbox.scrollTop -= listRect.top - optionRect.top;
@@ -254,7 +254,7 @@ export function useExclusivePicker<T extends string>() {
     };
   }, [active, close]);
 
-  // Cleanup timer on unmount
+
   useEffect(() => () => {
     clearTimeout(closingTimer.current);
     clearTimeout(typeaheadTimer.current);

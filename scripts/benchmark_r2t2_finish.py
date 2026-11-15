@@ -52,7 +52,7 @@ def check_reference(reference, provenance, cases):
         previous = reference["provenance"]["fixtures"][language]
         require(all(previous[key] == fixture[key] for key in ("sha256", "samples")),
                 f"{language}: audio identity changed")
-    # Wrapper/DLL/helper hashes are recorded, but changes are the experiment.
+
     for name, (pcm, completion) in cases.items():
         require(name in reference["cases"], f"{name}: missing reference case")
         expected = reference["cases"][name]
@@ -126,7 +126,7 @@ def stop_child(process):
 
 
 def run_child(command, env, log_path, timeout, factory=subprocess.Popen):
-    # One direct worker owns its CUDA context; no parallel workers or grandchildren.
+
     with log_path.open("x", encoding="utf-8") as log:
         process = factory(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
         try:
@@ -245,7 +245,7 @@ def controller(args):
     variant_paths = {}
     for variant in "AB":
         stream = sources[variant] / "r2t2_stream.py"
-        # The frozen baseline may contain only the changed native wrapper.
+
         if not stream.is_file():
             stream = regression.RESOURCES / "r2t2_stream.py"
         variant_paths[variant] = [sources[variant] / "r2t2_native.py", stream.resolve(), libraries[variant]]

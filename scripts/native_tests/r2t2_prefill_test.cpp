@@ -30,8 +30,8 @@ void require(bool condition, const std::string & message) {
     if (!condition) { throw std::runtime_error(message); }
 }
 
-// Deliberately synthetic, deterministic test-only weights and inputs. These
-// exercise real ggml operators; they say nothing about recognition accuracy.
+
+
 std::vector<float> pattern(size_t count, uint32_t seed, float scale) {
     std::vector<float> values(count);
     for (auto & value : values) {
@@ -141,13 +141,13 @@ void check_work(const std::string & label, int64_t steps, int64_t chunk, int mod
     for (size_t i = 0; i < work.size(); ++i) {
         const bool final = i + 1 == work.size();
         correct = correct && work[i].head == (final && mode != 2 ? 1 : 0) && work[i].norm == (final ? 1 : 0);
-        // ggml CUDA identifies its captured graph cache by the first node.
-        // KV-only and output graphs need distinct keys to avoid recapture.
+
+
         if (!final) { correct = correct && work[i].cache_key != work.back().cache_key; }
         heads += work[i].head;
         norms += work[i].norm;
     }
-    // A single-block call is also the instrumentation's positive control.
+
     if (blocks == 1) { require(correct, label + ": output operation counter missed single-block work"); }
     if (enforce && !correct) { ++work_failures; }
     std::cout << (correct ? "WORK_OK " : "WORK_RED ") << label << " graphs=" << blocks
@@ -190,8 +190,8 @@ void suite(Fixture & fixture, std::ofstream & trace, bool enforce) {
         auto weights = fixture.weights;
         if (mode == 2) { weights.lm_head.reset(); }
         modules::QwenCausalDecodeRuntime runtime(fixture.execution, config_for(mode), weights);
-        // Boundary, repeated warm, partial final block, cache growth, and
-        // short-long-short calls share one owner so stale state is observable.
+
+
         for (const int64_t steps : {1, 63, 64, 65, 127, 128, 129, 129, 3, 193, 5}) {
             run_case(runtime, trace, mode, steps, steps > 129 ? 320 : 256, 64,
                      static_cast<uint32_t>(300 + cases), enforce);
@@ -203,7 +203,7 @@ void suite(Fixture & fixture, std::ofstream & trace, bool enforce) {
         run_case(runtime, trace, mode, 65, 192, 64, 809, enforce);
     }
 }
-}  // namespace
+}
 
 namespace engine::core {
 ggml_status r2t2_test_compute_backend_graph(
@@ -221,7 +221,7 @@ ggml_status r2t2_test_compute_backend_graph(
     if (status == GGML_STATUS_SUCCESS) { work.push_back(observed); }
     return status;
 }
-}  // namespace engine::core
+}
 
 int main(int argc, char ** argv) {
     try {

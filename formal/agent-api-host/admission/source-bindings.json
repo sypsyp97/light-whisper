@@ -1,0 +1,19 @@
+{
+  "src-tauri/src/agent_api/secure_files.rs": "767b17fa04ab5c32d78f76c03d8085cf498a183bfb8ab986c92096da6be6a945",
+  "src-tauri/src/agent_api/transport.rs": "a4edd8e95cc7e4c3afbd189887a7d85715aa544a18d30e0e596b65e183e8e4ef",
+  "src-tauri/src/agent_api/controller.rs": "46f5a457464422f9117e01a8d9679578ef4ae433e17dc5b0616c7f77c2cefb7f",
+  "src-tauri/src/agent_api/host.rs": "7d9e4f79835117d4ef28c1064aa5820678f44cd1a9b03b7d74ad4efbdf28bd4c",
+  "src-tauri/src/agent_api/mod.rs": "b1e7048f949951f341179918c36fe732ab80c9079a963050c282911eb986a9bf",
+  "src-tauri/src/lib.rs": "6be5037b0b08894a4b0bcd2e87d95cbd719de201bfaa1c148349f1197b541085",
+  "src-tauri/src/commands/funasr.rs": "2aeaf87634db346bfdd59cfc5cea57226bf199d29a58ecd9bf9f59053115bd21",
+  "src-tauri/src/services/funasr_service.rs": "0075b7919660f0159bd2c6a7b6e9a696bb237c83a8d21efda4234b43550866b9",
+  "src-tauri/src/services/funasr_service/protocol.rs": "56b564c3bfb772d35f5cb99737a28923bd83ff3df58ced45c4fc7c2f9d4f3b7d",
+  "src-tauri/build_support.rs": "c688c3db7cf7e3584fdb8c3627d67cfcfcb0ab60101666234d03cb636c28f159",
+  "src-tauri/src/agent_api/tests.rs": "1d66dced5f4539e87fd3cd51e2869083ae36e59e58d08d345be0ecd47e5afcac",
+  "src-tauri/src/state/app_state.rs": "880dfe008aa86087eec107d02d405f83c61781c959f8d2cde946c6952e7e435e",
+  "src-tauri/src/utils/paths.rs": "daf66c7ac40ffe35fc2ac09eaaec97ccdcb6597288c97a3520a8ffa4105295ed",
+  "formal/agent-api-host/AgentHost.tla": "c3ffd601ac7ad6d0ca19d0fc5ae410955d8d4b0afedbb124dc25b0cb2dfba11a",
+  "formal/agent-api-app/AppQuery.tla": "4fd3a9d00ddc49150ad5e22a30897179feae4389cbd11f39416f664523a1df12",
+  "src-tauri/src/services/download_service.rs": "bb5e52bb61863b45f530f7e98f3d692a047d55acd17264ac5ae537809a967f6e",
+  "src-tauri/src/commands/audio.rs": "c3b498a60178700cbd88eec391275a557580b9e588489a91f0467bf9c230d1c3"
+}

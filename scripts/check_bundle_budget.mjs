@@ -27,7 +27,7 @@ for (const file of jsFiles) {
   if (name.startsWith("MarkdownContent-")) metrics.markdown_gzip_bytes = gzipBytes;
 }
 metrics.total_js_gzip_bytes = totalGzipBytes;
-// Rich text is shared by the overlays and loaded only when needed.
+
 metrics.core_js_gzip_bytes = totalGzipBytes
   - (metrics.selection_gzip_bytes ?? 0)
   - (metrics.markdown_gzip_bytes ?? 0);
@@ -37,10 +37,10 @@ metrics.largest_font_bytes = Math.max(0, ...fontFiles.map(({ bytes }) => bytes))
 metrics.total_font_bytes = fontFiles.reduce((total, { bytes }) => total + bytes, 0);
 metrics.total_dist_bytes = distFiles.reduce((total, { bytes }) => total + bytes, 0);
 
-// Guard user-visible entry points and meaningful aggregate regressions. The settings
-// page is lazy-loaded and preloaded after startup, so its size remains observable in
-// the metrics without an arbitrary per-page cap. Limits are rounded above the v1.5.8
-// baseline to leave room for routine feature work while still catching material growth.
+
+
+
+
 const budgets = {
   main_gzip_bytes: {
     limit: 140_000,

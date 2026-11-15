@@ -4,7 +4,7 @@ import { prefersReducedMotion } from "@/lib/motion";
 
 const REVEAL_MS = 280;
 
-/** Retain closing content for the height transition, then release its effects. */
+
 export function SettingsReveal({ open, gap = 0, id, children }: {
   open: boolean;
   gap?: number;

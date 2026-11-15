@@ -1,16 +1,45 @@
-# Shell scripts must keep LF endings
+
 *.sh text eol=lf
-# Formal replay provenance hashes these text files byte for byte on every OS.
+
 formal/*.tla text eol=lf
 formal/*.cfg text eol=lf
-# Raw TLC state blocks retain their final blank separator for provenance hashes.
+
 formal/traces/*.tlc.txt text eol=lf whitespace=-blank-at-eof
-# Native runtime manifests hash the reviewed patch byte for byte.
-# Unified-diff context lines contain a required leading space, even when blank.
+
+
 scripts/patches/*.patch text eol=lf whitespace=-blank-at-eol
-# Frozen native test snippets retain their final separator in baseline hashes.
+
 scripts/native_tests/device_embeddings_baseline_scaffold.cpp text eol=lf whitespace=-blank-at-eof
-# Preserve the upstream license verbatim.
+
 src-tauri/resources/R2T2-MODEL-LICENSE.txt whitespace=-blank-at-eol
 src-tauri/resources/RE-USE-LICENSE.txt whitespace=-blank-at-eof
 src-tauri/resources/Real-time-RE-USE-LICENSE.txt whitespace=-blank-at-eol
+
+formal/agent-api-app/AppQuery.tla text eol=crlf
+formal/agent-api-host/AgentHost.tla text eol=crlf
+formal/agent-api-host/run.py text eol=crlf
+formal/agent-api-measurements/cohort.json text eol=crlf
+formal/agent-api-measurements/native_measurement.rs text eol=crlf
+formal/agent-api-measurements/prepare.py text eol=crlf
+formal/agent-api-measurements/profile_flush.py text eol=crlf
+formal/agent-api-security/tests/private_files.rs text eol=crlf
+formal/agent-api-transport/tests/transport.rs text eol=crlf
+formal/cli-packaging/selector_tests.rs text eol=crlf
+scripts/light_whisper_cli.py text eol=crlf
+src-tauri/build_support.rs text eol=crlf
+src-tauri/src/agent_api/controller.rs text eol=crlf
+src-tauri/src/agent_api/host.rs text eol=crlf
+src-tauri/src/agent_api/mod.rs text eol=crlf
+src-tauri/src/agent_api/secure_files.rs text eol=crlf
+src-tauri/src/agent_api/tests.rs text eol=crlf
+src-tauri/src/agent_api/transport.rs text eol=crlf
+src-tauri/src/commands/audio.rs text eol=crlf
+src-tauri/src/commands/funasr.rs text eol=crlf
+src-tauri/src/lib.rs text eol=crlf
+src-tauri/src/main.rs text eol=crlf
+src-tauri/src/services/download_service.rs text eol=crlf
+src-tauri/src/services/funasr_service.rs text eol=crlf
+src-tauri/src/services/funasr_service/protocol.rs text eol=crlf
+src-tauri/src/state/app_state.rs text eol=crlf
+src-tauri/src/utils/paths.rs text eol=crlf
+src/hooks/useAsrEngineSettings.ts text eol=crlf

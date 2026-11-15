@@ -107,17 +107,11 @@ fn send_inputs_to_target(inputs: &[INPUT], target: Option<isize>) -> Result<(), 
     Ok(())
 }
 
-/// 释放所有可能残留的修饰键，防止后续 SendInput 被 OS 解读为组合键
 #[cfg(target_os = "windows")]
 fn release_stuck_modifiers() -> Result<(), AppError> {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
-    const MODIFIER_VKS: [u16; 8] = [
-        0x5B, 0x5C, // VK_LWIN, VK_RWIN
-        0xA4, 0xA5, // VK_LMENU, VK_RMENU
-        0xA0, 0xA1, // VK_LSHIFT, VK_RSHIFT
-        0xA2, 0xA3, // VK_LCONTROL, VK_RCONTROL
-    ];
+    const MODIFIER_VKS: [u16; 8] = [0x5B, 0x5C, 0xA4, 0xA5, 0xA0, 0xA1, 0xA2, 0xA3];
 
     let release: Vec<INPUT> = MODIFIER_VKS
         .iter()
@@ -132,7 +126,6 @@ fn release_stuck_modifiers() -> Result<(), AppError> {
     Ok(())
 }
 
-/// 通过 UIA TextPattern 读取前台焦点控件的选中文本。零副作用。
 pub fn grab_selected_text() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
@@ -145,11 +138,6 @@ pub fn grab_selected_text() -> Option<String> {
     }
 }
 
-/// Read a selection without disturbing focus. UI Automation is preferred; a
-/// conservative Ctrl+C fallback is used only when UIA exposes no TextPattern.
-/// The fallback snapshots and restores the clipboard unless another
-/// application/user changed the copied text in the meantime. If a registered
-/// clipboard format cannot be read, standard text/image formats are preserved.
 pub fn grab_selected_text_robust(app_handle: &tauri::AppHandle) -> Option<String> {
     if let Some(text) = grab_selected_text() {
         return Some(text);
@@ -387,15 +375,13 @@ pub(crate) async fn paste_text_to_target(
             const IMC_GETOPENSTATUS: usize = 0x0005;
             const IMC_SETOPENSTATUS: usize = 0x0006;
 
-            // ① 释放残留修饰键
             release_stuck_modifiers()?;
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             ensure_paste_target(target)?;
 
-            // ② 临时关闭前台窗口的输入法，防止 Unicode 输入被 IME 拦截
             let hwnd = unsafe { GetForegroundWindow() };
             let ime_wnd_ptr = unsafe { ImmGetDefaultIMEWnd(hwnd) };
-            // 将 *mut c_void 转为 usize 以跨越 await（HWND 本质是个数值句柄）
+
             let ime_wnd = ime_wnd_ptr as usize;
             let ime_was_open = if ime_wnd != 0 {
                 let open =
@@ -413,7 +399,6 @@ pub(crate) async fn paste_text_to_target(
                 false
             };
 
-            // ③ 构建并发送 Unicode 输入事件
             let mut inputs: Vec<INPUT> = Vec::new();
             for ch in text.chars() {
                 match ch {
@@ -444,7 +429,6 @@ pub(crate) async fn paste_text_to_target(
                 Ok(())
             };
 
-            // ④ 无论发送成功与否都必须恢复输入法，否则用户 IME 会卡在关闭状态
             if ime_was_open {
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 unsafe {

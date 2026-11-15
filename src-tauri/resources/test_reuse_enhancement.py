@@ -1,4 +1,4 @@
-"""RE-USE DSP and buffering through a fake native spectral driver."""
+
 
 import os
 import sys
@@ -59,8 +59,8 @@ class ReuseEnhancementTests(unittest.TestCase):
             self.assertEqual(magnitude.shape, phase.shape)
             self.assertEqual(magnitude.ndim, 2)
             self.assertEqual(magnitude.shape[1], 321)
-            self.assertGreaterEqual(magnitude.shape[0], 9)  # 640 samples / hop 80, centered.
-            self.assertLessEqual(magnitude.shape[0], 201)  # At most one 16,000-sample window.
+            self.assertGreaterEqual(magnitude.shape[0], 9)
+            self.assertLessEqual(magnitude.shape[0], 201)
             for values in (magnitude, phase):
                 self.assertEqual(values.dtype, np.float32)
                 self.assertTrue(np.isfinite(values).all())
@@ -69,7 +69,7 @@ class ReuseEnhancementTests(unittest.TestCase):
     def test_forward_spectra_use_centered_reflect_periodic_hann_and_hop_80(self):
         source = self._audio(640)
         padded = np.pad(source, (320, 320), mode="reflect")
-        window = np.hanning(641)[:-1]  # Independent periodic Hann oracle.
+        window = np.hanning(641)[:-1]
         frames = np.stack([
             padded[offset:offset + 640] * window
             for offset in range(0, len(padded) - 640 + 1, 80)
@@ -84,7 +84,7 @@ class ReuseEnhancementTests(unittest.TestCase):
         self.assertEqual(phase.shape, magnitude.shape)
         np.testing.assert_allclose(magnitude, np.log1p(np.abs(expected)), rtol=0, atol=1e-5)
         actual = np.expm1(magnitude.astype(np.float64)) * np.exp(1j * phase.astype(np.float64))
-        # Magnitude-weighted phase comparison remains stable near zero-energy bins.
+
         np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-5)
 
     def test_identity_roundtrip_preserves_short_unaligned_and_multiwindow_audio(self):
@@ -224,12 +224,12 @@ class ReuseEnhancementTests(unittest.TestCase):
         np.testing.assert_allclose(output, 0, rtol=0, atol=1e-9)
 
         self.driver.negative_magnitude = False
-        self.driver.zero_bins = 161  # More than half of 321 bins: suppress the whole frame.
+        self.driver.zero_bins = 161
         output = self.enhancer.enhance(source)
         self._assert_audio(output, len(source))
         np.testing.assert_allclose(output, 0, rtol=0, atol=1e-9)
 
-        self.driver.zero_bins = 160  # Below half: remaining spectral content must survive.
+        self.driver.zero_bins = 160
         output = self.enhancer.enhance(source)
         self._assert_audio(output, len(source))
         self.assertGreater(float(np.max(np.abs(output))), 1e-3)

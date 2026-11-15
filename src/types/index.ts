@@ -10,7 +10,7 @@ export interface TranscriptionTiming {
   totalMs?: number;
 }
 
-// 与 Rust 后端 funasr_service::FunASRStatus 对应
+
 export interface FunASRStatus {
   running: boolean;
   ready: boolean;
@@ -26,7 +26,7 @@ export interface FunASRStatus {
   corrupt_models?: string[];
 }
 
-// 转录历史记录
+
 export interface HistoryItem {
   id: string;
   text: string;
@@ -53,7 +53,7 @@ export interface HotkeyDiagnostic {
   isPressed: boolean;
   lastError?: string | null;
   warning?: string | null;
-  /** Non-empty when another program has registered the same hotkey */
+
   systemConflict?: string | null;
   lastEvent?: string | null;
   lastEventAtMs?: number | null;
@@ -107,10 +107,10 @@ export interface GrokBuildOauthDeviceCodeChallenge {
   intervalSecs: number;
 }
 
-// 热词来源
+
 export type HotWordSource = "user" | "learned";
 
-// 热词条目
+
 export interface HotWord {
   text: string;
   weight: number;
@@ -119,10 +119,10 @@ export interface HotWord {
   last_used: number;
 }
 
-// 纠错来源
+
 export type CorrectionSource = "ai" | "user";
 
-// 纠错模式
+
 export interface CorrectionPattern {
   original: string;
   corrected: string;
@@ -131,17 +131,17 @@ export interface CorrectionPattern {
   source: CorrectionSource;
 }
 
-// 联网搜索方式
+
 export type WebSearchProvider = "model_native" | "exa" | "tavily" | "google" | "bing";
 
-// 联网搜索配置
+
 export interface WebSearchConfig {
   enabled: boolean;
   provider: WebSearchProvider;
   max_results: number;
 }
 
-// API 协议格式
+
 export type ApiFormat = "openai_compat" | "anthropic";
 export type JevProvider = "typesafe" | "openrouter" | "vercel" | "liquid" | "custom";
 
@@ -177,7 +177,7 @@ export interface LlmReasoningSupport {
   summary: string;
 }
 
-// 用户自定义 LLM 服务商
+
 export interface CustomProvider {
   id: string;
   name: string;
@@ -186,13 +186,13 @@ export interface CustomProvider {
   api_format: ApiFormat;
 }
 
-// OpenAI 认证方式（仅当 active / assistant provider 为 openai 时生效）
+
 export type OpenaiAuthMode = "api_key" | "oauth";
 
-// xAI 认证方式（仅当 active / assistant provider 为 xai 时生效）
+
 export type XaiAuthMode = "api_key" | "oauth";
 
-// LLM 后端配置
+
 export interface LlmProviderConfig {
   active: string;
   custom_base_url?: string;
@@ -219,7 +219,7 @@ export interface LlmProviderConfig {
   xai_auth_mode?: XaiAuthMode | null;
 }
 
-// 用户画像
+
 export interface UserProfile {
   autostart_minimized?: boolean;
   r2t2?: { context: string; language: string | null };

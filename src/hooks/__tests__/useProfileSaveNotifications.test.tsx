@@ -74,7 +74,7 @@ function clickRetry() {
     <button onClick={(event) => {
       clickEvent = event;
       completion = action(event);
-      // Sonner 1.7 invokes the action, then dismisses unless prevented synchronously.
+
       if (!event.defaultPrevented) activeToasts.delete(toastId);
     }}>Retry</button>,
   ));

@@ -13,7 +13,6 @@ fn output_waits_for_the_recording_slot_to_be_released() {
     let mut queue = PendingPasteQueue::default();
     queue.push(output(41, Some(100), "Dictation A"));
 
-    // Starting and active slots both count as occupied; repeated flushes must retain A.
     assert!(queue.take_if_idle(true).is_empty());
     assert!(queue.take_if_idle(true).is_empty());
 
@@ -277,7 +276,6 @@ mod completion_tests {
     }
 }
 
-// Formal replay ownership: separate append-only test module.
 mod async_ownership_replay_tests {
     use super::*;
     use crate::services::audio_service::finalize::drain_pending_pastes;
@@ -345,7 +343,7 @@ mod async_ownership_replay_tests {
                     | "output:B:exit:success"
                     | "output:B:exit:start_error" => {
                         *state.recording.recording.lock() = None;
-                        // Terminal handlers schedule this same production controller.
+
                         recoveries.extend(
                             drain_pending_pastes(
                                 &state,

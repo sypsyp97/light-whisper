@@ -1,4 +1,4 @@
-// Reuse the existing real TensorSource/weight fixture; do not alter old tests.
+
 #define main temporal_unused_shared_main
 #include "qwen_shared_decoder_test.cpp"
 #undef main
@@ -71,14 +71,14 @@ void suite(core::ExecutionContext & execution, std::ofstream & trace) {
     for (const int64_t budget : {1, 2, 3, 4, 5, 8, 9, 12}) {
         check(base, budget, budget <= 2); check(base, budget, budget <= 2, budget >= 5);
     }
-    // Same token IDs, changing audio: first match may survive; any accepted
-    // speculative prefix still must be verified by real model arithmetic.
+
+
     for (const uint32_t seed : {9U, 701U, 20261019U}) {
         const auto changed_audio = input(65, {0, 16}, seed);
         check(changed_audio, 12); check(changed_audio, 12, false, true);
     }
-    // Shifted injection boundaries, duplicate audio rows, placeholder changes,
-    // text-tail changes, growing and shrinking prompts exercise draft alignment.
+
+
     for (const auto & positions : std::vector<std::vector<int32_t>>{{1, 17}, {0, 16, 16}, {16, 0}, {0, 64}, {}}) {
         auto shifted = input(65, positions);
         check(shifted, 12); check(shifted, 12, false, true);
@@ -92,7 +92,7 @@ void suite(core::ExecutionContext & execution, std::ofstream & trace) {
         const auto prompt = input(steps, steps > 1 ? std::vector<int32_t>{0, 1} : std::vector<int32_t>{0});
         check(prompt, 12); check(prompt, 12, false, true);
     }
-    // Public EOS limits: emitted draft tokens must stop before the same EOS.
+
     runtime::GreedyQwenDecoderRuntime scout(assets->model_weights, spec, execution, arena, arena, arena, assets::TensorStorageType::F32);
     const auto generated = scout.generate(base, 12, true);
     require(!generated.empty(), "EOS fixture empty");
@@ -132,7 +132,7 @@ void eos_prompt_tail_transition(core::ExecutionContext & execution, std::ofstrea
     spec.eos_token_ids = {sequence[2]};
     auto old_prompt = short_prompt;
     old_prompt.input_ids.insert(old_prompt.input_ids.end(), sequence.begin(), sequence.begin() + 4);
-    const size_t tail_start = 17;  // Immediately after the final injection at position16.
+    const size_t tail_start = 17;
     require(std::equal(short_prompt.input_ids.begin() + tail_start, short_prompt.input_ids.end(),
                        old_prompt.input_ids.begin() + tail_start), "shortened tail is not the exact previous-tail prefix");
     const std::vector<int32_t> proposed(old_prompt.input_ids.begin() + short_prompt.input_ids.size(), old_prompt.input_ids.end());
@@ -154,7 +154,7 @@ void eos_prompt_tail_transition(core::ExecutionContext & execution, std::ofstrea
         generate(owner, fresh, short_prompt, 12, trace, false, false, "EOS_PROMPT_TAIL_TRANSITION");
     }
 }
-}  // namespace integration
+}
 
 int main(int argc, char ** argv) {
     try {

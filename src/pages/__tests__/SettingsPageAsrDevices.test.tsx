@@ -927,7 +927,7 @@ describe("SettingsPage ASR retry progress ownership", () => {
     expect(tauriMock.getOnlineAsrEndpoint).toHaveBeenCalledTimes(initialEndpointReads + 1);
     expect(tauriMock.getOnlineAsrApiKey).toHaveBeenCalledTimes(initialKeyReads + 1);
 
-    // A rejected batch permits retrying its endpoint while its sibling key read is still pending.
+
     await act(async () => { firstEndpoint.reject(new Error("retry endpoint unavailable")); });
     expect(asrSection().getByRole("button", { name: /retry/i })).not.toBeDisabled();
     await act(async () => { fireEvent.click(asrSection().getByRole("button", { name: /retry/i })); });

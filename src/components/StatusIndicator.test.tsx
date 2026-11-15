@@ -31,7 +31,7 @@ function renderStatus(stage: ModelStage) {
   };
 }
 
-// The runtime contract is frozen before ModelStage gains this variant.
+
 const NEED_REPAIR = "need_repair" as ModelStage;
 
 describe("StatusIndicator model integrity repair", () => {

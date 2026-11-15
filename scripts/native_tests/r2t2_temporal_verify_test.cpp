@@ -214,7 +214,7 @@ void numerical_case(Fixture & fixture, ggml_type type, uint32_t seed, const std:
     if (!work_ok) { ++work_red; }
     record(trace, seed); record(trace, static_cast<int32_t>(type)); record_vector(trace, draft);
     record(trace, actual.accepted_tokens); record(trace, actual.next_token); record_cache(trace, actual_cache);
-    // Continue after trimming: stale speculative mask/KV must not alter the next real decode.
+
     obs::reset();
     const auto oracle_next = oracle.decoder->decode_token(expected.next_token);
     const auto oracle_probe = obs::graphs.back();
@@ -252,7 +252,7 @@ void native_guards(Fixture & fixture) {
         rejected(state, [&] { state.decoder->verify_tokens(draft, first); });
     }
     for (const auto invalid : {-1, 97}) { rejected(state, [&] { state.decoder->verify_tokens({first}, invalid); }); }
-    // A first-token mismatch cannot hide malformed IDs later in the draft.
+
     rejected(state, [&] { state.decoder->verify_tokens({(first + 1) % 97, -1}, first); });
     auto small = start(fixture, GGML_TYPE_F32, 42, 67);
     rejected(small, [&] { small.decoder->verify_tokens({small.first}, small.first); });
@@ -327,7 +327,7 @@ void native_recovery(Fixture & fixture) {
     require(again.accepted_tokens == 1, "verification failed after release/cache growth");
 #endif
 }
-}  // namespace
+}
 
 int main(int argc, char ** argv) {
     try {

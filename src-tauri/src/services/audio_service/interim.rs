@@ -16,8 +16,6 @@ use crate::services::funasr_service;
 use crate::state::AppState;
 use crate::utils::paths;
 
-// ---------- 中间转写循环 ----------
-
 pub fn spawn_interim_loop(
     app_handle: tauri::AppHandle,
     session_id: u64,
@@ -33,10 +31,9 @@ pub fn spawn_interim_loop(
         let mut last_sample_count: usize = 0;
         let engine = paths::read_engine_config();
         let mut previous_hypothesis: Option<String> = None;
-        // 会话级重采样缓存：只对新增的原始增量执行一次重采样，结果追加到这里
-        // 原生 16k 设备时直接复用原始样本
+
         let mut resampled_cache: Vec<i16> = Vec::new();
-        // 已写入 resampled_cache 的原始样本数（raw sample index）
+
         let mut raw_processed: usize = 0;
         let needs_resample = sample_rate != 0 && sample_rate != TARGET_SAMPLE_RATE;
         let mut resample_failed = false;
@@ -63,7 +60,6 @@ pub fn spawn_interim_loop(
             }
         }
 
-        // 在线引擎不做中间转写（每次请求花钱且有网络延迟）
         if paths::is_online_engine(&engine) {
             log::info!("在线引擎，跳过中间转写 (session {})", session_id);
             stop_notify.notified().await;
@@ -79,7 +75,6 @@ pub fn spawn_interim_loop(
                 break;
             }
 
-            // 只把新增的原始样本拷贝出来，锁持有时间最短
             let (delta, current_count) = {
                 let guard = samples.lock();
                 let count = guard.len();
@@ -96,7 +91,6 @@ pub fn spawn_interim_loop(
 
             let start = std::time::Instant::now();
 
-            // 只对增量重采样（原生 16k 时是零拷贝），追加到会话缓存
             if !delta.is_empty() {
                 if needs_resample && !resample_failed {
                     if let Some(resampler) = resampler.as_mut() {
@@ -119,20 +113,17 @@ pub fn spawn_interim_loop(
                         resampled_cache.clear();
                     }
                 } else if resample_failed {
-                    // fallback 分支会直接从原始 samples 取尾部，避免把非 16k 音频送成 16k。
                 } else {
                     resampled_cache.extend_from_slice(&delta);
                 }
                 raw_processed = current_count;
 
-                // 限制缓存增长：超过 2 倍窗口时丢弃最老的部分，只保留尾部一倍多一点
                 if resampled_cache.len() > 2 * max_output_tail {
                     let drop_n = resampled_cache.len() - max_output_tail;
                     resampled_cache.drain(..drop_n);
                 }
             }
 
-            // 把最后 12s 送给 Python；重采样失败时保留原始采样率。
             let raw_tail;
             let (interim_samples, interim_sample_rate) = if resample_failed {
                 let max_raw_tail = (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
@@ -154,9 +145,7 @@ pub fn spawn_interim_loop(
                 &app_handle,
             )
             .await;
-            // The request consumed this recording checkpoint even if the backend
-            // returned an empty/error result. Replaying the same window adds load
-            // and makes subsequent subtitle updates arrive in bursts.
+
             last_sample_count = current_count;
 
             match transcription_result {
@@ -258,7 +247,6 @@ mod tests {
         u64::MAX,
     ];
 
-    // Frozen timing contract, evaluated independently with wider arithmetic.
     fn reference_interval(current: u64, executed: bool, elapsed_ms: u64) -> u64 {
         let current = u128::from(current);
         let next = match (executed, elapsed_ms) {

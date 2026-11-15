@@ -1,4 +1,4 @@
-"""CPU/CUDA selection and ABI boundaries; no real DLL, models, or GPU."""
+
 
 import contextlib
 import os
@@ -19,8 +19,8 @@ from test_qwen3_native import FakeLibrary
 
 
 class QwenCpuCudaSelectionTests(unittest.TestCase):
-    # _resolve_model_path validates the selected model before this seam. Its
-    # returned filename must not switch a supported server to another backend.
+
+
     PATHS = ("qwen3-asr-0.6b-q8_0.gguf", "Qwen3-ASR-0.6B-Q8_0.gguf", "resolved-current.gguf")
 
     def setUp(self):

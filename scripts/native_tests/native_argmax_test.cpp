@@ -1,4 +1,4 @@
-// Synthetic finite F32 inputs exercise real ggml graphs; no model weights.
+
 #include "ggml.h"
 #include "ggml-alloc.h"
 #include "ggml-backend.h"
@@ -66,7 +66,7 @@ int suite(ggml_backend_t backend, const std::string & kind, std::ostream & json)
         auto * first = ggml_argmax(owner.context, input);
         auto * legacy = ggml_argmax(owner.context, input);
         require(first->op_params[0] == 0 && legacy->op_params[0] == 0, "argmax default flag changed");
-        first->op_params[0] = 1; // Production opt-in: strict greater-than, first maximum.
+        first->op_params[0] = 1;
         require(ggml_backend_supports_op(backend, first) && ggml_backend_supports_op(backend, legacy),
                 "selected backend does not support argmax");
         auto * graph = ggml_new_graph_custom(owner.context, 16, false);
@@ -103,7 +103,7 @@ int suite(ggml_backend_t backend, const std::string & kind, std::ostream & json)
     json << "],\"cases\":" << total << ",\"failures\":" << failures << "}\n";
     return failures ? 1 : 0;
 }
-} // namespace
+}
 
 int main(int argc, char ** argv) {
     ggml_backend_t backend = nullptr;

@@ -1,7 +1,7 @@
-// FP32 SEMamba adapter for NVIDIA RE-USE's original 30-layer checkpoint.
-// Architecture: NVIDIA-NemotronLabs-RE-USE, revision
-// 31f82f2efad1095034492f236e8dac9239ba713b (OpenMDW-1.1).
-// All learned tensors remain in their original safetensors F32 representation.
+
+
+
+
 #include "engine/framework/io/safetensors.h"
 #include "ggml.h"
 #include "ggml-alloc.h"
@@ -35,7 +35,7 @@ void require(bool condition, const std::string & message) {
     if (!condition) throw std::runtime_error(message);
 }
 
-// Validate the complete fixed architecture before invoking assertion-based GGML APIs.
+
 std::map<std::string, std::vector<int64_t>> expected_shapes(bool realtime = false) {
     std::map<std::string, std::vector<int64_t>> result;
     auto conv = [&](const std::string & p, int in, int out, int t, int f) {
@@ -260,7 +260,7 @@ struct Model {
         if (!ids) {
             ids = ggml_new_tensor_2d(context, GGML_TYPE_I32, length, sequences);
             ggml_set_input(ids);
-            // Cached constants must survive the graph allocator's last-use reuse.
+
             ggml_set_output(ids);
         }
         return ggml_get_rows(context, x, ids);
@@ -281,7 +281,7 @@ struct Model {
         u = ggml_silu(context, ggml_add(context, u, w(p + ".conv1d.bias")));
         Tensor projection = linear(u, p + ".x_proj");
         Tensor delta = cont(ggml_view_3d(context, projection, 4, length, sequences, projection->nb[1], projection->nb[2], 0));
-        delta = linear(delta, p + ".dt_proj"); // GGML SSM_SCAN applies softplus.
+        delta = linear(delta, p + ".dt_proj");
         Tensor b = cont(ggml_view_3d(context, projection, 16, length, sequences, projection->nb[1], projection->nb[2], 4 * sizeof(float)));
         Tensor c = cont(ggml_view_3d(context, projection, 16, length, sequences, projection->nb[1], projection->nb[2], 20 * sizeof(float)));
         Tensor state = recurrent;
@@ -299,7 +299,7 @@ struct Model {
         if (!ids) {
             ids = ggml_new_tensor_1d(context, GGML_TYPE_I32, sequences);
             ggml_set_input(ids);
-            // Keep constants intact between evaluations of the same graph.
+
             ggml_set_output(ids);
         }
         Tensor a = ggml_neg(context, ggml_exp(context, w(p + ".A_log")));
@@ -308,14 +308,14 @@ struct Model {
             ggml_reshape_4d(context, b, 16, 1, length, sequences),
             ggml_reshape_4d(context, c, 16, 1, length, sequences), ids);
         if (recurrent) {
-            // GGML packs all output tokens first, followed by the final states.
+
             Tensor next = ggml_view_4d(context, scan, 16, 1, 256, sequences,
                                       recurrent->nb[1], recurrent->nb[2], recurrent->nb[3],
                                       static_cast<size_t>(ggml_nelements(u)) * sizeof(float));
             updates->push_back(ggml_cpy(context, next, recurrent));
         }
-        // The existing gated CUDA scan synchronizes its shared storage. Request
-        // its supported SCAN/VIEW/MUL/ADD/GLU/CPY pattern; CPU executes the same math.
+
+
         ggml_ssm_scan_set_fusion(scan, GGML_SSM_SCAN_FUSION_GATE);
         Tensor y = ggml_view_3d(context, scan, 256, length, sequences, 256 * sizeof(float), 256 * length * sizeof(float), 0);
         Tensor residual = ggml_add(context, y, ggml_mul(context, u, w(p + ".D")));
@@ -333,9 +333,9 @@ struct Model {
     }
     Tensor frequency_shuffle(Tensor x, int ratio) {
         const int64_t f = x->ne[0], t = x->ne[1], channels = x->ne[2] / ratio;
-        // Original channel order is [ratio, channels], then [channels,t,f,ratio].
+
         x = ggml_reshape_4d(context, x, f, t, channels, ratio);
-        x = cont(ggml_permute(context, x, 1, 2, 3, 0)); // [ratio,f,t,channels]
+        x = cont(ggml_permute(context, x, 1, 2, 3, 0));
         return ggml_reshape_3d(context, x, ratio * f, t, channels);
     }
     Tensor up(Tensor x, const std::string & p, int ratio) {
@@ -378,15 +378,15 @@ struct Model {
         x = norm_prelu(conv(x, "dense_encoder.dense_conv_1.0"), "dense_encoder.dense_conv_1");
         x = dense(x, "dense_encoder.dense_block");
         x = norm_prelu(conv(x, "dense_encoder.dense_conv_2.0", 2, 4), "dense_encoder.dense_conv_2");
-        x = cont(ggml_permute(context, x, 2, 1, 0, 3)); // [channels,time,frequency]
+        x = cont(ggml_permute(context, x, 2, 1, 0, 3));
         for (int i = 0; i < 30; ++i) {
             const std::string p = "TSMamba." + std::to_string(i);
             x = bidirectional(x, p + ".time_mamba");
-            x = cont(ggml_permute(context, x, 0, 2, 1, 3)); // [channels,frequency,time]
+            x = cont(ggml_permute(context, x, 0, 2, 1, 3));
             x = bidirectional(x, p + ".freq_mamba");
             x = cont(ggml_permute(context, x, 0, 2, 1, 3));
         }
-        x = cont(ggml_permute(context, x, 2, 1, 0, 3)); // [frequency,time,channels]
+        x = cont(ggml_permute(context, x, 2, 1, 0, 3));
         Tensor mag = conv(decoder(x, "mask_decoder"), "mask_decoder.final_conv");
         Tensor features = decoder(x, "phase_decoder");
         Tensor real = conv(features, "phase_decoder.phase_conv_r");
@@ -420,10 +420,10 @@ struct Model {
     }
 };
 
-// Research/noncommercial spectral streaming driver for Real-time_RE-USE,
-// revision 4c0c186272ca853cd18d832fc5c28777b62f32d1. GGML expressions below
-// implement causal convolutions, channel normalization and selective state-space
-// recurrence; the original checkpoint is loaded without conversion.
+
+
+
+
 struct RealtimeModel : Model {
     int exit_layers, lookahead;
     bool primed = false;
@@ -443,14 +443,14 @@ struct RealtimeModel : Model {
     }
 
     Tensor channel_prelu(Tensor x, const std::string & p, int index = 1) {
-        x = cont(ggml_permute(context, x, 1, 2, 0, 3)); // [channels,frequency,time]
+        x = cont(ggml_permute(context, x, 1, 2, 0, 3));
         Tensor y = ggml_norm(context, x, 1e-5f);
         const std::string norm = p + "." + std::to_string(index) + ".norm";
         y = ggml_add(context, ggml_mul(context, y, w(norm + ".weight")), w(norm + ".bias"));
         Tensor positive = ggml_relu(context, y);
         y = ggml_add(context, positive, ggml_mul(context, ggml_sub(context, y, positive),
                     w(p + "." + std::to_string(index + 1) + ".weight")));
-        return cont(ggml_permute(context, y, 2, 0, 1, 3)); // [frequency,time,channels]
+        return cont(ggml_permute(context, y, 2, 0, 1, 3));
     }
 
     Tensor with_history(Tensor x, int length) {
@@ -475,8 +475,8 @@ struct RealtimeModel : Model {
     Tensor causal_decoder(Tensor x, const std::string & p) {
         x = causal_dense(x, p + ".dense_block");
         x = channel_prelu(frequency_shuffle(conv(x, p + ".up_conv1.0.conv", 1, 1, 1), 2), p + ".up_conv1");
-        // The saved second kernel is [out,in,1,3]; exchange frequency/time
-        // to apply its three taps causally along time, without temporal upsampling.
+
+
         x = conv(cont(ggml_transpose(context, with_history(x, 2))), p + ".up_conv2.0.conv");
         return channel_prelu(cont(ggml_transpose(context, x)), p + ".up_conv2");
     }
@@ -493,7 +493,7 @@ struct RealtimeModel : Model {
         x = channel_prelu(conv(x, first + ".0", 1, 1, 1), first);
         x = causal_dense(x, "dense_encoder.dense_block");
         x = channel_prelu(conv(x, "dense_encoder.dense_conv_2.0", 2), "dense_encoder.dense_conv_2");
-        x = cont(ggml_permute(context, x, 2, 1, 0, 3)); // [channels,time,frequency]
+        x = cont(ggml_permute(context, x, 2, 1, 0, 3));
         for (int i = 0; i < exit_layers; ++i) {
             const std::string p = "TSMamba." + std::to_string(i) + ".time_mamba";
             Tensor convolution = persistent_state(3, 256, 161);
@@ -501,7 +501,7 @@ struct RealtimeModel : Model {
             Tensor forward = ggml_add(context, mamba(x, p + ".forward_blocks", convolution, state, &updates), x);
             Tensor y = ggml_norm(context, linear(forward, p + ".output_proj"), 1e-5f);
             x = ggml_add(context, x, ggml_add(context, ggml_mul(context, y, w(p + ".norm.weight")), w(p + ".norm.bias")));
-            x = cont(ggml_permute(context, x, 0, 2, 1, 3)); // [channels,frequency,time]
+            x = cont(ggml_permute(context, x, 0, 2, 1, 3));
             x = bidirectional(x, "TSMamba." + std::to_string(i) + ".freq_mamba");
             x = cont(ggml_permute(context, x, 0, 2, 1, 3));
         }
@@ -520,10 +520,10 @@ struct RealtimeModel : Model {
             ggml_set_output(outputs[i]);
             ggml_build_forward_expand(graph, outputs[i]);
         }
-        // Update persistent backend buffers only after every head has consumed
-        // the old state. Marking leaves as inputs and outputs prevents reuse.
+
+
         for (Tensor update : updates) ggml_build_forward_expand(graph, update);
-        // These leaves are constant between runs; retain their device copies.
+
         for (const auto & entry : reversals) ggml_backend_sched_set_tensor_backend(scheduler, entry.second, device);
         for (const auto & entry : sequence_ids) ggml_backend_sched_set_tensor_backend(scheduler, entry.second, device);
         for (Tensor state : zero_states) ggml_backend_sched_set_tensor_backend(scheduler, state, device);

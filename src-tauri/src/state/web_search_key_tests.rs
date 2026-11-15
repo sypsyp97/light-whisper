@@ -74,9 +74,6 @@ fn overlapping_writes_finish_with_matching_disk_and_cache() {
     });
     contender_barrier.wait();
 
-    // Under the legacy scaffold the contender can finish while the first
-    // owner is paused. The timeout is only used to release that owner when a
-    // correct implementation keeps the contender behind the operation gate.
     let overlapped = contender_ready_rx
         .recv_timeout(Duration::from_secs(1))
         .is_ok();

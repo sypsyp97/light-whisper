@@ -1,26 +1,3 @@
-//! FunASR 语音识别服务模块
-//!
-//! 这是整个应用最核心、最复杂的模块。
-//! 它负责管理 FunASR Python 后端服务器的完整生命周期：
-//!
-//! 1. **查找 Python 解释器**：按优先级搜索可用的 Python
-//! 2. **启动服务器**：以子进程方式启动 Python 脚本
-//! 3. **通信协议**：通过 stdin/stdout 以 JSON 格式与 Python 进程通信
-//! 4. **语音转写**：发送音频数据，接收转写结果
-//! 5. **状态管理**：检查服务器状态、模型状态
-//! 6. **停止服务器**：优雅地关闭 Python 进程
-//!
-//! # 通信协议说明
-//! Rust 进程（父进程）和 Python 进程（子进程）通过标准输入/输出通信：
-//! - 父进程写入 JSON 命令到子进程的 stdin
-//! - 子进程处理后，将 JSON 结果写入 stdout
-//! - 每条消息占一行（以换行符分隔）
-//!
-//! ```text
-//! [Rust/Tauri] --stdin--> [Python/FunASR]
-//! [Rust/Tauri] <--stdout-- [Python/FunASR]
-//! ```
-
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -57,47 +34,39 @@ pub use installation::{find_engine, EngineRuntime};
 pub use protocol::ServerCommand;
 use protocol::{read_json_response, read_json_response_matching, ServerResponse};
 
-// ============================================================
-// 数据结构定义
-// ============================================================
-
-/// 语音转写的结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionResult {
-    /// 转写得到的文本
     pub text: String,
-    /// 音频时长（秒）
+
     pub duration: Option<f64>,
-    /// 是否成功
+
     pub success: bool,
-    /// 错误信息（如果失败）
+
     pub error: Option<String>,
-    /// 检测到的语言
+
     pub language: Option<String>,
 }
 
-/// FunASR 服务器的状态信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunASRStatus {
-    /// 服务器是否正在运行
     pub running: bool,
-    /// 服务器是否已就绪（模型已加载）
+
     pub ready: bool,
-    /// 模型是否已加载
+
     pub model_loaded: bool,
-    /// 推理设备（cpu/cuda）
+
     pub device: Option<String>,
-    /// GPU 名称（如果可用）
+
     pub gpu_name: Option<String>,
-    /// GPU 总显存（GB）
+
     pub gpu_memory_total: Option<f64>,
-    /// 状态描述信息
+
     pub message: String,
-    /// 当前引擎
+
     pub engine: Option<String>,
-    /// 模型文件是否齐备
+
     pub models_present: Option<bool>,
-    /// 缺失模型列表
+
     pub missing_models: Option<Vec<String>>,
     pub model_state: Option<ModelState>,
     pub corrupt_models: Option<Vec<String>>,
@@ -111,22 +80,20 @@ pub enum ModelState {
     Corrupt,
 }
 
-/// 模型文件检查结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelCheckResult {
-    /// 所有必需的模型是否都已就位
     pub all_present: bool,
-    /// ASR（语音识别）模型是否存在
+
     pub asr_model: bool,
-    /// VAD（语音活动检测）模型是否存在
+
     pub vad_model: bool,
-    /// 标点符号模型是否存在
+
     pub punc_model: bool,
-    /// 当前引擎
+
     pub engine: String,
-    /// 模型缓存目录的路径
+
     pub cache_path: String,
-    /// 缺失的模型列表
+
     pub missing_models: Vec<String>,
     pub model_state: ModelState,
     pub corrupt_models: Vec<String>,
@@ -165,8 +132,6 @@ impl EngineProgressGate {
     }
 }
 
-/// 启动守卫：异常返回或 future 被取消时同步杀掉尚未 promote 的子进程，
-/// 清理 matching starting slot，并且只释放自己的 owner。
 struct StartingFlagGuard<'a> {
     engine: &'a EngineState,
     owner: u64,
@@ -202,8 +167,7 @@ impl Drop for StartingFlagGuard<'_> {
 }
 
 const SERVER_INIT_TIMEOUT_SECS: u64 = 120;
-// Bootstrap ASR first, then apply the latest saved enhancement choice before
-// publishing readiness. A stale opt-in must not start an unwanted download.
+
 const AUDIO_PROCESSING_BOOTSTRAP_ENABLED: bool = false;
 const SERVER_RESPONSE_TIMEOUT_SECS: u64 = 60;
 const SERVER_EXIT_WRITE_TIMEOUT_MS: u64 = 300;
@@ -292,10 +256,6 @@ fn report_model_repo_file_state(
     model_state
 }
 
-// ============================================================
-// 核心功能实现
-// ============================================================
-
 fn configure_server_environment(cmd: &mut Command, engine: &str, gpu_idle_seconds: u64) {
     let data_dir = paths::strip_win_prefix(paths::get_data_dir());
     let models_dir = paths::strip_win_prefix(&paths::get_effective_models_dir());
@@ -320,11 +280,8 @@ fn configure_server_environment(cmd: &mut Command, engine: &str, gpu_idle_second
     }
 }
 
-/// 启动 FunASR Python 服务器
 pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Result<(), AppError> {
     let (ticket, mut starting_guard) = {
-        // 启动预检与 lifecycle 配置变更串行：engine snapshot、owner、generation
-        // 以及首个 loading 状态必须作为一个不可分割的提交。
         let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
         let engine = paths::read_engine_config();
         if paths::is_online_engine(&engine) {
@@ -371,7 +328,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         (ticket, starting_guard)
     };
 
-    // 查找引擎运行时
     let runtime_result = find_engine(app_handle, state, ticket.generation).await;
     {
         let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
@@ -387,8 +343,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         return Err(AppError::Asr("启动已被取消".to_string()));
     }
 
-    // 构建子进程命令
-    // 仅在用户开启时传入。0/缺省不设置环境变量，启动路径与以前相同。
     let gpu_idle_at_spawn = paths::read_gpu_idle_seconds();
     let mut cmd = match &runtime {
         EngineRuntime::Bundled { exe_path } => {
@@ -443,7 +397,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
             }
         });
 
-    // Windows 上隐藏控制台窗口
     #[cfg(target_os = "windows")]
     {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -451,8 +404,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     }
 
     let (stdin, stdout, child_handle) = {
-        // spawn 与 starting slot 登记在同一 lifecycle 临界区，stop 不会漏掉
-        // “已生成但尚未写入正式 process slot”的子进程。
         let _lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
         if !start_ticket_is_current(state, &ticket) {
             return Err(AppError::Asr("启动已被取消".to_string()));
@@ -488,7 +439,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
         (stdin, stdout, child_handle)
     };
 
-    // 读取子进程初始化输出，跳过非 JSON 行，直到拿到有效响应
     let mut stdout_reader = BufReader::new(stdout);
     let response: ServerResponse = match read_json_response(
         &mut stdout_reader,
@@ -544,9 +494,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
             stdin,
             stdout: stdout_reader,
         };
-        // Settings may change while the child initializes. Apply the latest
-        // choice before publishing readiness; the local owner kills the child
-        // if synchronization fails or this startup future is cancelled.
+
         sync_audio_processing_at_start(&mut process, AUDIO_PROCESSING_BOOTSTRAP_ENABLED).await?;
         if !start_ticket_is_current(state, &ticket) {
             return Err(AppError::Asr("启动已被取消".to_string()));
@@ -584,8 +532,7 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
 
     if initialized {
         let gpu_idle_now = paths::read_gpu_idle_seconds();
-        // 启动时的环境变量已经带上当时的值。只有中途改过才再发一条命令，
-        // 避免关闭状态下多一次往返。
+
         if gpu_idle_now != gpu_idle_at_spawn {
             if let Err(error) = push_gpu_idle_seconds(state, gpu_idle_now).await {
                 log::warn!("同步 GPU 空闲卸载设置失败: {error}");
@@ -597,19 +544,6 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     }
 }
 
-/// 执行语音转写
-///
-/// 将音频数据写入临时 WAV 文件，然后通过 stdin 发送转写命令给 Python 进程，
-/// 并从 stdout 读取转写结果。
-///
-/// # 参数
-/// - `state`：全局应用状态
-/// - `audio_data`：WAV 格式的音频数据（字节数组）
-///
-/// # 流程
-/// ```text
-/// 音频数据 -> 临时文件 -> 发送命令给 Python -> 等待结果 -> 返回文本
-/// ```
 pub async fn transcribe(
     state: &AppState,
     audio_data: Vec<u8>,
@@ -620,7 +554,6 @@ pub async fn transcribe(
     transcribe_wav_bytes_via_path(state, audio_data, hot_words, app_handle).await
 }
 
-/// Exercise the selected local model without recording, history or private hot words.
 pub(crate) async fn probe_model(
     state: &AppState,
     engine: &str,
@@ -661,15 +594,13 @@ pub async fn transcribe_pcm16(
     app_handle: &tauri::AppHandle,
 ) -> Result<TranscriptionResult, AppError> {
     let _asr_guard = state.engine.native_asr_owner.lock().await;
-    // 检查服务器是否就绪
+
     if !state.is_funasr_ready() {
         return Err(AppError::Asr(
             "语音识别引擎尚未就绪，请等待初始化完成".to_string(),
         ));
     }
 
-    // 本地引擎对过短输入的处理不稳定。interim 路径的首个 tick 可能只有
-    // 200-400ms，这里尾部 zero-pad 到 0.5s；只对短音频生效，长输入走原路。
     const MIN_IPC_DURATION_SEC: f64 = 0.5;
     let min_samples_for_ipc = (sample_rate as f64 * MIN_IPC_DURATION_SEC) as usize;
     let padded_storage: Vec<i16>;
@@ -688,9 +619,6 @@ pub async fn transcribe_pcm16(
 
     let hot_words = profile_hot_words(state);
 
-    // The Python memory protocol receives raw samples only. It uses sample_rate
-    // for duration accounting, while the ASR backends assume the in-memory array
-    // is already at their expected rate. Preserve non-16k audio by sending WAV.
     if sample_rate != TARGET_SAMPLE_RATE_FOR_INLINE_AUDIO {
         return transcribe_pcm16_via_path(state, samples, sample_rate, hot_words, app_handle).await;
     }
@@ -741,9 +669,6 @@ fn profile_r2t2_options(state: &AppState) -> Option<crate::state::user_profile::
 fn encode_pcm16_base64(samples: &[i16]) -> String {
     use base64::Engine;
 
-    // 零拷贝 cast：i16 对齐 2、无填充，pcm_s16le 在 LE 目标上（Windows/macOS/Linux
-    // 的 x86/ARM）就是 i16 的内存布局。避免原先逐样本 extend_from_slice 造成的
-    // 192000 次小拷贝 + 一次 384KB Vec 分配，interim loop 每 ~220ms 一次的热点。
     let byte_slice: &[u8] =
         unsafe { std::slice::from_raw_parts(samples.as_ptr() as *const u8, samples.len() * 2) };
     base64::engine::general_purpose::STANDARD.encode(byte_slice)
@@ -868,23 +793,6 @@ async fn transcribe_pcm16_via_path(
     transcribe_wav_bytes_via_path(state, wav_bytes, hot_words, app_handle).await
 }
 
-/// 向 Python 服务器发送命令并读取响应
-///
-/// 这是与 Python 进程通信的核心函数。
-///
-/// # 通信流程
-/// 1. 持有进程锁，从全局状态中取出子进程
-/// 2. 将命令序列化为 JSON
-/// 3. 通过 stdin 写入 JSON + 换行符
-/// 4. 从 stdout 读取一行 JSON 响应
-/// 5. 把子进程放回全局状态
-/// 6. 反序列化响应并返回
-///
-/// # 注意事项
-/// - 每条消息必须以换行符结尾
-/// - 命令和响应都是单行 JSON
-/// - 为了保证同一时间只有一个命令与子进程通信，
-///   这里会在 I/O 完成前保持锁，避免并发读写导致协议错乱。
 async fn send_command_to_server<R: tauri::Runtime>(
     state: &AppState,
     command: &ServerCommand,
@@ -899,8 +807,22 @@ async fn send_command_to_server<R: tauri::Runtime>(
     .await
 }
 
-// The process stays outside the shared slot until its complete reply arrives.
-// Cancellation can leave a partial JSON frame, so only success restores it.
+pub(crate) async fn send_command_to_server_json<R: tauri::Runtime>(
+    state: &AppState,
+    command: &ServerCommand,
+    app_handle: &tauri::AppHandle<R>,
+) -> Result<serde_json::Value, AppError> {
+    let response = send_command_to_server(state, command, Some(app_handle)).await?;
+    if response.success != Some(true) {
+        return Err(AppError::Asr(
+            response
+                .error
+                .unwrap_or_else(|| "语音引擎未返回成功响应".into()),
+        ));
+    }
+    Ok(serde_json::to_value(response)?)
+}
+
 struct CommandProcessGuard<'a, R: tauri::Runtime> {
     state: &'a AppState,
     app_handle: Option<&'a tauri::AppHandle<R>>,
@@ -933,7 +855,6 @@ async fn send_command_to_server_with_timeout<R: tauri::Runtime>(
     app_handle: Option<&tauri::AppHandle<R>>,
     timeout: Duration,
 ) -> Result<ServerResponse, AppError> {
-    // One budget covers waiting for the lock, write, flush, and the reply.
     tokio::time::timeout(timeout, async {
         let mut guard = state.engine.funasr_process.lock().await;
         let process = guard
@@ -946,7 +867,6 @@ async fn send_command_to_server_with_timeout<R: tauri::Runtime>(
         };
         let result = send_command_impl(owned.process.as_mut().unwrap(), command).await;
         if result.is_ok() {
-            // A valid application error is still a healthy transport reply.
             *guard = owned.process.take();
         }
         result
@@ -955,9 +875,6 @@ async fn send_command_to_server_with_timeout<R: tauri::Runtime>(
     .map_err(|_| AppError::Asr("等待 FunASR 命令完成超时".to_string()))?
 }
 
-/// 向子进程发送命令并读取响应的内部实现
-///
-/// 调用方在整个 I/O 期间持有进程锁和取消守卫。
 async fn send_command_impl(
     process: &mut FunasrProcess,
     command: &ServerCommand,
@@ -971,26 +888,22 @@ async fn send_command_impl(
             serde_json::Value::Number(request_id.into()),
         );
     }
-    // 序列化命令为 Python 端期望的扁平 JSON 格式
+
     let command_json = serde_json::to_string(&command_value)
         .map_err(|e| AppError::Asr(format!("序列化命令失败: {}", e)))?;
 
-    // 写入命令到 stdin
-    // `write_all` 确保所有字节都被写入
     process
         .stdin
         .write_all(format!("{}\n", command_json).as_bytes())
         .await
         .map_err(|e| AppError::Asr(format!("写入命令到 FunASR 失败: {}", e)))?;
 
-    // `flush` 确保缓冲区的数据被立即发送
     process
         .stdin
         .flush()
         .await
         .map_err(|e| AppError::Asr(format!("刷新 stdin 缓冲区失败: {}", e)))?;
 
-    // 从 stdout 读取响应（允许跳过非 JSON 行）
     read_json_response_matching(
         &mut process.stdout,
         Duration::from_secs(SERVER_RESPONSE_TIMEOUT_SECS),
@@ -1003,8 +916,6 @@ async fn send_command_impl(
 }
 
 fn server_response_matches_request(actual: Option<u64>, expected: u64) -> bool {
-    // Every bundled server echoes request_id. An untagged response cannot be
-    // distinguished from a late reply after cancellation or timeout.
     actual == Some(expected)
 }
 
@@ -1043,9 +954,6 @@ async fn try_send_exit_command(process: &mut FunasrProcess) -> Result<(), AppErr
     Ok(())
 }
 
-/// 把 GPU 空闲秒数发给正在运行的 Python 进程。进程不在时只保留配置。
-///
-/// 不修改 ready：卸载后的 status 仍由既有粘滞逻辑保持就绪。
 pub async fn push_gpu_idle_seconds(state: &AppState, seconds: u64) -> Result<(), AppError> {
     let has_process = {
         let guard = state.engine.funasr_process.lock().await;
@@ -1111,20 +1019,15 @@ pub async fn push_audio_processing_enabled(
     Ok(())
 }
 
-/// 检查 FunASR 服务器的状态
-///
-/// 发送 status 命令给 Python 服务器，获取当前的运行状态。
 pub async fn check_status(
     state: &AppState,
     app_handle: &tauri::AppHandle,
 ) -> Result<FunASRStatus, AppError> {
-    // 先检查进程是否存在
     let has_process = {
         let guard = state.engine.funasr_process.lock().await;
         guard.is_some()
     };
 
-    // 如果进程句柄不存在，检查是否正在启动中
     if !has_process {
         let engine = paths::read_engine_config();
         if paths::is_online_engine(&engine) {
@@ -1154,7 +1057,6 @@ pub async fn check_status(
         }
 
         if state.engine.is_funasr_starting() {
-            // 正在启动中（模型加载中），告诉前端"正在运行但还没准备好"
             return Ok(status_with_defaults(
                 true,
                 false,
@@ -1178,7 +1080,6 @@ pub async fn check_status(
         });
     }
 
-    // 发送状态查询命令
     match send_command_to_server(state, &ServerCommand::Status, Some(app_handle)).await {
         Ok(response) => {
             let model_loaded = response.is_model_loaded();
@@ -1210,7 +1111,6 @@ pub async fn check_status(
             })
         }
         Err(e) => {
-            // 发送命令失败，可能进程已崩溃
             log::warn!("查询 FunASR 状态失败: {}", e);
             state.set_funasr_ready(false);
             Ok(status_with_defaults(
@@ -1223,15 +1123,7 @@ pub async fn check_status(
     }
 }
 
-/// 停止 FunASR 服务器
-///
-/// 优雅关闭流程：
-/// 1. 先发送 exit 命令让 Python 进程自行退出
-/// 2. 等待一小段时间
-/// 3. 如果进程仍在运行，强制杀死
-///
 pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
-    // 递增代数，使正在进行的 start_server 感知到取消
     {
         let _status_guard = state.engine.funasr_status_commit.lock();
         state
@@ -1240,21 +1132,17 @@ pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
             .fetch_add(1, Ordering::SeqCst);
     }
 
-    // spawn 后、初始化完成前的子进程也必须立即可取消；否则 set_engine
-    // 已返回时旧模型进程仍可能在后台加载并继续发送状态。
     if let Some(starting) = state.engine.funasr_starting_process.lock().take() {
         if let Some(mut child) = starting.child.lock().take() {
             let _ = child.start_kill();
         }
     }
 
-    // 先取出子进程句柄，避免关闭流程被常规请求超时拖住
     let mut process = {
         let mut guard = state.engine.funasr_process.lock().await;
         guard.take()
     };
 
-    // 如果有子进程，确保它被终止
     if let Some(ref mut child_process) = process {
         if let Err(err) = try_send_exit_command(child_process).await {
             log::debug!("发送 FunASR 退出命令失败，准备直接等待/终止进程: {}", err);
@@ -1271,7 +1159,6 @@ pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
                 log::info!("FunASR 进程已退出，状态码: {}", status);
             }
             _ => {
-                // 超时或出错，强制杀死进程
                 log::warn!("FunASR 进程未响应退出命令，强制终止...");
                 if let Err(e) = child_process.child.kill().await {
                     log::warn!("强制终止 FunASR 进程失败: {}", e);
@@ -1280,7 +1167,6 @@ pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
         }
     }
 
-    // 更新状态
     state.set_funasr_ready(false);
     state.set_inline_audio_transport(None);
 
@@ -1288,17 +1174,10 @@ pub async fn stop_server(state: &AppState) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 获取 HuggingFace 缓存根目录
-///
-/// 优先使用用户自定义模型目录，其次按 HuggingFace 标准规则。
 fn get_hf_cache_root() -> PathBuf {
     paths::get_effective_models_dir()
 }
 
-/// 检查 HuggingFace 模型是否已缓存且包含实际模型权重文件
-///
-/// 仅检查目录结构不够——下载中途取消会留下空壳目录（refs/snapshots 存在但无权重文件），
-/// 导致后续加载卡死。这里额外验证 snapshots 中存在 >1MB 的模型权重文件（.pt/.bin/.safetensors/.onnx）。
 #[cfg(test)]
 fn is_hf_repo_ready(repo_id: &str, required_file: Option<&str>) -> bool {
     hf_repo_model_state(repo_id, required_file) == ModelState::Ready
@@ -1524,7 +1403,6 @@ fn snapshot_matches_legacy_weight_check(snapshot_path: &std::path::Path) -> bool
     ready
 }
 
-/// 检查当前 ASR 引擎的模型文件是否已下载。
 fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
     if paths::is_online_engine(engine) {
         return ModelCheckResult {
@@ -1543,7 +1421,6 @@ fn inspect_model_files_for_engine(engine: &str) -> ModelCheckResult {
     let cache_root = get_hf_cache_root();
     let cache_path = cache_root.to_string_lossy().to_string();
 
-    // 旧版或损坏的本地引擎值统一迁移到默认的 Qwen3-ASR 0.6B。
     let normalized_engine = if matches!(engine, "confucius4-r2t2" | "qwen3-asr-1.7b") {
         "confucius4-r2t2"
     } else {
@@ -1586,7 +1463,6 @@ pub async fn check_model_files() -> Result<ModelCheckResult, AppError> {
     Ok(inspect_model_files_for_engine(&paths::read_engine_config()))
 }
 
-// 需要引入 Emitter trait 才能使用 emit 方法
 use tauri::Emitter;
 
 #[cfg(test)]
@@ -1734,7 +1610,6 @@ mod tests {
             child: None,
         };
 
-        // set_engine/迁移会取消旧启动并释放标志，随后新启动获得所有权。
         engine.block_funasr_starting();
         engine.unblock_funasr_starting();
         assert!(engine.try_begin_funasr_start(2));

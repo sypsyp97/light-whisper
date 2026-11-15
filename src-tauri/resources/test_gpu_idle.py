@@ -42,7 +42,7 @@ class IdlePolicyTests(unittest.TestCase):
                 now=180, last_activity=0, idle_seconds=180, stream_active=False
             )
         )
-        # Activity moving to 100 restarts the window.
+
         self.assertFalse(
             gpu_idle_should_unload(
                 now=279, last_activity=100, idle_seconds=180, stream_active=False
@@ -238,7 +238,7 @@ class IdleServerTests(unittest.TestCase):
                     {"action": "exit", "request_id": 7},
                 ],
             )
-        # Enable, transcribe and stream_finish sample the clock; queries do not.
+
         self.assertEqual(server._last_activity_at, 15.0)
         self.assertEqual(server.suspend_calls, 0)
 
@@ -270,11 +270,11 @@ class IdleServerTests(unittest.TestCase):
         self.assertTrue(status_keeps_process_ready(True, status))
         self.assertFalse(status_keeps_process_ready(False, {"success": True, "initialized": False, "model_loaded": False}))
 
-        # Already unloaded: another tick does not reload or double-free.
+
         self.assertFalse(server._gpu_idle_tick(now=999))
         self.assertEqual(server.suspend_calls, 1)
 
-        # Next transcribe uses the existing initialize() path.
+
         result = server.transcribe_audio("a.wav")
         self.assertEqual(result["text"], "ok")
         self.assertEqual(server.initialize_calls, 1)

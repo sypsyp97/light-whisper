@@ -6,7 +6,6 @@ use crate::utils::paths;
 
 #[tokio::test]
 async fn idle_changes_during_asr_startup_persist_latest_choice_without_ending_startup() {
-    // Isolate DATA_DIR's OnceLock without changing the test runner's environment.
     if std::env::var_os("LIGHT_WHISPER_AUDIO_SETTING_TEST_CHILD").is_none() {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

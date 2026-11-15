@@ -1,4 +1,4 @@
-"""Feed and Stop must stay responsive while the persistent CPU owner is busy."""
+
 
 from concurrent.futures import Future
 import gc
@@ -222,8 +222,8 @@ class QwenPipelinePreparationTests(unittest.TestCase):
             self.assertEqual(caller.submit(lambda: runtime.feed(chunk)).result(), ("", "zh"))
         gc.collect()
         live_pipeline_bytes = numpy_bytes() - before_pipeline
-        # CPU input/result, observer copy, raw pending, prepared pending, and one
-        # transient window are the six allowed extra full-window allocations.
+
+
         staging_allowance = 6 * window_bytes
         self.assertLessEqual(live_pipeline_bytes - captured_and_window_bytes, staging_allowance,
                              "superseded raw snapshots must release their NumPy buffers")

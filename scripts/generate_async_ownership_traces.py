@@ -121,8 +121,8 @@ def main() -> None:
         tlc(args.tlc_jar.resolve(), model, cfg, source, directory, invariant)
         log = directory / "tlc.log"
         full_log = log.read_text(encoding="utf-8")
-        # Preserve the actual invariant error and complete State blocks. Coverage
-        # statistics stay in the run directory; no event is reconstructed by hand.
+
+
         start = full_log.index(f"Error: Invariant {invariant} is violated")
         end = full_log.find("The coverage statistics", start)
         counterexample = destination / f"{name}.tlc.txt"

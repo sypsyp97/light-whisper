@@ -62,7 +62,6 @@ fn update_ai_polish_api_key<R: tauri::Runtime>(
     llm_provider::save_or_delete_api_key(app_handle, &keyring_user, &api_key)
 }
 
-/// Saving a credential must not overwrite a concurrently selected processing mode.
 #[tauri::command]
 pub async fn set_ai_polish_api_key<R: tauri::Runtime>(
     app_handle: tauri::AppHandle<R>,
@@ -164,8 +163,6 @@ struct CachedCodexModels {
 static CODEX_MODELS_CACHE: OnceLock<Mutex<HashMap<String, CachedCodexModels>>> = OnceLock::new();
 const CODEX_MODELS_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 
-// This value describes the Codex catalog wire contract implemented here. It
-// advances only after the corresponding model metadata behavior is reviewed.
 const CODEX_MODELS_CLIENT_VERSION: &str = "0.159.2";
 
 fn codex_models_cache() -> &'static Mutex<HashMap<String, CachedCodexModels>> {
@@ -240,8 +237,7 @@ fn oauth_models_source_url(format: ModelListFormat) -> String {
     } else {
         codex_oauth_service::CHATGPT_CODEX_MODELS_URL
     };
-    // Match upstream ModelsClient::request_url for both public and Codex catalogs.
-    // https://github.com/openai/codex/blob/main/codex-rs/codex-api/src/endpoint/models.rs
+
     format!(
         "{}?client_version={}",
         base_url, CODEX_MODELS_CLIENT_VERSION
@@ -325,9 +321,6 @@ fn parse_models_payload(
                 .ok_or_else(|| "Codex 模型目录格式不正确：缺少 models 数组".to_string())?
                 .iter()
                 .filter_map(|item| {
-                    // Light Whisper sends selected models through the Responses
-                    // API path, so Codex-only picker entries stay hidden until
-                    // that inference route is supported here.
                     if item["visibility"].as_str() != Some("list") {
                         return None;
                     }
@@ -582,7 +575,6 @@ pub async fn list_ai_models(
     let response = match result {
         Ok(r) if r.status().is_success() => r,
         _ if is_anthropic => {
-            // Keep the built-in catalog available while reporting the failed refresh.
             return Ok(AiModelListPayload {
                 warning: Some(
                     "模型目录刷新失败，当前显示内置列表，请检查连接或 API 配置后重试。".into(),
@@ -659,7 +651,6 @@ pub async fn list_ai_models(
         }
     };
     if model_list_format.is_codex() {
-        // Only catalog metadata: no account identifiers, tokens or response bodies.
         let entries = payload["models"].as_array();
         log::info!(
             "模型目录 source={} received={} selectable={} entries={:?}",
@@ -985,7 +976,6 @@ mod tests {
                 },
             );
 
-        // Advance the read clock; subtracting the TTL can underflow on fresh Windows runners.
         assert!(cached_codex_fallback(
             Some(cache_key),
             codex_oauth_service::CHATGPT_CODEX_MODELS_URL,

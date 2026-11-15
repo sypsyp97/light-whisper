@@ -67,8 +67,8 @@ def main():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest["executable_sha256"] != sha256(executable):
             parser.error("preserved benchmark executable changed")
-        # Native source may intentionally be replaced after preserving baseline.
-        # Its build hashes stay frozen; harness/benchmark identity must still match.
+
+
         for path in (BENCH, EMPTY_ASSETS, Path(__file__).absolute(), ROOT / "scripts/test_r2t2_frontend_cache.py"):
             if manifest["inputs_sha256"][str(path)] != sha256(path):
                 parser.error(f"benchmark input changed since build: {path}")

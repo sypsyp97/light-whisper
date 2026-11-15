@@ -24,13 +24,21 @@ describe("tray interaction contract", () => {
     expect(setup).not.toContain("tray-menu");
   });
 
-  it("keeps all native menu actions and cleans up before quitting", () => {
+  it("keeps all native menu actions and drains agent work before engine cleanup on exit", () => {
     const setup = readTraySetup();
+    const source = readFileSync(resolve("src-tauri/src/lib.rs"), "utf8");
+    const run = source.match(/^pub fn run\(\)\s*\{[\s\S]*?^\}/m)?.[0];
+    const exit = run?.match(
+      /\.build\(tauri::generate_context!\(\)\)\s*\.expect\([^)]*\)\s*\.run\(\|app,\s*event\|\s*\{\s*if let tauri::RunEvent::Exit\s*=\s*event\s*\{([^}]*)\}/,
+    )?.[1];
+    const quit = setup.match(/"quit"\s*=>\s*\{([^}]*)\}/)?.[1];
 
     expect(setup).toMatch(/"show"\s*=>\s*focus_main_window\(app\)/);
     expect(setup).toMatch(/"hide"\s*=>\s*hide_main_window\(app\)/);
-    expect(setup).toMatch(
-      /"quit"\s*=>[\s\S]*stop_funasr_on_exit\(app\);[\s\S]*app\.exit\(0\)/,
+    expect(quit).toContain("app.exit(0);");
+    expect(quit).not.toMatch(/(?:agent_api::shutdown|stop_funasr_on_exit)\s*\(/);
+    expect(exit).toMatch(
+      /agent_api::shutdown\(app\);[\s\S]*stop_funasr_on_exit\(app\);/,
     );
   });
 });

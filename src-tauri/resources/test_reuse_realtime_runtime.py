@@ -1,4 +1,4 @@
-"""Real-time RE-USE public loader/FFI contract; no real weights, DLL or network."""
+
 
 import ctypes as ct
 import hashlib
@@ -22,7 +22,7 @@ REVISION = "4c0c186272ca853cd18d832fc5c28777b62f32d1"
 SHA256 = "6eac4e8cc721f99a22cde7eac3c9f8e2826ced5dc8a4234fd1977de1ec0d3ade"
 MODEL_BYTES = 54_055_764
 URL = f"https://huggingface.co/{REPO}/resolve/{REVISION}/model.safetensors"
-# Integrity-only fixture: the fake DLL never parses a safetensors checkpoint.
+
 PAYLOAD = b"real-time RE-USE integrity-only unit-test checkpoint\n"
 BINS = 321
 FLOAT_POINTER = ct.POINTER(ct.c_float)
@@ -167,7 +167,7 @@ class RealtimeReuseModelTests(_TinyModelTests):
 
 
 class _Function:
-    """Python export with the public ctypes binding attributes."""
+
     def __init__(self, function):
         self.function = function
         self.calls = []
@@ -179,7 +179,7 @@ class _Function:
 
 
 class _Library:
-    """Only the real-time ABI exists; offline-symbol lookups cannot pass."""
+
     def __init__(self):
         self.handle = 0xC0DE
         self.create_ok = True
@@ -219,8 +219,8 @@ class _Library:
         angle = np.ctypeslib.as_array(phase, shape=(count * BINS,)).reshape(count, BINS)
         self.inputs.append((mag.copy(), angle.copy()))
         tick = self.ticks
-        # Native state can change before compute reports failure. A Python-only
-        # priming rollback cannot recover this stream; reuse_rt_reset must run.
+
+
         self.primed = True
         self.ticks += 1
         if self.run_status:
@@ -245,7 +245,7 @@ class _Library:
     def _free(self, handle):
         self._require_live_handle(handle)
         self.live = False
-        # A wrapper must capture a create error before resource cleanup changes it.
+
         self.error = b"diagnostic replaced by free"
 
 
@@ -467,9 +467,9 @@ class RealtimeReuseRuntimeTests(_TinyModelTests):
                         if failure == "load":
                             raise OSError("test CUDA load failure")
                         return cuda
-                    # Handles from the first DLL attempt must be gone before
-                    # loading the second library. Newly opened CPU handles may
-                    # already exist; the first attempt's handles form a prefix.
+
+
+
                     self.assertTrue(all(item.close_calls == 1 for item in failed_directories))
                     return cpu
 

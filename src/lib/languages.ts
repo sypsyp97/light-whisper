@@ -1,4 +1,4 @@
-// Shared common presets; recognition uses the model's language codes.
+
 export const COMMON_LANGUAGE_OPTIONS = [
   { code: "zh", label: "简体中文" },
   { code: "zh", label: "繁體中文" },

@@ -1,0 +1,226 @@
+[
+  {
+    "name": "AdmissionPositive",
+    "kind": "positive",
+    "wrong": "none",
+    "target": "",
+    "config": "AdmissionPositive.cfg"
+  },
+  {
+    "name": "InitialBorrowNegative",
+    "kind": "safety",
+    "wrong": "initial",
+    "target": "InitialShutdownNoEffects",
+    "config": "InitialBorrowNegative.cfg"
+  },
+  {
+    "name": "ChangedWatchNegative",
+    "kind": "safety",
+    "wrong": "watch",
+    "target": "ObservedShutdownNoEffects",
+    "config": "ChangedWatchNegative.cfg"
+  },
+  {
+    "name": "EngineGuardNegative",
+    "kind": "safety",
+    "wrong": "engine",
+    "target": "InvalidEngineNoEffects",
+    "config": "EngineGuardNegative.cfg"
+  },
+  {
+    "name": "RecordingGuardNegative",
+    "kind": "safety",
+    "wrong": "recording",
+    "target": "RecordingNoEffects",
+    "config": "RecordingGuardNegative.cfg"
+  },
+  {
+    "name": "ProcessingGuardNegative",
+    "kind": "safety",
+    "wrong": "processing",
+    "target": "ProcessingNoEffects",
+    "config": "ProcessingGuardNegative.cfg"
+  },
+  {
+    "name": "LeaseGuardNegative",
+    "kind": "safety",
+    "wrong": "lease",
+    "target": "LeaseUnavailableNoEffects",
+    "config": "LeaseGuardNegative.cfg"
+  },
+  {
+    "name": "StartingGuardNegative",
+    "kind": "safety",
+    "wrong": "starting",
+    "target": "StartingNoEffects",
+    "config": "StartingGuardNegative.cfg"
+  },
+  {
+    "name": "LifecycleGuardNegative",
+    "kind": "safety",
+    "wrong": "lifecycle",
+    "target": "LifecycleHeldAtWrite",
+    "config": "LifecycleGuardNegative.cfg"
+  },
+  {
+    "name": "DownloadGuardNegative",
+    "kind": "safety",
+    "wrong": "download",
+    "target": "DownloadNoEffects",
+    "config": "DownloadGuardNegative.cfg"
+  },
+  {
+    "name": "LeaseRetentionNegative",
+    "kind": "safety",
+    "wrong": "release_lease",
+    "target": "LeaseRetainedBeforeWrite",
+    "config": "LeaseRetentionNegative.cfg"
+  },
+  {
+    "name": "LeaseAtWriteNegative",
+    "kind": "safety",
+    "wrong": "release_lease",
+    "target": "AsrHeldAtWrite",
+    "config": "LeaseAtWriteNegative.cfg"
+  },
+  {
+    "name": "LifecycleRetentionNegative",
+    "kind": "safety",
+    "wrong": "release_lifecycle",
+    "target": "LifecycleRetainedBeforeWrite",
+    "config": "LifecycleRetentionNegative.cfg"
+  },
+  {
+    "name": "RejectedGuardReleaseNegative",
+    "kind": "safety",
+    "wrong": "reject_release",
+    "target": "RejectedGuardsReleased",
+    "config": "RejectedGuardReleaseNegative.cfg"
+  },
+  {
+    "name": "ReplyNegative",
+    "kind": "safety",
+    "wrong": "reply",
+    "target": "RejectionMatchesObservedGuard",
+    "config": "ReplyNegative.cfg"
+  },
+  {
+    "name": "MutexSettlementProgressNegative",
+    "kind": "progress",
+    "wrong": "settlement",
+    "target": "AdmissionCompletes",
+    "config": "MutexSettlementProgressNegative.cfg"
+  },
+  {
+    "name": "InitialShutdownRejectionWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoInitialShutdownRejection",
+    "config": "InitialShutdownRejectionWitness.cfg"
+  },
+  {
+    "name": "ObservedShutdownRejectionWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoObservedShutdownRejection",
+    "config": "ObservedShutdownRejectionWitness.cfg"
+  },
+  {
+    "name": "InvalidRejectionWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoInvalidRejection",
+    "config": "InvalidRejectionWitness.cfg"
+  },
+  {
+    "name": "RecordingRejectionWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoRecordingRejection",
+    "config": "RecordingRejectionWitness.cfg"
+  },
+  {
+    "name": "ProcessingRejectionWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoProcessingRejection",
+    "config": "ProcessingRejectionWitness.cfg"
+  },
+  {
+    "name": "LeaseRejectionWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoLeaseRejection",
+    "config": "LeaseRejectionWitness.cfg"
+  },
+  {
+    "name": "AsrFreeStartingRejectionWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoAsrFreeStartingRejection",
+    "config": "AsrFreeStartingRejectionWitness.cfg"
+  },
+  {
+    "name": "DownloadRejectionWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoDownloadRejection",
+    "config": "DownloadRejectionWitness.cfg"
+  },
+  {
+    "name": "DownloadStartedDuringWaitWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoDownloadStartedDuringWait",
+    "config": "DownloadStartedDuringWaitWitness.cfg"
+  },
+  {
+    "name": "ShutdownDuringWaitWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoShutdownDuringWait",
+    "config": "ShutdownDuringWaitWitness.cfg"
+  },
+  {
+    "name": "AcceptedCommonEffectsWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoAcceptedCommonEffects",
+    "config": "AcceptedCommonEffectsWitness.cfg"
+  },
+  {
+    "name": "UnobservedRetirementWriteWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoUnobservedRetirementWrite",
+    "config": "UnobservedRetirementWriteWitness.cfg"
+  },
+  {
+    "name": "LegacyRecordingAdmissionNegative",
+    "kind": "safety",
+    "wrong": "pre_lifecycle_admission",
+    "target": "RecordingClaimDuringWaitNoEffects",
+    "config": "LegacyRecordingAdmissionNegative.cfg"
+  },
+  {
+    "name": "LegacyStartupAdmissionNegative",
+    "kind": "safety",
+    "wrong": "pre_lifecycle_admission",
+    "target": "StartupClaimDuringWaitNoEffects",
+    "config": "LegacyStartupAdmissionNegative.cfg"
+  },
+  {
+    "name": "RecordingClaimDuringWaitWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoRecordingClaimDuringWaitRejection",
+    "config": "RecordingClaimDuringWaitWitness.cfg"
+  },
+  {
+    "name": "StartupClaimDuringWaitWitness",
+    "kind": "witness",
+    "wrong": "none",
+    "target": "NoStartupClaimDuringWaitRejection",
+    "config": "StartupClaimDuringWaitWitness.cfg"
+  }
+]

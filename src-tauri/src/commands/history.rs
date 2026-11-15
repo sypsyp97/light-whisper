@@ -281,7 +281,6 @@ pub async fn reprocess_transcription_history(
 
     if let Some(audio_file) = leased_audio {
         if let Err(error) = history_service::release_audio_lease(audio_file).await {
-            // 租约只会延迟文件回收；下次启动会清除崩溃/异常遗留租约。
             log::warn!("释放历史重处理音频租约失败: {error}");
         }
     }

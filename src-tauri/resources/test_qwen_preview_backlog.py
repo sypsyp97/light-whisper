@@ -1,4 +1,4 @@
-"""Qwen backlog scheduling through real adapters; deterministic callbacks, no GPU."""
+
 
 import base64
 import contextlib
@@ -20,7 +20,7 @@ from test_r2t2_stream import RecordingRuntime
 
 
 class StreamServer(ASRStreamServerMixin):
-    """Only device initialization is replaced; dispatch and session are real."""
+
 
     def __init__(self, runtime):
         self.initialized = True
@@ -61,7 +61,7 @@ class QwenPreviewBacklogTests(unittest.TestCase):
         for offset in range(0, len(pcm), 5120):
             borrowed = pcm[offset:offset + 5120].copy()
             responses.append(runtime.feed(borrowed, preview=False))
-            borrowed.fill(0)  # Every accepted sample must already be owned by the runtime.
+            borrowed.fill(0)
 
         self.assertEqual(len(transcribe.calls), 0, "Stop must not drain queued preview decodes")
         self.assertTrue(all(response == ("", "zh") for response in responses))

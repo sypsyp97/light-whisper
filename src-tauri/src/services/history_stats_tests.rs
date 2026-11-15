@@ -1,5 +1,5 @@
-// Included inside history_service::tests; every public API call runs in a child
-// process whose data directory is a fresh temporary directory.
+
+
 include!("history_audio_gc_tests.rs");
 
 use std::sync::{
@@ -130,8 +130,8 @@ async fn stats_cache_reuses_exact_empty_and_nullable_statistics() {
         serde_json::to_value(empty).unwrap(),
         serde_json::to_value(super::HistoryStats::default()).unwrap()
     );
-    // Assert all correctness cases before the cache assertion, so the original
-    // implementation demonstrates preserved values before failing for reuse.
+
+
     let fixtures = [
         ("success", "中🙂a", Some(0), None, Some(100), None),
         ("success", "", Some(10), Some(20), None, Some(0.0)),
@@ -330,8 +330,8 @@ async fn stats_cache_does_not_publish_a_stale_scan_after_external_commit() {
     );
     release_tx.send(()).unwrap();
     committed.unwrap();
-    // The overlapping call may return either snapshot. Only calls beginning
-    // after the external commit are required to see its new values.
+
+
     calculating.await.unwrap().unwrap();
     let fresh = assert_reused_stats(1).await;
     assert_eq!(fresh.total_characters, 8);

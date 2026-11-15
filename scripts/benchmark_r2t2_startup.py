@@ -33,7 +33,7 @@ def main():
             assert (source.getframerate(), source.getnchannels(), source.getsampwidth()) == (16000, 1, 2)
             clips[path.stem] = np.frombuffer(source.readframes(source.getnframes()), dtype="<i2").astype(np.float32) / 32768
     clips["silence"] = np.zeros(32000, dtype=np.float32)
-    # Repeated startup/reset and sub-word truncations must not contaminate final text.
+
     for name, clip in list(clips.items()):
         if name != "silence":
             clips[name + "-short"] = clip[:12800]

@@ -25,7 +25,7 @@ it("renders live centered waveform bars, ignores older sessions, and disposes it
   expect(heights()).toEqual(previous);
   expect(view.container.querySelectorAll(".record-icon")).toHaveLength(3);
   const disposer = vi.fn<() => void>();
-  // A second mount covers a subscription that resolves after unmount.
+
   events.listen.mockResolvedValueOnce(disposer);
   const late = render(<RecordingButton isStarting={false} isRecording isProcessing={false} isReady onToggle={vi.fn()} />);
   late.unmount();

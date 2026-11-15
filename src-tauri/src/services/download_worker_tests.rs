@@ -185,8 +185,8 @@ mod worker_lifecycle {
         );
         assert!(trace.events.borrow().is_empty());
 
-        // An empty executable can never be spawned successfully. Cancellation
-        // must wait for preparation, then discard its command without spawning.
+
+
         let mut forbidden_command = Command::new("");
         forbidden_command.kill_on_drop(true);
         prepare_tx

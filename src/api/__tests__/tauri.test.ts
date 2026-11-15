@@ -1,22 +1,22 @@
-/**
- * Regression tests for structured IPC error normalization in
- * `src/api/tauri.ts`.
- *
- * Contract:
- *   - `IpcError` is a named export class extending `Error` with
- *     readonly `code`, `category`, `details` fields.
- *   - When `invoke(...)` rejects with a structured object shaped
- *     `{ code, category, message, details? }`, `invokeCommand` must
- *     produce an `IpcError` instance carrying those fields.
- *   - String rejections, plain objects without `code`, and Error
- *     instances continue to flow through `normalizeInvokeError` as
- *     plain `Error` (not `IpcError`).
- *
- * Error tests drive through the live `startRecording` wrapper, which
- * calls `invoke("start_recording")`. We mock
- * `@tauri-apps/api/core` so we can deterministically reject `invoke`
- * and inspect the wrapped error.
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeMock = vi.hoisted(() => ({
@@ -25,8 +25,8 @@ const invokeMock = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => invokeMock);
 
-// Autostart plugin is imported eagerly by tauri.ts; stub it out so jsdom
-// doesn't blow up on the missing plugin.
+
+
 vi.mock("@tauri-apps/plugin-autostart", () => ({
   disable: vi.fn(),
   enable: vi.fn(),

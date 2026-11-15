@@ -14,16 +14,13 @@ pub struct LlmRequestOptions<'a> {
     pub reasoning_mode: LlmReasoningMode,
     pub stream_event: Option<&'a str>,
     pub session_id: Option<u64>,
-    /// 注入模型厂商原生联网搜索工具（OpenAI web_search / Anthropic web_search）
+
     pub web_search: bool,
-    /// OpenAI OAuth 快速模式：OAuth 来源认证时注入 service_tier="priority"
-    /// (ChatGPT bearer 与交换得到的 OAuth API key 都适用；wire 值 "priority"
-    /// 对应官方 Codex CLI 里 ServiceTier::Fast 的重映射)
+
     pub openai_fast_mode: bool,
-    /// 流式响应中可见输出停滞多久后中止。用于 AI 润色这类短任务，避免
-    /// provider 持续发送非文本 SSE 事件时让 UI 一直卡在某个 token 数。
+
     pub stream_progress_timeout_secs: Option<u64>,
-    /// 单次流式请求的总预算。未设置时沿用历史 24h 兜底。
+
     pub stream_total_timeout_secs: Option<u64>,
 }
 
@@ -116,7 +113,6 @@ pub fn build_llm_body(
                 options.reasoning_mode,
             );
 
-            // Cerebras json_object 与 stream 不兼容：结构化输出优先，放弃流式
             if options.stream
                 && !(options.json_output
                     && !is_responses_api
@@ -140,7 +136,6 @@ pub fn build_llm_body(
     body
 }
 
-/// OpenAI: chat completions 用 web_search_preview, responses API 用 web_search
 fn inject_openai_web_search(body: &mut Value, is_responses_api: bool) {
     let tool = if is_responses_api {
         serde_json::json!({"type": "web_search"})
@@ -153,7 +148,6 @@ fn inject_openai_web_search(body: &mut Value, is_responses_api: bool) {
     }
 }
 
-/// Anthropic: web_search_20250305 工具
 fn inject_anthropic_web_search(body: &mut Value) {
     let tool = serde_json::json!({
         "type": "web_search_20250305",

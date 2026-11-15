@@ -58,7 +58,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
   }, [history, transcriptionResult]);
 
   useEffect(() => { setErrorDismissed(false); }, [recordingError, modelError]);
-  // Auto-dismiss onboarding after first successful transcription
+
   useEffect(() => {
     if (transcriptionResult && !onboardingDismissed) {
       setOnboardingDismissed(true);
@@ -159,7 +159,6 @@ export default function MainPage({ onNavigate, animClass = "" }: {
       />
 
       <div className={pageContentClass} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
-        {/* Recording zone */}
         <div className="recording-zone" style={{ padding: `24px ${PADDING}px 18px` }}>
           <StatusIndicator
             stage={stage}
@@ -186,7 +185,6 @@ export default function MainPage({ onNavigate, animClass = "" }: {
           </StatusIndicator>
         </div>
 
-        {/* Error */}
         {(recordingError || modelError) && !errorDismissed && (
           <div className="error-section animate-shake" style={{ margin: `0 ${PADDING}px 8px` }}>
             <div className="error-banner">
@@ -201,7 +199,6 @@ export default function MainPage({ onNavigate, animClass = "" }: {
           </div>
         )}
 
-        {/* Results */}
         <div ref={resultsRef} className="results-area" style={{ padding: `12px ${PADDING}px 12px` }}>
           {polishAuditWarning && (
             <div className="polish-audit-notice" role="status">
@@ -229,7 +226,6 @@ export default function MainPage({ onNavigate, animClass = "" }: {
             copiedId={copiedId}
             onCopy={handleCopy}
           />
-          {/* First-use onboarding hint */}
           {!onboardingDismissed && !transcriptionResult && !isProcessing && isReady && history.length === 0 && (
             <div className="result-card result-card-first animate-fade-in">
                 <div className="result-card-header">

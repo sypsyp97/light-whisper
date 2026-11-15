@@ -1,10 +1,7 @@
-//! Arithmetic-only tests for the production capture bounds module.
-
 use super::capture_bounds::capped_frame_count;
 
 #[test]
 fn cap_and_complete_frames_have_explicit_boundary_examples() {
-    // (input samples, channels, existing mono samples, cap, appended frames)
     let cases = [
         (7, 0, 2, 6, 4),
         (7, 1, 2, 6, 4),
@@ -33,7 +30,6 @@ fn cap_and_complete_frames_have_explicit_boundary_examples() {
 
 #[test]
 fn small_domain_matches_appending_one_complete_frame_at_a_time() {
-    // This oracle simulates consumption rather than repeating division/min.
     for input_len in 0..=9 {
         for channels in 0..=5 {
             for used in 0..=6 {
@@ -79,7 +75,7 @@ fn extreme_values_satisfy_widened_safety_and_maximality_oracle() {
                         assert_eq!(result, 0);
                     } else {
                         assert!(used + result <= cap);
-                        // A safe result is exact only if one more frame cannot fit.
+
                         assert!((result + 1) * width > input || used + result == cap);
                     }
                 }

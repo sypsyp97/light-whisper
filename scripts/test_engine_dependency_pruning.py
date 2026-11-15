@@ -1,4 +1,4 @@
-"""Packaging-only regression slice; never starts PyInstaller or an ASR runtime."""
+
 
 import importlib.metadata
 
@@ -36,7 +36,7 @@ class OnnxHookSelectionTests(unittest.TestCase):
         self.builder.ENTRY_SCRIPT.write_text("# synthetic entry\n", encoding="utf-8")
         self.builder.DIST_DIR = self.root / "dist"
         self.builder.RESOURCES_DIR = self.root
-        # Keep PROJECT_ROOT real: its hook path must be the one a real build uses.
+
         with (
             mock.patch.object(self.builder, "validate_r2t2_runtime", return_value=self.root / "r2t2-native"),
             mock.patch.object(importlib.metadata, "version", return_value="0.1.3"),
@@ -51,7 +51,7 @@ class OnnxHookSelectionTests(unittest.TestCase):
         self.assertEqual(self.command[1:3], ["-m", "PyInstaller"])
 
     def selected_hook(self):
-        # PyInstaller gives command-line user hooks precedence over contrib.
+
         directories = []
         for index, argument in enumerate(self.command):
             if argument == "--additional-hooks-dir":
@@ -112,7 +112,7 @@ class KaldiDuplicateTests(unittest.TestCase):
     def test_identical_kaldi_copy_only_is_removed_and_counted_once(self):
         payload = self.local.read_bytes()
         self.common.write_bytes(payload)
-        # A simultaneous pre-existing share verifies combined byte accounting.
+
         cuda = self.internal / "r2t2-native/cuda"
         cuda.mkdir(parents=True)
         shared = b"same CUDA runtime"

@@ -16,12 +16,19 @@ Write documentation and release notes in concise English. Keep only `README.zh-C
 From the repository root:
 
 ```bash
-bash scripts/release.sh 1.6.0 "Concise English release notes." --rebuild-engine
+bash scripts/release.sh 1.8.0 "Concise English release notes." --rebuild-engine
 ```
 
-The script updates all six version files, runs the local CI checks, builds the engine and installer, validates both archives, and prints the installer SHA-256. It then pushes a candidate commit and waits for that exact commit's `Frontend`, `Python`, `Rust`, `Application formal contracts` and `Verus implementation proofs` CI jobs. Every job must exist and succeed; skipped jobs block publication. Only after all succeed and `origin/main` still matches does it publish the annotated tag and GitHub Release.
+The script updates all six version files and runs the local checks.
+It builds the engine, standalone CLI and installer, then validates the artifacts.
+It prints the installer SHA-256.
+It then pushes a candidate commit and waits for that exact commit's `Frontend`, `Python`, `Rust`, `Application formal contracts`, `Verus implementation proofs` and `CLI contracts` CI jobs.
+Every job must exist and succeed; skipped jobs block publication.
+After these checks pass and `origin/main` still matches, it publishes the annotated tag and GitHub Release.
 
 Use `--reuse-engine` only when the packaged Python code, native libraries and dependencies are unchanged and the existing archive has been verified. Release builds reject missing or invalid engine archives. Development/debug builds can use a placeholder.
+Both engine modes rebuild the CLI from the current checkout.
+The CLI checks include its packaged executable and an isolated native host with no application windows. The host tests use a synthetic engine to verify the real application protocol and lifecycle. They do not run model inference.
 
 For a manual release, follow the same gates: [local checks](development.md#checks), verified engine and installer, candidate commit, matching remote CI, then tag and Release. For multiline notes, use `gh release create --notes-file <file> --verify-tag`. Do not publish a tag for a failed candidate.
 

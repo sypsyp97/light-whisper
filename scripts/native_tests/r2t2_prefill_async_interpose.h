@@ -1,6 +1,6 @@
 #pragma once
 
-// Force-included only in the runtime TU. Real backend arithmetic is unchanged.
+
 #include "engine/framework/core/backend.h"
 
 void r2t2_deferred_tensor_set(ggml_backend_t backend, ggml_tensor * tensor,

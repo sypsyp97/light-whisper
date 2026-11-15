@@ -1,4 +1,4 @@
-"""Source correspondence only; actual queue decisions have Rust replay tests."""
+
 
 import re
 import unittest

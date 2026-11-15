@@ -1,4 +1,4 @@
-"""RE-USE package provenance through real validators; fake DLL bytes only."""
+
 
 import hashlib
 import json
@@ -20,7 +20,7 @@ class ReusePackagingTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.resources = self.root / "resources"
         self.resources.mkdir()
-        # Only the resource root is replaced; file lists and validators are real.
+
         for name in build_engine.ADD_DATA_FILES:
             if name.endswith(".py"):
                 (self.resources / name).write_bytes((build_engine.RESOURCES_DIR / name).read_bytes())

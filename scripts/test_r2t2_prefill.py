@@ -48,7 +48,7 @@ def main():
         if not path.is_file():
             parser.error(f"required native test input missing: {path}")
     fingerprint = {str(path): sha256(path) for path in paths}
-    # Git stores LF; Windows copies may use CRLF. Keep raw hashes above for provenance.
+
     if hashlib.sha256(baseline.read_bytes().replace(b"\r\n", b"\n")).hexdigest() != BASELINE_LF_SHA256:
         parser.error("baseline runtime differs from the frozen pre-optimization fixture")
     env, _ = build_environment()

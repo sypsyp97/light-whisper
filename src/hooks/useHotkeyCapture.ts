@@ -10,19 +10,19 @@ import {
 } from "@/lib/hotkey";
 
 interface HotkeyCaptureConfig {
-  /** Persist the shortcut. Throw to signal failure. */
+
   save: (shortcut: string) => Promise<void>;
-  /** Label for toast messages, e.g. "说话热键" */
+
   label: string;
 }
 
-/**
- * Reusable keyboard shortcut capture logic.
- *
- * While `capturing` is true, all keydown/keyup events are intercepted.
- * Modifier-only combos (e.g. Ctrl+Win) are detected on full release.
- * Pressing Escape cancels capture.
- */
+
+
+
+
+
+
+
 export function useHotkeyCapture(config: HotkeyCaptureConfig) {
   const [capturing, setCapturing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -69,8 +69,8 @@ export function useHotkeyCapture(config: HotkeyCaptureConfig) {
 
       const mod = modifierFromKeyboardEvent(e);
       if (mod) {
-        // Windows exposes AltGr as a synthetic Left Ctrl followed by Right Alt.
-        // Keep the physical Right Alt binding instead of recording Ctrl+Right Alt.
+
+
         if (
           mod === "RightAlt" &&
           (e.key === "AltGraph" || e.getModifierState("AltGraph"))

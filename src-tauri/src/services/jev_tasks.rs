@@ -1,5 +1,3 @@
-//! Shared Jev evaluation seams for the opt-in expansion features.
-
 use std::time::Duration;
 
 use crate::state::user_profile::JevConfig;
@@ -43,7 +41,6 @@ fn route_criteria() -> [(&'static str, &'static str); 3] {
     ]
 }
 
-/// Return the independent choice question for screen context routing.
 pub fn screen_questions() -> Value {
     serde_json::json!({
         "screen": choice_question(
@@ -53,7 +50,6 @@ pub fn screen_questions() -> Value {
     })
 }
 
-/// Return the independent choice question for web-search routing.
 pub fn search_questions() -> Value {
     serde_json::json!({
         "search": choice_question(
@@ -63,7 +59,6 @@ pub fn search_questions() -> Value {
     })
 }
 
-/// Return separate preservation checks for a completed polish result.
 pub fn audit_questions() -> Value {
     let checks = [
         (
@@ -98,7 +93,6 @@ pub fn audit_questions() -> Value {
         .into()
 }
 
-/// Return one independent validity question per correction rule.
 pub fn correction_questions(count: usize) -> Value {
     let criteria = [
         (
@@ -128,7 +122,6 @@ pub fn correction_questions(count: usize) -> Value {
         .into()
 }
 
-/// Build one shared question object for the assistant's screen/search route.
 pub fn routing_questions(include_screen: bool, include_search: bool) -> Value {
     let mut questions = Map::new();
     if include_screen {
@@ -156,8 +149,6 @@ pub struct RoutingDecision {
     pub search_allowed: Option<bool>,
 }
 
-/// Resolve one shared response, preserving explicit choices and local
-/// fallbacks when the payload is absent, malformed, uncertain, or timed out.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_routing(
     payload: Option<&Value>,
@@ -210,7 +201,6 @@ fn finite_probability(value: Option<&Value>) -> Option<f64> {
         .filter(|value| (0.0..=1.0).contains(value))
 }
 
-/// Return a choice only when the response contains a complete, confident map.
 pub fn confident_choice(
     payload: &Value,
     id: &str,
@@ -306,7 +296,6 @@ fn valid_answers(payload: &Value, questions: &Map<String, Value>) -> bool {
     })
 }
 
-/// Preserve service errors separately from valid low-confidence decisions.
 pub async fn evaluate_with_warning(
     client: &Client,
     config: &JevConfig,
@@ -367,14 +356,10 @@ pub async fn evaluate_with_warning(
     })?
 }
 
-/// Keep screen context disabled when it was not requested; otherwise only a
-/// confident `unneeded` decision may suppress the baseline request.
 pub fn screen_allowed(requested: bool, explicit: bool, decision: Option<&str>) -> bool {
     requested && (explicit || decision != Some("unneeded"))
 }
 
-/// Keep search disabled when the feature is off. Explicit choices win; Jev's
-/// needed/unneeded decisions otherwise refine the existing fallback heuristic.
 pub fn search_allowed(
     enabled: bool,
     explicit: Option<bool>,
@@ -394,8 +379,6 @@ pub fn search_allowed(
     }
 }
 
-/// Only concrete references to the current screen override an automatic decision.
-/// Mere topic words (such as buying a screen) remain for Jev to classify.
 pub fn contains_explicit_screen_request(text: &str) -> bool {
     let text = text.trim().to_lowercase();
     [

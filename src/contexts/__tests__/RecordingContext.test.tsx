@@ -1,18 +1,18 @@
-/**
- * Startup synchronization tests for `RecordingContext`.
- *
- * Contract: startup sync failures in the provider's useEffect
- * (setInputMethodCommand / setInputDevice / setSoundEnabled /
- * setRecordingMode / setAiPolishConfig) must be surfaced via an
- * observable channel — specifically `console.error` — instead of
- * silently swallowed with `.catch(() => {})`.
- *
- * Enabling polish at startup must not read or rewrite provider credentials.
- */
+
+
+
+
+
+
+
+
+
+
+
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// --- mocks: hoisted so they apply before provider import ---
+
 
 const storageMock = vi.hoisted(() => ({
   readLocalStorage: vi.fn<(key: string) => string | null>(),
@@ -29,8 +29,8 @@ const tauriMock = vi.hoisted(() => ({
   saveAiPolishApiKey: vi.fn<(apiKey: string, provider?: string) => Promise<void>>(),
 }));
 
-// Stub the three hooks pulled in by RecordingProvider so we don't spin up
-// real Tauri listeners / pollers.
+
+
 vi.mock("@/hooks/useRecording", () => ({
   useRecording: () => ({
     isStarting: false,
@@ -90,7 +90,7 @@ import {
   SOUND_ENABLED_KEY,
 } from "@/lib/constants";
 
-// Map keys -> the values that trigger each sync path.
+
 const STORAGE_TRIGGERS: Record<string, string> = {
   [INPUT_METHOD_KEY]: "clipboard",
   [INPUT_DEVICE_STORAGE_KEY]: "mic1",
@@ -102,10 +102,10 @@ const STORAGE_TRIGGERS: Record<string, string> = {
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
-  // Default every read to `null` — tests opt-in to specific keys.
+
   storageMock.readLocalStorage.mockImplementation(() => null);
 
-  // Default every Tauri call to succeed so tests opt-in to failures.
+
   tauriMock.setInputMethodCommand.mockResolvedValue(undefined);
   tauriMock.setInputDevice.mockResolvedValue(undefined);
   tauriMock.setSoundEnabled.mockResolvedValue(undefined);
@@ -122,7 +122,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-/** Wait for queued microtasks so provider's useEffect promises settle. */
+
 async function flushPromises() {
   for (let i = 0; i < 10; i++) {
     await Promise.resolve();
@@ -167,7 +167,7 @@ describe("RecordingProvider startup sync error reporting", () => {
     const logged = consoleErrorSpy.mock.calls
       .map((args: unknown[]) => args.map((a) => String(a)).join(" "))
       .join("\n");
-    // Must mention the failing command in some observable form.
+
     expect(logged).toMatch(/setInputMethod|set_input_method/i);
   });
 

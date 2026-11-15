@@ -17,22 +17,25 @@
 
 ## 快速开始
 
-1. **安装**。从 [Releases](https://github.com/sypsyp97/light-whisper/releases/latest) 下载 Windows 10/11 x64 的 `*_x64-setup.exe`。识别运行时已内置，无需另装 Python 或编译工具。
-2. **选择引擎**。在设置中选择麦克风和识别引擎。已有兼容模型会直接使用。如果缺少所选本地模型，可以在主界面点击「开始下载」，也可以在设置中切换引擎。云端引擎使用 API Key 和区域配置。
-3. **开始说话**。将焦点放到目标应用，按住 <kbd>F2</kbd> 说话，松开后输出文字。热键可以修改，也可以改用点击切换录音。
+1. **安装**。从 [Releases](https://github.com/sypsyp97/light-whisper/releases/latest) 下载 Windows 10/11 x64 的 `*_x64-setup.exe`，然后运行安装包。识别运行时已内置，无需另装 Python 或编译工具。
+2. **选择引擎**。打开**设置**，选择麦克风和识别引擎。如果缺少所选本地模型，在主界面点击**开始下载**。云端识别需要 API Key 和区域配置。
+3. **开始说话**。将文字光标放在目标应用中。按住 <kbd>F2</kbd> 说话，松开后插入文字。
 
-基础本地听写不需要 LLM 账号。如需润色、翻译或语音助手，再配置服务商、模型与 API Key，或使用受支持的账号登录。
+你可以在**设置**中修改热键，也可以切换为点击录音模式。
+
+本地听写不需要 AI 账号。如需 AI 润色、翻译或助手，在**设置**中配置服务商和模型，并使用 API Key 或受支持的账号登录。
 
 ## 能做什么
 
 | 功能 | 日常用法 |
 |:--|:--|
 | **听写与翻译** | 用热键把文字输入当前应用，也可翻译为指定语言。 |
-| **实时字幕** | 在悬浮窗查看本地识别结果，区分已确认文本和可修订的预览。 |
-| **AI 润色** | 按自定义要求改写；自动档可在无需润色时保留原文。 |
-| **语音与划词助手** | 提问、改写、翻译、解释和搜索，可选加入应用、选区或截图上下文。 |
-| **个性化** | 添加热词、学习纠错，按应用设置指令、翻译与处理规则。 |
-| **本地历史** | 主动开启后可搜索、导出、删除和重新润色；保存音频后可重新识别。 |
+| **实时字幕** | 在悬浮窗查看本地识别结果，包括已确认文本和可变的预览。 |
+| **AI 润色** | 按你的要求修改文本；自动档可在无需修改时保留原文。 |
+| **语音与划词助手** | 提问、编辑、翻译、解释和搜索，可选加入应用、选中文本或截图上下文。 |
+| **个性化** | 热词、学习到的纠错，以及各应用独立的指令和处理规则。 |
+| **本地历史** | 搜索、导出、删除和重新润色；开启音频保存后也可重新识别。 |
+| **命令行接口** | 控制桌面引擎、诊断本地运行时、转写文件，以及供编码 agent 使用的 JSON 会话。 |
 
 ## 识别引擎
 
@@ -43,53 +46,42 @@
 | **GLM-ASR** | 云端 · 最终结果 | API Key 与区域。 |
 | **阿里 DashScope** | 云端 · 最终结果 | API Key、区域与模型。 |
 
-两个本地引擎均在 Windows 原生运行，无需 WSL。模型单独下载并缓存，FireRedVAD 已内置；GPU 加速不是必需条件。R2T2 的已确认字幕不会回退，预览仍可修订。流式并不保证在所有场景下延迟都更低，详见[实测表现与限制](docs/r2t2-native.md)。
+两个本地引擎均在 Windows 原生运行，无需 WSL。模型单独下载并缓存在本地。应用已内置 FireRedVAD，GPU 加速为可选功能。Confucius4-R2T2 使用独立的[模型许可证](src-tauri/resources/R2T2-MODEL-LICENSE.txt)。
 
-本地引擎的设置中可开启 **音频处理（RE-USE）**，使用 NVIDIA Real-time RE-USE 在识别前处理音频。默认关闭；首次开启下载约 54 MB 原始模型，与识别模型同步加载和空闲卸载。实时模型仅限非商业研究和教育用途；详见 [RE-USE 实测与接入方式](docs/r2t2-native.md#optional-re-use-audio-processing)。
+R2T2 的已确认字幕保持不变，预览文本仍可变化。流式识别不一定降低延迟。详见[实测表现与限制](docs/r2t2-native.md)。
 
-<details>
-<summary><strong>AI 服务商、自动判断与联网搜索</strong></summary>
+本地引擎的设置中可开启**音频处理（RE-USE）**，使用 NVIDIA Real-time RE-USE 在识别前处理音频。此功能默认关闭，首次使用时下载约 54 MB 模型。其许可证仅允许非商业研究和教育用途。详见 [RE-USE 条款与实测](docs/r2t2-native.md#optional-re-use-audio-processing)。
 
-润色与助手可以共用模型，也可以分别设置服务商和模型。预设包含 OpenAI、xAI、DeepSeek、Cerebras 和 SiliconFlow；自定义服务支持 OpenAI 兼容与 Anthropic 格式。应用支持 ChatGPT/Codex 和 Grok Build 账号登录，可用能力取决于账号权限。Codex 模型选择器读取经过认证的上游目录，并按当前推理路径筛选条目。
+## AI 服务
 
-AI 润色、屏幕感知和助手联网搜索均提供 **关闭／开启／自动**。只有自动档会使用所选决策模型判断是否需要处理。在 **设置 → 决策模型** 中选择 TypeSafe（官方）、OpenRouter、Vercel、Liquid AI 或自定义决策接口，并配置 API Key、地址和模型名。缺少密钥、超时或判断不确定时沿用原处理流程；决策模型不会生成替换文本，翻译和明确的编辑操作仍会执行。
+润色与助手可以共用模型，也可以分别设置模型。预设包含 OpenAI、xAI、DeepSeek、Cerebras 和 SiliconFlow，也可添加 OpenAI 兼容或 Anthropic 格式的自定义服务。应用支持 ChatGPT/Codex 和 Grok Build 账号登录。账号权限和用量限制仍然适用。
 
-自动润色以 80% 的无需修改概率为跳过门槛；同时开启自动屏幕感知时，也需要至少 80% 的无需屏幕概率。服务失败会回退到正常润色，并记录在 `app.log` 中。
+AI 润色、屏幕感知和助手联网搜索均提供**关闭／开启／自动**模式。自动模式使用决策模型判断何时启用对应功能。请在**设置 → 决策模型**中配置。
 
-还可单独开启决策模型的纠错规则审核和润色原意检查。原意检查在后台运行，不延迟或替换输出；你亲自确认的纠错规则会保留。
+搜索选项包括受支持服务的内置搜索、Bing、Exa、Tavily 和 Google grounding。部分选项需要 API Key。应用会提示搜索失败，并可在没有网页来源的情况下继续回答。
 
-搜索选项包括受支持服务的模型内置搜索、免密钥 Bing 摘要、可选填 API Key 的 Exa MCP、Tavily 和 Google grounding。Tavily 与 Google 需要密钥；ChatGPT/Codex 登录使用 Exa 联网搜索。服务可能限流或要求浏览器验证，应用会提示搜索失败，并可在没有网页来源的情况下继续回答。
-
-</details>
-
-<details>
-<summary><strong>升级后何时需要下载模型</strong></summary>
-
-原有 Qwen 1.7B 选项会迁移到 R2T2，需要另行下载模型。Qwen 0.6B 和已有模型缓存保留。R2T2 使用独立的[模型许可证](src-tauri/resources/R2T2-MODEL-LICENSE.txt)。
-
-1.7.7 将 Qwen 0.6B 迁移到 audio.cpp，使用不同的 GGUF 文件。从更早的 Qwen 运行时升级并选择该模型时，需要一次性下载约 1.15 GB。下载中断后，如果服务器支持分段请求，重新点击下载即可续传。
-
-</details>
+连接配置和服务默认值见 [API 文档](docs/api-defaults.md)。
 
 ## 数据去向
 
 | 设置 | 数据如何处理 |
 |:--|:--|
-| **本地识别** | 音频在电脑上处理；首次下载模型需要联网。 |
-| **云端识别** | 音频发送给所选识别服务商。 |
-| **润色、助手与决策模型** | 使用时将文本和处理要求发送给对应服务；启用截图、选区上下文或搜索后，也可能发送图片、选中文本或查询。 |
+| **本地识别** | 电脑在本地处理音频；下载模型需要联网。 |
+| **云端识别** | 应用将音频发送给所选识别服务商。 |
+| **润色、助手与决策模型** | 使用时将文本和指令发送给对应服务；上下文和搜索也可能发送图片、选中文本或查询。 |
 | **历史与音频保存** | 两者默认关闭，开启后保存在本地；保存音频需先开启历史。 |
-
-决策模型 API 密钥按服务商分别存入系统凭据库。
 
 完整的网络请求、本地存储和第三方服务说明见[隐私政策](docs/privacy.md)。
 
-[下载已发布版本](https://github.com/sypsyp97/light-whisper/releases/latest)。
+## 命令行接口
+
+安装包包含 `light-whisper-cli.exe`。它支持读取和控制桌面引擎，也支持单独运行本地引擎进行排障。
+命令通过 JSON 和退出码返回结果，适合编码 agent 使用。PowerShell 命令和持续会话示例见 [CLI 指南](docs/cli.md)。
 
 ## 开发文档
 
-[构建与排障](docs/development.md) · [发版流程](docs/releasing.md) · [R2T2 后端](docs/r2t2-native.md) · [形式验证](formal/README.md)
+[构建与排障](docs/development.md) · [发版流程](docs/releasing.md) · [R2T2 后端](docs/r2t2-native.md) · [形式验证](formal/README.md) · [更新记录](CHANGELOG.md)
 
-基于 Tauri、React 和 Rust 构建，Qwen3-ASR 与 Confucius4-R2T2 共用 audio.cpp，并使用 FireRedVAD。
+应用使用 Tauri、React 和 Rust，两个本地识别引擎均使用 audio.cpp。
 
 Light-Whisper 是采用 [GPL-3.0-only](LICENSE) 许可证的开源软件。第三方代码与模型继续适用各自条款，详见 [NOTICE](NOTICE) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

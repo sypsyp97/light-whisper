@@ -1,8 +1,8 @@
-"""Reuse the CPU numerical runner with delayed original-pointer input uploads.
 
-Build artifacts stay in an ignored directory. The baseline must retain exact
-arithmetic equivalence but fail the queued-work criterion. No GPU/model is used.
-"""
+
+
+
+
 import argparse
 import json
 from pathlib import Path
@@ -28,8 +28,8 @@ def main():
     cache_source = args.source.resolve() / "src/framework/runtime/kv_cache.cpp"
     native.TEST = HERE / "native_tests/r2t2_prefill_async_test.cpp"
     native.INTERPOSE = HERE / "native_tests/r2t2_prefill_async_interpose.h"
-    # The frozen asr9 baseline already has the earlier output
-    # graph optimization; do not substitute the shared runner's older fixture.
+
+
     native.BASELINE_LF_SHA256 = "e846316ce0953f9311479bb8083fea09d1917ea1541b0f05ddd3cdc912e54bd0"
     extra_inputs = {str(path): native.sha256(path) for path in
                     (inherited_test, cache_source, Path(__file__).resolve())}
@@ -37,8 +37,8 @@ def main():
     if "--no-build" in sys.argv and json.loads(provenance.read_text()) != extra_inputs:
         parser.error("inherited suite, cache source, or wrapper changed; rerun without --no-build")
 
-    # Compile the cache owner before the cached engine library so the runtime's
-    # current clear_on_backend overload does not depend on that library's ABI.
+
+
     real_run = subprocess.run
     cache_object = build / "prefill_async_cache.obj"
 
@@ -60,8 +60,8 @@ def main():
             command.insert(first_library, str(cache_object))
         return real_run(command, *positional, **kwargs)
 
-    # The shared runner owns compiler discovery, frozen-baseline validation,
-    # input/executable provenance, exact trace comparison, and the work run.
+
+
     native.subprocess.run = run_with_cache
     try:
         result = native.main()

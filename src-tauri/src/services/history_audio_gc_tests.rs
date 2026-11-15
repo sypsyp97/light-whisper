@@ -1,4 +1,4 @@
-// Reuse the public-API fixtures and child-process data isolation in this module.
+
 #[tokio::test]
 async fn history_gc_retains_each_live_owner_and_collects_only_after_the_last_one() {
     if stats_test_in_child(
@@ -82,8 +82,8 @@ fn history_gc_keeps_audio_when_reprocess_finishes_between_ownership_reads() {
         .unwrap();
     assert!(leased.record.audio_available);
 
-    // delete() commits this row deletion before calling the same GC function.
-    // Stop at that real boundary so the test controls both GC ownership reads.
+
+
     let mut gc_connection = super::open_connection().unwrap();
     let transaction = gc_connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -146,7 +146,7 @@ fn history_gc_keeps_audio_when_reprocess_finishes_between_ownership_reads() {
         "GC must check active audio leases"
     );
     if !completed.load(Ordering::SeqCst) {
-        // A GC transaction can legitimately serialize the reprocess behind it.
+
         let mut replacement = stats_draft(502, "completed reprocess");
         replacement.audio_file = Some(audio_file.clone());
         replacement.reprocessed_from_id = Some(source_id);
@@ -213,8 +213,8 @@ fn history_gc_finishes_unlink_before_releasing_its_database_write_lock() {
     let hook_path = path.clone();
     let connection = super::open_connection().unwrap();
     connection.authorizer(Some(move |context: AuthContext<'_>| {
-        // SQLite authorizes COMMIT/ROLLBACK before executing it. rusqlite 0.32
-        // maps COMMIT to Unknown; every non-BEGIN transaction event ends it.
+
+
         if let AuthAction::Transaction { operation } = context.action {
             if operation != TransactionOperation::Begin {
                 hook_ended.store(true, Ordering::SeqCst);
@@ -304,7 +304,7 @@ fn history_gc_retains_audio_on_either_ownership_query_failure_and_retries() {
             wav
         );
 
-        // A failed check must also release its transaction for the next attempt.
+
         let writer = super::open_connection().unwrap();
         writer.busy_timeout(Duration::ZERO).unwrap();
         writer.execute_batch("BEGIN IMMEDIATE; ROLLBACK").unwrap();
@@ -314,8 +314,8 @@ fn history_gc_retains_audio_on_either_ownership_query_failure_and_retries() {
     complete_stats_test();
 }
 
-// Windows enforces deny-delete sharing on an open file. Unix permits unlinking
-// open files, so this deterministic OS fault is intentionally Windows-only.
+
+
 #[cfg(target_os = "windows")]
 #[tokio::test]
 async fn history_gc_unlink_failure_preserves_committed_delete_and_retries() {

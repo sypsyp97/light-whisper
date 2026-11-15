@@ -1,6 +1,6 @@
 #pragma once
 
-// Force-included only in the runtime TU. The queue executes real CPU graphs.
+
 #include "engine/framework/core/backend.h"
 
 void r2t2_queue_tensor_set(ggml_backend_t backend, ggml_tensor * tensor,

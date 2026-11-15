@@ -4,7 +4,6 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-/// 单条搜索结果
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
@@ -63,9 +62,6 @@ fn redact_search_secret(text: &str, secret: &str) -> String {
     }
 }
 
-// ── Exa MCP ─────────────────────────────────────────────────────────
-
-/// JSON-RPC 2.0 响应
 #[derive(Deserialize)]
 struct JsonRpcResponse {
     result: Option<McpResult>,
@@ -131,7 +127,6 @@ pub async fn exa_search(
         ));
     }
 
-    // 响应可能是 SSE（text/event-stream）或纯 JSON
     let raw = resp
         .text()
         .await
@@ -189,13 +184,6 @@ fn push_content_line(content: &mut String, line: &str) {
     content.push_str(line);
 }
 
-/// 解析 Exa MCP 的带标签文本块：
-/// ```text
-/// Title: ...
-/// URL: ...
-/// Published Date: ...
-/// Text: ...
-/// ```
 fn parse_exa_text_block(block: &str) -> SearchResult {
     let mut title = String::new();
     let mut url = String::new();
@@ -253,8 +241,6 @@ fn extract_final_json_data_line(raw: &str) -> Option<&str> {
                 && (data.starts_with('{') || data.starts_with('['))
         })
 }
-
-// ── Tavily（API，需要 Key）─────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct TavilyResponse {
@@ -320,8 +306,6 @@ pub async fn tavily_search(
         })
         .collect())
 }
-
-// ── Google Search Grounding（Gemini API，需要 Google AI API Key）────
 
 fn google_grounding_request(query: &str) -> serde_json::Value {
     serde_json::json!({
@@ -555,7 +539,6 @@ fn parse_google_grounding_response(
         return parse_google_interaction_response(value, max_results);
     }
 
-    // 兼容旧 generateContent 响应，便于解析历史 fixtures 和服务端回退。
     let candidate = value
         .get("candidates")
         .and_then(serde_json::Value::as_array)
@@ -623,8 +606,7 @@ fn parse_google_grounding_response(
         results.push(SearchResult {
             title,
             url: url.to_string(),
-            // Grounding 返回的是带来源约束的综合摘要，而不是每个页面的抓取正文。
-            // 只放入第一条，避免同一摘要重复占用提示词预算。
+
             content: if results.is_empty() {
                 answer.clone()
             } else {
@@ -753,9 +735,6 @@ pub async fn google_grounded_search(
     })
 }
 
-// ── 公共工具 ────────────────────────────────────────────────────────
-
-/// UTF-8 安全的字符串截断
 fn truncate_str(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {
         return s;
@@ -767,7 +746,6 @@ fn truncate_str(s: &str, max_bytes: usize) -> &str {
     &s[..end]
 }
 
-/// 将不可信搜索结果渲染为用户侧 XML 上下文（使用 CDATA 转义）。
 pub fn dedupe_search_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
     let mut seen = HashSet::new();
     results
@@ -928,7 +906,7 @@ mod tests {
         let request_function = source
             .split("pub async fn google_grounded_search")
             .nth(1)
-            .and_then(|source| source.split("// ── 公共工具").next())
+            .and_then(|source| source.split("fn truncate_str(").next())
             .expect("Google Grounding request function must remain inspectable");
 
         assert!(request_function.contains("/v1beta/interactions"));
@@ -1218,8 +1196,6 @@ pub(super) fn parse_exa_response(raw: &str) -> Result<Vec<SearchResult>, String>
         return Err("SEARCH_INVALID_RESPONSE: Exa response was missing content".to_string());
     };
 
-    // Exa MCP returns text blocks with labels. A block may contain blank lines
-    // inside Highlights/Text, so split only at the next result title.
     let mut results = Vec::new();
     for block in content_blocks {
         let text = block.text.trim();

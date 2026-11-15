@@ -56,25 +56,8 @@ pub(crate) fn responses_api_url(api_url: &str) -> String {
     }
 }
 
-/// Wire value for OpenAI OAuth fast-mode priority processing.
-///
-/// Why "priority" and not "fast":
-///   The user-facing label ("fast mode" / "快速模式") is the product name, but
-///   the HTTP body value accepted by the OpenAI Responses API is "priority".
-///   Official Codex CLI remaps `ServiceTier::Fast` → `"priority"` before
-///   sending — see openai/codex `codex-rs/core/src/client.rs` (main, line
-///   938-942 as of 2026-04-20):
-///     Some(ServiceTier::Fast) => Some("priority".to_string()),
-///
-/// Accepted `service_tier` values per the current public OpenAI request docs are
-/// `auto | default | flex | priority`. "fast" is NOT a valid wire
-/// value; sending it causes the backend to silently ignore the field (this
-/// was the pre-fix bug, matching openai/codex issue #14204).
 pub(crate) const OPENAI_FAST_MODE_SERVICE_TIER: &str = "priority";
 
-/// OpenAI Responses API `service_tier` wire-level whitelist. Used by tests
-/// to independently verify that whatever we inject is actually a legal value
-/// the backend will accept — not just whatever we happen to have written.
 #[cfg(test)]
 pub(crate) const OPENAI_RESPONSES_SERVICE_TIER_WHITELIST: &[&str] =
     &["auto", "default", "flex", "priority"];
@@ -120,8 +103,6 @@ pub(crate) fn adapt_body_for_backend(
         }
     }
     if uses_chatgpt_backend {
-        // The ChatGPT Codex backend rejects this Responses API field, so avoid
-        // a guaranteed failed first request before the compatibility retry.
         strip_output_token_limits(&mut adapted);
     }
 
@@ -197,19 +178,9 @@ pub(crate) fn remember_output_token_limit_unsupported(endpoint: &LlmEndpoint) {
         .lock()
         .insert(output_token_limit_unsupported_cache_key(endpoint));
 }
-/// `ensure_non_empty_llm_content` 产生的错误消息的稳定前缀。
-/// 调用方（例如 polish 4 段 transport fallback）需要识别这条错误来决定
-/// 是否短路重试——同一个 prompt 在另一个 transport stage 通常也会回空，
-/// 没必要再花 3 次 LLM 请求。
+
 pub(crate) const EMPTY_LLM_RESPONSE_ERROR_PREFIX: &str = "LLM 响应为空（";
 
-/// 把"HTTP 成功但没产生任何可用文本"统一映射为错误，并把 provider/model
-/// 信息塞到错误里便于诊断。`source` 用于区分调用栈
-/// （例如 "non_stream"、"openai_chat_sse_done"、"openai_chat_sse_eos"、
-/// "anthropic_sse_message_stop"、"anthropic_sse_eos"）。
-///
-/// 注：reasoning-only / tool-call-only 等"合法的空文本"响应不走这个路径。
-/// OpenAI Responses SSE 在 `read_openai_responses_sse_stream` 中独立处理。
 pub(crate) fn ensure_non_empty_llm_content(
     content: String,
     endpoint: &LlmEndpoint,
@@ -225,20 +196,10 @@ pub(crate) fn ensure_non_empty_llm_content(
     }
 }
 
-/// 识别 `ensure_non_empty_llm_content` 产生的"空响应"错误。其它来源的错误
-/// 字符串里只要不是手工拼接 EMPTY_LLM_RESPONSE_ERROR_PREFIX，就不会撞这个
-/// 前缀（中文 + 全角括号的组合在错误信息里很罕见）。
 pub(crate) fn is_empty_llm_response_error(err: &str) -> bool {
     err.starts_with(EMPTY_LLM_RESPONSE_ERROR_PREFIX)
 }
 
-/// 把 Responses SSE 流读到尾时的 "是否为空" 判定统一到一处。
-/// 优先级：accumulated 非空 → fallback_content 非空 → 委托
-/// `ensure_non_empty_llm_content` 让上层短路 transport fallback。
-///
-/// 注：这里沿用 [DONE] / Ok(None) / response.completed 三个分支原本的
-/// `!is_empty()` 语义（不做 trim），避免改变现有行为；真正的 trim 检查由
-/// 下游 `ensure_non_empty_llm_content` 在最终 Err 路径上负责。
 pub(crate) fn finalize_responses_sse_accumulated(
     accumulated: String,
     fallback_content: Option<String>,
@@ -364,7 +325,6 @@ pub(crate) fn extract_openai_compat_error_message(body_text: &str) -> Option<Str
     }
 }
 
-/// Terminal auth/policy/quota failures cannot be recovered by changing transport.
 pub(crate) fn is_terminal_provider_error(error: &str) -> bool {
     error.contains("CHATGPT_PLAN_ERROR:")
         || error.contains("API 返回错误 401")

@@ -1,4 +1,4 @@
-"""Production initialization must route streamed silence through VAD."""
+
 import contextlib
 import unittest
 from unittest.mock import Mock,patch

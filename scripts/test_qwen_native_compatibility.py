@@ -23,7 +23,7 @@ ROOT = next(path for path in Path(__file__).resolve().parents
             if (path / "src-tauri/resources/qwen3_native.py").is_file())
 RESOURCES = ROOT / "src-tauri/resources"
 sys.path.insert(0, str(ROOT / "scripts"))
-# Reuse the established PCM16 conversion/validation and file hashing helper.
+
 from test_r2t2_native_cache import read_wav, require, sha256
 
 
@@ -112,7 +112,7 @@ def check_reference(reference, report):
                     f"reference {language} {key} input changed")
     require(reference["provenance"]["dependencies"]["dll_sha256"] ==
             report["provenance"]["dependencies"]["dll_sha256"], "reference dependency DLLs changed")
-    # A modified/stale trace must not masquerade as the declared input recipe.
+
     expected = [{"action": item["name"], "pcm": item["decode_pcm"],
                  "context": item["context"], "language": item["language"]}
                 for item in report["plan"] if item["decode"]]
@@ -141,7 +141,7 @@ def execute(native, clips, report, save):
         record = {"input": observed, "status": "running"}
         report["decodes"].append(record)
         report["stage"] = {"operation": "native.run", "action": item["name"]}
-        save()  # Native aborts leave a running operation, never a false PASS.
+        save()
         try:
             result = native.run(pcm, context=context, language=language, timestamps="none")
             record.update(status="pass", output={"text": result.text, "language": result.language})
@@ -214,7 +214,7 @@ def main():
     if args.output.exists():
         parser.error("--output exists; choose a fresh path")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    # Exclusive creation prevents accidental replacement of a frozen report.
+
     with args.output.open("x", encoding="utf-8") as output:
         report = {"schema": SCHEMA, "mode": "check" if args.reference else "capture",
                   "created_utc": datetime.now(timezone.utc).isoformat(), "pid": os.getpid(),

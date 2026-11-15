@@ -1,13 +1,14 @@
 {
   "name": "light-whisper",
   "private": true,
-  "version": "1.7.14",
+  "version": "1.8.0",
   "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
+    "cli": "python scripts/light_whisper_cli.py",
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:distribution": "node scripts/verify_engine_archive.mjs && pnpm build",
+    "build:distribution": "node scripts/verify_engine_archive.mjs && uv run --locked python scripts/build_cli.py --verify && pnpm build",
     "check": "pnpm check:whitespace && pnpm lint && pnpm test && pnpm build && pnpm check:bundle",
     "check:whitespace": "git diff --check HEAD",
     "check:bundle": "node scripts/check_bundle_budget.mjs",

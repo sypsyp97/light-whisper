@@ -1,4 +1,4 @@
-"""Regression for the real English clip's sentence boundary after VAD splitting."""
+
 import unittest
 from unittest.mock import Mock
 import numpy as np

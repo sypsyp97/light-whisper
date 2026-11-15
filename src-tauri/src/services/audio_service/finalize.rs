@@ -68,8 +68,6 @@ fn can_reuse_interim(
         && !cache.text.trim().is_empty()
 }
 
-// ---------- 最终转写 + 粘贴 ----------
-
 #[derive(Clone, Copy)]
 enum EditGrabStatus {
     Ok,
@@ -234,8 +232,7 @@ fn resolve_recording_app_profile(
         Some(app) if !app.process_name.trim().is_empty() => {
             profile.resolve_app_profile(&app.process_name, &app.window_title)
         }
-        // 无法确认进程身份时，不能确定用户是否为该应用配置了隐私规则。
-        // 仅关闭会捕获或持久化内容的功能；听写和显式助手请求仍可继续。
+
         _ => ResolvedAppProfile {
             screen_context_enabled: Some(false),
             history_enabled: Some(false),
@@ -272,7 +269,7 @@ pub async fn finalize_recording(
         })
         .await;
     }
-    // 等待 interim 任务自然结束；超时则 abort 以释放 funasr_process 锁
+
     if let Some(t) = interim_task {
         let abort_handle = t.abort_handle();
         if tokio::time::timeout(std::time::Duration::from_secs(5), t)
@@ -284,8 +281,6 @@ pub async fn finalize_recording(
         }
     }
 
-    // The capture thread is joined: Finish now includes its final samples and
-    // the resampler tail. A native result never falls back to whole-clip ASR.
     let native_finish_start = Instant::now();
     let native_result = match native_recording {
         Some(recording) => Some(recording.finish().await.map_err(|error| error.to_string())),
@@ -295,9 +290,6 @@ pub async fn finalize_recording(
         .as_ref()
         .map(|_| elapsed_ms(native_finish_start));
 
-    // 选中文本保留在本地变量里，不写全局。两个 finalize 并发时也彼此隔离：
-    // edit_grab 来自各自 session 的 RecordingSession，edit_context 只在本函数
-    // 作用域存活，不存在跨会话串位的机会。
     let (edit_context, edit_grab_status): (Option<String>, EditGrabStatus) = match edit_grab {
         Some(handle) => {
             let abort_handle = handle.abort_handle();
@@ -392,15 +384,6 @@ pub async fn finalize_recording(
         sample_rate,
     };
 
-    // 优先复用 interim 缓存，否则重新 ASR。
-    //
-    // 复用条件（全部成立才复用，否则重跑 do_final_asr）：
-    //   1. 录音必须完整落在 interim 窗口内 (final_count <= 12s * sample_rate)。
-    //      interim 缓存的是"最后 12 秒"的转写，用它顶替更长的 final 会直接丢
-    //      录音开头那段的文本（比率 >0.9 也一样丢，只是用户感知为"前几个字没了"）。
-    //   2. 缓存必须覆盖每一个最终样本，任何尾部间隙都需要重新识别。
-    //      未处理的尾部可能包含语音，不能仅凭间隙时长判定为静音。
-    //   3. interim 确实返回了非空文本。
     let asr_start = Instant::now();
     let (asr_text, detected_lang): (Result<String, String>, Option<String>) =
         if let Some(result) = native_result {
@@ -496,11 +479,10 @@ pub async fn finalize_recording(
         return;
     }
 
-    // 先发布结果并排队输出；历史音频编码、写盘和清理不阻塞用户结果。
     if mode == RecordingMode::Dictation && edit_context.is_some() {
         let selected_text = edit_context.unwrap_or_default();
         let edit_started = Instant::now();
-        // 编辑模式：ASR 结果是语音指令，用它改写选中文本
+
         log::info!(
             "编辑模式：指令{}字符，选中文本{}字符",
             text.chars().count(),
@@ -651,8 +633,6 @@ pub async fn finalize_recording(
         .with_explicit_screen_context(screen_context_explicit);
         let (assistant_generation, cancel_rx) = state.ui.begin_assistant_chat_task();
         let assistant_pipeline = async {
-            // 搜索判断、搜索关键词和最终生成都基于校正后的语音请求。
-            // 显式关闭翻译覆盖，避免“翻译输出”设置改变用户实际发给助手的指令。
             let polish_outcome = ai_polish_service::polish_text_with_overrides_detailed(
                 state.inner(),
                 &original_request,
@@ -789,7 +769,6 @@ pub async fn finalize_recording(
             }
         }
     } else {
-        // 普通听写模式
         let original = text.clone();
         let ai_polish_enabled = app_profile
             .ai_polish_enabled
@@ -937,8 +916,6 @@ pub async fn finalize_recording(
 }
 
 pub async fn discard_recording(session: RecordingSession) {
-    // 中止本会话持有的 grab handle（spawn_blocking 不可抢占，但 abort 会让
-    // JoinHandle 提前 detach，结果被丢弃，不会影响后续会话）。
     if let Some(grab) = session.edit_grab {
         grab.abort();
     }
@@ -1004,8 +981,6 @@ async fn do_final_asr(
         Err(e) => Err(format!("语音识别失败: {}", e)),
     }
 }
-
-// ---------- 事件发送 ----------
 
 #[allow(clippy::too_many_arguments)]
 fn emit_done_with_timing(
@@ -1172,8 +1147,6 @@ fn emit_recording_state_snapshot(
     let _ = app.emit("recording-state", payload);
 }
 
-// ---------- 粘贴逻辑 ----------
-
 pub(crate) fn flush_pending_paste(app: &tauri::AppHandle) {
     let app = app.clone();
     tokio::spawn(async move {
@@ -1212,8 +1185,6 @@ pub(crate) fn flush_pending_paste(app: &tauri::AppHandle) {
     });
 }
 
-/// Recording reservation shares this dispatch mutex; native focus and input
-/// remain sampled OS operations, and failures are returned for explicit recovery.
 pub(super) async fn drain_pending_pastes<F, Fut>(
     state: &AppState,
     current_window: impl Fn() -> Option<isize>,
@@ -1373,7 +1344,7 @@ mod tests {
     fn dictation_pastes_once_after_polish_completes() {
         let source = include_str!("finalize.rs");
         let dictation_branch = source
-            .split("// 普通听写模式")
+            .split("let original = text.clone();")
             .nth(1)
             .and_then(|source| source.split("pub async fn discard_recording").next())
             .expect("normal dictation branch should exist");

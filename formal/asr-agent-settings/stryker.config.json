@@ -1,0 +1,26 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "mutate": ["src/hooks/useAsrEngineSettings.ts"],
+  "vitest": {
+    "configFile": "formal/asr-agent-settings/frontend-verification.config.ts",
+    "related": false,
+    "pool": "forks"
+  },
+  "coverageAnalysis": "perTest",
+  "concurrency": 1,
+  "incremental": false,
+  "ignoreStatic": false,
+  "allowEmpty": false,
+  "cleanTempDir": false,
+  "tempDirName": ".stryker-tmp-asr-settings",
+  "ignorePatterns": ["reports/**"],
+  "reporters": ["clear-text", "progress", "json", "html"],
+  "jsonReporter": { "fileName": "reports/asr-settings/mutation/mutation.json" },
+  "htmlReporter": { "fileName": "reports/asr-settings/mutation/mutation.html" },
+  "dryRunTimeoutMinutes": 5,
+  "timeoutMS": 5000,
+  "timeoutFactor": 2,
+  "thresholds": { "high": 100, "low": 100, "break": 0 }
+}

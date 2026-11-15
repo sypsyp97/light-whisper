@@ -4,7 +4,6 @@ use crate::state::{AppState, RecordingMode, RecordingPhase};
 use crate::utils::AppError;
 use tauri::{Emitter, Manager};
 
-/// 使用 Windows API 强制将窗口置于最顶层
 #[cfg(target_os = "windows")]
 fn force_window_topmost(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -48,7 +47,6 @@ fn require_window(
         .ok_or_else(|| AppError::Tauri(missing_message.to_string()))
 }
 
-/// 获取光标所在显示器（物理坐标比对）
 #[cfg(target_os = "windows")]
 fn find_cursor_monitor(app_handle: &tauri::AppHandle) -> Option<tauri::Monitor> {
     use windows_sys::Win32::Foundation::POINT;
@@ -269,9 +267,6 @@ fn show_subtitle_window_unlocked(
     }
 
     if let Some((session_id, show_gen)) = session {
-        // Keep the recording slot locked through the synchronous OS show call.
-        // A quick cancel therefore either wins before this check (no show) or
-        // waits until the window is visible and then schedules a guarded hide.
         let state = app_handle.state::<AppState>();
         if state.recording.subtitle_show_gen.load(Ordering::Acquire) != show_gen {
             return Ok(stale_session_show_result(session_id, show_gen));
@@ -291,13 +286,11 @@ fn show_subtitle_window_unlocked(
             .map_err(|e| tauri_error("显示字幕窗口失败", e))?;
     }
 
-    // 确保窗口在最顶层（Windows 上 hide/show 后可能丢失置顶状态）
-    // 先用 Tauri API 置顶
     let _ = window.set_always_on_top(false);
     if let Err(err) = window.set_always_on_top(true) {
         log::warn!("设置字幕窗口置顶失败: {}", err);
     }
-    // 再通过 Windows API 强制置顶，避免被其他窗口遮挡
+
     #[cfg(target_os = "windows")]
     force_window_topmost(&window);
 

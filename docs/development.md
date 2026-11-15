@@ -33,10 +33,14 @@ not stored in Git, so build it first:
 uv run --locked python scripts/build_r2t2_runtime.py --backend cpu
 uv run --locked python scripts/build_r2t2_runtime.py --backend cuda --cuda-root "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.9"
 uv run --locked python scripts/build_engine.py
+uv run --locked python scripts/build_cli.py
 pnpm tauri build
 ```
 
 The NSIS installer is written to `src-tauri/target/release/bundle/nsis/`.
+The standalone CLI is installed beside the desktop executable.
+Distribution builds verify its embedded entry code and package metadata against the checkout.
+Run `uv run --locked python scripts/build_cli.py --verify` to repeat this check.
 7-Zip uses a solid XZ archive, a 256 MiB dictionary and x86 BCJ filtering.
 Files are ordered by size so large native libraries can share dictionary history.
 The NSIS wrapper uses zlib around the precompressed engine.
@@ -64,6 +68,33 @@ uv run python src-tauri/resources/download_models.py --engine confucius4-r2t2
 ```
 
 For China mainland downloads, set `HF_ENDPOINT=https://hf-mirror.com` before prefetching.
+
+## Agent debugging CLI
+
+See the [CLI guide](cli.md) for commands, targets, sessions and exit codes.
+The default target connects to the desktop instance. Independent mode starts
+its own local engine with offline model access and a temporary data directory.
+Independent mode reads the saved engine and model directory.
+Use `--engine` to override the engine selection for that run.
+
+```powershell
+pnpm --silent cli doctor
+pnpm --silent cli --target engine --threads 2 status
+pnpm --silent cli --engine confucius4-r2t2 transcribe sample.wav --language en
+python -m unittest discover -s scripts -p "test_*cli*.py" -v
+```
+
+Source inference requires the Python environment, native runtimes and existing
+model files described above. `doctor` checks configuration and file presence.
+It does not load a model. Capture command output, stderr and exit codes outside
+runtime directories. Confirm that owned children exit after a test.
+A separate engine run does not verify the desktop connection or the installed CLI.
+The [native host verification](../formal/agent-api-host/README.md) runs the real
+application control path without application windows. It uses an isolated profile
+and a synthetic engine. Keep this lifecycle evidence separate from model inference.
+
+The finite models, negative controls and correspondence boundaries are in
+[CLI protocol verification](../formal/cli/README.md).
 
 ## Checks
 
@@ -135,6 +166,12 @@ probability. A pass also requires a valid complete distribution and no explicit
 screen, translation or edit requirement. Correction-rule deletion and meaning
 audits keep their separate review thresholds.
 
+
+## Documentation
+
+Use [ASD-STE100 Issue 9](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf) for English documentation.
+Use short sentences and consistent technical terms. Use the labels shown in the app.
+Describe current features in the README files. Put version history in `CHANGELOG.md`.
 
 ## Repository map
 

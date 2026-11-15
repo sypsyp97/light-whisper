@@ -1,4 +1,4 @@
-"""Source correspondence only; Rust/React tests exercise deadline and skip behavior."""
+
 
 import re
 import tempfile

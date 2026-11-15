@@ -1,4 +1,4 @@
-"""Local stdio server adapter for the resident Confucius4-R2T2 runtime."""
+
 
 import hashlib
 import os
@@ -23,11 +23,11 @@ from server_common import (
 logger = setup_rotating_logger(__name__, "r2t2_asr_server.log", "R2T2服务器")
 
 class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
-    """Keep the native model resident for streaming and bounded offline work.
 
-    Idle unload, when enabled, frees the native model only while no stream
-    is active. The next transcribe or stream_start calls initialize().
-    """
+
+
+
+
 
     _stream_display_name = "R2T2"
 
@@ -73,10 +73,10 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
         return str(candidate)
 
     def _suspend_gpu_runtime(self):
-        """Free the native model. Caller must hold the command lock.
 
-        An active stream blocks unload; FireRedVAD stays on CPU.
-        """
+
+
+
         if not getattr(self, "initialized", False):
             return False
         if self._stream_is_active():
@@ -115,17 +115,17 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
                     model_path,
                     backend_root / "audiocpp.dll",
                     backend=backend,
-                    # Paired paced playback improved preview cadence on CUDA;
-                    # keep the larger batch for slower CPU inference.
+
+
                     chunk_ms=160 if backend == "cuda" else 320,
                     rolling=True,
-                    # Frozen bundles share identical CUDA/CRT DLLs with Qwen
-                    # at _internal; standalone native builds keep local copies.
+
+
                     dll_directories=(runtime_root.parent,),
                 )
                 if backend == "cuda":
-                    # Pay the first CUDA setup cost before reporting ready.
-                    # Reset even on failure; warmup must not enter a recording.
+
+
                     try:
                         candidate.start()
                         candidate.feed(

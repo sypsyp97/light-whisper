@@ -170,7 +170,6 @@ fn background_failure_is_observable_and_retry_saves_current_state() {
                 Some("failed background snapshot")
             );
 
-            // A retry must read AppState again, including changes made after the failure.
             state.update_profile_mut(|profile| {
                 profile.custom_prompt = Some("latest state at retry".into());
             });
@@ -218,8 +217,6 @@ async fn older_completion_preserves_newer_snapshot(fail_older: bool) {
     let newest_status = status_json();
     assert_eq!(newest_status["state"], "saving");
 
-    // Queue ahead of the newer debounce task on this single-thread runtime.
-    // Holding this guard after the old write finishes isolates its completion.
     let mut next_write_guard = Box::pin(profile_save_lock().lock());
     poll_fn(|cx| {
         assert!(next_write_guard.as_mut().poll(cx).is_pending());

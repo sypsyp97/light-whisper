@@ -1,6 +1,6 @@
 [package]
 name = "light-whisper"
-version = "1.7.14"
+version = "1.8.0"
 description = "轻语 - 本地与云端语音转文字桌面应用"
 authors = ["sun"]
 license = "GPL-3.0-only"
@@ -15,78 +15,78 @@ tauri-build = { version = "2", features = [] }
 sha2 = "0.10"
 
 [dependencies]
-# Tauri 核心
+
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-log = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 
-# 序列化
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
-# 异步运行时
+
 tokio = { version = "1", features = ["rt", "io-util", "sync", "time", "process", "fs", "macros", "net"] }
 
-# 用户目录路径
+
 dirs = "6"
 
 
-# 日志
+
 log = "0.4"
 
-# Base64 编解码
+
 base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
 webbrowser = "1"
-# Existing TLS crypto dependency; verifies OpenAI's RS256 ID tokens.
+
 ring = "0.17"
 pinyin = { version = "0.11", default-features = false, features = ["plain"] }
 
-# 原生音频捕获
+
 cpal = "0.15"
 
-# HTTP 请求（AI 润色服务）
+
 reqwest = { version = "0.12", features = ["json", "multipart", "rustls-tls", "stream"], default-features = false }
 eventsource-stream = "0.2"
 tokio-stream = "0.1"
 
-# 系统密钥环（安全存储 API Key）
+
 tauri-plugin-keyring = "0.1"
 keyring = "3.6.3"
 
-# 错误处理
+
 thiserror = "2"
 
-# 高质量音频重采样
+
 rubato = "0.16"
 
-# 无 poison 的高性能互斥锁
+
 parking_lot = "0.12"
 arc-swap = "1.7"
 
-# WAV 编解码
+
 hound = "3.5"
 
-# 本地转写历史（使用 bundled SQLite，避免依赖系统 SQLite）
+
 rusqlite = { version = "0.32", features = ["bundled"] }
 
-# 引擎归档解压（首次启动解压 engine.tar.xz，兼容旧 engine.zip）
+
 tar = "0.4"
 xz2 = "0.1"
 zip = "2"
 
-# 原生文件/文件夹选择对话框
+
 rfd = "0.15"
 scraper = { version = "0.27", default-features = false }
 
-# Windows 键盘模拟
+
 [target.'cfg(target_os = "windows")'.dependencies]
 wasapi = "0.23"
-windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Media_Audio", "Win32_Storage_FileSystem", "Win32_Graphics_Gdi"] }
+windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Media_Audio", "Win32_Storage_FileSystem", "Win32_Graphics_Gdi", "Win32_Security_Authorization", "Win32_System_SystemServices"] }
 uiautomation = { version = "0.24", features = ["clipboard"] }
 xcap = { version = "0.9", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }

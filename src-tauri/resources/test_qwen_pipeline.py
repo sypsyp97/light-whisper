@@ -1,4 +1,4 @@
-"""CPU/native overlap and full-capture Stop scheduling; no models or GPU."""
+
 
 import gc
 import os
@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import qwen3_native
 
 
-TIMEOUT = 5  # Deadlock guard; event ordering, rather than elapsed time, is tested.
+TIMEOUT = 5
 
 
 class _Call:
@@ -36,7 +36,7 @@ class _Call:
 
 
 class _StreamCaller:
-    """Keep every runtime operation on one caller, even while testing a block."""
+
 
     def __init__(self):
         self.calls = queue.Queue()
@@ -212,7 +212,7 @@ class QwenPipelineTests(unittest.TestCase):
         for start in range(3200, len(pcm), 3200):
             borrowed = pcm[start:start + 3200].copy()
             self.assertEqual(self.caller.submit(lambda: runtime.feed(borrowed)).result(), ("", "zh"))
-            borrowed.fill(1)  # Feed already owns raw PCM and its prepared pending work.
+            borrowed.fill(1)
             prepare.wait_prepared(start // 3200 + 1)
             gc.collect()
             prepare.wait_released(range(1, len(prepare.prepared_refs) - 1))

@@ -16,7 +16,7 @@ import test_r2t2_logmel_cache as harness
 from build_r2t2_runtime import ROOT, build_environment
 
 
-# Canonical LF hashes of the shipping-source owners before Qwen cache reuse.
+
 FROZEN_SHA256 = {
     "src/models/qwen3_asr/frontend_whisper.cpp": "11096fde6f6134916e6afa575c30c35b395bc9d88de9c0311ad8d9449a94995e",
     "include/engine/models/qwen3_asr/frontend_whisper.h": "daabb532f3cb6911909a1189dc27ada2681693c48834de2accff1f7451d9f86e",
@@ -52,7 +52,7 @@ def main():
     harness.inputs = inputs
     env, _ = build_environment()
     env = {key.upper(): value for key, value in env.items()}
-    # CL is MSVC's documented per-process command prefix; no global setting.
+
     env["CL"] = env.get("CL", "") + " /DLIGHT_WHISPER_QWEN_FRONTEND_TEST"
     compiler, linker = (shutil.which(name, path=env["PATH"]) for name in ("cl.exe", "link.exe"))
     if not compiler or not linker:

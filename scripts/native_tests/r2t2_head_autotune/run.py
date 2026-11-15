@@ -110,7 +110,7 @@ def main():
     env, _ = runpy.run_path(str(helper))["build_environment"]()
     env = {key.upper(): value for key, value in env.items()}
     env["PATH"] = str(sdk / "bin") + os.pathsep + env["PATH"]
-    env["GGML_CUDA_DISABLE_GRAPHS"] = "1"  # Process-local; test manual raw capture explicitly.
+    env["GGML_CUDA_DISABLE_GRAPHS"] = "1"
     compiler = sdk / "bin/nvcc.exe"
     linker = shutil.which("link.exe", path=env["PATH"])
     if not compiler.is_file() or not linker:
@@ -136,7 +136,7 @@ def main():
         execute([compiler, *flags, "-I" + str(HERE), "-c", HERE / "autotune_test.cu",
                  "-o", build / "fixture.obj"], "compile-fixture", 0)
         executable = build / "autotune_test.exe"
-        # Explicit dispatcher object satisfies its archive members' symbols first.
+
         execute([linker, "/nologo", "/OPT:REF", f"/OUT:{executable}", build / "fixture.obj", build / "dispatcher.obj",
                  *[libraries / name for name in LIBRARIES], f"/LIBPATH:{sdk / 'lib/x64'}",
                  "cudart.lib", "cublas.lib", "cublasLt.lib", "cuda.lib", "cudadevrt.lib",

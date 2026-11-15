@@ -1,19 +1,8 @@
-//! FunASR stdin/stdout protocol types and response parsing.
-
 use crate::utils::AppError;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 
-/// 发送给 Python 服务器的命令
-///
-/// Python 端期望的 JSON 格式是扁平的：
-/// - `{"action": "status"}`
-/// - `{"action": "transcribe", "audio_path": "/path/to/file.wav"}`
-/// - `{"action": "exit"}`
-///
-/// 使用 `#[serde(tag = "action")]` 生成带 `action` 字段的扁平 JSON，
-/// `rename_all = "snake_case"` 将变体名转为小写下划线格式。
 #[derive(Debug, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ServerCommand {
@@ -40,86 +29,85 @@ pub enum ServerCommand {
     StreamCancel {
         session_id: u64,
     },
-    /// 转写音频文件
+
     Transcribe {
         #[serde(skip_serializing_if = "Option::is_none")]
         options: Option<crate::state::user_profile::R2T2Config>,
-        /// 音频文件的路径
+
         #[serde(skip_serializing_if = "Option::is_none")]
         audio_path: Option<String>,
-        /// 内存音频负载（Base64）
+
         #[serde(skip_serializing_if = "Option::is_none")]
         audio_base64: Option<String>,
-        /// 内存音频编码格式
+
         #[serde(skip_serializing_if = "Option::is_none")]
         audio_format: Option<String>,
-        /// 内存音频采样率
+
         #[serde(skip_serializing_if = "Option::is_none")]
         sample_rate: Option<u32>,
-        /// 热词列表（可选）
+
         #[serde(skip_serializing_if = "Option::is_none")]
         hot_words: Option<Vec<String>>,
     },
-    /// 查询服务器状态
+
     Status,
-    /// 更新 GPU 空闲卸载秒数。0 表示关闭，不重启进程。
+
+    Stats,
+
     SetGpuIdle {
         seconds: u64,
     },
     SetAudioProcessing {
         enabled: bool,
     },
-    /// 退出服务器
+
     Exit,
 }
 
-/// Python 服务器的 JSON 响应
-///
-/// 这个结构体对应 Python 服务器返回的 JSON 格式。
-/// `Option<T>` 表示字段可能存在也可能不存在。
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct ServerResponse {
     pub(super) tentative_text: Option<String>,
     pub(super) session_id: Option<u64>,
     pub(super) sample_count: Option<usize>,
     #[serde(rename = "final")]
     pub(super) is_final: Option<bool>,
-    /// 请求 ID；新协议用于丢弃取消/超时后迟到的旧响应
+
     pub(super) request_id: Option<u64>,
-    /// 操作是否成功
+
     pub(super) success: Option<bool>,
-    /// 状态标识
+
     pub(super) status: Option<String>,
-    /// 转写得到的文本
+
     pub(super) text: Option<String>,
-    /// 音频时长
+
     pub(super) duration: Option<f64>,
-    /// 错误信息
+
     pub(super) error: Option<String>,
-    /// 检测到的语言
+
     pub(super) language: Option<String>,
-    /// 附加消息
+
     pub(super) message: Option<String>,
-    /// 模型是否已加载
+
     pub(super) model_loaded: Option<bool>,
-    /// 模型是否已初始化（Python status 返回）
+
     pub(super) initialized: Option<bool>,
-    /// 模型加载状态
+
     pub(super) models: Option<ServerModelStatus>,
-    /// 设备信息
+
     pub(super) device: Option<String>,
-    /// GPU 名称
+
     pub(super) gpu_name: Option<String>,
-    /// GPU 总显存（GB）
+
     pub(super) gpu_memory_total: Option<f64>,
-    /// 当前引擎
+
     pub(super) engine: Option<String>,
-    /// 服务端实际采用的输入模式（memory/path）
+
     pub(super) input_mode: Option<String>,
+
+    pub(super) stats: Option<serde_json::Value>,
 }
 
-/// Python status 返回的模型状态
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(super) struct ServerModelStatus {
     pub(super) asr: Option<bool>,
     pub(super) vad: Option<bool>,
@@ -203,8 +191,6 @@ where
                     continue;
                 }
 
-                // 某些 Windows 机器上，第三方库会把噪音输出和 JSON 响应挤在同一行。
-                // 尝试从首个 '{' 到末尾 '}' 提取有效 JSON，避免一次脏输出导致整次初始化失败。
                 if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
                     if start < end {
                         if let Ok(value) = serde_json::from_str::<T>(&trimmed[start..=end]) {

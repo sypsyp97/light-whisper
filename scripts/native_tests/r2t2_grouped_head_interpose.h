@@ -1,5 +1,5 @@
 #pragma once
-// Force-include only in the isolated runtime owner translation unit.
+
 #include "engine/framework/core/backend.h"
 #include <ggml-alloc.h>
 bool grouped_head_alloc(ggml_gallocr_t, ggml_cgraph *);

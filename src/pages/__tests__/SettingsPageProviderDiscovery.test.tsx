@@ -1104,7 +1104,7 @@ describe("SettingsPage assistant credential ownership", () => {
     await selectAssistantProvider("DeepSeek");
     expect(writes[0].provider).toBe("openai");
 
-    // Exercise out-of-order completion if writes overlap; also allow a serialized writer.
+
     if (writes.length > 1) {
       await act(async () => { writes[1].request.resolve(); await writes[1].request.promise; });
     }
@@ -1194,7 +1194,7 @@ describe("SettingsPage assistant credential ownership", () => {
     tauriMock.setAssistantApiKey.mockImplementation(async (value: string, provider: string) => {
       savedKeys[provider] = value;
     });
-    // ai_polish.rs::update_ai_polish_api_key shares the provider keyring with the assistant.
+
     tauriMock.saveAiPolishApiKey.mockImplementation(async (value: string, provider?: string) => {
       savedKeys[provider ?? polishProvider] = value;
     });
@@ -1529,7 +1529,7 @@ describe("SettingsPage model discovery refresh", () => {
     const keyRequest = deferred<string>();
     tauriMock.getAiPolishApiKey.mockReset().mockReturnValueOnce(keyRequest.promise);
     await renderSettings();
-    // Keep discovery queued while DOM queries and assistant hydration complete.
+
     vi.useFakeTimers();
 
     await act(async () => {
@@ -1822,7 +1822,7 @@ describe("SettingsPage ChatGPT plan authorization", () => {
 });
 
 
-// Formal replay ownership: separate append-only slice; accepted tests above stay frozen.
+
 describe("TLC assistant credential replay", () => {
   afterEach(() => vi.useRealTimers());
 
@@ -1880,8 +1880,8 @@ describe("TLC assistant credential replay", () => {
   it("replays a stale provider read outcome through the actual key-read effect", async () => {
     const { ownershipTrace } = await import("@/test/asyncOwnershipTrace");
     const events = ownershipTrace("assistant-read");
-    // Hydration completes before trace numbering begins. Each generated read
-    // then binds exactly one actual provider callback, never an incidental read.
+
+
     tauriMock.getAssistantApiKey.mockResolvedValue("baseline-deepseek");
     await renderSettings({ ...baseProfile, llm_provider: { ...baseProfile.llm_provider,
       assistant_use_separate_model: true, assistant_provider: "deepseek", assistant_model: "model" } });

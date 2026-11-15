@@ -1,7 +1,7 @@
 #pragma once
 #include "ggml-cuda/common.cuh"
 
-// Declarations only. Implementations call the real stock kernel/runtime APIs.
+
 void head_test_mmvf(ggml_backend_cuda_context &, const ggml_tensor *, const ggml_tensor *,
                     const ggml_tensor *, ggml_tensor *, const ggml_cuda_mm_fusion_args_host *);
 cudaError_t head_test_event_record(cudaEvent_t, cudaStream_t = nullptr);

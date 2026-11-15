@@ -8,13 +8,9 @@ const ASR_PATH: &str = "/api/v1/services/aigc/multimodal-generation/generation";
 const OMNI_CHAT_PATH: &str = "/compatible-mode/v1/chat/completions";
 const REQUEST_TIMEOUT_SECS: u64 = 60;
 
-/// DashScope 对入站请求体有 10MB 上限。请求体里的音频是 base64 字符串，
-/// base64 会把原始字节放大 4/3 倍。这里按放大后的长度比对，避免"本地 9MB 通过
-/// 校验→DashScope 收到 12MB 请求体 400"的错位。
 const MAX_BASE64_AUDIO_BYTES: usize = 10 * 1024 * 1024;
 
 fn exceeds_dashscope_limit(raw_len: usize) -> bool {
-    // ceil(raw_len * 4 / 3) > MAX_BASE64_AUDIO_BYTES
     raw_len.saturating_mul(4) / 3 > MAX_BASE64_AUDIO_BYTES
 }
 
@@ -83,7 +79,7 @@ pub(crate) async fn transcribe_via_dashscope_asr(
                 "role": "user",
                 "content": [{"type": "input_audio", "input_audio": {"data": data_url}}]
             }]},
-            // WAV carries the actual rate, including original-rate fallback recordings.
+
             "parameters": {"format": "wav"}
         })
     } else {
@@ -317,8 +313,6 @@ pub(crate) async fn transcribe_via_omni_chat(
     }
     let collected = collected.trim().to_string();
     if collected.is_empty() {
-        // 空流没有 [DONE] 以外的任何内容，通常意味着上游模型拒绝或配额耗尽，
-        // 不要当成"用户啥也没说"默默返回空串——给一个可操作的错误。
         return Err(AppError::Asr(
             "DashScope Omni 流式响应为空，请检查模型可用性、额度或控制台日志".into(),
         ));
@@ -373,8 +367,6 @@ impl DashScopeAsrMessage {
     }
 }
 
-/// DashScope 历史上既见过 `"content": "..."` 也见过
-/// `"content": [{"text": "..."}]`。两种都兜底。
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum DashScopeAsrContentField {
@@ -406,7 +398,6 @@ struct OmniStreamDelta {
 }
 
 impl OmniStreamDelta {
-    /// delta.content 可能是字符串或 `[{"type":"text","text":"..."}]` 形式。两种都处理。
     fn content_as_string(&self) -> Option<String> {
         let content = self.content.as_ref()?;
         if let Some(s) = content.as_str() {

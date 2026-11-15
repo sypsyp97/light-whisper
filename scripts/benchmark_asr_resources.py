@@ -37,7 +37,7 @@ class _ProcessMemoryCounters(ct.Structure):
 
 
 class _ThreadEntry32(ct.Structure):
-    # Windows SDK TlHelp32.h: THREADENTRY32, DWORD/LONG fields.
+
     _fields_ = [("dwSize", ct.c_ulong), ("cntUsage", ct.c_ulong),
                 ("th32ThreadID", ct.c_ulong), ("th32OwnerProcessID", ct.c_ulong),
                 ("tpBasePri", ct.c_long), ("tpDeltaPri", ct.c_long), ("dwFlags", ct.c_ulong)]
@@ -49,7 +49,7 @@ _DWORD_POINTER = ct.POINTER(ct.c_ulong)
 
 
 def process_memory():
-    """Current-process memory/handles/threads; unavailable counters stay null."""
+
     result = {"private_bytes": None, "working_set_bytes": None,
               "handle_count": None, "thread_count": None, "error": None}
     kernel, errors = None, []
@@ -84,7 +84,7 @@ def process_memory():
             for function in (first, next_thread):
                 function.restype, function.argtypes = ct.c_int, [ct.c_void_p, _THREAD_ENTRY32_POINTER]
             close.restype, close.argtypes = ct.c_int, [ct.c_void_p]
-            snapshot = create(0x00000004, 0)  # TH32CS_SNAPTHREAD, Windows SDK TlHelp32.h.
+            snapshot = create(0x00000004, 0)
             if not snapshot or snapshot == ct.c_void_p(-1).value:
                 raise ct.WinError(ct.get_last_error())
             try:
@@ -97,7 +97,7 @@ def process_memory():
                     entry.dwSize = ct.sizeof(_ThreadEntry32)
                     if not next_thread(snapshot, ct.byref(entry)):
                         status = ct.get_last_error()
-                        if status != 18:  # ERROR_NO_MORE_FILES.
+                        if status != 18:
                             raise ct.WinError(status)
                         break
             finally:
@@ -275,7 +275,7 @@ def probe(args, report):
                                      preview=args.family != "qwen" or regular)
 
                 def complete(name, cycle=None, regular=False):
-                    begin()  # An active predecessor is reset by the production wrapper.
+                    begin()
                     point("after_start", load, cycle, state(runtime, session))
                     feed(clips[name], regular)
                     point("before_finish", load, cycle, state(runtime, session))
@@ -355,7 +355,7 @@ def self_test():
         def structure_types():
             return {item for item in gc.get_objects() if isinstance(item, type)
                     and issubclass(item, ct.Structure) and item.__module__ == __name__}
-        warm = process_memory()  # Counter values may be unavailable.
+        warm = process_memory()
         require(all(key in warm for key in ("handle_count", "thread_count")),
                 "process sampler omitted handle_count/thread_count")
         gc.collect()

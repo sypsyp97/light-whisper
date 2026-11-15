@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use tokio::sync::oneshot;
 
-/// A completed dictation keeps the target captured when its recording began.
 #[derive(Clone)]
 pub(crate) struct PendingPaste {
     pub session_id: u64,

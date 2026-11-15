@@ -1,4 +1,4 @@
-// Reuse deterministic weights, output tracing, and the real graph observer.
+
 #define main r2t2_original_main
 #define r2t2_test_compute_backend_graph r2t2_original_compute_backend_graph
 #include "r2t2_prefill_test.cpp"
@@ -22,7 +22,7 @@ std::vector<float> prompt(int64_t steps) {
 
 void observe_work(const std::string & label, size_t expected, bool enforce) {
     require(!work.empty(), label + ": final output block did not execute");
-    // This is also a positive instrumentation control: final output always runs.
+
     for (size_t i = 0; i < work.size(); ++i) {
         const bool final = i + 1 == work.size();
         require(work[i].head == (final ? 1 : 0) && work[i].norm == (final ? 1 : 0),
@@ -49,7 +49,7 @@ void exercise(modules::QwenCausalDecodeRuntime & runtime, std::ofstream & trace,
     record(trace, steps);
     record(trace, runtime.decode_cache_steps());
     record_result(trace, result, 1);
-    // Appended token KV must never count as unchanged embedding-prompt prefix.
+
     for (int i = 0; i < 2; ++i) {
         const auto token = static_cast<int32_t>(
             std::max_element(result.logits.begin(), result.logits.end()) - result.logits.begin());
@@ -69,7 +69,7 @@ void boundaries(Fixture & fixture, std::ofstream & trace, bool enforce) {
     exercise(runtime, trace, "cold193", prompt(193), 193, 384, 64, 4, enforce);
     exercise(runtime, trace, "same193-after-generation", prompt(193), 193, 384, 64, 1, enforce);
     exercise(runtime, trace, "shorten-to129", prompt(129), 129, 384, 64, 1, enforce);
-    // Previously padded slots and generated tokens are not real prompt rows.
+
     exercise(runtime, trace, "extend129-to193", prompt(193), 193, 384, 64, 2, enforce);
     exercise(runtime, trace, "exact128-final-block", prompt(128), 128, 384, 64, 1, enforce);
     exercise(runtime, trace, "exact64-final-block", prompt(64), 64, 384, 64, 1, enforce);
@@ -172,12 +172,12 @@ void nonfinite_suffix(Fixture & fixture, std::ofstream & trace, bool enforce) {
     require(std::any_of(invalid_output.logits.begin(), invalid_output.logits.end(),
                        [](float value) { return !std::isfinite(value); }),
             "NaN-tail control failed to poison old KV/output");
-    // Masked old V still participates in multiplication. 0 * NaN is NaN;
-    // retaining a finite prefix must therefore also sanitize unused future KV.
+
+
     exercise(runtime, trace, "finite129-after-NaN193", prompt(129), 129, 320, 64, 1, enforce);
     exercise(runtime, trace, "extend-after-NaN-recovery", prompt(193), 193, 320, 64, 2, enforce);
 }
-}  // namespace
+}
 
 namespace engine::core {
 ggml_status r2t2_prefix_compute_backend_graph(
@@ -188,7 +188,7 @@ ggml_status r2t2_prefix_compute_backend_graph(
     }
     return r2t2_original_compute_backend_graph(backend, graph, plan, label);
 }
-}  // namespace engine::core
+}
 
 int main(int argc, char ** argv) {
     try {

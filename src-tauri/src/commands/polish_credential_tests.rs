@@ -13,8 +13,6 @@ use tauri::Manager;
 use crate::services::llm_provider::keyring_user_for_provider;
 use crate::state::AppState;
 
-// The stock mock is EntryOnly, while the plugin creates a fresh Entry for every call.
-// Share its in-memory credentials across entries to exercise the real plugin and commands.
 type MockEntries = HashMap<(String, String), Arc<MockCredential>>;
 
 #[derive(Clone, Default)]
@@ -100,7 +98,7 @@ fn invoke(
 #[test]
 fn polish_credential_ipc_keeps_explicit_provider_slots_and_legacy_fallback() {
     let store = SharedMockBuilder::default();
-    // All storage below uses the in-memory builder; no native keyring is touched.
+
     keyring::set_default_credential_builder(Box::new(store.clone()));
     store
         .provider_credential("cerebras")

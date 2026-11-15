@@ -3,7 +3,6 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::net::TcpStream;
 
-// A loopback client gets two seconds and 8 KiB to send one HTTP request line.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_REQUEST_LINE_BYTES: usize = 8 * 1024;
 

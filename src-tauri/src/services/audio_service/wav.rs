@@ -1,7 +1,5 @@
 use crate::utils::AppError;
 
-// ---------- WAV 编码 ----------
-
 pub fn encode_wav(samples: &[i16], sample_rate: u32) -> Result<Vec<u8>, AppError> {
     let spec = hound::WavSpec {
         channels: 1,
@@ -25,19 +23,6 @@ pub fn encode_wav(samples: &[i16], sample_rate: u32) -> Result<Vec<u8>, AppError
     Ok(cursor.into_inner())
 }
 
-// ---------- 单元测试 ----------
-//
-// TDD red-state tests for `encode_wav`.
-//
-// Current signature is `fn encode_wav(samples: &[i16], sample_rate: u32) -> Vec<u8>`
-// with three internal `.expect(...)` calls that panic on error. The contract we
-// want to lock in is a fallible signature — `Result<Vec<u8>, AppError>` — so that
-// hound write failures bubble up instead of panicking.
-//
-// These tests use `?` against the return value, which forces the function to
-// return a `Result<_, AppError>`. That means **they are expected to fail to
-// compile** until `encode_wav` is migrated to the fallible signature — exactly
-// the red state we want.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,8 +42,6 @@ mod tests {
 
     #[test]
     fn test_encode_wav_handles_empty_samples() -> Result<(), AppError> {
-        // Empty sample slice must not panic — it should still produce a well-formed
-        // (header-only) WAV buffer.
         let _bytes = encode_wav(&[], 16000)?;
         Ok(())
     }

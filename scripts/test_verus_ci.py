@@ -1,4 +1,4 @@
-"""Exercise the real Verus CI step without downloads or toolchain installation."""
+
 
 import json
 import os
@@ -58,8 +58,8 @@ class VerusStepTests(unittest.TestCase):
             calls_path = root / "calls.jsonl"
             environment = dict(os.environ, RUNNER_TEMP=str(root),
                                VERUS_TEST_CALLS=str(calls_path), VERUS_TEST_FAILURE=failure)
-            # Native failures come from the current Python interpreter. Every
-            # download, extraction, installation, and proof command is mocked.
+
+
             mock = f"""
 function Write-TestCall($kind, $arguments) {{
   @{{ kind = $kind; arguments = @($arguments); rustup = $env:RUSTUP_HOME;

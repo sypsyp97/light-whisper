@@ -1,4 +1,4 @@
-"""Incremental Real-time RE-USE DSP; NumPy test data, no model or DLL required."""
+
 
 import os
 import sys
@@ -15,21 +15,21 @@ import reuse_enhancement as enhancement
 FFT = 640
 HOP = 320
 BINS = 321
-# Independent periodic-Hann definition; synthesis and analysis use float32 taps.
+
 WINDOW = (0.5 - 0.5 * np.cos(2 * np.pi * np.arange(FFT) / FFT)).astype(np.float32)
-# FFT results and model heads cross the native seam as float32. These tolerances
-# allow their rounding, while rejecting a one-sample shift or a wrong head index.
+
+
 PCM_ATOL = 3e-6
 PCM_RTOL = 2e-5
 
 
 def _audio(count):
-    """Deterministic synthetic test PCM, independent of capture devices."""
+
     return np.random.default_rng(20261031 + count).uniform(-0.2, 0.2, count).astype(np.float32)
 
 
 def _batch_spectra(audio):
-    """Whole-utterance oracle, deliberately independent of streaming buffers."""
+
     if not len(audio):
         return np.empty((0, BINS), np.float32), np.empty((0, BINS), np.float32), 0
     padded_count = max(FFT, ((len(audio) + HOP - 1) // HOP) * HOP)
@@ -84,12 +84,12 @@ def _batch_oracle(audio, lookahead, mode="stateful"):
 
 
 class _DelayedSpectralDriver:
-    """Fake native seam: first L+1 frames, then one; each call returns one head.
 
-    Stateful heads depend on target, preceding, and lookahead frames plus the
-    target index. Raw phase heads deliberately have unequal scales and offsets.
-    Output buffers are reused, as a caller must consume native results promptly.
-    """
+
+
+
+
+
 
     def __init__(self, model_path=None, library_path=None, backend=None, threads=2,
                  exit_layers=8, lookahead=1):
@@ -200,7 +200,7 @@ class RealtimeReuseEnhancementTests(unittest.TestCase):
         actual_mag = np.concatenate([mag for mag, _ in calls])
         actual_phase = np.concatenate([angle for _, angle in calls])
         np.testing.assert_allclose(actual_mag[:len(magnitude)], magnitude, rtol=0, atol=1e-5)
-        # Phase is undefined in zero-energy bins; compare reconstructed spectra.
+
         actual_complex = np.expm1(actual_mag[:len(magnitude)]) * np.exp(1j * actual_phase[:len(magnitude)])
         expected_complex = np.expm1(magnitude) * np.exp(1j * phase)
         np.testing.assert_allclose(actual_complex, expected_complex, rtol=0, atol=2e-5)
@@ -356,7 +356,7 @@ class RealtimeReuseEnhancementTests(unittest.TestCase):
         self._assert_pcm(enhancer.flush(), 0)
         self._assert_pcm(enhancer.enhance(empty), 0)
         self.assertEqual(driver.calls, [])
-        # Strided input is still valid mono float32 PCM and must remain untouched.
+
         storage = _audio(6000)
         before = storage.tobytes()
         source = storage[::2]

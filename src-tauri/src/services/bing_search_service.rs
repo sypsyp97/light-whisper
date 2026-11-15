@@ -4,7 +4,6 @@ use base64::Engine;
 use scraper::{Html, Selector};
 use std::time::Duration;
 
-/// Read public search snippets without opening a browser or fetching result URLs.
 pub async fn search(
     client: &reqwest::Client,
     query: &str,
@@ -20,7 +19,7 @@ pub async fn search(
     if !response.status().is_success() {
         return Err(super::web_search_service::search_http_error(response.status()).to_string());
     }
-    // Search pages can contain large scripts; cap input rather than retaining an unbounded response.
+
     let mut bytes = Vec::new();
     while let Some(chunk) = response
         .chunk()

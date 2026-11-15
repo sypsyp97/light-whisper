@@ -698,7 +698,6 @@ fn contains_any(value: &str, patterns: &[&str]) -> bool {
     patterns.iter().any(|pattern| value.contains(pattern))
 }
 
-/// 执行第三方搜索（Exa / Tavily / Google Search Grounding）
 struct ThirdPartySearchOutput {
     results: Vec<web_search_service::SearchResult>,
     google_search_entry_point: Option<String>,
@@ -1049,15 +1048,10 @@ async fn generate_content_inner(
         let mut external_search_context = None;
         let mut search_elapsed_ms = None;
 
-        // ── 联网搜索 ──
-        // 先用本地意图判断避免无关搜索；实时/事实/显式查询再进入搜索路径。
-        // 原生模式：注入 tool，模型在需要时调用；不支持的模型会在下方 retry 时去掉 web_search。
-        // 第三方模式：先搜索，再将不可信结果作为用户侧上下文交给模型。
         if effective_ws.enabled
             && effective_ws.provider != WebSearchProvider::ModelNative
             && web_search_decision.should_search
         {
-            // 通知前端：正在搜索
             let search_query = contextual_search_query(asr_text, conversation);
             let _ = app_handle.emit(
                 stream_event,
@@ -1245,7 +1239,6 @@ async fn generate_content_inner(
         )
     };
 
-    // 路由完成后的搜索和屏幕准备相互独立，保留在可取消的请求 future 内。
     let (
         (external_search_context, search_elapsed_ms),
         (mut images, mut screen_description, image_support_cache_key, needs_screen_capture),
@@ -1386,7 +1379,6 @@ async fn generate_content_inner(
                 err
             );
             let fallback_options = LlmRequestOptions {
-                // The answer can continue, but the requested search was unavailable.
                 web_search: false,
                 ..request_options
             };
@@ -1416,10 +1408,6 @@ async fn generate_content_inner(
         Err(err) => return Err(AppError::Other(err)),
     };
 
-    // `send_llm_request` 已经在内部把空响应统一映射成 Err（带 provider/
-    // model 诊断信息），上面的 match 把所有 Err 分支都 return 了，所以走到
-    // 这里 content trim 后必然非空。旧的 "AI 助手返回了空内容" 兜底已
-    // 不可达，移除。
     let trimmed = content.trim().to_string();
 
     let _ = app_handle.emit(

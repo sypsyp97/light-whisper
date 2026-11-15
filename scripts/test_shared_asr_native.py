@@ -74,7 +74,7 @@ def read_wav(path):
 
 
 class CAbi:
-    """Only signatures from audiocpp.h ABI 0.4; owns no native handles."""
+
     def __init__(self, library):
         handle, string, integer, pointer = ct.c_void_p, ct.c_char_p, ct.c_int, ct.POINTER
         signatures = {
@@ -109,7 +109,7 @@ class CAbi:
     def call(self, name, *arguments):
         status = self[name](*arguments)
         if status:
-            # Read borrowed thread-local error before cleanup can clear it.
+
             detail = (self["last_error"]() or b"").decode("utf-8", errors="replace")
             raise CheckFailure(f"audiocpp_{name} failed ({status}): {detail}",
                                "semantic" if status == 2 else "native_runtime",
@@ -135,7 +135,7 @@ def run_native(api, args, pcm, report):
     with ExitStack() as handles:
         def owned(kind):
             handle = ct.c_void_p()
-            # Register before any call that can both set an out pointer and fail.
+
             handles.callback(api[kind + "_free"], handle)
             return handle
 
@@ -188,7 +188,7 @@ def run_native(api, args, pcm, report):
         text, language = ct.c_char_p(), ct.c_char_p()
         report["stage"] = "result_text"
         status = api["result_text"](result, ct.byref(text), ct.byref(language))
-        if status != 7:  # NOT_AVAILABLE represents absent text, checked below.
+        if status != 7:
             if status:
                 detail = (api["last_error"]() or b"").decode("utf-8", errors="replace")
                 raise CheckFailure(f"audiocpp_result_text failed ({status}): {detail}",
@@ -235,7 +235,7 @@ def make_report(args, pcm):
                        "language": args.language, "request_options":
                        {"return_timestamps": "false", "audio_chunk_mode": "none"}
                        if args.family == "qwen3_asr" else {}},
-            # Basenames and hashes preserve evidence without logging user directories.
+
             "library": {"name": args.library.name, "sha256": sha256(args.library)},
             "model": {"name": args.model.name, "sha256": sha256(args.model), "bytes": args.model.stat().st_size},
             "fixture": {"name": args.audio.name, "sha256": sha256(args.audio), "samples": len(pcm),
@@ -370,7 +370,7 @@ class HarnessTests(unittest.TestCase):
 
 
 class FakeAbi:
-    """Test-only ABI simulator for resource ownership, never recognition evidence."""
+
     def __init__(self, failure=None):
         self.failure, self.allocated, self.freed, self.called = failure, [], [], []
         self.functions = {}

@@ -220,8 +220,6 @@ fn validate_assistant_source_url(value: &str) -> Result<reqwest::Url, AppError> 
     Ok(parsed)
 }
 
-// ── 联网搜索 ────────────────────────────────────────────────────────
-
 #[tauri::command]
 pub async fn set_web_search_config(
     state: tauri::State<'_, AppState>,

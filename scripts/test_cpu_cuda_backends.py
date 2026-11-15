@@ -1,4 +1,4 @@
-"""Offline CPU/CUDA build, actual packager CLI, pruning and archive contracts."""
+
 
 import importlib.metadata
 
@@ -41,7 +41,7 @@ class WindowsBuildEnvironmentTests(unittest.TestCase):
                 SimpleNamespace(stdout=str(installation) + "\n"),
                 SimpleNamespace(stdout="\n".join(f"{key}={value}" for key, value in vcvars_values.items())),
             ]
-            # Simulate Windows without changing the host's os module or environment.
+
             with mock.patch.object(builder, "os", SimpleNamespace(name="nt", environ=inherited)), \
                  mock.patch.object(builder.subprocess, "run", side_effect=responses):
                 environment, ninja = builder.build_environment()
@@ -51,7 +51,7 @@ class WindowsBuildEnvironmentTests(unittest.TestCase):
         self.assertEqual(dict(os.environ), global_before)
         self.assertEqual(environment["CALLER_ONLY"], "retained=value")
         self.assertEqual(environment["EMPTY_VALUE"], "")
-        # The CUDA caller indexes PATH; the packager indexes VCToolsRedistDir.
+
         self.assertEqual(environment["VCToolsRedistDir"], vcvars_values["VCToolsRedistDir"])
         with self.subTest(contract="unique Windows environment keys"):
             self.assertEqual(len(environment), len({key.upper() for key in environment}))
@@ -92,7 +92,7 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
             path = self.cuda / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"synthetic CUDA build input")
-        # A complete SDK prevents obsolete Vulkan support from failing by accident.
+
         for relative in ("Include/vulkan/vulkan.h", "Lib/vulkan-1.lib", "Bin/glslc.exe"):
             path = self.vulkan / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,7 +145,7 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
 
     @staticmethod
     def cuda_configure_log(architectures, native="89"):
-        # Pinned root and ggml CMake both emit this summary; the host is separate.
+
         summary = (f"-- Using CMAKE_CUDA_ARCHITECTURES={architectures} "
                    f"CMAKE_CUDA_ARCHITECTURES_NATIVE={native}\n")
         return "-- Found CUDAToolkit\n" + summary + "-- Including CUDA backend\n" + summary
@@ -165,7 +165,7 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
         )
 
     def test_cuda_default_removes_ambient_architectures_case_insensitively(self):
-        # build_environment merges os.environ and vcvars output into a plain dict.
+
         self.environment.update({"CUDAARCHS": "89", "cudaarchs": "native", "CuDaArChS": "80-real"})
         environment_before = self.environment.copy()
         with mock.patch.dict(os.environ, {"CUDAARCHS": "native"}):
@@ -179,7 +179,7 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
     def test_cuda_manifest_records_resolved_portable_lists_for_each_toolchain(self):
         common = "75-real;80-virtual;86-real;89-real;90-virtual"
         legacy = "50-virtual;61-virtual;70-virtual;" + common
-        # Synthetic summaries mirror the pinned source's toolkit-dependent lists.
+
         for toolkit, resolved in (
             ("12.0", legacy),
             ("12.8", legacy + ";120a-real"),
@@ -492,7 +492,7 @@ class CpuCudaPackageTests(unittest.TestCase):
                     self.module.verify_archive_sources(self.archive)
 
     def test_main_selects_each_backend_directory_without_collecting_stale_vulkan_tree(self):
-        # Valid old files let this test reach the real CLI seam before implementation.
+
         self.native_members("vulkan", write_source=True)
         with mock.patch.object(self.module.subprocess, "run", return_value=SimpleNamespace(returncode=23)) as run:
             with self.assertRaises(SystemExit) as stopped:
@@ -509,7 +509,7 @@ class CpuCudaPackageTests(unittest.TestCase):
         ])
 
     def test_main_prunes_only_retired_collected_dlls_before_compression_preserving_source_wheel(self):
-        # Fake COLLECT copies a real fixture tree. Source wheel remains independent.
+
         self.native_members("vulkan", write_source=True)
         wheel = self.root / "source-wheel"
         retained = {

@@ -66,8 +66,8 @@ def main():
         if hashlib.sha256(canonical).hexdigest() != expected:
             raise RuntimeError(f"uncached Qwen baseline changed: {name}")
 
-    # Reuse the accepted mechanical overlays, compiler setup, input fingerprints,
-    # real FFT renaming, sparse-call interposition and no-build integrity checks.
+
+
     harness.TEST = BENCH
     harness.FROZEN_SHA256 = FROZEN_SHA256
     harness.FROZEN = tuple(FROZEN_SHA256)

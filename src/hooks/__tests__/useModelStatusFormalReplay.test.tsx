@@ -213,10 +213,10 @@ describe("TLC engine status ownership replay", () => {
         expect(mocks.check).toHaveBeenCalledTimes(6);
         expect(hook!.result.current).toMatchObject({ stage: "error", error: "start failed" });
         expect(vi.getTimerCount()).toBe(0);
-        // The third terminal start failure supersedes the already pending poll.
+
         await complete(6, "loading");
       }
-      // Demonstrate current recovery through the actual crash listener, API and interval.
+
       await emit("crashed", requests.length + 1);
       const recovery = requests.length;
       await complete(recovery, "ready");

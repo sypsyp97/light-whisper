@@ -23,7 +23,7 @@ class _TestServerBase(BaseASRServer):
             super().__init__(engine="test", logger=logger)
 
     def _setup_runtime_environment(self):
-        pass  # Dispatch tests must not alter the runner's process environment.
+        pass
 
     def _detect_device(self):
         return "cpu"

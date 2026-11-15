@@ -1,4 +1,4 @@
-"""Exact full-capture preview reuse; real adapters, deterministic callbacks, no GPU."""
+
 
 import os
 import sys

@@ -25,7 +25,6 @@ fn write_reply(mut response: Value, request_id: &Value) {
     std::io::stdout().flush().unwrap();
 }
 
-// Exercise the real IPC client with the current test binary, without a model or GPU.
 #[test]
 #[ignore = "subprocess fixture, invoked by the native stream hotword tests"]
 fn native_stream_hotword_test_server() {
@@ -83,7 +82,7 @@ fn response(text: &str, sample_count: usize, is_final: bool, engine: &str) -> Va
         "tentative_text": "",
         "language": null,
         "engine": engine,
-        // The client must derive capture duration rather than trust this value.
+
         "duration": 9999.0,
     })
 }
@@ -233,7 +232,7 @@ async fn native_finish_uses_final_response_engine_and_leaves_other_text_raw() {
             final_response.as_object_mut().unwrap().remove("engine");
         }
         let mut steps = script(final_response);
-        // Earlier responses do not determine the engine of the final result.
+
         steps[0]["response"]["engine"] = json!("qwen3-asr-0.6b");
         steps[1]["response"]["engine"] = json!("qwen3-asr-0.6b");
         let (state, mut client) = start_client(steps).await;

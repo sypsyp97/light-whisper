@@ -1,4 +1,4 @@
-"""Exercise enhancement ownership in both actual ASR server lifecycles."""
+
 
 from contextlib import ExitStack, contextmanager
 import logging
@@ -26,7 +26,7 @@ ENGINES = (
 class AudioProcessingLifecycleTests(unittest.TestCase):
     @contextmanager
     def server_case(self, module, server_class, *, enabled):
-        """Keep construction/initialization real; replace all model/device work."""
+
         enhancers, natives = [], []
 
         def new_enhancer(*_args, **_kwargs):
@@ -124,8 +124,8 @@ class AudioProcessingLifecycleTests(unittest.TestCase):
         for module, server_class in ENGINES:
             with self.subTest(engine=server_class.__name__), self.server_case(module, server_class, enabled=False) as case:
                 self.assertTrue(case.server.initialize()["success"])
-                # Existing Base toggle provides an enhancer before the unload,
-                # isolating close/resume behavior from enabled initialization.
+
+
                 self.assertTrue(self.set_enabled(case.server, True)["success"])
                 original_processor, original_native = case.enhancers[0], case.natives[0]
                 original_stream, original_vad = case.server.stream, case.server.vad_model

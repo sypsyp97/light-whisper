@@ -11,7 +11,7 @@ from r2t2_stream import R2T2StreamSession
 
 
 class PreviewRuntime:
-    """Deterministic runtime seam with a full transcript preview."""
+
 
     def __init__(self, feed_results=(), finish_result=("", None)):
         self.feed_results = list(feed_results)
@@ -44,7 +44,7 @@ class PreviewRuntime:
 
 
 class LegacyRuntime:
-    """Legacy runtime seam intentionally has no preview_text attribute."""
+
 
     def __init__(self, result=("", None)):
         self.result = result
@@ -64,7 +64,7 @@ class LegacyRuntime:
 
 
 class PreviewNative:
-    """Native seam for segmented propagation and preview revisions."""
+
 
     def __init__(self, feed_results=(), finish_results=()):
         self.feed_results = list(feed_results)
@@ -91,7 +91,7 @@ class PreviewNative:
 
 
 class LegacyNative:
-    """Legacy segmented native seam without preview_text."""
+
 
     def __init__(self, result=("legacy", "en")):
         self.result = result

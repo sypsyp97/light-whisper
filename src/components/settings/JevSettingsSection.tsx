@@ -159,7 +159,7 @@ export default function JevSettingsSection({ profile, onSaved, polishEnabled = t
   }, [correctionReview, polishAudit]);
 
   useEffect(() => {
-    // Profile refreshes can finish out of order after a local selection.
+
     if (providerEditedRef.current) return;
     setProvider(savedProvider);
     providerRef.current = savedProvider;

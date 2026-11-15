@@ -34,7 +34,7 @@ const SESSION_KEYRING_USER: &str = "openai-codex-oauth";
 const SESSION_REFRESH_TOKEN_KEYRING_USER: &str = "openai-codex-oauth-refresh-token";
 const OAUTH_TIMEOUT_SECS: u64 = 5 * 60;
 const REFRESH_SKEW_SECS: u64 = 60;
-// Bound headers and response-body reads while login/logout wait for refresh.
+
 const TOKEN_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const CHATGPT_BEARER_PREFIX: &str = "openai-codex-chatgpt:";
 const CHATGPT_PLAN_PREFIX: &str = "openai-chatgpt-plan:";
@@ -353,7 +353,7 @@ fn save_session_to_storage(
     if let Some(registration) = &session.registration {
         chatgpt_sign_in::remember_account(registration)?;
     }
-    // Commit valid metadata last; any earlier failure leaves the intent marker.
+
     write_session_meta(session)
 }
 
@@ -1336,11 +1336,9 @@ pub async fn complete_device_code_login(
 }
 
 pub async fn logout(app_handle: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
-    // Revoke the latest rotated credential and serialize a new sign-in with
-    // remote revocation of the previous grant.
     let _refresh_guard = state.openai_codex_oauth_state().lock_refresh().await;
     let session = state.read_openai_codex_oauth_session();
-    // Invalidate before awaiting revocation: an in-flight refresh must not revive a signed-out session.
+
     state
         .openai_codex_oauth_state()
         .invalidate(None, || clear_session_from_storage(app_handle))
@@ -1375,7 +1373,6 @@ pub async fn remove_account(
         },
     )?;
     if let Some(session) = removed {
-        // Local removal remains effective if remote revocation fails.
         chatgpt_sign_in::revoke(&state.http_client, &session).await?;
     }
     Ok(status(state))
@@ -1439,8 +1436,6 @@ pub async fn resolve_api_key_for_provider_with_auth_mode(
     .map(|auth| auth.api_key)
 }
 
-/// Modes are captured by the caller. None means infer from login state,
-/// so a later profile edit cannot change an already-started request's choice.
 pub async fn resolve_provider_auth_with_auth_mode(
     app_handle: &tauri::AppHandle,
     state: &AppState,
@@ -1466,14 +1461,10 @@ pub async fn resolve_provider_auth_with_auth_mode(
         };
     }
 
-    // 非 OpenAI provider：直接返回用户填的 key（可能为空，由调用方决定报错）
     if provider != OPENAI_PROVIDER {
         return Ok(ResolvedProviderAuth::api_key(manual_api_key.to_string()));
     }
 
-    // OpenAI：按用户选的认证方式分支。存储的偏好可能是 None（用户还没点过开关），
-    // 那就按 OAuth 登录状态智能推断：登录过 → Oauth；没登录 → ApiKey。
-    // 这跟前端的默认计算保持一致，避免前后端对同一条 profile 给出不同决策。
     let effective_mode = auth_mode.unwrap_or_else(|| {
         if state.read_openai_codex_oauth_session().is_some() {
             OpenaiAuthMode::Oauth
@@ -1483,12 +1474,8 @@ pub async fn resolve_provider_auth_with_auth_mode(
     });
 
     match effective_mode {
-        OpenaiAuthMode::ApiKey => {
-            // 明确走 API Key：只看手填的 key，即使 OAuth 已登录也不用
-            Ok(ResolvedProviderAuth::api_key(manual_api_key.to_string()))
-        }
+        OpenaiAuthMode::ApiKey => Ok(ResolvedProviderAuth::api_key(manual_api_key.to_string())),
         OpenaiAuthMode::Oauth => {
-            // 明确走 OAuth：读 session，忽略手填 key
             if state.read_openai_codex_oauth_session().is_none() {
                 return Ok(ResolvedProviderAuth::api_key(String::new()));
             }

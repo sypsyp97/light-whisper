@@ -1,4 +1,4 @@
-"""Real Qwen server activation and shutdown with injected native/VAD devices."""
+
 
 import contextlib
 import threading
@@ -91,7 +91,7 @@ class QwenPipelineServerTests(unittest.TestCase):
                 try:
                     caller.submit(server._close_runtime).result()
                 except RuntimeError:
-                    # Deliberately injected cleanup errors are asserted in the test.
+
                     pass
             finally:
                 caller.close()
@@ -101,7 +101,7 @@ class QwenPipelineServerTests(unittest.TestCase):
         self.assertTrue(initialized["success"], initialized)
         runtimes.append(server.stream.runtime)
         if attach_pipeline:
-            # Isolate unload from selection: activation has its own behavioral test.
+
             runtime = caller.submit(lambda: QwenPipelineRuntime(
                 server._run_inference, prepare_audio=lambda audio: server._filter_speech(audio)[0]
             )).result()
@@ -238,7 +238,7 @@ class QwenPipelineServerTests(unittest.TestCase):
                     try:
                         server._close_runtime()
                     except RuntimeError:
-                        pass  # Reporting cleanup errors is allowed; abandoning resources is not.
+                        pass
 
                 closed = caller.submit(unload)
                 self.assertTrue(started.wait(TIMEOUT))

@@ -31,7 +31,7 @@ def sha256(path):
 
 
 def constrain_process():
-    """Children inherit two allowed logical CPUs and BelowNormal priority."""
+
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.GetCurrentProcess.restype = wintypes.HANDLE
     kernel.GetProcessAffinityMask.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
@@ -48,7 +48,7 @@ def constrain_process():
 
 
 def compare(actual, expected):
-    """Compare every exposed output, including retained intermediate consumers."""
+
     peers = {item["case"]: item for item in expected["cases"]}
     failures, elements, maximum = [], 0, 0.0
     actual_names = {item["case"] for item in actual["cases"]}
@@ -59,7 +59,7 @@ def compare(actual, expected):
         failures.append("compared case names differ")
     for item in actual["cases"]:
         if item["case"] not in peers:
-            continue  # The explicit case-name check above permits only the CPU F16 omission.
+            continue
         other = peers[item["case"]]
         if item["outputs"].keys() != other["outputs"].keys():
             failures.append(f'{item["case"]}: output names differ')
@@ -162,7 +162,7 @@ def main():
         specs += [("cuda-unfused", "cuda", True), ("cuda-candidate", "cuda", False)]
     datasets = {}
     status = 0
-    # Deliberately serialized: one compiler, one CPU run, one GPU run at a time.
+
     for name, backend, unfused in specs:
         child_env = {**env, "GGML_CUDA_DISABLE_FUSION": str(int(unfused))}
         result = execute([executable, "--backend", backend, "--mode", args.mode, "--unfused", str(int(unfused)),

@@ -136,7 +136,7 @@ def worker(spec_path):
         output["gpu_before_load"] = gpu_snapshot()
         output["preloaded_dependencies"] = []
         before = time.perf_counter()
-        # Explicit identical SDK dependencies for A and B, before model load.
+
         for name in ("cublasLt64_12.dll", "cublas64_12.dll", "cudart64_12.dll"):
             path = next((Path(directory) / name for directory in spec["dependencies"]
                          if (Path(directory) / name).is_file()), None)

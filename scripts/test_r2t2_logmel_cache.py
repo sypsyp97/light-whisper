@@ -13,8 +13,8 @@ import subprocess
 
 from build_r2t2_runtime import ROOT, build_environment
 
-# Pin canonical LF content; raw compile fingerprints still retain line endings.
-# An external manifest cannot redefine baseline behavior.
+
+
 FROZEN_SHA256 = {
     "src/community_models/confucius4_r2t2/frontend_whisper.cpp": "07a0cb7424bc2bbde306439a970e279ff3db8cdd4cf2dbc0ee10537b0f0e02d4",
     "include/engine/community_models/confucius4_r2t2/frontend_whisper.h": "aa1f5bd25827aa6c8f6640618245c13bd7af5b71ab75dc2dc2e8581685758729",
@@ -53,7 +53,7 @@ def save(path, value):
 def inputs(source, baseline, frozen):
     selected = {name: (baseline if frozen and name in FROZEN else source) / name
                 for name in (*FROZEN, *SUPPORT, FFT)}
-    # Include all real headers, not only direct includes; four frozen files override.
+
     for path in (source / "include").rglob("*.h"):
         name = path.relative_to(source).as_posix()
         selected[name] = baseline / name if frozen and name in FROZEN else path
@@ -92,7 +92,7 @@ def build(source, baseline, build_root, label, env, compiler, linker, no_build):
     if dsp_text.count(include) != 1:
         raise RuntimeError(f"{label}: unexpected DSP include")
     counted = dsp_text.replace(TARGET, "r2t2_test_counted_sparse(", 1).replace(include, include + "\n" + DECLARATION, 1)
-    # Mechanical overlay only. Restoring the two permitted edits must recover original text.
+
     restored = counted.replace(include + "\n" + DECLARATION, include, 1)
     restored = restored.replace("r2t2_test_counted_sparse(", TARGET, 1)
     if restored != dsp_text:

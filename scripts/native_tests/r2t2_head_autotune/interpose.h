@@ -1,5 +1,5 @@
 #pragma once
-// Force-include in ggml-cuda.cu only, after SDK/common declarations have loaded.
+
 #include "observer.h"
 #define ggml_cuda_mul_mat_vec_f head_test_mmvf
 #define cudaEventRecord head_test_event_record

@@ -12,7 +12,7 @@ namespace modules = engine::modules;
 namespace obs = grouped_head_observer;
 using obs::require;
 constexpr int64_t width = 64, vocabulary = 97, prefix = 64, capacity = 128;
-// Reserved by the handed-off graph contract; existing lowering seam, no new API dependency.
+
 constexpr int32_t serial_equivalent_head_lowering = 4;
 size_t cases = 0, work_red = 0;
 
@@ -166,9 +166,9 @@ void run_case(core::BackendType backend, const Variant & variant, bool mismatch,
     if (variant.ties) require(draft == std::vector<int32_t>(4, 0), "tie fixture did not use FIRST maximum");
     if (mismatch) draft[2] = (draft[2] + 1) % vocabulary;
     {
-        // Force all supplied IDs, including rejected suffix IDs, through the
-        // real scalar runtime. Reusing the greedy draft generator here would
-        // compare the wrong context after the deliberately mismatched token.
+
+
+
         auto full_oracle = start(fixture);
         for (auto id : draft) {
             obs::reset();
@@ -227,7 +227,7 @@ void run_case(core::BackendType backend, const Variant & variant, bool mismatch,
     trace.write(reinterpret_cast<const char *>(graph.logits.data()), graph.logits.size() * sizeof(float));
     record_cache(trace, subject);
     for (int step = 0; step < 3; ++step) {
-        // Distinct probe inputs exercise cache continuation even for a constant argmax fixture.
+
         const int32_t probe = (next + 13 * step) % vocabulary;
         const auto expected_next = token(oracle.decoder->decode_token(probe));
         const auto actual_next = token(subject.decoder->decode_token(probe));
@@ -246,7 +246,7 @@ void run_case(core::BackendType backend, const Variant & variant, bool mismatch,
     std::cout << " expected=" << (eligible ? "one4_hint4" : "four1_default")
               << " work=" << (work_ok ? "GREEN" : "RED") << '\n';
 }
-}  // namespace
+}
 
 int main(int argc, char ** argv) {
     try {

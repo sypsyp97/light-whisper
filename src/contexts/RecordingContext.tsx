@@ -15,7 +15,7 @@ import type {
 
 interface RecordingContextValue {
   polishAuditWarning: boolean;
-  // recording
+
   isStarting: boolean;
   isRecording: boolean;
   isProcessing: boolean;
@@ -35,7 +35,7 @@ interface RecordingContextValue {
   timing: TranscriptionTiming | null;
   history: HistoryItem[];
   recordingMode: RecordingMode;
-  // model
+
   stage: ModelStage;
   isReady: boolean;
   device: string | null;
@@ -47,7 +47,7 @@ interface RecordingContextValue {
   downloadModels: () => void;
   cancelDownload: () => void;
   retryModel: () => void;
-  // hotkey
+
   hotkeyDisplay: string;
   hotkeyError: string | null;
   setHotkey: (shortcut: string) => Promise<void>;
@@ -101,9 +101,9 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     diagnostic: hotkeyDiagnostic,
   } = useHotkey();
 
-  // 启动时将 localStorage 持久化的各项设置同步到后端。
-  // 任何一个 backend 调用失败都要在 console 上留痕，便于排障；
-  // 但不能让错误逃逸到 React 渲染，否则会炸整个 provider。
+
+
+
   useEffect(() => {
     const storedInputMethod = readLocalStorage(INPUT_METHOD_KEY);
     const storedInputDevice = readLocalStorage(INPUT_DEVICE_STORAGE_KEY);

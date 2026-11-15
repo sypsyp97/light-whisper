@@ -65,8 +65,8 @@ int main(int argc, char ** argv) {
                 const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(after - before).count();
                 total_ns += elapsed;
                 timings.push_back({end, audio.samples.size(), elapsed, trimmed});
-                // Outside the measured extraction. Consume every output value;
-                // baseline/candidate checksums also expose accidental data drift.
+
+
                 checksum += std::accumulate(features.values.begin(), features.values.end(), 0.0);
                 checksum += static_cast<double>(features.frames + features.encoder_tokens);
             }

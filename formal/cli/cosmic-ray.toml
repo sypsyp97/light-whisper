@@ -1,0 +1,8 @@
+[cosmic-ray]
+module-path = "scripts/light_whisper_cli.py"
+timeout = 135.0
+excluded-modules = []
+test-command = "python formal/cli/run_mutation_tests.py --timeout 120 --logs ../python-mutation-logs/cli -- python formal/cli/select_context_tests.py"
+
+[cosmic-ray.distributor]
+name = "local"

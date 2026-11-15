@@ -263,8 +263,8 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     members = self.changed_manifest(field, lambda files: {
                         **files, "dependency.dll": metadata,
                     })
-                    # Supply the declared byte so rejection must validate metadata,
-                    # rather than merely notice a missing dependency.
+
+
                     prefix = "_internal/r2t2-native/cpu" if field == "files" else "_internal"
                     members[f"{prefix}/dependency.dll"] = b"x"
                     self.package(self.sources, native_members=members)
@@ -476,7 +476,7 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
                     "reuse.dll": {"size": len(reuse_library), "sha256": hashlib.sha256(reuse_library).hexdigest()},
                 },
             }), encoding="utf-8")
-        # Freeze installed metadata without depending on a retired helper API.
+
         self.enterContext(mock.patch.object(importlib.metadata, "version", return_value="0.1.3"))
 
     def test_remove_file_retries_transient_windows_lock(self):

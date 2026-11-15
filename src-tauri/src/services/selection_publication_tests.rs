@@ -108,8 +108,7 @@ fn selection_publication_finishes_the_whole_callback_before_disable_can_complete
                 release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
                 record_publication(&mut publishing_effects.lock().unwrap(), 1);
             });
-            // A declaration-only scaffold must fail immediately, without the
-            // watchdog being mistaken for semantic RED.
+
             if result.is_none() {
                 let _ = entered_tx.send(false);
             }
@@ -132,16 +131,13 @@ fn selection_publication_finishes_the_whole_callback_before_disable_can_complete
             retired_tx.send(()).unwrap();
         });
         disable_start.wait();
-        // Bounded concurrency observation, not a UI timing requirement. Source
-        // correspondence must also confirm the same guard covers retirement
-        // and the entire show_selection closure (including screenshot cache).
+
         let early_retirement = match retired_rx.recv_timeout(Duration::from_millis(100)) {
             Ok(()) => true,
             Err(mpsc::RecvTimeoutError::Timeout) => false,
             Err(error) => panic!("disable worker disconnected: {error}"),
         };
-        // Always release/join before asserting: a broken guard cannot strand a
-        // correctly blocked publication or disable thread during test failure.
+
         release_tx.send(()).unwrap();
         assert!(publication.join().unwrap().is_some());
         disabling.join().unwrap();
@@ -167,9 +163,6 @@ fn selection_publication_finishes_the_whole_callback_before_disable_can_complete
 
 #[test]
 fn selection_publication_hook_enabled_writes_use_owner_retiring_setter() {
-    // Static correspondence guard only. Native hook installation failure and
-    // GetMessageW exit cannot be driven through this owner-only test harness.
-    // Check the actual compiled source, including those two Windows exit paths.
     let source = include_str!("selection_service.rs").replace("\r\n", "\n");
     let (before, setter_and_after) = source
         .split_once("pub fn set_selection_listener_enabled(")
@@ -211,13 +204,3 @@ fn selection_publication_hook_enabled_writes_use_owner_retiring_setter() {
         );
     }
 }
-
-// Source correspondence reviewed separately from these owner API tests:
-// - start_selection_listener and set_selection_listener_enabled share this owner;
-// - run_selection_worker snapshots ownership before settle/grab/capture completion;
-// - its publish_if_current closure contains the WHOLE show_selection call;
-// - show_selection's screenshot cache, selection payload and visible window are
-//   all mutated within that closure, not before it or after the guard drops;
-// - commands::selection::set_selection_assistant_config retires first, then
-//   cancels/hides before returning. Completion is the externally visible bound.
-// These are bounded production-owner tests, not a native Windows UI replay.

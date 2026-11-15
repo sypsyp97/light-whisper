@@ -59,7 +59,7 @@ def main():
         TEST, EMPTY_ASSETS, Path(__file__).absolute())}
     compiled_manifest = build / "compiled-source.json"
     env, _ = build_environment()
-    # vcvars may return Path beside the caller's PATH. Windows keys ignore case.
+
     env = {key.upper(): value for key, value in env.items()}
     compiler = shutil.which("cl.exe", path=env["PATH"])
     linker = shutil.which("link.exe", path=env["PATH"])
@@ -84,7 +84,7 @@ def main():
                   "/DNOMINMAX", "/D_CRT_SECURE_NO_WARNINGS", f"/I{source / 'include'}",
                   f"/I{source / 'external/ggml/include'}", f"/Fo{build}/"]
         run([*common, *[str(source / name) for name in SOURCES], str(TEST), str(EMPTY_ASSETS)])
-        # Rename only this translation unit; the wrapper calls the same real implementation.
+
         run([*common, "/Dreal_fft_forward=r2t2_test_real_fft_forward", str(source / FFT)])
         objects = [build / (Path(name).stem + ".obj") for name in (*SOURCES, FFT)]
         run([linker, "/nologo", "/OPT:REF", f"/OUT:{executable}",

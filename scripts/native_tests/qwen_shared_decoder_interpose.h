@@ -1,6 +1,6 @@
 #pragma once
 
-// Test-only interposition; real backend arithmetic and tensor reads still run.
+
 #include "engine/framework/core/backend.h"
 #include <ggml-backend.h>
 

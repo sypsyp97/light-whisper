@@ -1,7 +1,3 @@
-//! 模型下载服务
-//!
-//! 从 commands/funasr.rs 中提取的模型下载逻辑。
-
 use crate::services::funasr_service;
 use crate::state::AppState;
 use crate::utils::{paths, AppError};
@@ -13,7 +9,6 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::oneshot;
 
-/// 下载进度行的 JSON 结构
 #[derive(serde::Deserialize)]
 struct DownloadLine {
     success: Option<bool>,
@@ -84,27 +79,20 @@ fn emit_download_status(app_handle: &tauri::AppHandle, payload: serde_json::Valu
     let _ = app_handle.emit("model-download-status", payload);
 }
 
-/// 执行模型下载
-///
-/// 启动 Python 下载脚本，逐行读取进度并通过 Tauri 事件转发给前端。
-/// 支持通过 cancel channel 取消下载。
 pub async fn run_download(
     app_handle: &tauri::AppHandle,
     state: &AppState,
     request_id: Option<String>,
 ) -> Result<String, AppError> {
     let preparation = async {
-        // 获取下载脚本路径，清理 Windows \\?\ 前缀
         let download_script = paths::get_download_script_path(app_handle);
         let download_script_str = paths::strip_win_prefix(&download_script);
 
         let data_dir = paths::strip_win_prefix(paths::get_data_dir());
 
-        // 查找引擎运行时；失败时也必须释放刚登记的下载槽。
         let generation = state.engine.funasr_generation.load(Ordering::SeqCst);
         let runtime = funasr_service::find_engine(app_handle, state, generation).await?;
 
-        // 仅开发模式需要检查脚本是否存在；此时 task 已登记，错误路径必须按 ID 清理。
         if matches!(runtime, funasr_service::EngineRuntime::Development { .. })
             && !download_script.exists()
         {
@@ -114,8 +102,6 @@ pub async fn run_download(
             )));
         }
 
-        // 启动下载脚本（逐行读取 stdout 以转发进度）
-        // 模型从 HuggingFace 下载，使用 HF 默认缓存目录
         let engine = paths::read_engine_config();
         let engine_arg = match engine.as_str() {
             "qwen3-asr-0.6b" | "confucius4-r2t2" => engine.as_str(),
@@ -154,7 +140,6 @@ pub async fn run_download(
                 }
             });
 
-        // Windows 上隐藏控制台窗口
         #[cfg(target_os = "windows")]
         {
             const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -183,8 +168,6 @@ where
     let (done_tx, done) = tokio::sync::watch::channel(false);
     let task_id = NEXT_DOWNLOAD_TASK_ID.fetch_add(1, Ordering::Relaxed);
     {
-        // Reserve before waiting for lifecycle work so cancellation can always
-        // identify this attempt. Drop the slot lock before taking lifecycle.
         let mut guard = state.engine.download_task.lock().await;
         if guard.is_some() {
             return Err(AppError::Download(
@@ -204,16 +187,16 @@ where
     };
 
     let outcome: Result<bool, AppError> = async {
-        // Finish any migration that acquired lifecycle before this reservation.
-        // Once reserved, configuration writers reject the active download slot.
+
+
         tokio::select! {
             biased;
             _ = &mut cancel_rx => return Ok(false),
             guard = state.engine.funasr_lifecycle_op.lock() => drop(guard),
         }
-        // Engine preparation can own a spawn_blocking archive extraction. Never
-        // drop it on cancellation: retain ownership until its side effects stop,
-        // then discard its command rather than starting a cancelled download.
+
+
+
         let prepared = preparation.await;
         if !matches!(cancel_rx.try_recv(), Err(oneshot::error::TryRecvError::Empty)) {
             return Ok(false);
@@ -260,8 +243,8 @@ where
                     let Some(mut payload) = parse_json_line_with_recovery::<DownloadLine>(&line_bytes, "模型下载输出") else {
                         continue;
                     };
-                    // The script emits stage:error and then success:false. Both
-                    // describe one outcome, published only after process exit.
+
+
                     if payload.stage.as_deref() == Some("error") {
                         payload.success = Some(false);
                     }
@@ -282,7 +265,7 @@ where
                 }
             }
         }
-        // A consumed oneshot receiver must not be polled again.
+
         let waited = if cancelled {
             child.wait().await.map(|status| (status, true))
         } else {
@@ -307,7 +290,6 @@ where
         }
     }.await;
 
-    // Terminal publication, release and acknowledgement form one ordered exit.
     let result = match outcome {
         Ok(completed) => {
             let (status, message) = if completed {
@@ -396,7 +378,6 @@ mod tests {
             "the worker must keep its slot while stopping"
         );
 
-        // The test worker finishes without launching a downloader or touching model files.
         clear_download_task(state.inner(), 41).await;
         assert!(
             cancellation.as_mut().poll(&mut context).is_pending(),

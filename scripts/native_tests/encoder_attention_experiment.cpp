@@ -1,7 +1,7 @@
-// Test-only numerical experiment at R2T2's post-projection Q/K/V boundary.
-// Uses the shipping modules/ggml library, including the encoder's reshape,
-// transpose, Explicit SDPA with GGML_PREC_F32, and contiguous context output.
-// Numerical differences are measurements, never a model-quality acceptance gate.
+
+
+
+
 #include "engine/community_models/confucius4_r2t2/types.h"
 #include "engine/framework/core/backend.h"
 #include "engine/framework/modules/attention/scaled_dot_product_attention.h"
@@ -97,7 +97,7 @@ int64_t compacted_tokens(int64_t frames, int64_t chunk_frames) {
     return tokens;
 }
 
-// Same valid window end and padded-query self-attention as audio_encoder.cpp.
+
 bool visible(int64_t row, int64_t col, int64_t valid, int64_t window) {
     const int64_t begin = row < valid ? row / window * window : row;
     const int64_t end = row < valid ? std::min(valid, begin + window) : row + 1;
@@ -120,7 +120,7 @@ struct Input {
 Input inputs(int64_t tokens, int64_t valid, int64_t hidden, int64_t window, uint32_t seed, bool zero_padded) {
     const auto count = static_cast<size_t>(tokens * hidden);
     Input out{pattern(count, seed), pattern(count, seed + 1), pattern(count, seed + 2)};
-    // Window-specific V offsets make a removed window boundary observable.
+
     for (int64_t token = 0; token < tokens; ++token) {
         for (int64_t d = 0; d < hidden; ++d) {
             const auto index = static_cast<size_t>(token * hidden + d);
@@ -260,8 +260,8 @@ public:
     }
 
     double compute(const Input & input) {
-        // Gallocr may reuse a leaf's storage after its last consumer. Restore
-        // every leaf before every run, including warmup, outside the timer.
+
+
         core::write_tensor_f32(q_, input.q);
         core::write_tensor_f32(k_, input.k);
         core::write_tensor_f32(v_, input.v);
@@ -338,7 +338,7 @@ void group(const Options & opt, ggml_backend_t backend, std::ofstream & report,
             runner.upload(input, valid, opt.output / (item.name + "." + runner.name() + ".mask.bin"));
             for (int warm = 0; warm < opt.warmup; ++warm) { runner.compute(input); }
         }
-        // Rotate measured order to reduce a fixed reference/candidate order bias.
+
         for (int round = 0; round < opt.rounds; ++round) {
             for (size_t offset = 0; offset < runners.size(); ++offset) {
                 const auto r = (static_cast<size_t>(round) + offset) % runners.size();
@@ -392,7 +392,7 @@ void group(const Options & opt, ggml_backend_t backend, std::ofstream & report,
         require(report.good(), "cannot write numerical report");
     }
 }
-}  // namespace
+}
 
 int main(int argc, char ** argv) try {
     const auto opt = options(argc, argv);

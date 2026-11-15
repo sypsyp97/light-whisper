@@ -191,8 +191,6 @@ fn expected_resampled(input: &[i16], sample_rate: u32) -> Vec<i16> {
     output
 }
 
-// Match the Qwen application sink's 40 ms input cadence and preview opt-out.
-// FakeSink itself keeps the default R2T2 chunk and feed_final behavior.
 struct QwenSink(FakeSink);
 
 impl NativeCaptureSink for QwenSink {

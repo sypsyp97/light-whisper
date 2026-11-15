@@ -1,0 +1,9 @@
+[package]
+name = "agent-api-measurement-selector"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[test]]
+name = "cli_selector"
+path = "../../cli-packaging/selector_tests.rs"

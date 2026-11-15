@@ -1,6 +1,6 @@
 #pragma once
 
-// Forced into the runtime TU only. The CPU backend and graph arithmetic stay real.
+
 #include "engine/framework/core/backend.h"
 
 void device_test_set(ggml_tensor *, const void *, size_t, size_t);

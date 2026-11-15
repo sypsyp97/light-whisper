@@ -1,7 +1,7 @@
 #pragma once
 
-// Force-included only when compiling qwen_causal_decode_runtime.cpp for tests.
-// Backend implementation and all graph arithmetic remain unchanged.
+
+
 #include "engine/framework/core/backend.h"
 
 namespace engine::core {

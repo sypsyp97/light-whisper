@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-ASR 模型下载脚本
-使用 requests 直接从 HuggingFace 下载，绕过 huggingface_hub 库的 Windows 文件锁 bug。
-"""
+
+
+
+
 
 import sys
 import json
@@ -68,14 +68,14 @@ def _emit(model_type, stage, percent, error=None, message=None):
 
 def _candidate_endpoints():
     endpoints = [HF_ENDPOINT]
-    # 用户显式设置 HF_ENDPOINT 时，尊重其选择；未设置时才自动切镜像。
+
     if "HF_ENDPOINT" not in os.environ and HF_FALLBACK_ENDPOINT and HF_FALLBACK_ENDPOINT not in endpoints:
         endpoints.append(HF_FALLBACK_ENDPOINT)
     return endpoints
 
 
 def _get_repo_info(repo_id, endpoint):
-    """通过 HF API 获取仓库文件列表"""
+
     url = f"{endpoint}/api/models/{repo_id}"
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
@@ -144,7 +144,7 @@ def _download_file(
     expected_size=None,
     revision="main",
 ):
-    """下载单个文件，支持断点续传和进度上报"""
+
     url = _resolve_download_url(endpoint, repo_id, filename, revision)
 
     dest_dir = os.path.dirname(dest_path)
@@ -169,7 +169,7 @@ def _download_file(
 
     tmp_path = dest_path + ".incomplete"
 
-    # 断点续传
+
     downloaded = 0
     if os.path.exists(tmp_path):
         downloaded = os.path.getsize(tmp_path)
@@ -238,7 +238,7 @@ def _download_file(
                 raise RuntimeError(f"{filename} 服务器返回了无效的 Content-Range")
             mode = "ab" if downloaded > 0 else "wb"
         elif resp.status_code == 200:
-            # 服务器忽略 Range 时从零覆盖，不能把完整响应追加到 partial。
+
             downloaded = 0
             mode = "wb"
             content_length = resp.headers.get("Content-Length")
@@ -274,7 +274,7 @@ def _download_file(
             getattr(resp, "close", lambda: None)()
 
         if expected_range_end is not None and current - 1 != expected_range_end:
-            # 响应体与服务端声明的区间不一致，现有 partial 的字节边界不可信。
+
             _remove_if_exists(tmp_path)
             downloaded = 0
             if attempt == 0:
@@ -341,7 +341,7 @@ def _write_completion_manifest(snapshot_dir, repo_id, commit_hash, files):
 
 
 def _cleanup_locks(repo_id):
-    """清理残留的 .lock 和 .incomplete 文件"""
+
     cache_root = get_hf_cache_root()
     dir_name = "models--" + repo_id.replace("/", "--")
 
@@ -358,7 +358,7 @@ def _cleanup_locks(repo_id):
 
 
 def download_model(model_config):
-    """下载模型到 HF 缓存结构"""
+
     model_name = model_config["name"]
     model_type = model_config["type"]
 
@@ -367,7 +367,7 @@ def download_model(model_config):
     required_files = model_config.get("files")
     files_ready = False
     if required_files:
-        # Explicit download/retry verifies integrity; runtime cache lookup stays fast.
+
         revision = model_config["revision"]
         repo_dir = os.path.join(get_hf_cache_root(), "models--" + model_name.replace("/", "--"))
         snapshot_dir = os.path.join(repo_dir, "snapshots", revision)
@@ -380,7 +380,7 @@ def download_model(model_config):
                     f.write(revision)
                 files_ready = True
             except (OSError, RuntimeError):
-                # Invalid bytes remain in unique quarantine siblings. Fetch anew.
+
                 pass
     if files_ready or (not required_files and is_hf_repo_ready(model_name)):
         _emit(model_type, "completed", 100,
@@ -408,7 +408,7 @@ def download_model(model_config):
             else:
                 commit_hash, files = _get_repo_info(model_name, endpoint)
 
-            # 构建 HF 缓存目录结构
+
             cache_root = get_hf_cache_root()
             dir_name = "models--" + model_name.replace("/", "--")
             repo_dir = os.path.join(cache_root, dir_name)
@@ -417,7 +417,7 @@ def download_model(model_config):
             os.makedirs(snapshot_dir, exist_ok=True)
             os.makedirs(refs_dir, exist_ok=True)
 
-            # 写入 refs/main
+
             with open(os.path.join(refs_dir, "main"), "w") as f:
                 f.write(commit_hash)
 

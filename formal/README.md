@@ -11,7 +11,7 @@ selection/assistant, history, windows/subtitles, updates, theme/autostart and
 bundled protocols.
 
 [`verification.json`](verification.json) binds **132 registered commands**,
-**21 event families**, **16 lifecycle entries** and **16 protocol families** to
+**22 event families**, **20 lifecycle entries** and **19 protocol families** to
 obligations, model operators, source/test paths and explicit assumptions. CI
 rejects inventory drift, missing anchors, unasserted properties, unreachable
 explicitly declared actions, failed models/proofs and negative controls that no longer find the
@@ -24,6 +24,7 @@ automatic proof of a Rust/TypeScript function.
 | --- | --- |
 | Integrated AppWorkflow, ten workloads | Cross-subsystem safety: recording/output, consent/context/clipboard, download/configuration, assistant/selection, history/subtitles, updates and GPU suspension/reload. All declared actions must be reached across workloads. |
 | Component TLA+ models | Deeper interleavings and validation/error partitions, with explicit finite bounds and conditional fairness for progress. |
+| CLI companion matrices | Separate required `CLI contracts` CI job: command/session/configuration/bootstrap/target/thread contracts, artifact delivery, private files, authenticated transport, managed queries, headless host, release gates and mounted settings invalidation. Each runner retains its own configured properties, semantic controls and reachability witnesses. |
 | Lean StateContracts | Parameter-independent ownership/decision contracts, profile-version induction, first matching rule, consent, clipboard preservation, sample cap, correction provenance and theme. No sorry, admit or declared axiom. |
 | [Verus implementation proofs](verus/README.md) | Required CI verification of production capture arithmetic, hotkey ownership transitions and interim interval control, plus typechecked negative controls. Caller wiring, synchronization and mixing retain separate Rust tests and review. |
 | Implementation correspondence | Actual regression tests and source-path review, including a source guard requiring provider/endpoint/key snapshots before OAuth awaits. This is not compiler refinement. |
@@ -45,10 +46,44 @@ automatic proof of a Rust/TypeScript function.
 | Windows and UI state | WindowLifecycle, UiPreferences, ThemeSynchronization |
 | Download timers and event subscriptions | DownloadUiLifecycle, DownloadTaskEventOwnership, EventSubscriptionLifecycle |
 | Protocols and transport | RequestProtocols, LlmTransport, LlmRequestParameters, IpcCommandDeadline |
+| CLI and desktop agent | `cli/` companions, `agent-api-security/PrivateFiles`, five `agent-api-transport/` companions, `agent-api-app/AppQuery`, `agent-api-host/AgentHost`, `agent-api-host/admission/ControllerAdmission` |
+| CLI delivery and external settings invalidation | `cli-packaging/Packaging`, `cli-ci/ReleaseGate`, `asr-agent-settings/AsrAgentSettings`, `asr-subscription-bootstrap/AsrSubscriptionBootstrap` |
 
-AppWorkflow is the additional integrated model. The registry is the authoritative
-positive configuration/negative-control list. Operator names and concrete
+AppWorkflow is the additional integrated model. For the application runner, the
+registry is the authoritative positive configuration/negative-control list. Operator names and concrete
 source/test anchors are recorded per contract there.
+
+The root `runs`, `actions` and `negative` registry entries remain the application
+runner's execution matrix. `check_model_bindings` checks configured properties
+and observed actions only for models visited through `runs`. The path-qualified
+CLI companion bindings are source/operator anchors; adding them does not cause
+the root runner to execute those models or check their property activation and
+reachability. Inventory success alone is not a completed CLI proof.
+
+The separate required [`CLI contracts` job](../.github/workflows/ci.yml) executes
+all fifteen CLI matrix runners, the eighteen-case mounted-settings runner
+and the sixteen-case subscription-bootstrap runner.
+The existing runner commands are in its `Run complete CLI formal matrices`
+step. Each positive configuration, semantic negative and reachability witness
+must complete through its owning runner. Final correspondence review must
+match the configured properties and completed receipts to current source,
+test, model and configuration hashes; registry anchor checks cannot replace it.
+The companions retain their own bounds and environmental assumptions, documented
+in [CLI commands](cli/CommandSurface.md), [private files](agent-api-security/README.md),
+[transport](agent-api-transport/README.md), [managed queries](agent-api-app/README.md),
+[headless host](agent-api-host/README.md), [delivery](cli-packaging/README.md),
+[release gates](cli-ci/README.md), [settings invalidation](asr-agent-settings/README.md)
+and [subscription startup](asr-subscription-bootstrap/README.md).
+
+`engine-config-changed` is an invalidation signal emitted by native GUI and
+agent engine setters after their successful backend transition. The settings
+hook rereads saved configuration and retires old read/mutation/listener owners;
+it does not trust event payloads as saved state. The mounted-settings model begins
+with a delivered event. The bootstrap companion checks listener acquisition,
+initial reads, fallback and disposal. Hook regression tests cover overlapping
+read, mutation and finalizer ownership. The combined transition, invalidation
+and effect-replay model is outside the accepted verification scope. Native
+emission ordering and actual GUI delivery require separate runtime evidence.
 
 AppWorkflow separates routed external search and fresh screen preparation from
 LLM dispatch. Both preparations settle before dispatch, and fresh screen payloads
@@ -111,15 +146,17 @@ python scripts/check_formal.py --tlc-jar /path/to/tla2tools.jar \
 ```
 
 The runner saves per-configuration TLC logs, Lean output and a summary with
-measured state counts/source hashes. See [delivery results](evidence/results.json),
+measured state counts/source hashes. Each TLC invocation has a 512 MiB Java heap
+cap and one worker. See [delivery results](evidence/results.json),
 [coverage boundaries](COVERAGE.md) and [implementation evidence](evidence/source-contracts.md).
 
 The binding gate treats actions and properties separately. Only named actions
 with state updates may use execution coverage. Every mapped safety/liveness
 property must be an actual configured INVARIANT/PROPERTY, or a positive conjunct
 of one. References inside negation, implication, comments or strings never count
-as checking that property. Eleven verifier regressions cover this distinction
-and equality between the CI and verifier TLC checksum pins.
+as checking that property. Thirteen verifier regressions cover this distinction,
+equality between the CI and verifier TLC checksum pins, and the bounded TLC
+subprocess invocation. The resource regression mocks Java; it is not a model run.
 
 ## Proof boundary
 

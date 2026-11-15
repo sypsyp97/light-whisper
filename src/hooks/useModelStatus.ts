@@ -32,13 +32,13 @@ interface UseModelStatusReturn {
   retry: () => void;
 }
 
-/** Maximum consecutive start failures before switching to error state. */
+
 const MAX_START_FAILURES = 3;
-/** Consecutive loading checks before attempting a restart. */
+
 const MAX_LOADING_CHECKS = 10;
-/** Polling interval in milliseconds for transient states. */
+
 const POLL_INTERVAL_MS = 6000;
-/** Consider download stalled if no progress event arrives within this period. */
+
 const DOWNLOAD_STALL_HINT_MS = 20000;
 
 function getEngineStartFallbackMessage(): string {
@@ -56,13 +56,13 @@ function normalizeProgress(progress: number | undefined, current: number): numbe
   return Math.max(0, Math.min(100, progress));
 }
 
-/**
- * React hook that tracks the FunASR lifecycle:
- *   checking -> need_download -> downloading -> loading -> ready
- *
- * Polls the backend every 6 seconds while in transient states and listens
- * for download-progress events from the Rust side.
- */
+
+
+
+
+
+
+
 export function useModelStatus(): UseModelStatusReturn {
   const [stage, setStage] = useState<ModelStage>("checking");
   const [device, setDevice] = useState<string | null>(null);
@@ -204,7 +204,7 @@ export function useModelStatus(): UseModelStatusReturn {
         return;
       }
 
-      // 在线引擎 running 但 not ready = 缺 API Key
+
       if (status.running && !status.ready && status.device === "cloud") {
         enterErrorState(status.message || i18n.t("model.needApiKey"));
         return;
@@ -229,7 +229,7 @@ export function useModelStatus(): UseModelStatusReturn {
       }
 
       const startRequestId = ++startRequestIdRef.current;
-      // Progress events and loading polls do not retire the active native start.
+
       const currentStart = () => currentGeneration() && startRequestId === startRequestIdRef.current;
       try {
         await startFunASR();
@@ -274,7 +274,7 @@ export function useModelStatus(): UseModelStatusReturn {
     };
   }, [checkStatus, clearDownloadWatchdog, clearPolling, invalidateDownload, startPolling]);
 
-  // Listen for funasr-status events (loading progress, crashed, etc.)
+
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -325,11 +325,11 @@ export function useModelStatus(): UseModelStatusReturn {
             setStage("loading");
             setError(null);
             setDownloadMessage(message ?? i18n.t("model.serviceRestarting"));
-            // Reset counters and trigger restart via polling
+
             startFailuresRef.current = 0;
             restartAttemptedRef.current = false;
             loadingChecksRef.current = 0;
-            // Ensure polling is active
+
             void checkStatus();
             startPolling();
           }

@@ -19,8 +19,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCES = ROOT / "src-tauri/resources"
 SAMPLE_RATE = 16000
-CHUNK_SAMPLES = 2560  # Existing CUDA product policy: 160 ms.
-FINISH_SAMPLES = 5120  # Existing NativeRuntime acoustic end context: 320 ms.
+CHUNK_SAMPLES = 2560
+FINISH_SAMPLES = 5120
 DEFAULT_ZH = ROOT / "tmp/asr-caption-20261017/fixtures/asr_zh.wav"
 DEFAULT_EN = ROOT / "tmp/asr-engine-20261017/upstream/samples/fleurs-en.wav"
 
@@ -53,8 +53,8 @@ def make_cases(args):
         fixtures[language] = {"path": str(path.absolute()), "sha256": sha256(path), "samples": int(clip.size)}
         cases[f"{language}-full"] = (clip, "finish")
         if clip.size % 160 == 0:
-            # Retain the complete original too; this extra case leaves a real
-            # speech tail outside both FFT-hop and feed-chunk boundaries.
+
+
             cases[f"{language}-nonhop"] = (clip[:-37], "finish")
         cases[f"{language}-cut-2s"] = (clip[:32000], "finish")
         cases[f"{language}-restored-5123"] = (clip[:37123], "finish")
@@ -70,8 +70,8 @@ def make_cases(args):
                                     [:36 * SAMPLE_RATE], "finish")
 
     primary = next(iter(clips.values()))
-    # One NativeRuntime/session owner runs this sequence. Explicit cancel/reset
-    # and start over an active stream must both clear the preceding audio/text.
+
+
     cases["reset-prime"] = (primary[:32000], "cancel")
     cases["short-after-reset"] = (primary[:5001], "finish")
     cases["start-prime"] = (primary[:32000], "restart")
@@ -126,7 +126,7 @@ def run_case(native, session, session_id, name, pcm, completion):
         require(native.preview_text == "" and native._offset == 0 and not session.active,
                 f"{name}: reset leaked state")
     else:
-        # The immediately following start must reset this still-active stream.
+
         final = None
         require(session.active, f"{name}: priming stream ended prematurely")
     finish_ms = (time.perf_counter() - before) * 1000
@@ -150,11 +150,11 @@ def run_case(native, session, session_id, name, pcm, completion):
 
 
 def observable(case):
-    # Timing diagnoses performance; it never decides recognition correctness.
+
     result = {key: value for key, value in case.items() if key != "timings" and key != "feeds"} | {
         "feeds": [{key: value for key, value in item.items() if key != "ms"} for item in case["feeds"]]}
-    # A selected smoke subset numbers its sessions differently. The controller
-    # still validates IDs; recognition parity compares their observable content.
+
+
     for item in result["feeds"]:
         item["response"] = {key: value for key, value in item["response"].items() if key != "session_id"}
     if result["final"] is not None:

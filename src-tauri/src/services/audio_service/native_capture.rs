@@ -7,10 +7,8 @@ use super::resample::ChunkedResampler;
 use crate::services::funasr_service::{native_stream::NativeStreamUpdate, TranscriptionResult};
 use crate::utils::AppError;
 
-// Poll more often than the decode cadence to avoid an extra full-chunk wait
-// when capture packets arrive just after a poll. Partial audio stays local.
 const CAPTURE_INTERVAL: Duration = Duration::from_millis(40);
-const NATIVE_CHUNK_SAMPLES: usize = 2560; // 160 ms at 16 kHz.
+const NATIVE_CHUNK_SAMPLES: usize = 2560;
 
 pub(crate) enum NativeCaptureControl {
     Finish,

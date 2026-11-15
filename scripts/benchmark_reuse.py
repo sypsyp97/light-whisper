@@ -178,7 +178,7 @@ def main():
         parser.error("--iterations must be positive")
     if args.duration and any(not math.isfinite(duration) or duration <= 0 for duration in args.duration):
         parser.error("--duration must contain finite, positive seconds")
-    # Process-local controls, set before NumPy or either native backend loads.
+
     os.environ["OMP_NUM_THREADS"] = str(THREADS)
     if args.backend == "cuda":
         os.environ["NVIDIA_TF32_OVERRIDE"] = "0"

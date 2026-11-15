@@ -1,10 +1,10 @@
-"""NVIDIA RE-USE enhancement using the existing GGML CPU/CUDA kernels.
 
-RealtimeReuseEnhancer streams the original Real-time RE-USE FP32 checkpoint;
-its separate NVIDIA license limits use to noncommercial research and education.
-ReuseEnhancer retains the offline 30-layer model and its one-second windows.
-Neither path requires PyTorch, model conversion or quantized weights.
-"""
+
+
+
+
+
+
 
 import ctypes as ct
 import hashlib
@@ -50,8 +50,8 @@ def _ensure_reuse_model(repo, revision, size_bytes, sha256):
             / "snapshots" / revision / "model.safetensors")
     if _verified_model(path, size_bytes, sha256):
         return path
-    # Use the project's download transport directly: resident ASR otherwise sets
-    # Hugging Face offline mode. Only this explicit opt-in may fetch this model.
+
+
     import requests
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -278,7 +278,7 @@ class NativeRealtimeReuseRuntime(NativeReuseRuntime):
                                       *[pointer(value) for value in outputs])
         if status or not all(np.isfinite(value).all() for value in outputs):
             reason = "native error" if status else "non-finite output"
-            # Native state may already have advanced. Only a successful reset can recover it.
+
             self._failure = f"Real-time RE-USE inference failed ({reason}): {self._error()}"
             raise RuntimeError(self._failure)
         self._primed = True
@@ -333,7 +333,7 @@ class RealtimeReuseEnhancer:
         spectrum = magnitude * np.exp(1j * np.arctan2(imag[0], real[0]))
         self._overlap += np.fft.irfft(spectrum, n=self.FFT) * self._window
         self._weights += self._window_squared
-        # Frame zero's completed hop lies before the centered waveform origin.
+
         if self._output_frames:
             count = min(self.HOP, self._samples - self._emitted)
             if count:
@@ -380,7 +380,7 @@ class RealtimeReuseEnhancer:
         try:
             padded_count = max(self.FFT, ((self._samples + self.HOP - 1) // self.HOP) * self.HOP)
             self._append_pcm(np.full(padded_count - self._samples, 1e-8, dtype=np.float32), output)
-            # Keep one extra past sample for the right reflection's outer edge.
+
             edge = np.concatenate((np.array([self._previous], dtype=np.float32), self._pending))
             self._push_frame(np.concatenate((self._pending, edge[-2::-1])), output)
             zeros = np.zeros(self.FFT // 2 + 1, dtype=np.float32)

@@ -12,7 +12,6 @@ use tauri::Listener;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-// Run the test binary itself as a tiny IPC server; no Python/GPU/model dependency.
 #[test]
 #[ignore = "subprocess fixture, invoked by the IPC recovery tests"]
 fn ipc_test_server() {
@@ -308,8 +307,7 @@ fn pipe_filling_command() -> ServerCommand {
     ServerCommand::StreamFeed {
         session_id: 1,
         offset: 0,
-        // The Windows anonymous pipe cannot buffer this payload while its
-        // live peer parks without ever reading stdin.
+
         audio_base64: "A".repeat(8 * 1024 * 1024),
         audio_format: "pcm_f32le".to_string(),
         sample_rate: 16_000,
@@ -402,7 +400,6 @@ async fn cancelled_partial_stdin_write_invalidates_the_owned_server() {
     );
 }
 
-// Formal replay ownership: separate append-only test module.
 mod async_ownership_replay_tests {
     use super::*;
     use std::future::{poll_fn, Future};
@@ -486,8 +483,7 @@ mod async_ownership_replay_tests {
         state.set_funasr_ready(true);
         state.set_inline_audio_transport(Some(true));
         let command = pipe_filling_command();
-        // IpcCommandDeadline expires at tick 3. Serialization and real pipe I/O
-        // must not spend model ticks; only ipc:tick advances this clock.
+
         tokio::time::pause();
         let mut operation = Some(Box::pin(super::super::send_command_to_server_with_timeout(
             &state,
@@ -528,8 +524,7 @@ mod async_ownership_replay_tests {
                             watchdog.elapsed() < Duration::from_secs(10),
                             "child must consume the actual JSON frame in {name}"
                         );
-                        // Remain runnable so Tokio cannot automatically advance
-                        // paused time while the real subprocess/pipe progresses.
+
                         std::thread::sleep(Duration::from_millis(1));
                         tokio::task::yield_now().await;
                     }
@@ -541,7 +536,6 @@ mod async_ownership_replay_tests {
                     ticks += 1;
                     tokio::time::advance(Duration::from_secs(1)).await;
                     if ticks == total_ticks {
-                        // Tokio rounds deadlines up to its next millisecond.
                         tokio::time::advance(Duration::from_millis(1)).await;
                         let watchdog = std::time::Instant::now();
                         loop {

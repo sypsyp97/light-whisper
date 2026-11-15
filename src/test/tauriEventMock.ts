@@ -1,15 +1,15 @@
 import { vi } from "vitest";
 
-/**
- * Shared helper for mocking `@tauri-apps/api/event`. Returns a controller that
- * lets tests manually emit events to listeners registered through `listen()`.
- *
- * Usage:
- *   const events = createTauriEventController();
- *   vi.mock("@tauri-apps/api/event", () => events.module);
- *   // in test:
- *   events.emit("recording-state", { sessionId: 5, isRecording: true });
- */
+
+
+
+
+
+
+
+
+
+
 export function createTauriEventController() {
   type Handler = (event: { payload: unknown }) => void;
   const handlers = new Map<string, Set<Handler>>();

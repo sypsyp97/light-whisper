@@ -100,7 +100,7 @@ def run_request(api, session, args, pcm, name, stage, sweep, report):
         handles.callback(api["result_free"], result)
         record = {"fixture": name, "stage": stage, "sweep": sweep,
                   "session_index": 0, "generated_token_ids": None}
-        # Preserve partial evidence if a native call returns an error.
+
         report["runs"].append(record)
         report["stage"] = {"operation": "session_run", "fixture": name, "run_stage": stage, "sweep": sweep}
         start = time.perf_counter_ns()

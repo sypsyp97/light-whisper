@@ -5,7 +5,7 @@ import { prefersReducedMotion } from "@/lib/motion";
 
 export type ThemeMode = "light" | "dark" | "system";
 const THEME_CHANGE = "light-whisper:theme-change";
-// Later consumers share the current choice even when persistence is unavailable.
+
 let mountedConsumers = 0;
 let sharedTheme: ThemeMode | undefined;
 
@@ -40,12 +40,12 @@ function applyThemeToDOM(isDark: boolean): void {
   const nextTheme = isDark ? "dark" : "light";
   if (root.dataset.theme === nextTheme) return;
   const apply = () => {
-    // A rapid reversal may happen before the earlier snapshot callback runs.
+
     if (revision !== themeRevision) return;
     root.classList.add("no-transition");
     root.classList.toggle("dark", isDark);
     root.dataset.theme = nextTheme;
-    void root.offsetHeight; // force reflow
+    void root.offsetHeight;
     root.classList.remove("no-transition");
   };
   if (isFirstApply || prefersReducedMotion() || !document.startViewTransition) {
@@ -57,12 +57,12 @@ function applyThemeToDOM(isDark: boolean): void {
   }
 }
 
-/**
- * React hook for theme management.
- * Supports light, dark, and system-following modes.
- * Persists the user's choice to localStorage and applies the
- * corresponding class / data-attribute to <html>.
- */
+
+
+
+
+
+
 export function useTheme(): UseThemeReturn {
   const [theme, setThemeState] = useState<ThemeMode>(() => {
     return sharedTheme ?? themeMode(readLocalStorage(THEME_STORAGE_KEY));
@@ -72,7 +72,7 @@ export function useTheme(): UseThemeReturn {
 
   const [isDark, setIsDark] = useState(() => resolveIsDark(theme));
 
-  // Apply theme whenever it changes
+
   useEffect(() => {
     const dark = resolveIsDark(theme);
     setIsDark(dark);
@@ -91,7 +91,7 @@ export function useTheme(): UseThemeReturn {
     const storageChange = (event: StorageEvent) => {
       if (event.storageArea !== localStorage) return;
       if (event.key === THEME_STORAGE_KEY || event.key === null) {
-        // A queued notification can predate a newer local or remote choice.
+
         update(themeMode(readLocalStorage(THEME_STORAGE_KEY)));
       }
     };
@@ -104,7 +104,7 @@ export function useTheme(): UseThemeReturn {
     };
   }, []);
 
-  // Listen for system preference changes when in "system" mode
+
   useEffect(() => {
     if (theme !== "system") return;
 

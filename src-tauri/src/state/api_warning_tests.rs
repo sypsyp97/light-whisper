@@ -5,7 +5,7 @@ fn api_warning_extends_only_the_marked_sessions_short_hide_delay() {
     let state = AppState::new();
     assert_eq!(state.ui.subtitle_hide_delay_ms(10, 1500), 1500);
     state.ui.mark_api_warning(10);
-    // Eight seconds for reading plus the frontend fade, before native hiding.
+
     assert_eq!(state.ui.subtitle_hide_delay_ms(10, 1500), 8500);
     assert_eq!(state.ui.subtitle_hide_delay_ms(10, 12000), 12000);
     assert_eq!(state.ui.subtitle_hide_delay_ms(11, 1500), 1500);

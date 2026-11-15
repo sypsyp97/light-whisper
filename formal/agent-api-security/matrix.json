@@ -1,0 +1,116 @@
+[
+  {
+    "name": "positive",
+    "kind": "positive",
+    "config": "configs/positive.cfg",
+    "property": null
+  },
+  {
+    "name": "positive-absent",
+    "kind": "positive",
+    "config": "configs/positive-absent.cfg",
+    "property": null
+  },
+  {
+    "name": "public-temp",
+    "kind": "negative",
+    "config": "configs/public-temp.cfg",
+    "property": "PrivateBeforeSecret"
+  },
+  {
+    "name": "late-tighten",
+    "kind": "negative",
+    "config": "configs/late-tighten.cfg",
+    "property": "PrivateBeforeSecret"
+  },
+  {
+    "name": "direct-destination-write",
+    "kind": "negative",
+    "config": "configs/direct-destination-write.cfg",
+    "property": "UnpublishedDestinationUnchanged"
+  },
+  {
+    "name": "copy-instead-of-move",
+    "kind": "negative",
+    "config": "configs/copy-instead-of-move.cfg",
+    "property": "PublishedMovesStaging"
+  },
+  {
+    "name": "preserved-old-acl",
+    "kind": "negative",
+    "config": "configs/preserved-old-acl.cfg",
+    "property": "PublishedPrivate"
+  },
+  {
+    "name": "delete-sharing",
+    "kind": "negative",
+    "config": "configs/delete-sharing.cfg",
+    "property": "SingleHost"
+  },
+  {
+    "name": "temp-leak",
+    "kind": "negative",
+    "config": "configs/temp-leak.cfg",
+    "property": "FailureCleansTemp"
+  },
+  {
+    "name": "neighbor-delete",
+    "kind": "negative",
+    "config": "configs/neighbor-delete.cfg",
+    "property": "CleanupOwnsOnlyTemp"
+  },
+  {
+    "name": "cleanup-stall",
+    "kind": "temporal-negative",
+    "config": "configs/cleanup-stall.cfg",
+    "property": "PublicationSettles"
+  },
+  {
+    "name": "reach-written",
+    "kind": "witness",
+    "config": "configs/reach-written.cfg",
+    "property": "NotWritten"
+  },
+  {
+    "name": "reach-published",
+    "kind": "witness",
+    "config": "configs/reach-published.cfg",
+    "property": "NotPublished"
+  },
+  {
+    "name": "reach-cleaned",
+    "kind": "witness",
+    "config": "configs/reach-cleaned.cfg",
+    "property": "NotCleaned"
+  },
+  {
+    "name": "reach-lock-protected",
+    "kind": "witness",
+    "config": "configs/reach-lock-protected.cfg",
+    "property": "NotLockProtected"
+  },
+  {
+    "name": "reach-successor",
+    "kind": "witness",
+    "config": "configs/reach-successor.cfg",
+    "property": "NotSuccessor"
+  },
+  {
+    "name": "reach-late-tightened-publication",
+    "kind": "witness",
+    "config": "configs/reach-late-tightened-publication.cfg",
+    "property": "NotLateTightenedPublication"
+  },
+  {
+    "name": "unvalidated-ownership",
+    "kind": "negative",
+    "config": "configs/unvalidated-ownership.cfg",
+    "property": "CreationFailureCleansEmpty"
+  },
+  {
+    "name": "reach-creation-failure-cleaned",
+    "kind": "witness",
+    "config": "configs/reach-creation-failure-cleaned.cfg",
+    "property": "NotCreationFailureCleaned"
+  }
+]

@@ -1,5 +1,3 @@
-//! FunASR engine discovery and installation helpers.
-
 use crate::state::AppState;
 use crate::utils::{paths, AppError};
 use std::path::PathBuf;
@@ -8,11 +6,9 @@ use tokio::process::Command;
 
 use super::{now_unix_ms, EngineProgressGate, ENGINE_ARCHIVE_FINGERPRINT};
 
-/// 引擎运行模式
 pub enum EngineRuntime {
-    /// 生产模式：直接运行打包的 engine.exe
     Bundled { exe_path: String },
-    /// 开发模式：使用系统 Python 解释器 + .py 脚本
+
     Development { python_path: String },
 }
 
@@ -38,13 +34,6 @@ pub(super) fn engine_install_fingerprint_matches(installed: &str, expected: &str
                 .is_some_and(|(_, archive_fingerprint)| archive_fingerprint == expected))
 }
 
-/// 查找引擎运行时
-///
-/// 按优先级：
-/// 1. 已解压到数据目录的 engine.exe（版本匹配时直接复用）
-/// 2. 未解压的引擎归档（engine.tar.xz / 兼容 engine.zip）→ 解压后使用
-/// 3. 资源目录中的 engine.exe（开发时直接放置 python-dist）
-/// 4. 系统 Python（开发模式）
 pub async fn find_engine(
     app_handle: &tauri::AppHandle,
     state: &AppState,
@@ -61,7 +50,6 @@ pub async fn find_engine(
     }
     let expected_fingerprint = expected_engine_install_fingerprint(app_handle);
 
-    // 策略1：已解压的 engine.exe（版本匹配时使用）
     if let Some(engine_path) = paths::get_engine_exe_path(app_handle) {
         let version_file = paths::get_engine_dir().join(".version");
         let installed_version = std::fs::read_to_string(&version_file).unwrap_or_default();
@@ -79,7 +67,6 @@ pub async fn find_engine(
         );
     }
 
-    // 策略2：存在引擎归档，需要解压（首次启动或版本升级）
     if let Some(archive_path) = paths::get_engine_archive_path(app_handle) {
         log::info!("找到引擎压缩包，准备解压: {}", archive_path.display());
         let engine_exe = extract_engine_archive(&archive_path, app_handle, &progress_gate).await?;
@@ -88,19 +75,16 @@ pub async fn find_engine(
         return Ok(EngineRuntime::Bundled { exe_path: path_str });
     }
 
-    // 策略3：资源目录中的 engine.exe（开发时直接 PyInstaller 输出）
     if let Some(engine_path) = paths::get_resource_engine_exe_path(app_handle) {
         let path_str = paths::strip_win_prefix(&engine_path);
         log::info!("找到资源目录引擎: {}", path_str);
         return Ok(EngineRuntime::Bundled { exe_path: path_str });
     }
 
-    // 策略4：开发模式
     let python_path = find_python().await?;
     Ok(EngineRuntime::Development { python_path })
 }
 
-/// 解压引擎归档到数据目录
 async fn extract_engine_archive(
     archive_path: &std::path::Path,
     app_handle: &tauri::AppHandle,
@@ -121,7 +105,6 @@ async fn extract_engine_archive(
     let handle = app_handle.clone();
     let progress_gate = progress_gate.clone();
 
-    // 解压是 CPU 密集型 + IO 密集型，放到阻塞线程
     tokio::task::spawn_blocking(move || {
         let parent = engine_dir
             .parent()
@@ -160,7 +143,6 @@ async fn extract_engine_archive(
                 return Err(AppError::Asr("引擎归档缺少 engine.exe".to_string()));
             }
 
-            // 写入版本标记，用于后续升级检测；只写 staging，验证成功后整体替换。
             let fingerprint = expected_engine_install_fingerprint(&handle);
             paths::atomic_write(
                 staging_dir.join(".version").as_path(),
@@ -339,9 +321,7 @@ fn report_extract_progress(
     });
 }
 
-/// 查找可用的 Python 解释器（开发模式回退）
 async fn find_python() -> Result<String, AppError> {
-    // ---- 策略1：检查项目 .venv 虚拟环境 ----
     let mut venv_candidates = vec![PathBuf::from(".venv"), PathBuf::from("..").join(".venv")];
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
@@ -367,8 +347,6 @@ async fn find_python() -> Result<String, AppError> {
         }
     }
 
-    // ---- 策略2：在系统 PATH 中搜索 ----
-    // 尝试多个可能的 Python 命令名
     let python_names = vec!["python.exe", "python3.exe", "python"];
 
     for name in &python_names {
@@ -398,7 +376,6 @@ async fn find_python() -> Result<String, AppError> {
         }
     }
 
-    // 所有策略都失败了
     Err(AppError::Asr(
         "未找到可用的 Python 解释器。请安装 Python 3.8+ 或在项目目录创建 .venv 虚拟环境（推荐使用 uv）。"
             .to_string(),

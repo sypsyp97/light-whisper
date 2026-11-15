@@ -10,6 +10,6 @@ export function writeLocalStorage(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
   } catch {
-    // ignore unavailable storage
+
   }
 }

@@ -19,7 +19,6 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// 稳定的机器可读错误码（前端用 switch / 路由）。
     pub fn code(&self) -> &'static str {
         match self {
             AppError::Asr(_) => "ASR_ERROR",
@@ -32,7 +31,6 @@ impl AppError {
         }
     }
 
-    /// 高层归类，方便前端按类别决定提示样式。
     pub fn category(&self) -> &'static str {
         match self {
             AppError::Asr(_) => "asr",
@@ -50,9 +48,7 @@ struct StructuredAppError {
     code: &'static str,
     category: &'static str,
     message: String,
-    /// 预留给未来携带结构化诊断信息（schema、status、provider 详情等）。
-    /// 当前所有 variant 都没有 payload，统一序列化为 JSON null，让前端
-    /// 永远能 `error.details === null` 判空而不是 `'details' in error`。
+
     details: Option<serde_json::Value>,
 }
 
@@ -79,17 +75,7 @@ impl From<tauri::Error> for AppError {
 
 #[cfg(test)]
 mod tests {
-    //! Tests for the structured AppError IPC contract.
-    //!
-    //! Contract:
-    //!   - `AppError::code()` returns a stable string per variant (e.g.
-    //!     "ASR_ERROR", "AUDIO_ERROR", "DOWNLOAD_ERROR", "IO_ERROR",
-    //!     "SERDE_ERROR", "TAURI_ERROR", "OTHER_ERROR").
-    //!   - `AppError::category()` maps each code to a coarse category
-    //!     used by the UI to decide how to render the error.
-    //!   - The `Serialize` impl emits a structured object with keys
-    //!     `code`, `category`, `message`, `details` (instead of a single
-    //!     string).
+
     use super::AppError;
 
     #[test]

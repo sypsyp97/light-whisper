@@ -1,0 +1,421 @@
+[
+  {
+    "name": "positive",
+    "kind": "positive",
+    "mode": "Correct",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "PermitUntilSettled",
+      "RecordingGuard",
+      "ProcessingGuard",
+      "ExternalOwnerGuard",
+      "NoEffectsForInvalidInput",
+      "NoTemporaryAfterReturn",
+      "NoOwnedLeaseAfterReturn",
+      "BusyRuntimeUnknown",
+      "ActualRuntimeIdentity",
+      "ActualStats",
+      "BackendErrorsExplicit",
+      "SilenceIsEmpty",
+      "EngineGetNoIpc",
+      "OwnerAbortStopsNative"
+    ],
+    "temporal": [
+      "AllQueriesSettle",
+      "OwnerAbortEventuallyReaps"
+    ],
+    "config": "configs/positive.cfg"
+  },
+  {
+    "name": "IgnoreRecording",
+    "kind": "negative",
+    "mode": "IgnoreRecording",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "RecordingGuard"
+    ],
+    "temporal": [],
+    "expected": "RecordingGuard",
+    "config": "configs/IgnoreRecording.cfg"
+  },
+  {
+    "name": "IgnoreProcessing",
+    "kind": "negative",
+    "mode": "IgnoreProcessing",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "ProcessingGuard"
+    ],
+    "temporal": [],
+    "expected": "ProcessingGuard",
+    "config": "configs/IgnoreProcessing.cfg"
+  },
+  {
+    "name": "IgnoreOwner",
+    "kind": "negative",
+    "mode": "IgnoreOwner",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "ExternalOwnerGuard"
+    ],
+    "temporal": [],
+    "expected": "ExternalOwnerGuard",
+    "config": "configs/IgnoreOwner.cfg"
+  },
+  {
+    "name": "ReleaseEarly",
+    "kind": "negative",
+    "mode": "ReleaseEarly",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "PermitUntilSettled"
+    ],
+    "temporal": [],
+    "expected": "PermitUntilSettled",
+    "config": "configs/ReleaseEarly.cfg"
+  },
+  {
+    "name": "LeakTemp",
+    "kind": "negative",
+    "mode": "LeakTemp",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "NoTemporaryAfterReturn"
+    ],
+    "temporal": [],
+    "expected": "NoTemporaryAfterReturn",
+    "config": "configs/LeakTemp.cfg"
+  },
+  {
+    "name": "ForgetRelease",
+    "kind": "negative",
+    "mode": "ForgetRelease",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "NoOwnedLeaseAfterReturn"
+    ],
+    "temporal": [],
+    "expected": "NoOwnedLeaseAfterReturn",
+    "config": "configs/ForgetRelease.cfg"
+  },
+  {
+    "name": "InventBusyRuntime",
+    "kind": "negative",
+    "mode": "InventBusyRuntime",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "BusyRuntimeUnknown"
+    ],
+    "temporal": [],
+    "expected": "BusyRuntimeUnknown",
+    "config": "configs/InventBusyRuntime.cfg"
+  },
+  {
+    "name": "UseSavedRuntime",
+    "kind": "negative",
+    "mode": "UseSavedRuntime",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "ActualRuntimeIdentity"
+    ],
+    "temporal": [],
+    "expected": "ActualRuntimeIdentity",
+    "config": "configs/UseSavedRuntime.cfg"
+  },
+  {
+    "name": "InventStats",
+    "kind": "negative",
+    "mode": "InventStats",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "ActualStats"
+    ],
+    "temporal": [],
+    "expected": "ActualStats",
+    "config": "configs/InventStats.cfg"
+  },
+  {
+    "name": "HideBackendError",
+    "kind": "negative",
+    "mode": "HideBackendError",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "BackendErrorsExplicit"
+    ],
+    "temporal": [],
+    "expected": "BackendErrorsExplicit",
+    "config": "configs/HideBackendError.cfg"
+  },
+  {
+    "name": "KeepChildOnAbort",
+    "kind": "negative",
+    "mode": "KeepChildOnAbort",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "OwnerAbortStopsNative"
+    ],
+    "temporal": [],
+    "expected": "OwnerAbortStopsNative",
+    "config": "configs/KeepChildOnAbort.cfg"
+  },
+  {
+    "name": "IgnoreSize",
+    "kind": "negative",
+    "mode": "IgnoreSize",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "NoEffectsForInvalidInput"
+    ],
+    "temporal": [],
+    "expected": "NoEffectsForInvalidInput",
+    "config": "configs/IgnoreSize.cfg"
+  },
+  {
+    "name": "IgnoreCloud",
+    "kind": "negative",
+    "mode": "IgnoreCloud",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "NoEffectsForInvalidInput"
+    ],
+    "temporal": [],
+    "expected": "NoEffectsForInvalidInput",
+    "config": "configs/IgnoreCloud.cfg"
+  },
+  {
+    "name": "SkipReap",
+    "kind": "temporal-negative",
+    "mode": "SkipReap",
+    "witness": "none",
+    "properties": [
+      "TypeOK"
+    ],
+    "temporal": [
+      "OwnerAbortEventuallyReaps"
+    ],
+    "expected": "OwnerAbortEventuallyReaps",
+    "config": "configs/SkipReap.cfg"
+  },
+  {
+    "name": "witness-recording",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "recording",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-recording.cfg"
+  },
+  {
+    "name": "witness-processing",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "processing",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-processing.cfg"
+  },
+  {
+    "name": "witness-owner",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "owner",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-owner.cfg"
+  },
+  {
+    "name": "witness-competing",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "competing",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-competing.cfg"
+  },
+  {
+    "name": "witness-temp",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "temp",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-temp.cfg"
+  },
+  {
+    "name": "witness-abort",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "abort",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-abort.cfg"
+  },
+  {
+    "name": "witness-stats",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "stats",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-stats.cfg"
+  },
+  {
+    "name": "witness-status",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "status",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-status.cfg"
+  },
+  {
+    "name": "witness-oversize",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "oversize",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-oversize.cfg"
+  },
+  {
+    "name": "witness-cloud",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "cloud",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-cloud.cfg"
+  },
+  {
+    "name": "witness-ipc_error",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "ipc_error",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-ipc_error.cfg"
+  },
+  {
+    "name": "witness-saved",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "saved",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-saved.cfg"
+  },
+  {
+    "name": "IgnoreTranscriptField",
+    "kind": "negative",
+    "mode": "IgnoreTranscriptField",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "BackendErrorsExplicit"
+    ],
+    "temporal": [],
+    "expected": "BackendErrorsExplicit",
+    "config": "configs/IgnoreTranscriptField.cfg"
+  },
+  {
+    "name": "FillSilence",
+    "kind": "negative",
+    "mode": "FillSilence",
+    "witness": "none",
+    "properties": [
+      "TypeOK",
+      "SilenceIsEmpty"
+    ],
+    "temporal": [],
+    "expected": "SilenceIsEmpty",
+    "config": "configs/FillSilence.cfg"
+  },
+  {
+    "name": "witness-transcript_absent",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "transcript_absent",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-transcript_absent.cfg"
+  },
+  {
+    "name": "witness-silence",
+    "kind": "witness",
+    "mode": "Correct",
+    "witness": "silence",
+    "properties": [
+      "TypeOK",
+      "WitnessNotReached"
+    ],
+    "temporal": [],
+    "expected": "WitnessNotReached",
+    "config": "configs/witness-silence.cfg"
+  }
+]

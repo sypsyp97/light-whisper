@@ -31,7 +31,7 @@ export default function GpuIdleUnloadControl() {
         setDraft(String(rememberedTimeout.current));
       })
       .catch(() => {
-        // Missing config reads as off, matching an engine.json without the key.
+
       });
     return () => {
       cancelled = true;
@@ -122,7 +122,7 @@ export default function GpuIdleUnloadControl() {
                 }
               }}
               onBlur={(event) => {
-                // Let a switch click save its final value, without a competing blur save.
+
                 const switchClick = togglePointerDown.current
                   && event.relatedTarget?.getAttribute("role") === "switch";
                 togglePointerDown.current = false;

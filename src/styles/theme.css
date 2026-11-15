@@ -1,13 +1,13 @@
-/* ============================================================
-   轻语 Whisper Design System
-   Quiet Instrument — neutral working surfaces, one warm signal color,
-   compact typography, and state-driven motion.
-   ============================================================ */
 
-/* ---------- Light theme (default) ---------- */
+
+
+
+
+
+
 :root {
   color-scheme: light;
-  /* Surfaces — neutral layers keep long settings sessions visually quiet */
+
   --color-bg-primary: #F5F6F7;
   --color-bg-secondary: #EFF1F3;
   --color-bg-tertiary: #E7EAED;
@@ -15,14 +15,14 @@
   --color-bg-overlay: rgba(245, 246, 247, 0.94);
   --color-bg-sunken: #E9ECEF;
 
-  /* Text — compact product hierarchy with WCAG AA contrast */
+
   --color-text-primary: #1a1a18;
   --color-text-secondary: #5a5854;
   --color-text-tertiary: #6e6c67;
   --color-text-inverse: #F5F5F0;
   --color-text-brand: #d97757;
 
-  /* Brand signal — recording, polish, and primary actions */
+
   --color-accent: #ae5630;
   --color-accent-hover: #c4633a;
   --color-accent-active: #943f22;
@@ -30,12 +30,12 @@
   --color-accent-muted: rgba(174, 86, 48, 0.05);
   --color-accent-rgb: 174, 86, 48;
 
-  /* Borders */
+
   --color-border: #a8a59a;
   --color-border-subtle: rgba(0, 0, 0, 0.08);
   --color-border-accent: rgba(174, 86, 48, 0.30);
 
-  /* Status */
+
   --color-success: #2E8B57;
   --color-success-bg: rgba(46, 139, 87, 0.08);
   --color-error: #bf4d43;
@@ -45,12 +45,12 @@
   --color-info: #2C6FBB;
   --color-info-bg: rgba(44, 111, 187, 0.08);
 
-  /* Semantic — assistant remains distinct from polish */
+
   --color-assistant: #7557d9;
   --color-assistant-glow: rgba(117, 87, 217, 0.34);
   --color-learned: #10b981;
 
-  /* Shadows — enhanced for subtle background distinction */
+
   --shadow-xs: 0 1px 2px rgba(45, 40, 32, 0.06);
   --shadow-sm: 0 2px 4px rgba(45, 40, 32, 0.08), 0 1px 2px rgba(45, 40, 32, 0.04);
   --shadow-md: 0 4px 12px rgba(45, 40, 32, 0.12), 0 2px 4px rgba(45, 40, 32, 0.06);
@@ -60,7 +60,7 @@
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
   --shadow-record-ring: 0 0 0 4px rgba(var(--color-accent-rgb), 0.20);
 
-  /* Radii */
+
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -69,7 +69,7 @@
   --radius-2xl: 28px;
   --radius-full: 9999px;
 
-  /* Spacing */
+
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 16px;
@@ -77,13 +77,13 @@
   --space-xl: 32px;
   --space-2xl: 48px;
 
-  /* Transitions — perceptually tuned curves */
+
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
-  --ease-micro: cubic-bezier(0.2, 0, 0.2, 1);   /* tap feedback */
-  --ease-standard: var(--ease-out-expo);        /* canonical enter/exit */
+  --ease-micro: cubic-bezier(0.2, 0, 0.2, 1);
+  --ease-standard: var(--ease-out-expo);
 
-  /* Duration scale — use these instead of hand-picked ms */
+
   --dur-1: 100ms;
   --dur-2: 140ms;
   --dur-3: 200ms;
@@ -96,36 +96,36 @@
   --transition-normal: var(--dur-3) var(--ease-out-expo);
   --transition-slow: var(--dur-5) var(--ease-out-quart);
 
-  /* Typography — Windows native fonts; no runtime font download. */
+
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
   --font-serif: var(--font-ui);
   --font-sans: var(--font-ui);
   --font-mono: "Cascadia Mono", Consolas, monospace;
   --font-display: var(--font-ui);
 
-  /* Text sizes */
-  --text-2xs: 0.6875rem;  /* 11px minimum for compact labels */
-  --text-xs: 0.75rem;     /* 12px */
-  --text-sm: 0.8125rem;   /* 13px */
-  --text-base: 0.875rem;  /* 14px */
-  --text-body-lg: 0.9375rem; /* 15px */
-  --text-md: 1rem;        /* 16px */
-  --text-lg: 1.125rem;    /* 18px */
-  --text-xl: 1.25rem;     /* 20px */
-  --text-2xl: 1.5rem;     /* 24px */
-  --text-3xl: 2rem;       /* 32px */
+
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-body-lg: 0.9375rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
 
   --leading-tight: 1.3;
   --leading-normal: 1.6;
   --leading-relaxed: 1.8;
 
-  /* Restrained tracking keeps the native font stack visually compact. */
+
   --tracking-body: -0.008em;
   --tracking-label: -0.004em;
   --tracking-heading: -0.014em;
   --tracking-display: -0.02em;
 
-  /* Z-index */
+
   --z-base: 0;
   --z-dropdown: 100;
   --z-sticky: 200;
@@ -136,7 +136,7 @@
   --bg-gradient: var(--color-bg-primary);
 }
 
-/* ---------- Dark theme — evening warmth, not cold terminal ---------- */
+
 [data-theme="dark"],
 .dark {
   color-scheme: dark;
@@ -189,9 +189,9 @@
   --bg-gradient: var(--color-bg-primary);
 }
 
-/* ============================================================
-   Base reset & globals
-   ============================================================ */
+
+
+
 
 *,
 *::before,
@@ -217,7 +217,7 @@ button {
   appearance: none;
 }
 
-/* Suppress transitions during initial theme application (prevents light→dark flash) */
+
 .no-transition,
 .no-transition *,
 .no-transition *::before,
@@ -241,7 +241,7 @@ body {
   background: var(--bg-gradient);
   overflow: hidden;
   font-synthesis: none;
-  /* kern + contextual alternates, stable ligatures; digits align without jumping */
+
   font-feature-settings: "kern", "liga", "calt";
   font-variant-ligatures: common-ligatures contextual;
   transition: background-color var(--transition-normal),
@@ -263,7 +263,7 @@ h6 {
   letter-spacing: var(--tracking-label);
 }
 
-/* Digits that should not reflow (stats, timers, counters, kbd) */
+
 .tabular-nums,
 .kbd,
 .result-card-stats,
@@ -273,7 +273,7 @@ h6 {
   font-feature-settings: "tnum", "kern";
 }
 
-/* Selection follows the single signal color. */
+
 ::selection {
   background: rgba(var(--color-accent-rgb), 0.22);
   color: var(--color-text-primary);
@@ -285,16 +285,16 @@ h6 {
   background: rgba(var(--color-accent-rgb), 0.30);
 }
 
-/* Caret color everywhere text can be typed */
+
 input,
 textarea,
 [contenteditable="true"] {
   caret-color: var(--color-accent);
 }
 
-/* ============================================================
-   Tauri drag regions
-   ============================================================ */
+
+
+
 
 [data-tauri-drag-region] {
   -webkit-app-region: drag;
@@ -312,9 +312,9 @@ textarea,
   app-region: no-drag;
 }
 
-/* ============================================================
-   Custom scrollbar — thin, warm-toned
-   ============================================================ */
+
+
+
 
 ::-webkit-scrollbar {
   width: 6px;
@@ -336,9 +336,9 @@ textarea,
   background: var(--color-text-tertiary);
 }
 
-/* ============================================================
-   Animations — compact entrances and gentle success feedback
-   ============================================================ */
+
+
+
 
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(6px) scale(0.97); }
@@ -347,7 +347,7 @@ textarea,
 
 .animate-fade-in { animation: fade-in var(--dur-3) var(--ease-out-expo) forwards; }
 
-/* Slide-up — result card entrance */
+
 @keyframes slide-up {
   from { opacity: 0; transform: translateY(12px) scale(0.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -355,7 +355,7 @@ textarea,
 
 .animate-slide-up { animation: slide-up var(--dur-4) var(--ease-out-expo) forwards; }
 
-/* Success pop — model ready chip entrance */
+
 @keyframes success-pop {
   0%   { opacity: 0; transform: scale(0.92); }
   65%  { opacity: 1; transform: scale(1.025); }
@@ -364,7 +364,7 @@ textarea,
 
 .animate-success { animation: success-pop var(--dur-4) var(--ease-out-expo) forwards; }
 
-/* Gentle shake — error prompt with fade entrance */
+
 @keyframes gentle-shake {
   0%       { transform: translateX(0); opacity: 0; }
   10%      { opacity: 1; }
@@ -378,7 +378,7 @@ textarea,
 
 .animate-shake { animation: gentle-shake var(--dur-4) var(--ease-out-expo) both; }
 
-/* Text swap — subtle opacity fade for inline text changes */
+
 @keyframes text-swap {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -386,26 +386,26 @@ textarea,
 
 .animate-text-swap { animation: text-swap var(--dur-3) var(--ease-out-expo); }
 
-/* Recording pulse — dual-ring expanding with stagger */
+
 @keyframes recording-pulse {
   0%   { transform: scale(1);    opacity: 0.50; }
   55%  {                          opacity: 0.14; }
   100% { transform: scale(1.42); opacity: 0; }
 }
 
-/* Streaming caret — blinking cursor for live text reveal */
+
 @keyframes stream-caret-blink {
   0%, 45%  { opacity: 1; }
   55%, 100% { opacity: 0; }
 }
 
-/* Shine sweep — one-shot shimmer across a surface */
+
 @keyframes shine-sweep {
   0%   { transform: translateX(-120%); }
   100% { transform: translateX(180%); }
 }
 
-/* Checkmark draw — satisfying stroke reveal on copy success */
+
 @keyframes check-draw {
   from { stroke-dashoffset: 24; }
   to   { stroke-dashoffset: 0; }
@@ -422,13 +422,13 @@ textarea,
 }
 
 .animate-check-draw svg {
-  /* Lucide Check is 22.63 units long. Cover the entire path. */
+
   stroke-dasharray: 24;
   stroke-dashoffset: 24;
   animation: check-draw var(--dur-3) var(--ease-out-expo) forwards;
 }
 
-/* Page transitions — desktop shared-axis: short slide + opacity, no scaling */
+
 @keyframes page-enter-from-right {
   from { opacity: 0; transform: translate3d(28px, 0, 0); }
   to   { opacity: 1; transform: translate3d(0, 0, 0); }
@@ -461,7 +461,7 @@ textarea,
 .page-exit-left   { animation: page-exit-to-left 0.14s cubic-bezier(0.4, 0, 1, 1) forwards; }
 .page-exit-right  { animation: page-exit-to-right 0.14s cubic-bezier(0.4, 0, 1, 1) forwards; }
 
-/* Skeleton shimmer — processing state */
+
 @keyframes skeleton-shimmer {
   from { transform: translateX(-100%); }
   to   { transform: translateX(100%); }
@@ -500,7 +500,7 @@ textarea,
   );
 }
 
-/* Settings card — elevated section container */
+
 .settings-card {
   background: var(--color-bg-elevated);
   border-radius: var(--radius-lg);
@@ -512,7 +512,7 @@ textarea,
               border-color var(--dur-3) var(--ease-out-expo);
 }
 
-/* Spin — replaces Tailwind animate-spin */
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
@@ -520,18 +520,18 @@ textarea,
 
 .animate-spin { animation: spin 1s linear infinite; }
 
-/* Equalizer bars — recording waveform (uses scaleY for GPU perf) */
+
 .eq-bar {
   width: 2.5px;
   height: 18px;
   border-radius: 1.5px;
-  background: white; /* always on --color-accent button, matches RecordingButton color: "white" */
+  background: white;
   transform-origin: center;
   transition: transform var(--dur-1) linear;
   will-change: transform;
 }
 
-/* Download progress indeterminate pulse */
+
 @keyframes download-pulse {
   0%   { transform: translateX(-80%); opacity: 0.4; }
   50%  { opacity: 1; }
@@ -546,7 +546,7 @@ textarea,
   animation: download-pulse 1.5s var(--ease-out-quart) infinite;
 }
 
-/* Progress bar completion — brief glow pulse at 100% */
+
 @keyframes progress-complete {
   0%   { box-shadow: 0 0 0 0 rgba(46, 139, 87, 0); }
   40%  { box-shadow: 0 0 8px 2px rgba(46, 139, 87, 0.35); }
@@ -558,9 +558,9 @@ textarea,
   border-radius: 4px;
 }
 
-/* ============================================================
-   Responsive text
-   ============================================================ */
+
+
+
 
 @media (max-width: 640px) {
   :root {
@@ -573,9 +573,9 @@ textarea,
   }
 }
 
-/* ============================================================
-   Accessibility
-   ============================================================ */
+
+
+
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -608,16 +608,16 @@ textarea,
   border-radius: var(--radius-sm);
 }
 
-/* Mouse click should NOT show focus ring, only keyboard Tab */
+
 :focus:not(:focus-visible) {
   outline: none;
 }
 
-/* ============================================================
-   Layout primitives — Quiet Instrument surfaces
-   ============================================================ */
 
-/* Chip / tag */
+
+
+
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -634,7 +634,7 @@ textarea,
   text-transform: uppercase;
 }
 
-/* Subtle button */
+
 .btn-ghost {
   display: inline-flex;
   align-items: center;
@@ -662,7 +662,7 @@ textarea,
   transition: transform var(--dur-1) var(--ease-micro);
 }
 
-/* Primary button */
+
 .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -695,14 +695,14 @@ textarea,
   transition: transform var(--dur-1) var(--ease-micro), background var(--dur-1) var(--ease-micro);
 }
 
-/* Compact primary button — settings download, etc. */
+
 .btn-primary-sm {
   padding: 6px 14px;
   font-size: var(--text-xs);
   border-radius: var(--radius-sm);
 }
 
-/* Ghost button size variants */
+
 .btn-ghost-sm {
   padding: 6px 10px;
   font-size: var(--text-sm);
@@ -715,7 +715,7 @@ textarea,
   border-radius: var(--radius-xs);
 }
 
-/* Divider */
+
 .divider {
   height: 1px;
   background: var(--color-border-subtle);
@@ -723,11 +723,11 @@ textarea,
   margin: 0;
 }
 
-/* ============================================================
-   Shared UI Components
-   ============================================================ */
 
-/* Notifications share one surface; only the icon carries status color. */
+
+
+
+
 [data-sonner-toaster].app-toaster {
   font-family: var(--font-sans);
   z-index: var(--z-toast);
@@ -778,7 +778,7 @@ textarea,
 .app-toast[data-type="info"] [data-icon] { color: var(--color-info); }
 .app-toast[data-type="warning"] [data-icon] { color: var(--color-warning); }
 
-/* Icon button — transparent, used in title bar and toolbars */
+
 .icon-btn {
   padding: var(--space-sm);
   border-radius: var(--radius-sm);
@@ -812,7 +812,7 @@ textarea,
   padding: 4px;
 }
 
-/* Gear spin — settings icon rotates on hover */
+
 .icon-btn-gear svg {
   transition: transform var(--dur-4) var(--ease-out-expo);
 }
@@ -821,7 +821,7 @@ textarea,
   transform: rotate(60deg);
 }
 
-/* Test button — settings page permission tests */
+
 .test-btn {
   padding: 8px 16px;
   border-radius: var(--radius-sm);
@@ -848,7 +848,7 @@ textarea,
   transition: transform var(--dur-1) var(--ease-micro);
 }
 
-/* Title bar — shared between pages */
+
 .title-bar {
   display: flex;
   align-items: center;
@@ -861,7 +861,7 @@ textarea,
               border-color var(--dur-3) var(--ease-out-expo);
 }
 
-/* Recording button — circular mic button with microinteractions */
+
 .record-btn {
   position: relative;
   width: 50px;
@@ -889,7 +889,7 @@ textarea,
   transition: transform var(--dur-1) var(--ease-micro);
 }
 
-/* Toggle switch — autostart etc. */
+
 .toggle-switch {
   flex: 0 0 44px;
   width: 44px;
@@ -948,7 +948,7 @@ textarea,
 }
 
 .toggle-switch:active .toggle-knob {
-  width: 24px;  /* stretch knob on press for tactile feel */
+  width: 24px;
 }
 
 .toggle-switch[aria-checked="true"]:active .toggle-knob {
@@ -965,7 +965,7 @@ textarea,
               width var(--dur-3) var(--ease-out-expo);
 }
 
-/* Theme option button — settings page theme selector */
+
 .theme-btn {
   display: inline-flex;
   align-items: center;
@@ -1004,14 +1004,14 @@ textarea,
   color: var(--color-accent);
 }
 
-/* Compact theme button — inline actions */
+
 .theme-btn-xs {
   font-size: var(--text-xs);
   padding: 2px 8px;
   gap: 4px;
 }
 
-/* Range input — warm-toned slider matching design system */
+
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
@@ -1068,12 +1068,12 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 3px rgba(var(--color-accent-rgb), 0.2);
 }
 
-/* Font utility */
+
 .font-sans {
   font-family: var(--font-sans);
 }
 
-/* Title bar text */
+
 .title-text {
   font-size: var(--text-sm);
   font-weight: 700;
@@ -1085,7 +1085,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   margin-left: 8px;
 }
 
-/* Onboarding card body */
+
 .onboarding-body {
   padding: 10px 12px;
   font-size: var(--text-sm);
@@ -1108,7 +1108,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   font-weight: 600;
 }
 
-/* Consistent Lucide strokes across state changes and window controls. */
+
 svg.lucide { stroke-width: 1.5; }
 
 ::view-transition-old(root),

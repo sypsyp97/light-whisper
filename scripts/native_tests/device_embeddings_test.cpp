@@ -1,4 +1,4 @@
-// Reuse only the established deterministic CPU weights/configuration and helpers.
+
 #define main inherited_prefill_main
 #define r2t2_test_compute_backend_graph inherited_prefill_compute
 #include "r2t2_prefill_test.cpp"
@@ -41,8 +41,8 @@ struct Observe {
     ~Observe() { observing = false; current_source = nullptr; fail_decoder_graph = 0; }
 };
 
-// A malformed input must be rejected before calling ggml. The negative control
-// throws here instead of allowing ggml's unbacked-tensor assertion to kill the suite.
+
+
 struct UnsafeBackendRead : std::runtime_error {
     UnsafeBackendRead() : std::runtime_error("unbacked input reached backend read") {}
 };
@@ -121,7 +121,7 @@ void finite_case(Fixture & fixture, Runtime & runtime, Runtime & oracle, std::of
                  int64_t steps, int64_t capacity, int64_t chunk, int expected_graphs,
                  bool compare_prefix, const std::string & label) {
     input.write(values);
-    // Independent fresh-vector oracle cannot share either prompt snapshot or KV.
+
     oracle.release_runtime_graphs();
     auto expected = oracle.prefill_embeddings_into_cache(values, steps, capacity, chunk);
     auto actual = call_device(runtime, input.tensor, steps, capacity, chunk);
@@ -132,7 +132,7 @@ void finite_case(Fixture & fixture, Runtime & runtime, Runtime & oracle, std::of
     require(runtime.decode_cache_steps() >= capacity, label + ": cache capacity too small");
     record(trace, steps);
     record_result(trace, actual, mode);
-    // Matching four real continuations detects stale or missing KV rows.
+
     for (int i = 0; i < 4; ++i) {
         const int32_t token = mode == 2 ? 7 + 19 * i : static_cast<int32_t>(
             std::max_element(expected.logits.begin(), expected.logits.end()) - expected.logits.begin());
@@ -183,7 +183,7 @@ void finite_suite(Fixture & fixture, std::ofstream & trace) {
                 runtime.decode_cache_steps() == 0, "release did not reset cache state");
         run("release-invalidates", 3, false);
 
-        // A destroyed caller allocation must not be retained as the previous prompt.
+
         { DeviceInput temporary(fixture.execution.backend(), 129);
           finite_case(fixture, runtime, oracle, trace, temporary, values, mode, 129, 320, 64,
                       1, true, "mode" + std::to_string(mode) + "-temporary-source"); }
@@ -208,7 +208,7 @@ void bits_suite(Fixture & fixture) {
     run("identical-nan-bits", 1, true);
     bits(0x7fc00002U); run("nan-payload-bit-mismatch", 2, true);
     bits(0xffc00002U); run("nan-sign-bit-mismatch", 2, true);
-    // NaN is a bit-comparison adversary, not an accepted finite-output oracle.
+
 }
 
 void invalidation_suite(Fixture & fixture, std::ofstream & trace) {
@@ -232,7 +232,7 @@ void invalidation_suite(Fixture & fixture, std::ofstream & trace) {
                       int64_t capacity, int64_t chunk) {
         bool rejected = false;
         try { call_device(runtime, tensor, steps, capacity, chunk); }
-        catch (const UnsafeBackendRead &) { /* Missing validation, reported below. */ }
+        catch (const UnsafeBackendRead &) {   }
         catch (const std::exception &) { rejected = true; }
         check(rejected, label + ": malformed input was not rejected by runtime validation");
         check(observed.decoder_graphs == 0 && observed.upload_bytes == 0 &&
@@ -260,7 +260,7 @@ void invalidation_suite(Fixture & fixture, std::ofstream & trace) {
     DeviceInput unbacked(fixture.execution.backend(), 129, width, GGML_TYPE_F32, 1, false);
     reject("unbacked", unbacked.tensor, 129, 320, 64);
 
-    // Fail after a real second-block compute, leaving partially changed KV.
+
     auto changed = values;
     changed[3] += 0.2F;
     input.write(changed);
@@ -273,7 +273,7 @@ void invalidation_suite(Fixture & fixture, std::ofstream & trace) {
     require(failed && observed.decoder_graphs == 2, "compute-failure injection did not execute");
     restore("partial-compute-failure-invalidates", 3);
 }
-}  // namespace
+}
 
 void device_test_set(ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
     note_set(tensor, size); ggml_backend_tensor_set(tensor, data, offset, size);
@@ -327,7 +327,7 @@ ggml_status device_test_compute(ggml_backend_t backend, ggml_cgraph * graph,
     return observing && decoder && observed.decoder_graphs == fail_decoder_graph
         ? GGML_STATUS_FAILED : status;
 }
-}  // namespace engine::core
+}
 
 int main(int argc, char ** argv) {
     try {

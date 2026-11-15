@@ -15,7 +15,7 @@ from build_r2t2_runtime import ROOT, build_environment
 TEST = ROOT / "scripts/native_tests/r2t2_kv_clear_test.cpp"
 KV_CPP = Path("src/framework/runtime/kv_cache.cpp")
 KV_HEADER = Path("include/engine/framework/runtime/kv_cache.h")
-# Canonical LF content pins behavior; raw hashes below preserve compile provenance.
+
 FROZEN_LF_SHA256 = {
     KV_CPP: "bd7c5486d3a95efdc8a55eb900c8c0a4a59dcb59c208ac5788104f03824f1aaa",
     KV_HEADER: "ea8000c6fa8934e0c54ecc875310a376631b4f980c443ecc01778995a514ee60",

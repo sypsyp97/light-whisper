@@ -24,7 +24,7 @@ interface UseMicrophoneSettingsOptions {
   isRecording: boolean;
 }
 
-// The native monitor is shared by every settings-page instance.
+
 let monitorOwner: symbol | null = null;
 let monitorQueue = Promise.resolve();
 
@@ -74,7 +74,7 @@ export function useMicrophoneSettings({
         if (allowed()) setMicMonitorReady(true);
         else await stopMicrophoneLevelMonitor().catch(() => undefined);
       } catch {
-        // A later intent owns readiness; this operation already cleared its own state.
+
       }
     });
     monitorQueue = operation;
@@ -128,7 +128,7 @@ export function useMicrophoneSettings({
           setMicLevel(Math.max(0, Math.min(1, level)));
         });
       } catch {
-        // Ignore event subscription failures and keep the controls usable.
+
       }
 
       if (disposed && unlisten) {

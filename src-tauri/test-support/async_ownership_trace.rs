@@ -1,4 +1,4 @@
-// Test-only: shared by replay modules, never compiled into the application.
+
 use sha2::{Digest, Sha256};
 
 pub fn load(name: &str) -> Vec<String> {

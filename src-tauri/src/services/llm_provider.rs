@@ -9,7 +9,6 @@ use crate::services::codex_oauth_service;
 use crate::services::grok_build_oauth_service;
 use crate::state::user_profile::{ApiFormat, CustomProvider, LlmProviderConfig, LlmReasoningMode};
 
-/// LLM 提供商配置
 pub struct LlmEndpoint {
     pub provider: String,
     pub api_url: String,
@@ -28,7 +27,6 @@ const SILICONFLOW: &str = "siliconflow";
 const OPENROUTER: &str = "openrouter";
 const CUSTOM: &str = "custom";
 
-/// 预置服务商列表（用于判断是否为预置）
 const PRESET_PROVIDERS: &[&str] = &[
     CEREBRAS,
     OPENAI,
@@ -173,7 +171,6 @@ fn is_preset(provider: &str) -> bool {
     PRESET_PROVIDERS.contains(&provider)
 }
 
-/// 根据后端配置获取 LLM 端点
 pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     endpoint_for_provider(config, &config.resolve_active_provider(), None)
 }
@@ -237,7 +234,6 @@ fn endpoint_for_provider(
             api_format: cp.api_format.clone(),
         }
     } else {
-        // fallback to cerebras
         let (base, model, timeout) = default_endpoint_parts(CEREBRAS);
         LlmEndpoint {
             provider: CEREBRAS.to_string(),
@@ -257,8 +253,6 @@ pub fn assistant_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint 
     )
 }
 
-/// Resolve the selection assistant independently while retaining the polish
-/// endpoint as the exact fallback when its separate-config switch is off.
 pub fn selection_endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     endpoint_for_provider(
         config,
@@ -293,8 +287,7 @@ pub fn image_support_probe_url(endpoint: &LlmEndpoint) -> Option<String> {
 
     let models_url = normalize_models_url(Some(&endpoint.api_url), &endpoint.api_url);
     let mut url = reqwest::Url::parse(&models_url).ok()?;
-    // DeepSeek publishes model capabilities through its model list endpoint.
-    // https://api-docs.deepseek.com/api/list-models/
+
     if endpoint.provider != DEEPSEEK {
         let mut segments = url.path_segments_mut().ok()?;
         segments.pop_if_empty();
@@ -649,7 +642,6 @@ fn grok_supports_disabled_reasoning(model: &str) -> bool {
     tail.starts_with("grok-4.3") || tail.starts_with("grok-3")
 }
 
-/// Grok 4.5 and later cannot disable reasoning; omitted effort defaults to high.
 fn grok_effort_for_mode(model: &str, mode: LlmReasoningMode) -> Option<&'static str> {
     match mode {
         LlmReasoningMode::Off => {
@@ -678,8 +670,6 @@ pub fn is_cerebras_like_endpoint(endpoint: &LlmEndpoint) -> bool {
     endpoint.provider == CEREBRAS || endpoint_host_matches(endpoint, "cerebras.ai")
 }
 
-/// OpenRouter 统一使用 `reasoning` 对象控制思考强度，并与顶层 `reasoning_effort`
-/// 互为简写。按 host 判定，因此预置项与自定义接入都能命中。
 pub fn is_openrouter_like_endpoint(endpoint: &LlmEndpoint) -> bool {
     endpoint.api_format == ApiFormat::OpenaiCompat
         && (endpoint.provider == OPENROUTER || endpoint_host_matches(endpoint, "openrouter.ai"))
@@ -689,8 +679,7 @@ const GPT5_EFFORTS: &[&str] = &["minimal", "low", "medium", "high"];
 const GPT5_1_EFFORTS: &[&str] = &["none", "low", "medium", "high"];
 const GPT5_2_54_EFFORTS: &[&str] = &["none", "low", "medium", "high", "xhigh"];
 const GPT5_5_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
-// The public API also accepts `none`, while the Codex OAuth catalog starts at
-// `low`. Use the common set so the same saved mode works with either credential.
+
 const GPT5_6_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 const GPT5_PRO_EFFORTS: &[&str] = &["high"];
 const GPT5_2_54_PRO_EFFORTS: &[&str] = &["medium", "high", "xhigh"];
@@ -886,8 +875,6 @@ fn reasoning_control_kind(
             .then_some(ReasoningControlKind::AnthropicThinking);
     }
 
-    // host 优先于模型名启发式：OpenRouter 会上游代理任意厂商模型
-    // （如 doubao/seed-* 会被 is_volcengine_like_endpoint 命中），必须在此提前返回。
     if is_openrouter_like_endpoint(endpoint) {
         return Some(ReasoningControlKind::OpenRouterReasoning);
     }
@@ -1203,8 +1190,6 @@ pub fn apply_reasoning_controls(
     };
 
     match (kind, mode) {
-        // Cerebras 推理模型：ProviderDefault 映射到 low（恢复重构前的硬编码行为，
-        // 避免服务端默认推理强度过高导致 TTFT 和生成时间显著增加）
         (ReasoningControlKind::CerebrasReasoningEffort, LlmReasoningMode::ProviderDefault) => {
             body["reasoning_effort"] = serde_json::json!("low");
         }
@@ -1291,7 +1276,6 @@ pub fn apply_reasoning_controls(
             body["disable_reasoning"] = serde_json::json!(mode == LlmReasoningMode::Off);
         }
         (ReasoningControlKind::OpenRouterReasoning, _) => {
-            // OpenRouter 统一入口：enabled=false 关闭思考，effort 控制强度。
             let reasoning = match mode {
                 LlmReasoningMode::ProviderDefault => return,
                 LlmReasoningMode::Off => serde_json::json!({ "enabled": false }),
@@ -1346,7 +1330,6 @@ pub fn strip_reasoning_controls(body: &mut serde_json::Value) {
     }
 }
 
-/// 获取模型列表 URL
 pub fn models_url(config: &LlmProviderConfig, provider: &str, base_url: Option<&str>) -> String {
     if !is_preset(provider) {
         if let Some(cp) = config.custom_providers.iter().find(|p| p.id == provider) {
@@ -1365,7 +1348,6 @@ pub fn models_url(config: &LlmProviderConfig, provider: &str, base_url: Option<&
     }
 }
 
-/// 规范化 Anthropic 模型列表 URL（`/v1/models`）
 fn normalize_anthropic_models_url(base_url: &str) -> String {
     let trimmed = base_url.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -1387,7 +1369,6 @@ fn normalize_anthropic_models_url(base_url: &str) -> String {
     format!("{trimmed}/v1/models")
 }
 
-/// 获取密钥环用户名（每个后端独立存储 API Key）
 pub fn keyring_user_for_provider(provider: &str) -> String {
     match provider {
         OPENAI => "openai-api-key".to_string(),
@@ -1401,7 +1382,6 @@ pub fn keyring_user_for_provider(provider: &str) -> String {
     }
 }
 
-/// 构建认证 headers（按 api_format 分支）
 pub fn build_auth_headers(
     api_format: &ApiFormat,
     api_key: &str,
@@ -1453,7 +1433,6 @@ pub fn build_auth_headers(
     Ok(headers)
 }
 
-/// 保存或删除 API Key：非空则写入密钥环，空则删除
 pub fn save_or_delete_api_key<R: tauri::Runtime>(
     app_handle: &tauri::AppHandle<R>,
     keyring_user: &str,
@@ -2194,7 +2173,6 @@ mod tests {
 
     #[test]
     fn openrouter_custom_host_wins_over_model_name_heuristics() {
-        // doubao/seed-* 会命中火山启发式；按 host 识别的 OpenRouter 必须优先。
         let endpoint = endpoint_for_preview(
             "custom-openrouter",
             Some("https://openrouter.ai/api"),

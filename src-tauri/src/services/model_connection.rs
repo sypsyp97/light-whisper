@@ -6,7 +6,7 @@ use crate::services::{jev_service, jev_tasks};
 use crate::state::user_profile::JevConfig;
 
 const LLM_TIMEOUT: Duration = Duration::from_secs(30);
-// A deterministic 32 × 32 solid-red RGB PNG. Never capture the user's screen for a test.
+
 const TEST_IMAGE: &str = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg==";
 pub(crate) const TEST_AUDIO: &[u8] = include_bytes!("../../resources/model_connection.wav");
 
@@ -23,7 +23,7 @@ pub(crate) async fn probe_online_asr(
     if api_key.trim().is_empty() {
         return Err("未配置语音模型 API Key。".into());
     }
-    // Reuse the real ASR transports with an empty profile: never send private hot words.
+
     let state = AppState {
         http_client: client.clone(),
         ..Default::default()
@@ -72,7 +72,6 @@ pub(crate) async fn probe_online_asr(
     Ok(())
 }
 
-/// Keep actionable error categories without returning provider bodies, URLs or credentials.
 pub(crate) fn connection_error(message: &str) -> String {
     for prefix in ["API 返回错误 ", "HTTP "] {
         if let Some((_, rest)) = message.split_once(prefix) {
@@ -166,7 +165,6 @@ pub(crate) async fn probe_decision(
     config: &JevConfig,
     api_key: &str,
 ) -> Result<(), String> {
-    // A valid decision proves connectivity even when it asks for polishing or is uncertain.
     jev_tasks::evaluate_with_warning(
         client,
         config,

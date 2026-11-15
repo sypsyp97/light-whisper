@@ -100,8 +100,8 @@ interface ConversationMessage extends AssistantConversationTurn {
 type Phase = "idle" | "starting" | "recording" | "processing" | "searching" | "polishing" | "result" | "outcome";
 const RESULT_FADE_DELAY_MS = 2000;
 const API_WARNING_FADE_DELAY_MS = 8000;
-// Fade animation is 160ms; keep a buffer before clearing the stale state and
-// Native hiding follows cleanup: 2500ms normally, 8500ms for API warnings.
+
+
 const OUTCOME_FADE_DELAY_MS = 1500;
 const OUTCOME_CLEANUP_DELAY_MS = OUTCOME_FADE_DELAY_MS + 400;
 const QUICK_CANCEL_CLEANUP_DELAY_MS = 400;
@@ -136,8 +136,8 @@ function validInterimSegments(payload: TranscriptionResult): InterimSegments | n
   if (typeof stableText !== "string" || typeof tentativeText !== "string") return null;
   if (`${stableText}${tentativeText}` !== text) return null;
 
-  // Rust guarantees a UTF-8 scalar boundary. Tighten it to a grapheme
-  // boundary here so combining marks and ZWJ emoji never straddle two spans.
+
+
   let stableBoundary = 0;
   for (const grapheme of segmentGraphemes(text)) {
     const nextBoundary = stableBoundary + grapheme.length;
@@ -165,7 +165,7 @@ function mergeAssistantSources(
 }
 
 export default function SubtitleOverlay() {
-  // 初始 "idle"：窗口预创建后隐藏，等待录音事件时切换状态
+
   const [phase, setPhase] = useState<Phase>("idle");
   const [text, setText] = useState("");
   const [polishFlash, setPolishFlash] = useState(false);
@@ -194,9 +194,9 @@ export default function SubtitleOverlay() {
   const [conversationBusy, setConversationBusy] = useState(false);
   const [conversationDraft, setConversationDraft] = useState("");
   const [conversationError, setConversationError] = useState<string | null>(null);
-  // Native stable/tentative spans render immediately. Do not animate an unused
-  // copy of their text and rerender the entire overlay on every animation frame.
-  // Completed results must be fully readable before their hide timer starts.
+
+
+
   const smoothText = useSmoothText(text, { enabled: !interimSegments && phase !== "result" });
   const latestSessionIdRef = useRef(0);
   const finalTranscriptionSessionIdRef = useRef(0);
@@ -283,8 +283,8 @@ export default function SubtitleOverlay() {
       setApiWarning(null);
       resetConversationState();
     }
-    // Revision-less payloads exist only in legacy frontend tests. Once a real
-    // revision fence exists for a session, an unversioned event cannot cross it.
+
+
     if (revision === undefined && !isNewSession && latestRevisionRef.current >= 0) return null;
     if (isValidRevision(revision)) {
       if (revision < latestRevisionRef.current) return null;
@@ -299,8 +299,8 @@ export default function SubtitleOverlay() {
       clearTimeout(fadeTimerRef.current);
       fadeTimerRef.current = null;
     }
-    // Also cancel the post-fade cleanup so a newer session / assistant takeover
-    // doesn't get its fresh state stomped by the old cleanup firing late.
+
+
     if (cleanupTimerRef.current) {
       clearTimeout(cleanupTimerRef.current);
       cleanupTimerRef.current = null;
@@ -354,7 +354,7 @@ export default function SubtitleOverlay() {
     return () => { disposed = true; unlisten?.(); };
   }, [showApiWarning]);
 
-  // 主题同步：读取初始值 + 监听主窗口的 localStorage 变更
+
   useEffect(() => {
     const applyTheme = () => {
       const stored = readLocalStorage(THEME_STORAGE_KEY);
@@ -370,7 +370,7 @@ export default function SubtitleOverlay() {
 
     applyTheme();
 
-    // 监听 localStorage 变更（跨窗口同步）
+
     const onStorage = (e: StorageEvent) => {
       if (e.key === THEME_STORAGE_KEY) applyTheme();
       if (e.key === LANGUAGE_STORAGE_KEY && e.newValue) {
@@ -378,7 +378,7 @@ export default function SubtitleOverlay() {
       }
     };
 
-    // 监听系统主题变更（当设置为"跟随系统"时）
+
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const onSystemThemeChange = () => applyTheme();
 
@@ -434,9 +434,9 @@ export default function SubtitleOverlay() {
       return;
     }
 
-    // Outcome emits a terminal recording-state and a recording-outcome with
-    // one revision. Fence older lifecycle events immediately, then allow the
-    // paired outcome event to consume that exact revision once.
+
+
+
     if (lifecyclePhase === "outcome" && liveEvent.revision !== null) {
       latestRevisionRef.current = liveEvent.revision;
       terminalSessionIdRef.current = liveEvent.sessionId;
@@ -452,9 +452,9 @@ export default function SubtitleOverlay() {
       pairedOutcomeRevisionRef.current = null;
     }
 
-    // A press/release can cancel while microphone startup is still in flight.
-    // Keep the fixed indicator mounted for its short fade, then leave the
-    // capsule fully transparent until the backend's guarded hide completes.
+
+
+
     if (!isNewSession && phaseRef.current === "starting") {
       terminalSessionIdRef.current = liveEvent.sessionId;
       clearFadeTimer();
@@ -517,8 +517,8 @@ export default function SubtitleOverlay() {
 
   const hydrateRecordingSnapshot = useCallback((snapshot: RecordingSnapshot | null) => {
     if (!snapshot || !isValidSessionId(snapshot.sessionId) || !isValidRevision(snapshot.revision)) return;
-    // Live listeners own an observed session. A late snapshot may only hydrate
-    // a session the overlay has never seen, so Active can never regress to Starting.
+
+
     if (snapshot.sessionId <= latestSessionIdRef.current) return;
 
     if (snapshot.phase === "idle") {
@@ -560,8 +560,8 @@ export default function SubtitleOverlay() {
     });
   }, [applyRecordingOutcome, applyRecordingState, clearFadeTimer, updatePhase]);
 
-  // Close the cold-mount race: subscribe to both lifecycle channels first,
-  // then hydrate any state that was already active before this webview loaded.
+
+
   useEffect(() => {
     let disposed = false;
     let unlistenState: (() => void) | null = null;
@@ -569,8 +569,8 @@ export default function SubtitleOverlay() {
 
     void (async () => {
       try {
-        // Start both subscriptions before awaiting either promise, so there is
-        // no gap where a fast start_error can land between the two listeners.
+
+
         const [stateListener, outcomeListener] = await Promise.allSettled([
           listen<RecordingState>("recording-state", (event) => {
             applyRecordingState(event.payload);
@@ -597,10 +597,10 @@ export default function SubtitleOverlay() {
           const snapshot = await getRecordingSnapshot();
           if (!disposed) hydrateRecordingSnapshot(snapshot);
         } catch {
-          // Live events remain authoritative when snapshot hydration is unavailable.
+
         }
       } catch {
-        // 忽略事件监听初始化失败
+
       }
     })();
 
@@ -612,7 +612,7 @@ export default function SubtitleOverlay() {
     };
   }, [applyRecordingOutcome, applyRecordingState, clearFadeTimer, hydrateRecordingSnapshot]);
 
-  // 监听 AI 润色状态（含流式进度）
+
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
@@ -645,7 +645,7 @@ export default function SubtitleOverlay() {
           unlisten = null;
         }
       } catch {
-        // 忽略事件监听初始化失败
+
       }
     })();
 
@@ -747,7 +747,7 @@ export default function SubtitleOverlay() {
           unlisten = null;
         }
       } catch {
-        // ignore
+
       }
     })();
 
@@ -834,7 +834,7 @@ export default function SubtitleOverlay() {
     };
   }, [t]);
 
-  // 监听录音波形数据
+
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
@@ -852,7 +852,7 @@ export default function SubtitleOverlay() {
           unlisten = null;
         }
       } catch {
-        // ignore
+
       }
     })();
 
@@ -897,7 +897,7 @@ export default function SubtitleOverlay() {
     node.style.overflowY = node.scrollHeight > 96 ? "auto" : "hidden";
   }, [conversationInput, conversationOpen]);
 
-  // 监听转写结果（中间结果 interim=true，最终结果 interim=false）
+
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
@@ -933,8 +933,8 @@ export default function SubtitleOverlay() {
           const finalText = incomingText.trim();
           clearFadeTimer();
 
-          // Empty final text: keep processing hint and fade out directly
-          // to avoid the capsule shrinking into a tiny blank pill.
+
+
           if (!finalText) {
             setText("");
             updatePhase("processing");
@@ -960,7 +960,7 @@ export default function SubtitleOverlay() {
           unlisten = null;
         }
       } catch {
-        // 忽略事件监听初始化失败
+
       }
     })();
 

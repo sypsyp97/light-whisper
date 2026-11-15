@@ -202,7 +202,7 @@ describe("microphone asynchronous intent", () => {
 });
 
 
-// Formal replay ownership: separate append-only slice; accepted tests above stay frozen.
+
 describe("TLC microphone intent replay", () => {
   it.each(["microphone", "microphone-test-owner"])("replays %s through the real hook", async (name) => {
     const { ownershipTrace } = await import("@/test/asyncOwnershipTrace");
@@ -287,7 +287,7 @@ describe("microphone monitor replacement ownership", () => {
     }));
     await act(async () => {});
 
-    // A shared operation queue may wait for the old start before starting its replacement.
+
     await act(async () => {
       if (outcome === "success") oldStart.resolve("retired start completed");
       else oldStart.reject(new Error("retired start failed"));
@@ -328,7 +328,7 @@ describe("microphone monitor replacement ownership", () => {
 });
 
 
-// Formal replay ownership: effect-instance slice; tests above retain their owners.
+
 describe("TLC microphone effect replacement replay", () => {
   it.each(["microphone-effect-owner", "microphone-retired-test"])("replays %s through two hook instances", async (name) => {
     const { ownershipTrace } = await import("@/test/asyncOwnershipTrace");
@@ -361,8 +361,8 @@ describe("TLC microphone effect replacement replay", () => {
         replacement = renderHook(() => useMicrophoneSettings({ active: true, isRecording: false, closePicker }));
         await act(async () => {});
       } else if (event === "effect:second:start-complete") {
-        // Resolve the second primitive's response even if the corrected shared
-        // queue has not dispatched it yet; it must wait behind old compensation.
+
+
         await act(async () => { second.resolve("new monitor"); await second.promise; });
       } else if (event === "effect:first:complete") {
         await act(async () => { first.resolve("late retired completion"); await first.promise; if (completion) await completion; });

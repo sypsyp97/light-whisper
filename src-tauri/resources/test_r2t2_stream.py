@@ -10,7 +10,7 @@ from r2t2_stream import R2T2StreamSession
 
 
 class RecordingRuntime:
-    """Deterministic native-runtime seam for controller behavior tests."""
+
 
     def __init__(self, feed_results=(), finish_result=("", None)):
         self.events = []

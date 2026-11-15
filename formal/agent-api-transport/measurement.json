@@ -1,0 +1,32 @@
+{
+  "stage": "OPEN until transport implementation GREEN and compatible local tools exist",
+  "source_cohort": ["src-tauri/src/agent_api/transport.rs"],
+  "prerequisite_native_module": "src-tauri/src/agent_api/secure_files.rs",
+  "prerequisite_regression": "cargo test --offline --manifest-path formal/agent-api-security/Cargo.toml -j 2 -- --test-threads=1",
+  "test_manifest": "formal/agent-api-transport/Cargo.toml",
+  "test_target": "transport",
+  "test_threads": 1,
+  "build_jobs": 2,
+  "coverage": {
+    "tool": "cargo-llvm-cov",
+    "required_raw_totals": ["executable lines", "regions", "functions", "supported branch outcomes"],
+    "include_unexecuted_source": true,
+    "branch_status": "OPEN; stable line/region results must not be called branch coverage"
+  },
+  "mutation": {
+    "tool": "cargo-mutants",
+    "jobs": 1,
+    "baseline": "required reliable native GREEN in disposable copy before enumeration/scoring",
+    "required_source_controls": [
+      "bypass real request ring::hmac::verify; invalid signed/tampered request reaches callback and test fails",
+      "bypass real response ring::hmac::verify; wrong-key/domain fake reply is trusted and test fails",
+      "bypass real response nonce equality; old signed nonce replay is accepted and test fails",
+      "replace fresh request nonce with constant; repeated-request nonce test fails",
+      "reset ingress/client/egress deadlines on partial IO; deadline tests fail",
+      "release worker slot or host lease before admitted dispatch completes; barrier tests fail"
+    ],
+    "account_for": ["assertion detected", "survived", "equivalent with reviewed source evidence", "compile invalid", "timeout", "tool error", "pending"]
+  },
+  "publication": "none; no commits, pushes, releases or live user state",
+  "real_application_limit": "synthetic Dispatch exercises actual native transport, not Tauri AppState"
+}
