@@ -15,7 +15,7 @@
     "src-tauri/build_support.rs": "c688c3db7cf7e3584fdb8c3627d67cfcfcb0ab60101666234d03cb636c28f159",
     "formal/agent-api-security/tests/private_files.rs": "76c48186ddd28ab05475983674186d04d11f8a876477bf854a395d8fab4710cb",
     "formal/agent-api-transport/tests/transport.rs": "924b12ecb19e011955606ce4cae73f00a849ffe95096b4ea18910d7c72102bce",
-    "src-tauri/src/agent_api/tests.rs": "6d2a272fed38852c62d088c437fb6186ea47213981f3403d9515a7d2df905b41",
+    "src-tauri/src/agent_api/tests.rs": "cd83679507d9148514b5cca2e9f868fd372a9d3975e7f9a4087f6d0edb407809",
     "formal/agent-api-host/run.py": "d10f7d4c9ad175abb6bd4bd40fc207837e8a25aa21e0acb89acf59752143a3d7",
     "formal/cli-packaging/selector_tests.rs": "4040cad210229bb0fbd3c5592aee6737bf8663d633149422b6adf153c9220824",
     "src-tauri/src/utils/paths.rs": "daf66c7ac40ffe35fc2ac09eaaec97ccdcb6597288c97a3520a8ffa4105295ed",
@@ -23,7 +23,7 @@
     "formal/agent-api-measurements/native_measurement.rs": "1d9ae04914f979aaf150082dd374cb83430949e3424207d0760a4d558bac514b",
     "formal/agent-api-measurements/prepare.py": "1d02f9472f7bc7d2d0476e4ae1c376b41ae9013b23cedd5b21230ef59bea3bc7",
     "formal/agent-api-measurements/profile_flush.py": "c4cfdd292343bf2ec22361125c9e91becb219c03bec84a57267d5615a46bd672",
-    "formal/agent-api-measurements/cohort.json": "b1fb3a62bfa04261f91b080fcdc7857e220fa1f8458870666e5257465bfc3827"
+    "formal/agent-api-measurements/cohort.json": "522a95b47d8c7783efcf0f083bc04727a3b62c177c6821d30233e0e4c3f17b8a"
   },
   "variants": [
     {

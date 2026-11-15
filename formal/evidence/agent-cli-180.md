@@ -149,8 +149,8 @@ The CI compatibility repairs normalize expected fixture paths and mocked tool
 identities, preserving
 the single-read, ownership and cleanup assertions. Actual Windows short-path
 aliases reproduce the old failures and pass after repair. Rust changes are
-limited to test callback types, a test lock scope and a narrowly expected unused
-function in the archive test module. Normal-build execution paths stay unchanged.
+limited to test callback types, a test lock scope, isolated test directories and a
+narrowly expected unused function in the archive test module. Normal-build execution paths stay unchanged.
 The assembled checks pass again: 278 CLI tests, the full 606-test cohort,
 26 measurement-helper tests with canonical TEMP, 32 entrypoint-helper tests and
 three checkout tests.
@@ -159,6 +159,17 @@ TEMP: 278 CLI, 32 entrypoint, two admission-runner, 15 numeric-runner, 21 releas
 and two fail-fast tests. Mocked runner replies are not SANY or TLC evidence.
 The refreshed local Rust suites pass 23 security, 35 transport, eight selector
 and six archive tests. Required whole-application Rust checks run in PR CI.
+
+A later parallel CI run reports three native query test failures. Its fixture
+used only a process ID and timestamp for directory names and accepted existing
+directories. Actual Windows clock samples repeat that candidate. Exact-source
+probes with a fixed clock fail uniqueness, independent cleanup and preservation
+of an existing candidate before repair; all three pass after repair. The fixture
+now uses a process-local counter and exclusive directory creation before taking
+cleanup ownership. All 257 assertions, 34 cases and two ignored fixture bodies
+remain unchanged. The original CI collision remains an inference because that
+run did not record allocated root identities. Full native results require the
+new commit's CI; the allocator probes are not a full application run.
 
 ## Recorded artifacts and actual inference
 

@@ -9,7 +9,7 @@
   "src-tauri/src/services/funasr_service.rs": "0075b7919660f0159bd2c6a7b6e9a696bb237c83a8d21efda4234b43550866b9",
   "src-tauri/src/services/funasr_service/protocol.rs": "56b564c3bfb772d35f5cb99737a28923bd83ff3df58ced45c4fc7c2f9d4f3b7d",
   "src-tauri/build_support.rs": "c688c3db7cf7e3584fdb8c3627d67cfcfcb0ab60101666234d03cb636c28f159",
-  "src-tauri/src/agent_api/tests.rs": "6d2a272fed38852c62d088c437fb6186ea47213981f3403d9515a7d2df905b41",
+  "src-tauri/src/agent_api/tests.rs": "cd83679507d9148514b5cca2e9f868fd372a9d3975e7f9a4087f6d0edb407809",
   "src-tauri/src/state/app_state.rs": "880dfe008aa86087eec107d02d405f83c61781c959f8d2cde946c6952e7e435e",
   "src-tauri/src/utils/paths.rs": "daf66c7ac40ffe35fc2ac09eaaec97ccdcb6597288c97a3520a8ffa4105295ed",
   "formal/agent-api-host/AgentHost.tla": "c3ffd601ac7ad6d0ca19d0fc5ae410955d8d4b0afedbb124dc25b0cb2dfba11a",

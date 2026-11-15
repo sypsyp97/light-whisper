@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
@@ -33,7 +33,7 @@ struct Scratch(PathBuf);
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        // This directory is created here with a process/time identity, never user data.
+        // Constructed only after exclusive creation, never for a preexisting path.
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
@@ -103,11 +103,23 @@ fn isolated(case: &str) -> bool {
         watch_owning_process();
         return true;
     }
-    let root = Scratch(std::env::temp_dir().join(format!(
-        "light-whisper-agent-query-{}-{}",
-        std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-    )));
+    static NEXT_ROOT: AtomicU64 = AtomicU64::new(0);
+    let root = loop {
+        let path = std::env::temp_dir().join(format!(
+            "light-whisper-agent-query-{}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            NEXT_ROOT.fetch_add(1, Ordering::Relaxed)
+        ));
+        match std::fs::create_dir(&path) {
+            Ok(()) => break Scratch(path),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("create isolated fixture root: {error}"),
+        }
+    };
     for subdir in ["data", "temp", "control"] {
         std::fs::create_dir_all(root.0.join(subdir)).unwrap();
     }
