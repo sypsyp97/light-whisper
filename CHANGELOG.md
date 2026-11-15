@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.8.0 — Unreleased
+## 1.8.0 — 2026-11-15
 
 - Added a standalone Windows CLI with JSON output and JSONL sessions. It can inspect and control the desktop instance or run a separate local engine. See the [CLI guide](docs/cli.md).
 - Added desktop engine selection, start and restart commands, model checks, device enumeration, status, statistics and file transcription.
