@@ -497,7 +497,7 @@ class Observation(unittest.TestCase):
         actual = probe.probe_environment(environment, self.root, empty_data=True)
         self.assertEqual(actual["LIGHT_WHISPER_DATA_DIR"], "")
         for key in ("APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
-            self.assertTrue(Path(actual[key]).is_relative_to(self.root))
+            self.assertTrue(Path(actual[key]).is_relative_to(self.root.resolve()))
             self.assertTrue(Path(actual[key]).is_dir())
         self.assertEqual(environment["LIGHT_WHISPER_DATA_DIR"], "private")
 
@@ -507,7 +507,7 @@ class Observation(unittest.TestCase):
         for key in ("LIGHT_WHISPER_DATA_DIR", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
             self.assertTrue(actual[key])
             self.assertTrue(Path(actual[key]).is_absolute())
-            self.assertTrue(Path(actual[key]).is_relative_to(self.root))
+            self.assertTrue(Path(actual[key]).is_relative_to(self.root.resolve()))
             self.assertTrue(Path(actual[key]).is_dir())
         self.assertEqual(environment["LIGHT_WHISPER_DATA_DIR"], "private")
 

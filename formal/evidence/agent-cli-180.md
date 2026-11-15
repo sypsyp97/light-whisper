@@ -145,13 +145,18 @@ BelowNormal priority; newly created children were observed to inherit both.
 Earlier receipts retain their actual conditions. These functional results are
 not a uniform performance benchmark.
 
-The CI compatibility repairs normalize four expected fixture paths, preserving
+The CI compatibility repairs normalize expected fixture paths and mocked tool
+identities, preserving
 the single-read, ownership and cleanup assertions. Actual Windows short-path
 aliases reproduce the old failures and pass after repair. Rust changes are
 limited to test callback types, a test lock scope and a narrowly expected unused
 function in the archive test module. Normal-build execution paths stay unchanged.
 The assembled checks pass again: 278 CLI tests, the full 606-test cohort,
-26 measurement-helper tests, 32 entrypoint-helper tests and three checkout tests.
+26 measurement-helper tests with canonical TEMP, 32 entrypoint-helper tests and
+three checkout tests.
+The six required CLI CI unit commands also pass with actual Windows short-path
+TEMP: 278 CLI, 32 entrypoint, two admission-runner, 15 numeric-runner, 21 release-CI
+and two fail-fast tests. Mocked runner replies are not SANY or TLC evidence.
 The refreshed local Rust suites pass 23 security, 35 transport, eight selector
 and six archive tests. Required whole-application Rust checks run in PR CI.
 
@@ -216,6 +221,12 @@ The accepted scope excludes the oversized combined settings model, the unstarted
 evidence are preserved outside the source tree. They are not passing results.
 The current entrypoint helper passes all 32 tests; selected coverage is 73/73
 lines and 24/24 arcs. No complete auxiliary mutation score is claimed.
+
+An extra measurement-helper run with Windows short-path TEMP reports nine failed
+subtests and three errors in LLVM profile-template path checks. Its earlier
+26-test canonical-path result remains separate. The short-path result is not a
+pass and is outside the accepted auxiliary-tool repair scope. These helpers are
+not part of the required CLI CI unit step.
 
 No model-file listing or successful `doctor` report counts as inference.
 An interrupted model check, timeout, build failure or uncertain cleanup does

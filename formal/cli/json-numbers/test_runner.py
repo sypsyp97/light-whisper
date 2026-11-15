@@ -165,7 +165,7 @@ class JsonNumbersRunnerTests(unittest.TestCase):
         def checked_digest(path):
             if Path(path) == self.bad_digest:
                 return "0" * 64
-            return JAR_SHA256 if Path(path) == self.jar else original_digest(path)
+            return JAR_SHA256 if Path(path) == self.jar.resolve() else original_digest(path)
 
         args = ["check_model.py", "--java", "synthetic-java", "--jar", str(self.jar),
                 "--output", str(self.output), *extra]
@@ -218,12 +218,12 @@ class JsonNumbersRunnerTests(unittest.TestCase):
         self.assertEqual(receipt["constraints"], [])
         self.assertIsNone(receipt["symmetry"])
         self.assertIs(receipt["deadlock_check"], True)
-        temporary = self.output / "java-tmp"
+        temporary = (self.output / "java-tmp").resolve()
         self.assertTrue(temporary.is_dir())
         self.assertEqual(receipt["java_io_tmpdir"], str(temporary))
-        prefix = ["synthetic-java", "-Djava.io.tmpdir=" + str(temporary), "-Xmx512m", "-cp", str(self.jar)]
+        prefix = ["synthetic-java", "-Djava.io.tmpdir=" + str(temporary), "-Xmx512m", "-cp", str(self.jar.resolve())]
         self.assertEqual(self.commands[0][0], prefix + ["tla2sany.SANY", "JsonNumbers.tla"])
-        self.assertEqual(self.commands[0][1], self.output / "sany.log")
+        self.assertEqual(self.commands[0][1], self.output.resolve() / "sany.log")
         self.assertTrue(receipt["sany"]["expected"])
         self.assertEqual(receipt["sany"]["command"], self.commands[0][0])
         rows = {row["name"]: row for row in receipt["cases"]}
@@ -258,9 +258,9 @@ class JsonNumbersRunnerTests(unittest.TestCase):
                     self.assertIn(target, invariants)
                 command, log = by_config[name]
                 self.assertEqual(command, prefix + ["tlc2.TLC", "-workers", "1", "-metadir",
-                                 str(self.output / ("states-" + name)), "-config", config.name, "JsonNumbers.tla"])
+                                 str(self.output.resolve() / ("states-" + name)), "-config", config.name, "JsonNumbers.tla"])
                 self.assertEqual(row["command"], command)
-                self.assertEqual(log, self.output / (name + ".log"))
+                self.assertEqual(log, self.output.resolve() / (name + ".log"))
                 self.assertTrue(log.is_file())
 
     def test_completed_temporal_counterexample_records_observed_progress_depth(self):
@@ -408,7 +408,7 @@ class JsonNumbersRunnerTests(unittest.TestCase):
     def test_untrusted_jar_and_current_source_drift_fail_before_any_checker(self):
         for path in (self.jar, self.runner.ROOT / "scripts/light_whisper_cli.py"):
             with self.subTest(path=path):
-                self.bad_digest = path
+                self.bad_digest = path.resolve()
                 status, _ = self.invoke()
                 self.assert_failed(status)
                 self.assertEqual(self.commands, [])

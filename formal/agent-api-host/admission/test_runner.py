@@ -47,7 +47,7 @@ class AdmissionRunnerTests(unittest.TestCase):
     def invoke(self):
         actual_digest = runner.digest
         def digest(path):
-            return runner.JAR_SHA256 if path == self.jar else actual_digest(path)
+            return runner.JAR_SHA256 if path == self.jar.resolve() else actual_digest(path)
         args = ["check_model.py", "--java", "synthetic-java", "--jar", str(self.jar),
                 "--output", str(self.root / "fresh-output")]
         with patch.object(sys, "argv", args), patch.object(runner, "digest", side_effect=digest), \
@@ -60,9 +60,9 @@ class AdmissionRunnerTests(unittest.TestCase):
         self.invoke()
         cases = json.loads((HERE / "cases.json").read_text())
         self.assertEqual(len(self.commands), 1 + len(cases), "every declared case must execute")
-        temporary = self.root / "fresh-output/java-tmp"
+        temporary = (self.root / "fresh-output/java-tmp").resolve()
         self.assertEqual(self.commands[0][:5], ["synthetic-java", "-Djava.io.tmpdir=" + str(temporary),
-                                              "-Xmx512m", "-cp", str(self.jar)])
+                                              "-Xmx512m", "-cp", str(self.jar.resolve())])
         self.assertTrue(temporary.is_dir())
         self.assertIn("tla2sany.SANY", self.commands[0])
         receipt = json.loads((self.root / "fresh-output/results.json").read_text())

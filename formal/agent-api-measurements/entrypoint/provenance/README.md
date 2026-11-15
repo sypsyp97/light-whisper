@@ -39,7 +39,7 @@ Source identities for this correspondence:
 
 - `../entrypoint_probe.py`: SHA256 `dccc31d7d4f7e41f51e44790c4a6f1f6b26dfa401223184bab32618805a70675`.
 - `../reviewed.json`: SHA256 `7c7b739fd6002047bf7aafc427a15d5295d7b1ff8e469d704dc025d83c6869a4`.
-- `../test_entrypoint_probe.py`: SHA256 `4d53cf0c68a6d11ccc05ec7993eed17d95b35a5fc864256586cfef46fae802ee`.
+- `../test_entrypoint_probe.py`: SHA256 `c99ec531fc5acc33fb9ec8310711baaeba8a3ebd0501722bde172bbd74849332`.
 - `EntrypointProvenance.tla`: SHA256 `80e756d66e557a706f7e5ca5256308b104b80c2e1b934532419bbc774d393cb8`.
 
 The earlier 27-test receipts retain test SHA256
