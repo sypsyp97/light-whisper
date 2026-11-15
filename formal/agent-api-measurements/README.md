@@ -15,11 +15,16 @@ pins and historical run inputs must remain distinct. Measurement helpers change
 only owned disposable mirrors; they do not change shipping source or installed
 files.
 
+The LLVM and native-host records below retain their source and test inputs from
+before the test-only Rust CI repairs. Updated cohort pins describe the current
+source; they do not rewrite those measurement receipts. Refreshed security,
+transport, selector and archive suites pass 23, 35, eight and six tests.
+
 | Surface | Recorded result | Current boundary |
 | --- | --- | --- |
-| Preparation and profile-flush helpers | Earlier 26-test helper run passes | Helper safety evidence; full auxiliary-tool mutation runs are outside the accepted scope and do not establish application coverage |
-| Native host | All 20 current cases and cleanup receipts pass | Synthetic IPC through the actual windowless host; normal GUI operation is outside this check |
-| Security / transport | All 23 / 35 native tests pass; current LLVM collection is complete | Selected raw branch unions are 57/82 and 129/144; remaining error paths are open and full framework mutation execution is outside the accepted scope |
+| Preparation and profile-flush helpers | All 26 helper tests pass | Helper safety evidence; full auxiliary-tool mutation runs are outside the accepted scope and do not establish application coverage |
+| Native host | All 20 recorded cases and cleanup receipts pass | Synthetic IPC through the actual windowless host; normal GUI operation is outside this check |
+| Security / transport | All 23 / 35 native tests pass; recorded LLVM collection is complete | Selected raw branch unions are 57/82 and 129/144; remaining error paths are open and full framework mutation execution is outside the accepted scope |
 | Query callers | All 34 tests pass; two fixtures remain ignored | The controller span covers 52/56 raw branch outcomes; full framework mutation execution is outside the accepted scope |
 | Controller admission | All 32 finite configurations match expected semantic outcomes | One positive, 16 safety controls, one progress control and 14 reachability witnesses; not a full lifecycle proof |
 | Desktop setter | Actual Wry command and restored source-control runs pass | Current setter coverage is 9/10 raw branch outcomes; full framework mutation execution is outside the accepted scope |
@@ -225,7 +230,7 @@ outside-tree warnings. For example:
 cargo-mutants mutants --manifest-path <absolute-output>/repo/Cargo.toml --package agent-api-security-verification --file secure_files.rs --list --json
 ```
 
-The current official generator discovery retains 412 raw entries: private files
+The recorded official generator discovery retains 412 raw entries: private files
 121, transport 191, controller 58, host 6, command 10, JSON bridge 8, selector 13
 and early entrypoint 5. The preserved execution plan selects 396 safe native
 mutants across ten execution contexts. This full run is outside the accepted

@@ -17,6 +17,10 @@ hexadecimal characters. This per-run Git provenance may identify any prepared
 checkout whose pinned content matches; no historical or future commit allowlist
 is required. Missing or malformed HEAD metadata is refused before writes.
 
+The `inventory_sha256` header retains the original inventory receipt. The active
+`frozen` entry for `cohort.json` binds its current raw bytes, along with the other
+source and test pins.
+
 The overlay receipt retains the prepared owner's actual `observed_head`.
 Before launch admission or restoration, recheck all content pins and require
 the receipt HEAD to equal the current prepared owner HEAD. A changed owner or

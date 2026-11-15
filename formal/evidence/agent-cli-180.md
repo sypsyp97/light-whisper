@@ -48,7 +48,7 @@ See the [CLI guide](../../docs/cli.md) for commands, limits and exit codes.
 
 | Check | Result | Boundary |
 | --- | --- | --- |
-| Application formal contracts | All 260 configured outcomes pass, with current inventory, bindings, 67-action reachability and Lean 4.34.1 checks. | 79 unchanged positive proofs are reused by exact identity; one positive and all 180 negative/witness cases run fresh. |
+| Application formal contracts | All 260 configured outcomes pass, with the recorded inventory, bindings, 67-action reachability and Lean 4.34.1 checks. | 79 unchanged positive proofs are reused by exact identity; one positive and all 180 negative/witness cases run fresh. |
 | CLI companion models | All 250 configurations in the affected nine-driver replay pass on current CLI source. | Other unchanged matrices retain their original bounded evidence; native admission is reported separately. |
 | Combined settings transitions | The oversized combined model is outside the accepted verification scope. | Hook regression tests and the separate settings and subscription models are retained. No combined formal qualification is claimed. |
 | Mounted settings model | All 18 configurations pass. | One positive, 12 safety controls, one progress control and four witnesses. |
@@ -134,7 +134,7 @@ stops at a mocked download-cache test because the long temporary path prevents
 Windows from creating a nested file. The unchanged test reproduces that failure
 and passes with a short owned temporary directory; the full short-path replay
 then passes. Both attempts are retained. No test, assertion or product change
-is used to remove that environment failure. Product and model sources remain
+is used to remove that environment failure. Python product and model sources remain
 unchanged after the original mutation run; no fresh 606-test mutation run is
 claimed.
 
@@ -145,7 +145,21 @@ BelowNormal priority; newly created children were observed to inherit both.
 Earlier receipts retain their actual conditions. These functional results are
 not a uniform performance benchmark.
 
-## Current artifacts and actual inference
+The CI compatibility repairs normalize four expected fixture paths, preserving
+the single-read, ownership and cleanup assertions. Actual Windows short-path
+aliases reproduce the old failures and pass after repair. Rust changes are
+limited to test callback types, a test lock scope and a narrowly expected unused
+function in the archive test module. Normal-build execution paths stay unchanged.
+The assembled checks pass again: 278 CLI tests, the full 606-test cohort,
+26 measurement-helper tests, 32 entrypoint-helper tests and three checkout tests.
+The refreshed local Rust suites pass 23 security, 35 transport, eight selector
+and six archive tests. Required whole-application Rust checks run in PR CI.
+
+## Recorded artifacts and actual inference
+
+These artifact and LLVM receipts retain their inputs from before the test-only
+Rust CI repairs. The CLI implementation stays unchanged. No installer is rebuilt
+or requalified for the later source snapshot by these earlier receipts.
 
 | Artifact | SHA256 |
 | --- | --- |
@@ -156,7 +170,7 @@ not a uniform performance benchmark.
 | Engine archive | `bea2ecd61949d0228044e103a8636d6f40eab8b5ef2d3d1333b29e9a35d55417` |
 
 The built and extracted applications differ only in the expected NSIS marker;
-all other bytes match. The current audit verifies all 19 configured resources,
+all other bytes match. The recorded audit verifies all 19 configured resources,
 11 build/source pins, x64 architecture, freshness, archive integrity and extracted
 CLI source/version. It freshly scans 28 raw files and 35 text files, including
 18 frontend files, with zero configured-private-prefix hits or scan errors.
@@ -165,7 +179,7 @@ general proof that arbitrary secrets cannot occur.
 
 The earlier deep inspection of 33,740 compressed Python code objects is retained
 only through exact unchanged CLI, engine-archive and resource identities. The
-current audit walks zero new code objects and does not decode CUDA fatbins.
+recorded audit walks zero new code objects and does not decode CUDA fatbins.
 Earlier failed artifact receipts remain historical; they do not qualify the
 current application or installer.
 
@@ -177,10 +191,11 @@ handles are dead after natural cleanup, the runtime directory is removed and
 there are no cleanup failures. No model download or normal GUI interaction is
 part of this result.
 
-The current admission positive generates 51,448 states, finds 20,476 distinct
-states and completes at depth 19 with an empty queue. Its 17 source bindings
-remain unchanged. The earlier 28-case receipt is historical; this 32-case result
-does not depend on the changed CLI source and needs no redundant CLI replay.
+The recorded admission positive generates 51,448 states, finds 20,476 distinct
+states and completes at depth 19 with an empty queue. The later test-only Rust
+repairs refresh three of the 17 binding hashes; state guards and model sources
+stay unchanged. The earlier 28-case receipt remains historical. The 32-case result
+does not depend on the changed Python CLI source.
 
 ## PR checks and remaining limits
 

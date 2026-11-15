@@ -457,10 +457,13 @@ mod windows {
         publish(path, bytes, Some(observe))
     }
 
+    #[cfg(test)]
+    type PublishObserver<'a> = &'a mut dyn FnMut(PublishPoint, &Path, &File);
+
     fn publish(
         path: &Path,
         bytes: &[u8],
-        #[cfg(test)] mut observe: Option<&mut dyn FnMut(PublishPoint, &Path, &File)>,
+        #[cfg(test)] mut observe: Option<PublishObserver<'_>>,
     ) -> io::Result<()> {
         let absolute = std::path::absolute(path)?;
         let destination = wide_path(&absolute)?;

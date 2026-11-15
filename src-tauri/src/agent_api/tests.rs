@@ -1603,25 +1603,26 @@ async fn desktop_set_engine_rejects_busy_and_emits_only_after_local_stop() {
             serde_json::from_slice(&std::fs::read(data.join("engine.json")).unwrap()).unwrap();
         assert_eq!(config["engine"], engine);
         assert_eq!(config["preserve"], "owned-test-field");
-        let observed = events.lock().unwrap();
-        assert_eq!(
-            observed.len(),
-            1,
-            "exactly one native config event per completed switch"
-        );
-        let event = &observed[0];
-        assert_eq!(event.engine, engine);
-        assert!(
-            event.child_reaped && event.process_absent,
-            "event follows actual settled stop: {event:?}"
-        );
-        assert_eq!(event.generation, generation + 1);
-        assert!(!event.ready && event.inline.is_none() && !event.starting);
-        assert!(
-            event.lifecycle_held && event.asr_held,
-            "emission stays inside shared ownership: {event:?}"
-        );
-        drop(observed);
+        {
+            let observed = events.lock().unwrap();
+            assert_eq!(
+                observed.len(),
+                1,
+                "exactly one native config event per completed switch"
+            );
+            let event = &observed[0];
+            assert_eq!(event.engine, engine);
+            assert!(
+                event.child_reaped && event.process_absent,
+                "event follows actual settled stop: {event:?}"
+            );
+            assert_eq!(event.generation, generation + 1);
+            assert!(!event.ready && event.inline.is_none() && !event.starting);
+            assert!(
+                event.lifecycle_held && event.asr_held,
+                "emission stays inside shared ownership: {event:?}"
+            );
+        }
         assert!(
             state.engine.funasr_process.lock().await.is_none(),
             "switch never auto-starts a backend"

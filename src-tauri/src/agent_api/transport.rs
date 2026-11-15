@@ -57,7 +57,7 @@ impl AgentServer {
         data_dir: &Path,
         dispatch: Dispatch,
         chunk_bytes: usize,
-        after_write: Arc<dyn Fn(&TcpStream, Instant, usize) + Send + Sync>,
+        after_write: WriteObserver,
     ) -> io::Result<Self> {
         if chunk_bytes == 0 {
             return Err(io::ErrorKind::InvalidInput.into());

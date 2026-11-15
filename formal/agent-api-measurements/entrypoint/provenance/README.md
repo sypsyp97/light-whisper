@@ -38,7 +38,7 @@ receipt creation history, while mutable `receiptHead` permits later metadata edi
 Source identities for this correspondence:
 
 - `../entrypoint_probe.py`: SHA256 `dccc31d7d4f7e41f51e44790c4a6f1f6b26dfa401223184bab32618805a70675`.
-- `../reviewed.json`: SHA256 `63e56ba9c23d532241d25cf9929e0a00bf234d7a25a3e8893cf7b9870b615401`.
+- `../reviewed.json`: SHA256 `7c7b739fd6002047bf7aafc427a15d5295d7b1ff8e469d704dc025d83c6869a4`.
 - `../test_entrypoint_probe.py`: SHA256 `4d53cf0c68a6d11ccc05ec7993eed17d95b35a5fc864256586cfef46fae802ee`.
 - `EntrypointProvenance.tla`: SHA256 `80e756d66e557a706f7e5ca5256308b104b80c2e1b934532419bbc774d393cb8`.
 
