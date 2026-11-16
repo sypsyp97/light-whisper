@@ -17,7 +17,7 @@ class CommandDiscoveryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="lw-command-discovery-")
         self.addCleanup(temporary.cleanup)
-        self.directory = Path(temporary.name)
+        self.directory = Path(temporary.name).resolve()
         self.install = self.directory / "custom 安装 root"
         self.alias = self.file(self.install / "bin/light-whisper.exe")
         self.desktop = self.file(self.install / "light-whisper.exe")

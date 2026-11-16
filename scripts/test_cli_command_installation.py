@@ -39,7 +39,7 @@ class CommandInstallationTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="lw-command-install-")
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name) / "custom 安装 root"
+        self.root = Path(temporary.name).resolve() / "custom 安装 root"
         self.root.mkdir()
         self.source = self.root / "light-whisper-cli.exe"
         self.source.write_bytes(b"synthetic console executable; byte identity fixture\x00\xff")
