@@ -32,32 +32,76 @@ class InstallerWorkflowTests(unittest.TestCase):
         for name in ("asset_id", "sha256", "candidate_sha", "expected_version"):
             self.assertRegex(source, rf"(?m)^\s+{name}:\s*$")
         self.assertRegex(source, r"(?m)^permissions:\s*\n\s+contents:\s*read\s*$")
-        self.assertNotRegex(source, r"(?m)^\s*[\w-]+:\s*write\s*$")
-        self.assertRegex(source, r"(?m)^\s+runs-on:\s*windows-latest\s*$")
-        self.assertRegex(source, r"(?m)^\s+timeout-minutes:\s*10\s*$")
+        jobs = dict(re.findall(r"(?ms)^  ([\w-]+):\s*\n(.*?)(?=^  [\w-]+:\s*\n|\Z)",
+                               source.split("\njobs:\n", 1)[1]))
+        self.assertEqual(set(jobs), {"download", "command"},
+                         "Draft-asset download must be isolated from installed-code execution")
+        download, command = jobs["download"], jobs["command"]
+        self.assertRegex(download, r"(?m)^    runs-on:\s*ubuntu-latest\s*$")
+        self.assertRegex(command, r"(?m)^    runs-on:\s*windows-latest\s*$")
+        for job in (download, command):
+            self.assertRegex(job, r"(?m)^    timeout-minutes:\s*10\s*$")
+        self.assertRegex(download, r"(?m)^    permissions:\s*\n      contents:\s*write\s*$")
+        writes = r"(?m)^\s*([\w-]+):\s*write\s*$"
+        self.assertEqual(re.findall(writes, source), ["contents"], "Only the draft downloader may write")
+        self.assertEqual(re.findall(writes, download), ["contents"])
+        self.assertNotRegex(command, writes, "Installed code must retain read-only repository permissions")
+        self.assertNotRegex(command, r"(?m)^    permissions:", "The command job must inherit workflow contents: read")
+        self.assertRegex(command, r"(?m)^    needs:\s*download\s*$")
+        self.assertNotIn("GH_TOKEN", command)
+        self.assertNotRegex(command, r"(?:github\.token|secrets\.GITHUB_TOKEN)")
+        token_bindings = re.findall(r"(?m)^( *)GH_TOKEN:\s*\$\{\{\s*(?:github\.token|secrets\.GITHUB_TOKEN)\s*\}\}", source)
+        self.assertEqual(token_bindings, [" " * 10], "The token belongs only to the downloader step environment")
+        self.assertEqual(len(re.findall(r"\$\{\{\s*(?:github\.token|secrets\.GITHUB_TOKEN)\s*\}\}", source)), 1)
+        self.assertRegex(download, r"(?m)^          GH_TOKEN:\s*\$\{\{\s*(?:github\.token|secrets\.GITHUB_TOKEN)\s*\}\}")
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         pinned_checkout = re.search(r"actions/checkout@[0-9a-f]{40}", ci)[0]
-        self.assertIn(pinned_checkout, source)
-        self.assertRegex(source, r"ref:\s*\$\{\{\s*(?:github\.event\.)?inputs\.candidate_sha\s*\}\}")
-        self.assertRegex(source, r"persist-credentials:\s*false")
+        self.assertIn(pinned_checkout, command)
+        self.assertNotIn("actions/checkout@", download)
+        self.assertRegex(command, r"ref:\s*\$\{\{\s*(?:github\.event\.)?inputs\.candidate_sha\s*\}\}")
+        self.assertRegex(command, r"persist-credentials:\s*false")
         for variable, field in (("ASSET_ID", "asset_id"), ("EXPECTED_SHA256", "sha256"),
                                 ("CANDIDATE_SHA", "candidate_sha"), ("EXPECTED_VERSION", "expected_version")):
             self.assertRegex(source, rf"{variable}:\s*\$\{{\{{\s*(?:github\.event\.)?inputs\.{field}\s*\}}\}}")
-        self.assertRegex(source, r"GH_TOKEN:\s*\$\{\{\s*(?:github\.token|secrets\.GITHUB_TOKEN)\s*\}\}")
-        run_blocks = re.findall(r"(?m)^([ ]+)run:\s*\|\s*\n((?:\1[ ]+[^\n]*\n|[ \t]*\n)*)", source)
-        self.assertTrue(run_blocks, "Installer download and smoke invocation are missing")
-        scripts = "\n".join(body for _, body in run_blocks)
+        run_pattern = r"(?m)^([ ]+)run:\s*\|\s*\n((?:\1[ ]+[^\n]*\n|[ \t]*\n)*)"
+        download_scripts = "\n".join(body for _, body in re.findall(run_pattern, download))
+        command_scripts = "\n".join(body for _, body in re.findall(run_pattern, command))
+        self.assertTrue(download_scripts and command_scripts, "Download and installed-command scripts are required")
+        scripts = download_scripts + "\n" + command_scripts
         self.assertNotIn("${{", scripts, "Dispatch input must enter PowerShell through environment variables")
-        self.assertIn("Invoke-WebRequest", scripts)
-        self.assertIn("application/octet-stream", scripts)
-        self.assertIn("releases/assets/", scripts)
-        self.assertIn("$env:GITHUB_REPOSITORY", scripts)
-        self.assertIn("$env:ASSET_ID", scripts)
-        self.assertRegex(scripts, r"(?i)-OutFile\b")
-        self.assertIn("scripts/test_installer_command.ps1", scripts.replace("\\", "/"))
-        self.assertRegex(scripts, r"-InstallerPath\s+\$")
-        self.assertRegex(scripts, r"-ExpectedVersion\s+\$env:EXPECTED_VERSION")
-        self.assertRegex(scripts, r"-ExpectedSha256\s+\$env:EXPECTED_SHA256")
+        for value in ("Invoke-WebRequest", "application/octet-stream", "releases/assets/",
+                      "$env:GITHUB_REPOSITORY", "$env:ASSET_ID", "Get-FileHash"):
+            self.assertIn(value, download_scripts)
+        self.assertRegex(download_scripts, r"(?i)-OutFile\b")
+        self.assertRegex(download_scripts, r"(?i)-Algorithm\s+SHA256")
+        self.assertRegex(download_scripts, r"-(?:c|i)?ne\s+\$env:EXPECTED_SHA256")
+        self.assertNotRegex(download_scripts, r"(?im)^\s*(?:&|\.\s|Start-Process\b|Invoke-Expression\b|iex\b)")
+        self.assertNotIn("test_installer_command.ps1", download)
+        self.assertNotIn("Invoke-WebRequest", command_scripts)
+        self.assertIn("git rev-parse HEAD", command_scripts)
+        self.assertRegex(command_scripts, r"-(?:c|i)?ne\s+\$env:CANDIDATE_SHA")
+        self.assertIn("scripts/test_installer_command.ps1", command_scripts.replace("\\", "/"))
+        self.assertRegex(command_scripts, r"-InstallerPath\s+\$")
+        self.assertRegex(command_scripts, r"-ExpectedVersion\s+\$env:EXPECTED_VERSION")
+        self.assertRegex(command_scripts, r"-ExpectedSha256\s+\$env:EXPECTED_SHA256")
+        self.assertIn("candidate-installer", command_scripts)
+        upload = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        self.assertEqual(re.findall(r"(?m)^\s+uses:\s*(\S+)", download), [upload])
+        for setting in (r"name:\s*candidate-installer", r"compression-level:\s*0", r"retention-days:\s*1"):
+            self.assertRegex(download, r"(?m)^          " + setting + r"\s*$")
+        self.assertRegex(download, r"path:\s*\$\{\{\s*runner\.temp\s*\}\}/candidate-installer(?:/[^\n]+)?\s*(?:\n|$)")
+        artifact_download = "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333"
+        self.assertIn(artifact_download, command)
+        artifact_steps = [step for step in re.split(r"(?m)^      - ", command) if artifact_download in step]
+        self.assertEqual(len(artifact_steps), 1)
+        self.assertRegex(artifact_steps[0], r"(?m)^          name:\s*candidate-installer\s*$")
+        self.assertRegex(artifact_steps[0], r"path:\s*\$\{\{\s*runner\.temp\s*\}\}/candidate-installer\s*(?:\n|$)")
+        self.assertNotRegex(artifact_steps[0], r"(?m)^\s+(?:github-token|run-id|repository):")
+        summary_steps = [step for step in re.split(r"(?m)^      - ", command) if upload in step]
+        self.assertEqual(len(summary_steps), 1)
+        self.assertRegex(summary_steps[0], r"(?m)^          name:\s*installer-command-summary\s*$")
+        self.assertRegex(summary_steps[0], r"path:\s*\$\{\{\s*runner\.temp\s*\}\}/installer-command-summary\.json")
+        self.assertRegex(summary_steps[0], r"if:\s*always\(\)")
         for expression in (r"\^\[0-9\]\+\$", r"\^\[0-9a-fA-F\]\{64\}\$", r"\^\[0-9a-fA-F\]\{40\}\$"):
             self.assertRegex(scripts, expression)
         for action in re.findall(r"(?m)^\s+uses:\s*(\S+)", source):

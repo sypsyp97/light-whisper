@@ -27,6 +27,31 @@ class ToolPinTests(unittest.TestCase):
 
 
 class TlcResourceTests(unittest.TestCase):
+    def test_tlc_allocates_larger_heap_only_for_context_routing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for model, configuration, expected_heap in [
+                ("ContextRouting", "ContextRouting.cfg", "-Xmx2048m"),
+                ("cli-command-entry/CommandEntry", "cli-command-entry/positive.cfg", "-Xmx512m"),
+            ]:
+                with self.subTest(model=model):
+                    source = check_formal.ROOT / "formal" / f"{model}.tla"
+                    config = check_formal.ROOT / "formal" / configuration
+                    completed = check_formal.subprocess.CompletedProcess(
+                        [], 0, stdout="Model checking completed. No error has been found.\n"
+                        "2 states generated, 1 distinct states found\n", stderr="")
+                    with patch.object(check_formal.subprocess, "run", return_value=completed) as run:
+                        check_formal.tlc(root / "tla2tools.jar", model, config, source,
+                                         root / "logs" / config.stem)
+                    run.assert_called_once()
+                    command = run.call_args.args[0]
+                    heap = [argument for argument in command[1:command.index("-jar")]
+                            if argument.startswith("-Xmx")]
+                    self.assertEqual(command[0], "java")
+                    self.assertEqual(heap, [expected_heap])
+                    self.assertEqual(command[command.index("-workers") + 1], "1")
+                    self.assertEqual(run.call_args.kwargs["timeout"], 480)
+
     def test_tlc_uses_bounded_heap_and_one_worker(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

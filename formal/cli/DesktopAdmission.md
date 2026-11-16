@@ -3,11 +3,16 @@
 This model was introduced against the unfixed CLI SHA256
 `1517896105d1f5f0b0fe7acb0aa430b4f597c0be7ac7268bf380025e74daf504`.
 `Legacy` preserves that unfixed admission behavior. The current reviewed CLI is
-`d1a9f86c0bcc3419ad7f1b1872a24a7e44d11bb552bb0860eda34f67884ac09b`;
+`db2655d9beecc41de1b20338cb44c6af64dae72701d833b5459639d0cc55d9b7`;
 `Correct` maps to its `validate_desktop_request` and two app-only caller guards.
 Independent source correspondence review accepted that mapping. The baseline
 identity and negative controls remain historical evidence. A completed finite
 model run is still required and is not claimed by this source update.
+
+The installed-command update changes only `app_path` from the earlier admission
+review. The modeled admission helper and caller guards are unchanged. See the
+[source correspondence](README.md#desktop-admission-source-correspondence) and
+[command-entry contract](../cli-command-entry/README.md).
 
 An app request containing an unpaired surrogate, or whose exact serialized
 physical pipe record exceeds 65536 bytes, must fail before acquiring a broker or

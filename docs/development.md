@@ -131,6 +131,8 @@ CI measures the skipped timing-sensitive hotword benchmark separately as advisor
 CI also runs the [TLA+ and Lean contracts](../formal/README.md), including verifier
 regressions and intentional counterexamples, and uploads the proof logs. The
 release gate requires this job to succeed for the exact candidate commit.
+The application model runner uses one worker. `ContextRouting` has a 2048 MiB
+Java heap limit; other models have a 512 MiB limit.
 The separate Windows `Verus implementation proofs` job checks the actual capture
 frame-count helper, hotkey ownership transitions and interim interval controller,
 including deliberately faulty variants of each. It verifies the

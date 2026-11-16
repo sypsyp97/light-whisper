@@ -11,7 +11,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 MODULE = "JsonNumbers"
 JAR_SHA256 = "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
-SOURCE_SHA256 = "d1a9f86c0bcc3419ad7f1b1872a24a7e44d11bb552bb0860eda34f67884ac09b"
+SOURCE_SHA256 = "db2655d9beecc41de1b20338cb44c6af64dae72701d833b5459639d0cc55d9b7"
 CASES = (
     ("JsonNumbers", "positive", ""),
     ("LegacyAcceptNegative", "safety", "MatchingBadIsTerminal"),

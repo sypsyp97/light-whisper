@@ -46,6 +46,8 @@ The workflow uses a fresh GitHub-hosted Windows VM. It checks new installation, 
 
 Only the summary JSON is uploaded as evidence. Raw diagnostics stay in the disposable runner. Do not upload local settings, recordings, logs, credentials or private filesystem paths with a Release.
 
+The workflow downloads the unpublished asset in a separate job with the permission needed to read draft assets. That job does not check out source or run the installer. It passes only the verified installer through a temporary workflow artifact. The Windows job retains read-only repository permissions and checks the installer hash again before execution.
+
 ## Recovery and edits
 
 - Before tagging: fix the failure and validate a new candidate.

@@ -83,9 +83,11 @@ assembled GREEN, actual TLC runs, measured coverage and source mutation receipts
 ## Current target-specific admission
 
 At reviewed CLI SHA256
-`d1a9f86c0bcc3419ad7f1b1872a24a7e44d11bb552bb0860eda34f67884ac09b`,
+`db2655d9beecc41de1b20338cb44c6af64dae72701d833b5459639d0cc55d9b7`,
 `EngineClient` is AST-identical to the preceding reviewed source. Direct-client
 and independent-engine requests retain escaped unpaired-surrogate preservation.
+The installed-command update changes only `app_path`; it does not change this
+encoding path. Its [discovery contract](../cli-command-entry/README.md) is separate.
 App callers instead reject invalid scalar strings before acquisition/send and
 admit scalar strings only within the exact physical wire cap. That rejection is
 visible input failure, not replacement inside `Pipe`. The unchanged finite

@@ -19,25 +19,23 @@ on:
 permissions:
   contents: read
 
-jobs:
-  command:
-    runs-on: windows-latest
-    timeout-minutes: 10
-    env:
-      ASSET_ID: ${{ inputs.asset_id }}
-      EXPECTED_SHA256: ${{ inputs.sha256 }}
-      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-      EXPECTED_VERSION: ${{ inputs.expected_version }}
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - name: Check out the candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ inputs.candidate_sha }}
-          persist-credentials: false
+env:
+  ASSET_ID: ${{ inputs.asset_id }}
+  EXPECTED_SHA256: ${{ inputs.sha256 }}
+  CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+  EXPECTED_VERSION: ${{ inputs.expected_version }}
 
-      - name: Download and test the candidate installer
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the draft asset
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -47,11 +45,9 @@ jobs:
               $env:EXPECTED_VERSION -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
             throw 'Invalid installer candidate inputs'
           }
-          if ((git rev-parse HEAD).Trim() -ne $env:CANDIDATE_SHA) {
-            throw 'Checked-out commit does not match the candidate'
-          }
-          $installer = Join-Path $env:RUNNER_TEMP 'light-whisper-candidate.exe'
-          $summary = Join-Path $env:RUNNER_TEMP 'installer-command-summary.json'
+          $directory = Join-Path $env:RUNNER_TEMP 'candidate-installer'
+          New-Item -ItemType Directory -Path $directory | Out-Null
+          $installer = Join-Path $directory 'light-whisper-candidate.exe'
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = 'application/octet-stream'
@@ -59,6 +55,46 @@ jobs:
           }
           $asset = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/assets/$env:ASSET_ID"
           Invoke-WebRequest -Uri $asset -Headers $headers -OutFile $installer
+          if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ine $env:EXPECTED_SHA256) {
+            throw 'Downloaded installer SHA-256 does not match the candidate'
+          }
+
+      - name: Pass the verified installer to Windows
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: candidate-installer
+          path: ${{ runner.temp }}/candidate-installer/light-whisper-candidate.exe
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  command:
+    needs: download
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+
+      - name: Download the verified installer
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: candidate-installer
+          path: ${{ runner.temp }}/candidate-installer
+
+      - name: Test the installed command
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ((git rev-parse HEAD).Trim() -ne $env:CANDIDATE_SHA) {
+            throw 'Checked-out commit does not match the candidate'
+          }
+          $installer = Join-Path $env:RUNNER_TEMP 'candidate-installer/light-whisper-candidate.exe'
+          $summary = Join-Path $env:RUNNER_TEMP 'installer-command-summary.json'
           & ./scripts/test_installer_command.ps1 -InstallerPath $installer `
             -ExpectedVersion $env:EXPECTED_VERSION -ExpectedSha256 $env:EXPECTED_SHA256 `
             -SummaryPath $summary

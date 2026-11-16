@@ -64,8 +64,11 @@ against the accepted artifacts; the current admission mapping is recorded below.
 ## Current desktop admission boundary
 
 At reviewed CLI SHA256
-`d1a9f86c0bcc3419ad7f1b1872a24a7e44d11bb552bb0860eda34f67884ac09b`,
+`db2655d9beecc41de1b20338cb44c6af64dae72701d833b5459639d0cc55d9b7`,
 app payloads pass `validate_desktop_request` before acquisition or dispatch.
+Installed-command discovery changes only `app_path`; these admission call paths
+are unchanged. The [command-entry contract](../cli-command-entry/README.md)
+owns that separate boundary.
 `Validate` retains command/schema/target semantics; admitted string representatives
 are scalar and fit the physical cap. Additional scalar/size failures use the
 existing recoverable input-error boundary. This model does not calculate those

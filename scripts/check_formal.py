@@ -121,7 +121,8 @@ def tlc(jar: Path, model: str, config: Path, source: Path, directory: Path,
             raise ValueError("temporal negative requires one final PROPERTY and no invariant expectation")
     directory.mkdir(parents=True, exist_ok=True)
     result = subprocess.run([
-        "java", "-Xmx512m", "-XX:+UseParallelGC", "-jar", str(jar), "-workers", "1",
+        "java", "-Xmx2048m" if model == "ContextRouting" else "-Xmx512m",
+        "-XX:+UseParallelGC", "-jar", str(jar), "-workers", "1",
         "-coverage", "1",
         "-metadir", str(directory / "states"), "-config", str(config), str(source),
     ], cwd=source.parent, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=480)

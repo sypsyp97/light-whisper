@@ -272,7 +272,7 @@ invalid, pending and timeout counts; equivalents require source-backed review.
 
 ## Desktop admission source correspondence
 
-The current reviewed `scripts/light_whisper_cli.py` SHA256 is
+The desktop-admission review used `scripts/light_whisper_cli.py` SHA256
 `d1a9f86c0bcc3419ad7f1b1872a24a7e44d11bb552bb0860eda34f67884ac09b`.
 Relative to `1517896105d1f5f0b0fe7acb0aa430b4f597c0be7ac7268bf380025e74daf504`,
 the only executable additions are `DESKTOP_REQUEST_MAX`,
@@ -280,6 +280,14 @@ the only executable additions are `DESKTOP_REQUEST_MAX`,
 function except `main` and `run_session`, including the entire `EngineClient`
 class, has an identical AST. This is a reviewed source correspondence boundary,
 not a new proof receipt or a composition/refinement theorem.
+
+The current reviewed CLI SHA256 is
+`db2655d9beecc41de1b20338cb44c6af64dae72701d833b5459639d0cc55d9b7`.
+Its only AST change from that admission review is `app_path`. The installed
+command can find its parent desktop executable and does not select itself.
+Admission, numeric validation, client ownership and cleanup are unchanged.
+The [command-entry contract](../cli-command-entry/README.md) owns that separate
+discovery and installation boundary. Historical receipts keep their source hashes.
 
 `main` validates assembled fields with internal ID 1 before `request_client`.
 `run_session` validates after `session_request`, inside per-record `ValueError`

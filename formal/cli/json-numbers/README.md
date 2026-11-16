@@ -100,7 +100,7 @@ python formal/cli/json-numbers/check_model.py --java JAVA --jar TLA_JAR --output
 
 The earlier reviewed CLI source SHA-256 was
 `e78cad5614d73341c93731d9b38998ee35a1019dbcb3147c13ea5a6159a74d77`.
-The current reviewed source pin is
+The desktop-admission review used source pin
 `d1a9f86c0bcc3419ad7f1b1872a24a7e44d11bb552bb0860eda34f67884ac09b`.
 Its delta from `1517896105d1f5f0b0fe7acb0aa430b4f597c0be7ac7268bf380025e74daf504`
 adds only app caller preflight: `_receive`, numeric guards, the whole client and
@@ -108,6 +108,11 @@ cleanup remain AST-identical. This model begins after first-input admission;
 new scalar/size failures instead take the existing recoverable caller-error
 branch before startup/action response processing. [DesktopAdmission](../DesktopAdmission.md)
 owns that separate guard; see [companion correspondence](../README.md#desktop-admission-source-correspondence).
+The maintained runner now pins the current raw CLI bytes:
+`db2655d9beecc41de1b20338cb44c6af64dae72701d833b5459639d0cc55d9b7`.
+Only `app_path` changes from the admission review. Numeric validation, the
+client, callers and cleanup remain AST-identical. Installed-command discovery
+belongs to the [command-entry contract](../../cli-command-entry/README.md).
 Advancing the runner pin follows this source review and supplies no new TLC
 receipt. The execution counts below remain historical, with their original hashes.
 The runner rejects source drift, incomplete matrices, unrelated negative results,
