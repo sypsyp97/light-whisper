@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.1 — 2026-11-16
+
+- Register `light-whisper` on the current user's PATH during installation. Open a new terminal to use the command directly.
+- Keep the command available after repeated installation and remove its PATH entry during uninstall. Preserve other PATH entries, settings and history.
+- Keep the command available if the user cancels closing the app during uninstall.
+- Fix desktop discovery when the CLI runs from the installed `bin` directory.
+- Document direct commands for PowerShell and Command Prompt.
+
 ## 1.8.0 — 2026-11-15
 
 - Added a standalone Windows CLI with JSON output and JSONL sessions. It can inspect and control the desktop instance or run a separate local engine. See the [CLI guide](docs/cli.md).

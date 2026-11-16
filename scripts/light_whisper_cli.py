@@ -259,7 +259,10 @@ def app_path(args):
     candidates = [ROOT / "src-tauri" / "target" / build / "light-whisper.exe"
                   for build in ("release", "debug")]
     if FROZEN:
-        candidates.insert(0, Path(sys.executable).parent / "light-whisper.exe")
+        executable = Path(sys.executable).resolve()
+        candidates[:0] = [executable.parent / "light-whisper.exe",
+                          executable.parent.parent / "light-whisper.exe"]
+        candidates = [path for path in candidates if path.resolve() != executable]
     if os.environ.get("LOCALAPPDATA"):
         candidates.append(Path(os.environ["LOCALAPPDATA"]) / "轻语 Whisper" / "light-whisper.exe")
     return next((path.resolve() for path in candidates if path.is_file()), None)

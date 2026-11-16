@@ -75,8 +75,15 @@ AI 润色、屏幕感知和助手联网搜索均提供**关闭／开启／自动
 
 ## 命令行接口
 
-安装包包含 `light-whisper-cli.exe`。它支持读取和控制桌面引擎，也支持单独运行本地引擎进行排障。
-命令通过 JSON 和退出码返回结果，适合编码 agent 使用。PowerShell 命令和持续会话示例见 [CLI 指南](docs/cli.md)。
+安装后，新开一个终端窗口，直接运行：
+
+```powershell
+light-whisper status
+light-whisper transcribe "sample.wav"
+```
+
+安装程序会把 `light-whisper` 加入当前用户的 PATH。它支持读取和控制桌面引擎，也支持单独运行本地引擎进行排障。
+命令通过 JSON 和退出码返回结果，适合编码 agent 使用。完整命令和持续会话示例见 [CLI 指南](docs/cli.md)。
 
 ## 开发文档
 

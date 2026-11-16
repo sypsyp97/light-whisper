@@ -38,6 +38,8 @@ pnpm tauri build
 ```
 
 The NSIS installer is written to `src-tauri/target/release/bundle/nsis/`.
+Installation registers `light-whisper` on the current user's PATH.
+Open a new terminal after installation to use the command.
 The standalone CLI is installed beside the desktop executable.
 Distribution builds verify its embedded entry code and package metadata against the checkout.
 Run `uv run --locked python scripts/build_cli.py --verify` to repeat this check.

@@ -705,6 +705,9 @@
     ],
     "release.exact-candidate-required-cli-job": [
       "cli-delivery"
+    ],
+    "cli.windows.installed-command-and-path-ownership": [
+      "cli-command-entry"
     ]
   },
   "contracts": {
@@ -2353,6 +2356,41 @@
         "formal/agent-api-measurements/entrypoint/provenance/README.md"
       ],
       "assumptions": "Two valid HEAD partitions and one invalid partition; one apply, at most one owner edit, one receipt edit and one identity loss between invocations, then one verify or restore. Each helper call is exclusive and synchronous with successful filesystem operations. Complete stage-specific identity and app/fixture checks are Boolean conjunctions, not removed concrete gates. verify_launch returns read-only admission metadata and does not launch a process. No intra-call TOCTOU, partial-I/O/crash durability, cryptographic metadata authentication, live Git validation, repeated calls or native application execution is proved. The generic application formal matrix checks the positive configuration, four semantic controls and six reachability witnesses; witnesses are not safety-mutant kills."
+    },
+    "cli-command-entry": {
+      "obligation": "The installed Windows console entry discovers the neighboring or parent desktop executable without selecting itself. Installer command publication copies the console CLI before adding one own user-PATH entry, preserves raw unrelated PATH tokens, rejects preexisting reparse points and removes only its own command entry and alias during uninstall. The caller decides process-close cancellation or failure before command cleanup; denial preserves the existing alias and own PATH entry. Each serialized operation settles under returning OS calls.",
+      "models": {
+        "cli-command-entry/CommandEntry": [
+          "TypeOK",
+          "PublishedAfterCopy",
+          "PathIntegrity",
+          "CleanupComplete",
+          "ForeignResourceUntouched",
+          "DeniedPreservesCommand",
+          "OperationSettles",
+          "Begin",
+          "Admit",
+          "Validate",
+          "Copy",
+          "Publish",
+          "Unpublish",
+          "Cleanup",
+          "Again"
+        ]
+      },
+      "implementation": [
+        "scripts/light_whisper_cli.py#def app_path(",
+        "src-tauri/resources/install_cli_command.ps1#function Invoke-CliCommandInstall",
+        "src-tauri/nsis-hooks.nsh#!macro NSIS_HOOK_PREUNINSTALL"
+      ],
+      "evidence": [
+        "scripts/test_cli_command_discovery.py",
+        "scripts/test_cli_command_installation.py",
+        "scripts/test_cli_installer_ci.py#def test_uninstall_process_guard_precedes_command_cleanup(",
+        "scripts/test_installer_command.ps1",
+        "formal/cli-command-entry/README.md"
+      ],
+      "assumptions": "Two serialized install/uninstall calls, initially empty command ownership, representative ordered foreign tokens including empty and expandable entries, and a fixed preexisting reparse-point choice. Normal, missing-source, copy-error and registry-write-error outcomes and caller process-close admission/denial are bounded inputs. Admission remains valid until cleanup; an external desktop restart between the hook and template's repeated guard is excluded. Weak fairness assumes synchronous OS calls return. Uncooperative external concurrent PATH/filesystem writers, process crashes, permanently blocked OS calls, native PE/argument/stdio behavior, remaining NSIS wiring and environment broadcast are outside this finite model. Real PowerShell tests exercise owned temporary registry keys/files, not the real HKCU Environment entrypoint; Python discovery tests use a synthetic broker. The fresh-VM native installer smoke and hook source-order regression are distinct evidence and do not execute the interactive cancellation prompt. PowerShell/NSIS/native branch coverage and source mutation remain unmeasured. This is reviewed source/model correspondence, not compiler refinement or a whole-installer proof."
     }
   },
   "runs": {
@@ -2557,6 +2595,9 @@
     ],
     "cli/DesktopAdmission": [
       "cli/DesktopAdmission.cfg"
+    ],
+    "cli-command-entry/CommandEntry": [
+      "cli-command-entry/positive.cfg"
     ]
   },
   "actions": {
@@ -2828,6 +2869,16 @@
       "Send",
       "Reply",
       "Close"
+    ],
+    "cli-command-entry/CommandEntry": [
+      "Begin",
+      "Admit",
+      "Validate",
+      "Copy",
+      "Publish",
+      "Unpublish",
+      "Cleanup",
+      "Again"
     ]
   },
   "negative": [
@@ -4064,6 +4115,69 @@
       "config": "cli/DesktopAdmissionEscapedOverflowWitness.cfg",
       "invariant": "WitnessNotReached",
       "purpose": "Reachability witness: escaped_overflow; not a safety-control kill."
+    },
+    {
+      "name": "cli-command-entry-early-publication",
+      "model": "cli-command-entry/CommandEntry",
+      "config": "cli-command-entry/early-publication-negative.cfg",
+      "invariant": "PublishedAfterCopy",
+      "purpose": "Safety sensitivity: publish the own PATH entry before the alias copy."
+    },
+    {
+      "name": "cli-command-entry-foreign-path",
+      "model": "cli-command-entry/CommandEntry",
+      "config": "cli-command-entry/foreign-path-negative.cfg",
+      "invariant": "PathIntegrity",
+      "purpose": "Safety sensitivity: discard a foreign PATH token during publication/removal."
+    },
+    {
+      "name": "cli-command-entry-duplicate-path",
+      "model": "cli-command-entry/CommandEntry",
+      "config": "cli-command-entry/duplicate-path-negative.cfg",
+      "invariant": "PathIntegrity",
+      "purpose": "Safety sensitivity: append duplicate own PATH entries on repeated install."
+    },
+    {
+      "name": "cli-command-entry-cleanup",
+      "model": "cli-command-entry/CommandEntry",
+      "config": "cli-command-entry/cleanup-negative.cfg",
+      "invariant": "CleanupComplete",
+      "purpose": "Safety sensitivity: retain the owned alias after successful uninstall."
+    },
+    {
+      "name": "cli-command-entry-reparse",
+      "model": "cli-command-entry/CommandEntry",
+      "config": "cli-command-entry/reparse-negative.cfg",
+      "invariant": "ForeignResourceUntouched",
+      "purpose": "Safety sensitivity: bypass the preexisting reparse-point rejection and touch the foreign target."
+    },
+    {
+      "name": "cli-command-entry-progress",
+      "model": "cli-command-entry/CommandEntry",
+      "config": "cli-command-entry/progress-negative.cfg",
+      "property": "OperationSettles",
+      "purpose": "Temporal sensitivity: stall after copying the alias; the configured OperationSettles property must fail."
+    },
+    {
+      "name": "cli-command-entry-admission",
+      "model": "cli-command-entry/CommandEntry",
+      "config": "cli-command-entry/admission-negative.cfg",
+      "invariant": "DeniedPreservesCommand",
+      "purpose": "Safety sensitivity: decide caller cancellation or process-close failure after command cleanup, losing the previously installed alias and PATH entry."
+    },
+    {
+      "name": "cli-command-entry-admission-witness",
+      "model": "cli-command-entry/CommandEntry",
+      "config": "cli-command-entry/admission-witness.cfg",
+      "invariant": "DeniedNotReached",
+      "purpose": "Reachability witness: denial after a successful install preserves the alias and own PATH entry. Expected witness violation is not a safety-control kill."
+    },
+    {
+      "name": "cli-command-entry-lifecycle-witness",
+      "model": "cli-command-entry/CommandEntry",
+      "config": "cli-command-entry/lifecycle-witness.cfg",
+      "invariant": "LifecycleNotReached",
+      "purpose": "Reachability witness: successful install followed by removal reaches settled empty ownership. Expected witness violation is not a safety-control kill."
     }
   ],
   "command_implementation": {

@@ -5,15 +5,19 @@ It writes JSON to standard output. Diagnostics go to standard error.
 
 ## Open the installed CLI
 
-Use PowerShell:
+Open a new PowerShell or Command Prompt window after installation.
+The installer adds `light-whisper` to your user PATH.
+Close existing terminal windows and open a new one to load the updated PATH.
+Administrator access is not required for the current-user installation.
 
 ```powershell
-$cli = Join-Path $env:LOCALAPPDATA '轻语 Whisper\light-whisper-cli.exe'
-& $cli --help
-& $cli doctor
+light-whisper --help
+light-whisper doctor
 ```
 
 The installed CLI does not need Python or Node.js.
+Uninstalling the application removes its command entry. Other PATH entries,
+settings and history are preserved.
 For a source checkout, use `pnpm --silent cli` or `python scripts/light_whisper_cli.py`.
 Put global options before the command.
 
@@ -30,9 +34,9 @@ Use `--app-exe` to select a desktop executable.
 Incompatible target options produce an error before a process starts.
 
 ```powershell
-& $cli --target app status
-& $cli --target engine status
-& $cli --engine confucius4-r2t2 status
+light-whisper --target app status
+light-whisper --target engine status
+light-whisper --engine confucius4-r2t2 status
 ```
 
 Independent mode reads the engine selection from the desktop configuration.
@@ -43,11 +47,11 @@ The supported local values are `qwen3-asr-0.6b` and `confucius4-r2t2`.
 ## Inspect the desktop
 
 ```powershell
-& $cli status
-& $cli stats
-& $cli engine get
-& $cli models
-& $cli devices
+light-whisper status
+light-whisper stats
+light-whisper engine get
+light-whisper models
+light-whisper devices
 ```
 
 `status` distinguishes the saved engine selection from observed runtime state.
@@ -61,8 +65,8 @@ The device command does not open a microphone.
 To change the local engine, run:
 
 ```powershell
-& $cli engine set confucius4-r2t2
-& $cli engine start
+light-whisper engine set confucius4-r2t2
+light-whisper engine start
 ```
 
 Engine selection saves the setting and stops the previous engine.
@@ -81,8 +85,8 @@ The desktop application does not stop when the CLI connection closes.
 Replace `sample.wav` with an existing audio file:
 
 ```powershell
-& $cli transcribe sample.wav --language en --hot-word 'Light Whisper'
-& $cli --engine confucius4-r2t2 transcribe sample.wav --context 'Medical dictation'
+light-whisper transcribe sample.wav --language en --hot-word 'Light Whisper'
+light-whisper --engine confucius4-r2t2 transcribe sample.wav --context 'Medical dictation'
 ```
 
 File transcription returns the result in JSON.
@@ -109,7 +113,7 @@ For `engine_set`, include an `engine` field with a supported local engine name.
 {"request_id":11,"action":"transcribe","audio":"sample.wav","language":"en","hot_words":["Light Whisper"]}
 {"request_id":12,"action":"stats"}
 {"request_id":13,"action":"exit"}
-'@ | & $cli --target engine session
+'@ | light-whisper --target engine session
 ```
 
 A session starts its child only when it receives a valid operation.
@@ -133,7 +137,7 @@ An admitted desktop operation can finish after its client disconnects.
 
 ```powershell
 $engineExe = Join-Path $env:APPDATA 'com.light-whisper.app\engine\engine.exe'
-& $cli --engine-exe $engineExe --timeout 120 --threads 2 status
+light-whisper --engine-exe $engineExe --timeout 120 --threads 2 status
 pnpm --silent cli --python .venv/Scripts/python.exe --engine confucius4-r2t2 status
 ```
 
@@ -153,7 +157,7 @@ The CLI removes that directory after its child exits.
 Use `--data-dir` to retain engine logs:
 
 ```powershell
-& $cli --data-dir .\cli-evidence status > .\status.json
+light-whisper --data-dir .\cli-evidence status > .\status.json
 ```
 
 This option does not change the desktop configuration directory.

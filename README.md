@@ -75,9 +75,16 @@ Read the [Privacy policy](docs/privacy.md) for network requests, local storage, 
 
 ## Command-line interface
 
-The installer includes `light-whisper-cli.exe`. Use it to check the desktop
-instance or run an isolated local engine. It returns JSON and process exit codes.
-See the [CLI guide](docs/cli.md) for PowerShell commands and session examples.
+The installer adds `light-whisper` to your user PATH. Open a new terminal, then run:
+
+```powershell
+light-whisper status
+light-whisper transcribe "sample.wav"
+```
+
+The CLI can control the desktop instance or run a separate local engine.
+It returns JSON and process exit codes. See the [CLI guide](docs/cli.md)
+for commands and session examples.
 
 ## For developers
 
