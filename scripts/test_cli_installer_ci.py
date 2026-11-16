@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 
@@ -110,6 +111,67 @@ class InstallerWorkflowTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "requires Windows PowerShell parsers")
 class InstallerDriverSafetyTests(unittest.TestCase):
+    def test_cmd_preserves_unicode_lookup_and_nonzero_exit_from_oem_start(self):
+        with tempfile.TemporaryDirectory(prefix="lw-installer-cmd-") as temporary:
+            directory = Path(temporary).resolve()
+            alias = directory / "安装 轻语" / "light-whisper.exe"
+            alias.parent.mkdir()
+            alias.write_bytes(b"synthetic where-only fixture; never execute")
+            script = r'''
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:SMOKE_DRIVER, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw 'The native smoke driver does not parse.' }
+$function = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'Invoke-ShellCommand' }, $true)
+if ($null -eq $function) { throw 'The actual shell-command function is missing.' }
+Invoke-Expression $function.Extent.Text
+function Invoke-CapturedProcess {
+    param([string]$Executable, [string]$Arguments, [string]$Label)
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $Executable
+    # Force the initial OEM page before the actual function's command, including its prefix.
+    $start.Arguments = $Arguments.Insert($Arguments.IndexOf('"') + 1, 'chcp 437>nul & ')
+    $start.WorkingDirectory = $env:SMOKE_WORK
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+    $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+    $start.EnvironmentVariables['PATH'] = $env:SMOKE_BIN + ';' + (Join-Path $env:SystemRoot 'System32')
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $start
+    try {
+        $process.Start() | Out-Null
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(5000)) { $process.Kill($true); throw 'Owned cmd fixture exceeded its deadline.' }
+        return [pscustomobject]@{ Code = $process.ExitCode; Output = $stdout.GetAwaiter().GetResult();
+                                 Errors = $stderr.GetAwaiter().GetResult() }
+    } finally { $process.Dispose() }
+}
+$shell = @{ Name = 'cmd'; Path = $env:ComSpec }
+$lookup = Invoke-ShellCommand $shell 'where.exe light-whisper' 'lookup'
+$invalid = Invoke-ShellCommand $shell 'exit /b 2' 'exit-code'
+@{ lookup_code = $lookup.Code; path = $lookup.Output.Trim(); errors = $lookup.Errors;
+   invalid_code = $invalid.Code } | ConvertTo-Json -Compress
+'''
+            result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-NonInteractive", "-Command", script],
+                                    env=dict(os.environ, SMOKE_DRIVER=str(DRIVER), SMOKE_WORK=str(directory),
+                                             SMOKE_BIN=str(alias.parent)), capture_output=True,
+                                    text=True, encoding="utf-8", timeout=15,
+                                    creationflags=subprocess.CREATE_NO_WINDOW)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            observed = json.loads(result.stdout)
+            self.assertEqual(observed["lookup_code"], 0)
+            self.assertEqual(observed["invalid_code"], 2)
+            self.assertEqual(observed["errors"], "")
+            self.assertEqual(observed["path"], str(alias))
+
     def test_both_powershell_versions_parse_and_all_nonfresh_states_refuse_before_effects(self):
         shells = (Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe",
                   Path(shutil.which("pwsh")))

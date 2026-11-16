@@ -96,7 +96,7 @@ function Invoke-CapturedProcess {
 function Invoke-ShellCommand {
     param($Shell, [string]$Command, [string]$Label)
     if ($Shell.Name -eq 'cmd') {
-        return Invoke-CapturedProcess $Shell.Path ('/d /s /c "' + $Command + '"') $Label
+        return Invoke-CapturedProcess $Shell.Path ('/d /s /c "chcp 65001>nul & ' + $Command + '"') $Label
     }
     $script = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); ' +
         '$PSNativeCommandUseErrorActionPreference = $false; ' + $Command + '; exit $LASTEXITCODE'
