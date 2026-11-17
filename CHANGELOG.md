@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.2 — 2026-11-17
+
+- Discover new OpenAI models available to the signed-in account when Settings opens. The catalog now follows stable Codex releases and preserves the selected model.
+
 ## 1.8.1 — 2026-11-16
 
 - Register `light-whisper` on the current user's PATH during installation. Open a new terminal to use the command directly.

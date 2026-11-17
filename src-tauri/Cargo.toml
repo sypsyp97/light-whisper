@@ -1,6 +1,6 @@
 [package]
 name = "light-whisper"
-version = "1.8.1"
+version = "1.8.2"
 description = "轻语 - 本地与云端语音转文字桌面应用"
 authors = ["sun"]
 license = "GPL-3.0-only"
@@ -25,6 +25,7 @@ tauri-plugin-single-instance = "2"
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 

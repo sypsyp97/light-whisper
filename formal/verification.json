@@ -1063,7 +1063,7 @@
       "assumptions": "Canonical path resolution and successful copies are trusted filesystem operations; source deletion failures must remain visible."
     },
     "discovery": {
-      "obligation": "Only the newest request for current provider/engine/auth context may publish; failure retains same-context data. Selective invalidation retires and clears only the selected catalog; polish publication preserves independent assistant ownership and shared catalogs follow polish. Context, authentication or separate-model retirement settles the retired spinner immediately; obsolete success, failure and finally cannot publish or clear a newer request's loading state.",
+      "obligation": "Only the newest request for current provider/engine/auth context may publish; failure retains same-context data. Selective invalidation retires and clears only the selected catalog; polish publication preserves independent assistant ownership and shared catalogs follow polish. Context, authentication or separate-model retirement settles the retired spinner immediately; obsolete success, failure and finally cannot publish or clear a newer request's loading state. Codex catalog requests reuse a recent version lookup, including failures. Expired lookups retain the highest valid stable release seen.",
       "models": {
         "AsyncSettings": [
           "NoCrossProviderData",
@@ -1090,6 +1090,16 @@
           "IneligibleCatalogIsSettled",
           "OnlyCurrentCatalogPublishes",
           "CurrentCompletionSettles"
+        ],
+        "CodexCatalogVersion": [
+          "Ask",
+          "Serve",
+          "Acquire",
+          "Finish",
+          "Tick",
+          "Monotone",
+          "ReuseBeforeExpiry",
+          "ThrottleFailures"
         ]
       },
       "implementation": [
@@ -1098,7 +1108,9 @@
         "src-tauri/src/commands/ai_polish.rs",
         "src/hooks/useModelCatalog.ts",
         "src/components/settings/ScreenVisionModelPicker.tsx",
-        "src/components/settings/SelectionAssistantSettingsSection.tsx"
+        "src/components/settings/SelectionAssistantSettingsSection.tsx",
+        "src-tauri/src/commands/ai_polish.rs#resolve_catalog_version",
+        "src-tauri/src/commands/ai_polish.rs#catalog_version_or"
       ],
       "evidence": [
         "src/hooks/__tests__/useModelDiscovery.test.tsx",
@@ -1108,9 +1120,12 @@
         "src/hooks/__tests__/useModelCatalogLoadingOwnership.test.tsx",
         "src/components/settings/ScreenVisionModelPickerLoading.test.tsx",
         "src/components/settings/SelectionAssistantCatalogLoading.test.tsx",
-        "formal/evidence/state-machine-20261111.md"
+        "formal/evidence/state-machine-20261111.md",
+        "src-tauri/src/commands/ai_polish.rs#catalog_version_only_advances_to_canonical_stable_releases",
+        "src-tauri/src/commands/ai_polish.rs#catalog_version_cache_shares_refresh_and_throttles_failures",
+        "src-tauri/src/commands/ai_polish.rs#catalog_version_refreshes_at_the_exact_expiry_boundary"
       ],
-      "assumptions": "Upstream catalog contents and availability are inputs; finite two-request/context interleavings; HTTP schemas are checked by implementation tests. CatalogDiscoveryOwnership adds two roles, at most two issued requests per role and one selective invalidation per role, success/failure inputs and independent/shared modes. Shared mode projects polish publication/invalidation; independent assistant invalidation is checked in independent mode. Auth/context/unmount remain AsyncSettings obligations. TLC counterexample schedules replay actual hook APIs; this is bounded correspondence, not source refinement. Queued callback cancellation remains implementation-test coverage only; this companion has no scheduler/automatic-dispatch state and makes no queued-cancellation proof claim. ModelCatalogLoadingOwnership bounds two requests and one retirement by context, missing authentication or separate-mode closure, plus optional eligibility restoration. Request completion success/failure and order are environmental inputs. Hook and real picker regressions check credential deletion, OAuth sign-out, separate-mode closure/reopen and current completion. Debounce durations and UI rendering remain implementation-test obligations; this bounded model is not compiler refinement."
+      "assumptions": "Upstream catalog contents and availability are inputs; finite two-request/context interleavings; HTTP schemas are checked by implementation tests. CatalogDiscoveryOwnership adds two roles, at most two issued requests per role and one selective invalidation per role, success/failure inputs and independent/shared modes. Shared mode projects polish publication/invalidation; independent assistant invalidation is checked in independent mode. Auth/context/unmount remain AsyncSettings obligations. TLC counterexample schedules replay actual hook APIs; this is bounded correspondence, not source refinement. Queued callback cancellation remains implementation-test coverage only; this companion has no scheduler/automatic-dispatch state and makes no queued-cancellation proof claim. ModelCatalogLoadingOwnership bounds two requests and one retirement by context, missing authentication or separate-mode closure, plus optional eligibility restoration. Request completion success/failure and order are environmental inputs. Hook and real picker regressions check credential deletion, OAuth sign-out, separate-mode closure/reopen and current completion. Debounce durations and UI rendering remain implementation-test obligations; this bounded model is not compiler refinement. CodexCatalogVersion models two readers sharing one process-local mutex, three ordered stable releases and a TTL of two ticks. Finish records a completed lookup. Transport, HTTP, schema and release-validation failures share one input. Rust tests check numeric parsing, the real cache owner and the exact TTL boundary."
     },
     "oauth": {
       "obligation": "Browser/device/refresh owners must remain current; logout and newer login reject old commits and stale fatal refresh.",
@@ -2598,6 +2613,9 @@
     ],
     "cli-command-entry/CommandEntry": [
       "cli-command-entry/positive.cfg"
+    ],
+    "CodexCatalogVersion": [
+      "CodexCatalogVersion.cfg"
     ]
   },
   "actions": {
@@ -2879,6 +2897,13 @@
       "Unpublish",
       "Cleanup",
       "Again"
+    ],
+    "CodexCatalogVersion": [
+      "Ask",
+      "Serve",
+      "Acquire",
+      "Finish",
+      "Tick"
     ]
   },
   "negative": [
@@ -4178,6 +4203,24 @@
       "config": "cli-command-entry/lifecycle-witness.cfg",
       "invariant": "LifecycleNotReached",
       "purpose": "Reachability witness: successful install followed by removal reaches settled empty ownership. Expected witness violation is not a safety-control kill."
+    },
+    {
+      "name": "codex-catalog-version-bypass",
+      "model": "CodexCatalogVersion",
+      "config": "CodexCatalogVersionBypassNegative.cfg",
+      "invariant": "ReuseBeforeExpiry"
+    },
+    {
+      "name": "codex-catalog-version-downgrade",
+      "model": "CodexCatalogVersion",
+      "config": "CodexCatalogVersionDowngradeNegative.cfg",
+      "invariant": "Monotone"
+    },
+    {
+      "name": "codex-catalog-version-failure-ttl",
+      "model": "CodexCatalogVersion",
+      "config": "CodexCatalogVersionFailureTTLNegative.cfg",
+      "invariant": "ThrottleFailures"
     }
   ],
   "command_implementation": {
