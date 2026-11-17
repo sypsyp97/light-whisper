@@ -1,3 +1,4 @@
+use super::catalog_response::{fetch_catalog_response, CatalogFetchError, CatalogResponse};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::{Mutex, OnceLock};
@@ -588,9 +589,9 @@ pub async fn list_ai_models(
     let mut req = state
         .http_client
         .get(&source_url)
-        .timeout(std::time::Duration::from_secs(
-            if model_list_format.is_codex() { 5 } else { 12 },
-        ));
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .timeout(Duration::from_secs(12));
     if let Some(token) = chatgpt_token {
         req = req.headers(if model_list_format == ModelListFormat::ChatgptPlan {
             llm_provider::build_auth_headers(&ApiFormat::OpenaiCompat, &api_key)?
@@ -612,13 +613,11 @@ pub async fn list_ai_models(
             format!("Bearer {}", openai_models_bearer(&api_key)),
         );
     }
-    req = req.header("Content-Type", "application/json");
 
     let retry_request = req.try_clone();
-    let mut result = req.send().await;
-    if result
-        .as_ref()
-        .is_ok_and(|r| r.status() == reqwest::StatusCode::UNAUTHORIZED)
+    let retry_incomplete = model_list_format.is_codex();
+    let mut result = fetch_catalog_response(req, retry_incomplete).await;
+    if matches!(&result, Ok(CatalogResponse::Http(r)) if r.status() == reqwest::StatusCode::UNAUTHORIZED)
     {
         if let Some(refreshed) = codex_oauth_service::recover_rejected_auth(
             &app_handle,
@@ -649,13 +648,13 @@ pub async fn list_ai_models(
                 } else {
                     llm_provider::build_auth_headers(&ApiFormat::OpenaiCompat, &refreshed)?
                 };
-                result = retry.headers(headers).send().await;
+                result = fetch_catalog_response(retry.headers(headers), retry_incomplete).await;
             }
         }
     }
-    let response = match result {
-        Ok(r) if r.status().is_success() => r,
-        _ if is_anthropic => {
+    let payload = match result {
+        Ok(CatalogResponse::Payload(payload)) => payload,
+        Ok(CatalogResponse::Http(_)) | Err(CatalogFetchError::Send(_)) if is_anthropic => {
             return Ok(AiModelListPayload {
                 warning: Some(
                     "模型目录刷新失败，当前显示内置列表，请检查连接或 API 配置后重试。".into(),
@@ -664,7 +663,7 @@ pub async fn list_ai_models(
                 source_url,
             });
         }
-        Ok(r) => {
+        Ok(CatalogResponse::Http(r)) => {
             let status = r.status();
             let body = r.text().await.unwrap_or_default();
             let error = model_list_http_error(status, &body, model_list_format);
@@ -685,20 +684,7 @@ pub async fn list_ai_models(
             return Err(error);
         }
         Err(e) => {
-            let error = format!("拉取模型列表失败: {e}");
-            if let Some(fallback) =
-                cached_codex_fallback(codex_cache_key.as_deref(), &error, Instant::now())
-            {
-                return Ok(fallback);
-            }
-            return Err(error);
-        }
-    };
-
-    let payload: serde_json::Value = match response.json().await {
-        Ok(payload) => payload,
-        Err(e) => {
-            let error = format!("模型列表响应解析失败: {e}");
+            let error = e.to_string();
             if let Some(fallback) =
                 cached_codex_fallback(codex_cache_key.as_deref(), &error, Instant::now())
             {

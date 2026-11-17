@@ -1,8 +1,9 @@
 # Changelog
 
-## 1.8.2 — 2026-11-17
+## Unreleased
 
 - Discover new OpenAI models available to the signed-in account when Settings opens. The catalog now follows stable Codex releases and preserves the selected model.
+- Retry incomplete ChatGPT model catalog downloads once and distinguish timeouts, interrupted transfers and invalid JSON in Settings.
 
 ## 1.8.1 — 2026-11-16
 

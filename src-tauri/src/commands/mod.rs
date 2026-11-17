@@ -5,6 +5,7 @@ pub mod audio;
 mod audio_processing_setting_tests;
 #[cfg(test)]
 mod audio_processing_tests;
+mod catalog_response;
 pub mod clipboard;
 pub mod codex_oauth;
 pub mod funasr;
