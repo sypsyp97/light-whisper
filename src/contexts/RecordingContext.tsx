@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
-import { useRecording } from "@/hooks/useRecording";
+import { useRecording, type PolishStage } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
 import { setInputMethodCommand, setAiPolishConfig, setInputDevice, setSoundEnabled, setRecordingMode } from "@/api/tauri";
@@ -19,6 +19,7 @@ interface RecordingContextValue {
   isStarting: boolean;
   isRecording: boolean;
   isProcessing: boolean;
+  polishStage: PolishStage | null;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   cancelPolish: () => Promise<void>;
@@ -62,6 +63,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     isStarting,
     isRecording,
     isProcessing,
+    polishStage,
     startRecording,
     stopRecording,
     cancelPolish,
@@ -162,6 +164,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     isStarting,
     isRecording,
     isProcessing,
+    polishStage,
     startRecording,
     stopRecording,
     cancelPolish,
@@ -195,7 +198,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     hotkeyDiagnostic,
   }), [
     polishAuditWarning,
-    isStarting, isRecording, isProcessing, startRecording, stopRecording, cancelPolish, recordingError,
+    isStarting, isRecording, isProcessing, polishStage, startRecording, stopRecording, cancelPolish, recordingError,
     transcriptionResult, setTranscriptionResult, originalAsrText,
     editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, timing, history, resultMode,

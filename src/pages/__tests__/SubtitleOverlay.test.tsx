@@ -30,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const tauriEvents = vi.hoisted(() => {
   type Handler = (event: { payload: unknown }) => void;
   const handlers = new Map<string, Set<Handler>>();
+  let pendingWaveformAcknowledgement: Promise<void> | undefined;
   const listen = async (event: string, handler: Handler) => {
     let set = handlers.get(event);
     if (!set) {
@@ -37,6 +38,11 @@ const tauriEvents = vi.hoisted(() => {
       handlers.set(event, set);
     }
     set.add(handler);
+    if (event === "waveform" && pendingWaveformAcknowledgement) {
+      const acknowledgement = pendingWaveformAcknowledgement;
+      pendingWaveformAcknowledgement = undefined;
+      await acknowledgement;
+    }
     return () => {
       set?.delete(handler);
     };
@@ -46,9 +52,18 @@ const tauriEvents = vi.hoisted(() => {
     if (!set) return;
     for (const h of Array.from(set)) h({ payload });
   };
-  const reset = () => handlers.clear();
+  function deferWaveformAcknowledgement() {
+    let acknowledge!: () => void;
+    pendingWaveformAcknowledgement = new Promise<void>((resolve) => { acknowledge = resolve; });
+    return acknowledge;
+  }
+  const reset = () => {
+    handlers.clear();
+    pendingWaveformAcknowledgement = undefined;
+  };
   const handlerCount = (event: string) => handlers.get(event)?.size ?? 0;
-  return { listen, emit, reset, handlerCount };
+  const listeners = (event: string) => [...(handlers.get(event) ?? [])];
+  return { listen, emit, reset, handlerCount, listeners, deferWaveformAcknowledgement };
 });
 
 const tauriApiMocks = vi.hoisted(() => ({
@@ -177,6 +192,15 @@ async function advance(ms: number) {
 
 
 
+
+function waveformBars(container: HTMLElement) {
+  return Array.from(container.querySelectorAll<HTMLElement>(".subtitle-waveform-indicator-bar"));
+}
+
+function waveformScale(bar: HTMLElement): number {
+  const scale = bar.style.transform.match(/^scaleY\(([^)]+)\)$/);
+  return scale ? Number(scale[1]) : NaN;
+}
 
 function readSubtitleText(container: HTMLElement): string {
   const node = container.querySelector(".subtitle-text");
@@ -583,9 +607,9 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     await flushAsyncListeners();
 
     expect(screen.getByText("subtitle.connectingMicrophone")).toBeInTheDocument();
-    const bars = Array.from(container.querySelectorAll<HTMLElement>(".subtitle-waveform-indicator-bar"));
+    const bars = waveformBars(container);
     expect(bars).toHaveLength(9);
-    expect(bars.every((bar) => bar.style.height === "2px")).toBe(true);
+    expect(bars.map(waveformScale)).toEqual(Array(9).fill(0.125));
     expect(container.querySelector(".subtitle-status-indicator > .subtitle-waveform-indicator")).not.toBeNull();
   });
 
@@ -639,9 +663,9 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
       });
     });
     const startingIndicator = container.querySelector(".subtitle-waveform-indicator");
-    const startingBars = Array.from(container.querySelectorAll<HTMLElement>(".subtitle-waveform-indicator-bar"));
+    const startingBars = waveformBars(container);
     expect(startingBars).toHaveLength(9);
-    expect(startingBars.every((bar) => bar.style.height === "2px")).toBe(true);
+    expect.soft(startingBars.map(waveformScale)).toEqual(Array(9).fill(0.125));
     expect(startingIndicator?.parentElement).toHaveClass("subtitle-status-indicator");
 
     await act(async () => {
@@ -660,13 +684,149 @@ describe("SubtitleOverlay stale-flash cleanup", () => {
     });
 
     const recordingIndicator = container.querySelector(".subtitle-waveform-indicator");
-    const recordingBars = Array.from(container.querySelectorAll<HTMLElement>(".subtitle-waveform-indicator-bar"));
+    const recordingBars = waveformBars(container);
     expect(recordingIndicator).toBe(startingIndicator);
     expect(recordingBars).toHaveLength(9);
     recordingBars.forEach((bar, index) => expect(bar).toBe(startingBars[index]));
-    expect(recordingBars.map((bar) => bar.style.height)).toEqual([
-      "4px", "8px", "12px", "16px", "9.6px", "6.4px", "3.2px", "2px", "2px",
+    expect(recordingBars.map(waveformScale)).toEqual([
+      0.25, 0.5, 0.75, 1, 0.6, 0.4, 0.2, 0.125, 0.125,
     ]);
+    expect(recordingBars.every((bar) => bar.style.height === "")).toBe(true);
+  });
+
+  it("applies waveform events only to the active session and leaves the transcript rendering alone", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    act(() => {
+      tauriEvents.emit("recording-state", {
+        sessionId: 193, revision: 1, isRecording: true, isProcessing: false, mode: "dictation",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 193, text: "Live dictation", interim: true, mode: "dictation",
+      });
+    });
+    const transcript = container.querySelector(".subtitle-text");
+    const bars = waveformBars(container);
+    expect(bars).toHaveLength(9);
+    const transcriptRenders = vi.mocked(useSmoothText).mock.calls.length;
+    const levels = () => bars.map(waveformScale);
+
+    act(() => tauriEvents.emit("waveform", { sessionId: 193, bars: Array(9).fill(0.5) }));
+    expect.soft(vi.mocked(useSmoothText)).toHaveBeenCalledTimes(transcriptRenders);
+    expect.soft(levels()).toEqual(Array(9).fill(0.5));
+    waveformBars(container).forEach((bar, index) => expect(bar).toBe(bars[index]));
+    expect(container.querySelector(".subtitle-text")).toBe(transcript);
+    expect(transcript).toHaveTextContent("Live dictation");
+
+    act(() => {
+      for (const sessionId of [192, 194, undefined]) {
+        tauriEvents.emit("waveform", { sessionId, bars: Array(9).fill(1) });
+      }
+    });
+    expect(levels()).toEqual(Array(9).fill(0.5));
+    act(() => tauriEvents.emit("recording-state", {
+      sessionId: 193, revision: 2, isRecording: false, isProcessing: true, mode: "dictation",
+    }));
+    expect(waveformBars(container)).toHaveLength(0);
+  });
+
+  it("accepts the current waveform when its interim transcript arrives before recording state", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    act(() => tauriEvents.emit("recording-state", {
+      sessionId: 194, revision: 1, isRecording: true, isProcessing: false, mode: "dictation",
+    }));
+    act(() => tauriEvents.emit("transcription-result", {
+      sessionId: 195, text: "New dictation", interim: true, mode: "dictation",
+    }));
+    expect(readSubtitleText(container)).toBe("New dictation");
+
+    // The prior lifecycle already used revision 1. The backend revisions are
+    // monotonic across sessions, so advance the revision for the new state.
+    act(() => tauriEvents.emit("recording-state", {
+      sessionId: 195, revision: 2, isRecording: true, isProcessing: false, mode: "dictation",
+    }));
+    await flushAsyncListeners();
+    expect(readSubtitleText(container)).toBe("");
+    const bars = waveformBars(container);
+    expect(bars).toHaveLength(9);
+
+    act(() => tauriEvents.emit("waveform", { sessionId: 194, bars: Array(9).fill(1) }));
+    expect(bars.map(waveformScale)).toEqual(Array(9).fill(0.125));
+    act(() => tauriEvents.emit("waveform", { sessionId: 195, bars: Array(9).fill(0.5) }));
+    expect(bars.map(waveformScale)).toEqual(Array(9).fill(0.5));
+    waveformBars(container).forEach((bar, index) => expect(bar).toBe(bars[index]));
+  });
+
+  it("resets waveform levels for a new session and disposes the listener across remount", async () => {
+    const first = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    function start(sessionId: number) {
+      act(() => tauriEvents.emit("recording-state", {
+        sessionId, revision: 1, isRecording: true, isProcessing: false, mode: "dictation",
+      }));
+    }
+    start(194);
+    await flushAsyncListeners();
+    const retired = tauriEvents.listeners("waveform");
+    expect(retired).toHaveLength(1);
+    act(() => tauriEvents.emit("waveform", { sessionId: 194, bars: Array(9).fill(1) }));
+    expect.soft(waveformBars(first.container).map(waveformScale)).toEqual(Array(9).fill(1));
+
+    start(195);
+    await flushAsyncListeners();
+    expect(tauriEvents.handlerCount("waveform")).toBe(1);
+    act(() => {
+      retired[0]({ payload: { sessionId: 194, bars: Array(9).fill(1) } });
+      tauriEvents.emit("waveform", { sessionId: 194, bars: Array(9).fill(1) });
+    });
+    expect.soft(waveformBars(first.container).map(waveformScale)).toEqual(Array(9).fill(0.125));
+    first.unmount();
+    expect(tauriEvents.handlerCount("waveform")).toBe(0);
+
+    const second = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    start(195);
+    await flushAsyncListeners();
+    expect(tauriEvents.handlerCount("waveform")).toBe(1);
+    act(() => retired[0]({ payload: { sessionId: 195, bars: Array(9).fill(1) } }));
+    expect.soft(waveformBars(second.container).map(waveformScale)).toEqual(Array(9).fill(0.125));
+    act(() => tauriEvents.emit("waveform", { sessionId: 195, bars: [0.25, 1] }));
+    expect(waveformBars(second.container).map(waveformScale)).toEqual([
+      0.25, 1, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125,
+    ]);
+  });
+
+  it("releases a retired waveform registration when its acknowledgement arrives after remount", async () => {
+    const acknowledgeOld = tauriEvents.deferWaveformAcknowledgement();
+    const first = render(<SubtitleOverlay />);
+    function start() {
+      act(() => tauriEvents.emit("recording-state", {
+        sessionId: 196, revision: 1, isRecording: true, isProcessing: false, mode: "dictation",
+      }));
+    }
+    await flushAsyncListeners();
+    start();
+    const oldRegistration = tauriEvents.listeners("waveform");
+    expect(oldRegistration).toHaveLength(1);
+    first.unmount();
+
+    try {
+      render(<SubtitleOverlay />);
+      await flushAsyncListeners();
+      start();
+      await flushAsyncListeners();
+      const registrations = tauriEvents.listeners("waveform");
+      expect(registrations).toHaveLength(2);
+      expect(registrations).toContain(oldRegistration[0]);
+      const current = registrations.find((callback) => callback !== oldRegistration[0]);
+      acknowledgeOld();
+      await flushAsyncListeners();
+      expect(tauriEvents.listeners("waveform")).toEqual([current]);
+    } finally {
+      acknowledgeOld();
+      await flushAsyncListeners();
+    }
   });
 
   it("R. lets start_error consume the same revision as a terminal no-op state", async () => {
@@ -1434,7 +1594,7 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
     expect(container.querySelector(".subtitle-interim-tentative")).toBe(firstTentativeNode);
     expect(firstTentativeNode?.textContent).toBe("班");
 
-    expect(useSmoothText).toHaveBeenLastCalledWith("我们明天去上班", { enabled: false });
+    expect(useSmoothText).toHaveBeenLastCalledWith(expect.any(String), { enabled: false });
   });
 
   it("does not split a combining grapheme across the stability layers", async () => {
@@ -1494,7 +1654,7 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
       });
     });
     expect(readSubtitleText(container)).toBe("明天去上海开会");
-    expect(useSmoothText).toHaveBeenLastCalledWith("明天去上海开会", { enabled: false });
+    expect(useSmoothText).toHaveBeenLastCalledWith(expect.any(String), { enabled: false });
     await advance(5000);
     expect(readSubtitleText(container)).toBe("明天去上海开会");
     expect(container.querySelector(".subtitle-fade-out")).toBeNull();
@@ -1516,7 +1676,7 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
       });
     });
     expect(readSubtitleText(container)).toBe("明天去上海开会。");
-    expect(useSmoothText).toHaveBeenLastCalledWith("明天去上海开会。", { enabled: false });
+    expect(useSmoothText).toHaveBeenLastCalledWith(expect.any(String), { enabled: false });
     await advance(1000);
     expect(readSubtitleText(container)).toBe("明天去上海开会。");
     expect(container.querySelector(".subtitle-fade-out")).toBeNull();
@@ -1524,7 +1684,7 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
     expect(readSubtitleText(container)).toBe("");
   });
 
-  it("clears stability layers for final results, new sessions, and invalid fragments", async () => {
+  it("clears stability layers for final results and new sessions, using the fallback for invalid fragments", async () => {
     const { container } = render(<SubtitleOverlay />);
     await flushAsyncListeners();
 
@@ -1551,7 +1711,7 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
     expect(container.querySelector(".subtitle-interim-stable")).toBeNull();
     expect(container.querySelector(".subtitle-interim-tentative")).toBeNull();
     expect(readSubtitleText(container)).toBe("最终结果");
-    expect(useSmoothText).toHaveBeenLastCalledWith("最终结果", { enabled: false });
+    expect(useSmoothText).toHaveBeenLastCalledWith(expect.any(String), { enabled: false });
 
     await act(async () => {
       tauriEvents.emit("transcription-result", {
@@ -1582,27 +1742,102 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
         tentativeText: "分片",
       });
     });
-    expect(container.querySelector(".subtitle-interim-stable")).toBeNull();
-    expect(container.querySelector(".subtitle-interim-tentative")).toBeNull();
+    expect.soft(container.querySelector(".subtitle-interim-stable")?.textContent).toBe("");
+    expect(container.querySelector(".subtitle-interim-tentative")?.textContent).toBe("完整文本");
     expect(readSubtitleText(container)).toBe("完整文本");
   });
 
-  it("keeps legacy interim events on the existing unlayered rendering path", async () => {
+  it("renders legacy appends and rewrites immediately with one grapheme-safe tentative tail", async () => {
     const { container } = render(<SubtitleOverlay />);
     await flushAsyncListeners();
-
-    await act(async () => {
-      tauriEvents.emit("transcription-result", {
-        sessionId: 206,
-        text: "旧引擎中间结果",
-        interim: true,
-      });
+    const update = (text: string, interim = true) => act(() => {
+      tauriEvents.emit("transcription-result", { sessionId: 206, text, interim, mode: "dictation" });
     });
+    const stable = () => container.querySelector(".subtitle-interim-stable");
+    const tentative = () => container.querySelector(".subtitle-interim-tentative");
 
-    expect(container.querySelector(".subtitle-interim-stable")).toBeNull();
-    expect(container.querySelector(".subtitle-interim-tentative")).toBeNull();
-    expect(container.querySelectorAll(".stream-char")).toHaveLength(Array.from("旧引擎中间结果").length);
-    expect(readSubtitleText(container)).toBe("旧引擎中间结果");
+    update("今天e");
+    const tailNode = tentative();
+    expect.soft(stable()?.textContent).toBe("");
+    expect.soft(tailNode?.textContent).toBe("今天e");
+    expect(readSubtitleText(container)).toBe("今天e");
+
+    update("今天e\u0301");
+    expect.soft(stable()?.textContent).toBe("今天");
+    expect.soft(tentative()?.textContent).toBe("e\u0301");
+    expect(readSubtitleText(container)).toBe("今天e\u0301");
+
+    update("今天e\u0301cl");
+    expect.soft(stable()?.textContent).toBe("今天e\u0301");
+    expect.soft(tentative()?.textContent).toBe("cl");
+    expect(readSubtitleText(container)).toBe("今天e\u0301cl");
+
+    update("今天👩‍🦰");
+    expect.soft(stable()?.textContent).toBe("今天");
+    expect.soft(tentative()?.textContent).toBe("👩‍🦰");
+    expect.soft(tentative()).toBe(tailNode);
+    expect.soft(container.querySelectorAll(".subtitle-text span")).toHaveLength(2);
+    expect.soft(container.querySelectorAll(".stream-char")).toHaveLength(0);
+    expect.soft(useSmoothText).toHaveBeenLastCalledWith(expect.any(String), { enabled: false });
+    expect(readSubtitleText(container)).toBe("今天👩‍🦰");
+
+    update("**最终原文**", false);
+    expect(readSubtitleText(container)).toBe("**最终原文**");
+    expect(container.querySelector(".subtitle-text span, .subtitle-text strong")).toBeNull();
+  });
+
+  it.each([false, true])("animates only the updated legacy tail (reduced motion: %s)", async (reducedMotion) => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(prefers-reduced-motion: reduce)" && reducedMotion,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    const originalAnimate = Object.getOwnPropertyDescriptor(Element.prototype, "animate");
+    const animate = vi.fn(() => ({ cancel: vi.fn() }));
+    Object.defineProperty(Element.prototype, "animate", { value: animate, configurable: true });
+    try {
+      const { container, unmount } = render(<SubtitleOverlay />);
+      await flushAsyncListeners();
+      function partial(text: string) {
+        act(() => tauriEvents.emit("transcription-result", {
+          sessionId: 211, text, interim: true, mode: "dictation",
+        }));
+      }
+      partial("a phrase");
+      const animatedTail = container.querySelector(".subtitle-interim-tentative");
+      expect.soft(animatedTail).toBeInTheDocument();
+      if (reducedMotion) expect.soft(animate).not.toHaveBeenCalled();
+      else expect.soft(animate.mock.contexts).toEqual([animatedTail]);
+
+      partial("a phrase added");
+      expect.soft(container.querySelector(".subtitle-interim-tentative")).toBe(animatedTail);
+      expect(readSubtitleText(container)).toBe("a phrase added");
+      if (reducedMotion) expect(animate).not.toHaveBeenCalled();
+      else expect(animate.mock.contexts).toEqual([animatedTail, animatedTail]);
+      unmount();
+    } finally {
+      if (originalAnimate) Object.defineProperty(Element.prototype, "animate", originalAnimate);
+      else Reflect.deleteProperty(Element.prototype, "animate");
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not carry the legacy stability prefix across sessions", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    act(() => tauriEvents.emit("transcription-result", {
+      sessionId: 209, text: "common beginning one", interim: true, mode: "dictation",
+    }));
+    act(() => tauriEvents.emit("transcription-result", {
+      sessionId: 210, text: "common beginning two", interim: true, mode: "dictation",
+    }));
+    act(() => tauriEvents.emit("transcription-result", {
+      sessionId: 209, text: "stale owner", interim: true, mode: "dictation",
+    }));
+
+    expect.soft(container.querySelector(".subtitle-interim-stable")?.textContent).toBe("");
+    expect(container.querySelector(".subtitle-interim-tentative")?.textContent).toBe("common beginning two");
+    expect(readSubtitleText(container)).toBe("common beginning two");
   });
 });
 

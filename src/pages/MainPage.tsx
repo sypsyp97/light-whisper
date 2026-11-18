@@ -15,13 +15,14 @@ import { PADDING, ONBOARDING_DISMISSED_KEY, RECORDING_MODE_KEY } from "@/lib/con
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { prefersReducedMotion } from "@/lib/motion";
 
-export default function MainPage({ onNavigate, animClass = "" }: {
+export default function MainPage({ onNavigate, animClass = "", pendingView = null }: {
   onNavigate: (v: "main" | "settings" | "history") => void;
   animClass?: string;
+  pendingView?: "main" | "settings" | "history" | null;
 }) {
   const { t } = useTranslation();
   const {
-    isStarting, isRecording, isProcessing, startRecording, stopRecording, cancelPolish,
+    isStarting, isRecording, isProcessing, polishStage, startRecording, stopRecording, cancelPolish,
     recordingError, transcriptionResult, originalAsrText, editBaselineText, setEditBaselineText, setTranscriptionResult, polishAuditWarning,
     durationSec, charCount, detectedLanguage, editGrabStatus, timing, history, recordingMode, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
@@ -138,10 +139,10 @@ export default function MainPage({ onNavigate, animClass = "" }: {
         title={t("app.title")}
         leftAction={
           <div className="title-bar-cluster">
-            <button aria-label={t("historyPage.open")} className="icon-btn plain" onClick={() => flushPendingEditAndNavigate("history")}>
+            <button aria-label={t("historyPage.open")} aria-busy={pendingView === "history"} className="icon-btn plain" onClick={() => flushPendingEditAndNavigate("history")}>
               <HistoryIcon size={13} strokeWidth={1.5} />
             </button>
-            <button aria-label={t("common.settings")} className="icon-btn plain icon-btn-gear" onClick={() => flushPendingEditAndNavigate("settings")}>
+            <button aria-label={t("common.settings")} aria-busy={pendingView === "settings"} className="icon-btn plain icon-btn-gear" onClick={() => flushPendingEditAndNavigate("settings")}>
               <Settings size={13} strokeWidth={1.5} />
             </button>
           </div>
@@ -166,6 +167,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
             isStarting={isStarting}
             isRecording={isRecording}
             isProcessing={isProcessing}
+            polishStage={polishStage}
             device={device}
             gpuName={gpuName}
             downloadProgress={downloadProgress}
@@ -173,6 +175,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
             isDownloading={isDownloading}
             downloadModels={triggerDownload}
             cancelDownload={cancelDownload}
+            onUseOriginal={recordingMode === "dictation" ? cancelPolish : undefined}
           >
             <RecordingButton
               isStarting={isStarting}
@@ -180,7 +183,6 @@ export default function MainPage({ onNavigate, animClass = "" }: {
               isProcessing={isProcessing}
               isReady={isReady}
               onToggle={handleToggleRecording}
-              onCancelProcessing={recordingMode === "dictation" ? () => { void cancelPolish(); } : undefined}
             />
           </StatusIndicator>
         </div>
@@ -210,6 +212,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
             text={transcriptionResult}
             originalText={editBaselineText}
             isProcessing={isProcessing}
+            processingLabel={polishStage ? t(`status.${polishStage}`) : undefined}
             copiedId={copiedId}
             onCopy={handleCopy}
             onDraftChange={handleDraftChange}

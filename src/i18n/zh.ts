@@ -22,6 +22,7 @@ const zh = {
   app: {
     title: "轻语 Whisper",
     errorRestart: "应用遇到错误，请重启。",
+    pageLoadFailed: "页面打开失败，请重试。",
   },
   selection: {
     toolbarLabel: "划词助手操作",
@@ -106,6 +107,8 @@ const zh = {
     connectingMicrophone: "正在连接麦克风...",
     listening: "正在聆听...",
     recognizing: "识别中...",
+    polishing: "润色中…",
+    finishing: "正在输出…",
     clickToStart: "点击开始录音",
     downloadingModel: "模型下载中 {{progress}}%",
     downloadPreparing: "模型下载准备中...",
@@ -114,9 +117,6 @@ const zh = {
     repairModels: "修复模型",
     modelLoading: "模型加载中...",
     preparing: "准备中...",
-    chipDownloading: "下载中",
-    chipLoading: "加载中",
-    chipPreparing: "准备中",
     startDownload: "开始下载",
     anotherDownloading: "另一个模型正在下载中",
     cancelDownload: "取消下载",

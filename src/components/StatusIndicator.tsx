@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Cpu, Globe, Loader2, Download } from "lucide-react";
+import { Cpu, Globe, Download, Undo2 } from "lucide-react";
 import type { ModelStage } from "@/hooks/useModelStatus";
+import type { PolishStage } from "@/hooks/useRecording";
 
 interface StatusIndicatorProps {
   stage: ModelStage;
@@ -9,6 +10,7 @@ interface StatusIndicatorProps {
   isStarting: boolean;
   isRecording: boolean;
   isProcessing: boolean;
+  polishStage?: PolishStage | null;
   device: string | null;
   gpuName: string | null;
   downloadProgress: number;
@@ -16,6 +18,7 @@ interface StatusIndicatorProps {
   isDownloading: boolean;
   downloadModels: () => void;
   cancelDownload: () => void;
+  onUseOriginal?: () => void;
   children?: ReactNode;
 }
 
@@ -38,6 +41,7 @@ function getStatusText(
   isStarting: boolean,
   isRecording: boolean,
   isProcessing: boolean,
+  polishStage: PolishStage | null,
   isReady: boolean,
   stage: ModelStage,
   downloadProgress: number,
@@ -46,7 +50,7 @@ function getStatusText(
 ): string {
   if (isStarting) return t("status.connectingMicrophone");
   if (isRecording) return t("status.listening");
-  if (isProcessing) return t("status.recognizing");
+  if (isProcessing) return t(polishStage ? `status.${polishStage}` : "status.recognizing");
   if (isReady) return t("status.clickToStart");
   if (stage === "downloading") {
     return downloadProgress > 1
@@ -59,16 +63,10 @@ function getStatusText(
   return t("status.preparing");
 }
 
-function getChipLabel(stage: ModelStage, downloadMessage: string | null, t: (key: string, options?: Record<string, unknown>) => string): string {
-  if (stage === "downloading") return t("status.chipDownloading");
-  if (stage === "loading") return downloadMessage || t("status.chipLoading");
-  return t("status.chipPreparing");
-}
-
 export default function StatusIndicator({
-  stage, isReady, isStarting, isRecording, isProcessing,
+  stage, isReady, isStarting, isRecording, isProcessing, polishStage = null,
   device, gpuName, downloadProgress, downloadMessage,
-  isDownloading, downloadModels, cancelDownload, children,
+  isDownloading, downloadModels, cancelDownload, onUseOriginal, children,
 }: StatusIndicatorProps) {
   const { t } = useTranslation();
   const showProgressBar = stage === "downloading" || stage === "loading";
@@ -79,30 +77,22 @@ export default function StatusIndicator({
 
   return (
     <>
-      <div className="chip-container">
-        {device && (
-          <span className={`chip ${isReady ? "animate-success" : "animate-fade-in"}`}>
-            {device === "cloud" ? <Globe size={10} strokeWidth={1.8} /> : <Cpu size={10} strokeWidth={1.8} />}
-            {getDeviceLabel(device, gpuName, t)}
-          </span>
-        )}
-        {!isReady && stage !== "need_download" && stage !== "need_repair" && (
-          <span className="chip animate-fade-in">
-            <Loader2 size={10} className="animate-spin" />
-            {getChipLabel(stage, downloadMessage, t)}
-          </span>
-        )}
-      </div>
-
       {children}
 
-      <p
-        key={isStarting ? "starting" : isRecording ? "recording" : isProcessing ? "processing" : isReady ? "ready" : stage}
-        aria-live="polite"
-        className="status-text animate-text-swap"
-      >
-        {getStatusText(isStarting, isRecording, isProcessing, isReady, stage, downloadProgress, downloadMessage, t)}
+      <p role="status" aria-live="polite" className="status-text">
+        {getStatusText(isStarting, isRecording, isProcessing, polishStage, isReady, stage, downloadProgress, downloadMessage, t)}
       </p>
+      {device && (
+        <span className="recording-device">
+          {device === "cloud" ? <Globe size={11} aria-hidden="true" /> : <Cpu size={11} aria-hidden="true" />}
+          {getDeviceLabel(device, gpuName, t)}
+        </span>
+      )}
+      {isProcessing && onUseOriginal && (
+        <button type="button" className="btn-ghost-sm recording-use-original" onClick={onUseOriginal}>
+          <Undo2 size={13} aria-hidden="true" /> {t("recording.useOriginal")}
+        </button>
+      )}
 
       {(stage === "need_download" || stage === "need_repair") && !isDownloading && (
         <button onClick={() => downloadModels()} className="btn-primary btn-primary-sm" style={{ marginTop: 4 }}>

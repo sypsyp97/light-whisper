@@ -33,26 +33,10 @@ it("renders live centered waveform bars, ignores older sessions, and disposes it
   expect(disposer).toHaveBeenCalledOnce();
 });
 
-it.each([true, false])("offers use-original cancellation while processing with ASR readiness %s", (isReady) => {
-  const onToggle = vi.fn();
-  const onCancelProcessing = vi.fn();
-  const view = render(
-    <RecordingButton isStarting={false} isRecording={false} isProcessing isReady={isReady}
-      onToggle={onToggle} onCancelProcessing={onCancelProcessing} />,
-  );
-  const button = view.getByRole("button", { name: "Use original" });
-
-  expect(button).toBeEnabled();
-  fireEvent.click(button);
-
-  expect(onCancelProcessing).toHaveBeenCalledOnce();
-  expect(onToggle).not.toHaveBeenCalled();
-});
-
-it("keeps processing disabled when no cancellation callback exists", () => {
+it.each([true, false])("keeps the processing circle disabled at ASR readiness %s", (isReady) => {
   const onToggle = vi.fn();
   const view = render(
-    <RecordingButton isStarting={false} isRecording={false} isProcessing isReady onToggle={onToggle} />,
+    <RecordingButton isStarting={false} isRecording={false} isProcessing isReady={isReady} onToggle={onToggle} />,
   );
   const button = view.getByRole("button", { name: "recording.processing" });
 
@@ -60,4 +44,22 @@ it("keeps processing disabled when no cancellation callback exists", () => {
   fireEvent.click(button);
 
   expect(onToggle).not.toHaveBeenCalled();
+});
+
+it("keeps one start ring through waveform updates and removes it when recording stops", async () => {
+  const props = { isStarting: false, isRecording: false, isProcessing: false, isReady: true, onToggle: vi.fn() };
+  const view = render(<RecordingButton {...props} />);
+  const rings = () => [...view.container.querySelectorAll(".recording-pulse-ring, .recording-pulse-ring-outer")];
+  expect(rings()).toHaveLength(0);
+  view.rerender(<RecordingButton {...props} isRecording />);
+  const started = rings();
+  expect.soft(started).toHaveLength(1);
+  await act(async () => events.emit("waveform", { sessionId: 4, bars: [1, 0, 1, 0, 1] }));
+  expect(rings()).toEqual(started);
+
+  view.rerender(<RecordingButton {...props} isProcessing />);
+  expect(rings()).toHaveLength(0);
+  view.rerender(<RecordingButton {...props} isRecording />);
+  expect.soft(rings()).toHaveLength(1);
+  expect(rings()[0]).not.toBe(started[0]);
 });

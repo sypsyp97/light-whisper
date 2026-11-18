@@ -37,8 +37,24 @@
 }
 
 .main-page .status-text {
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.recording-device {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: -4px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.recording-use-original {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .main-page .result-card {
@@ -240,19 +256,8 @@
   height: 50px;
   border-radius: 50%;
   border: 2px solid var(--color-accent);
-  animation: recording-pulse 2s var(--ease-out-expo) infinite;
+  animation: recording-pulse var(--dur-4) var(--ease-out-expo) forwards;
   pointer-events: none;
-}
-
-.recording-pulse-ring-outer {
-  position: absolute;
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  border: 1.5px solid var(--color-accent);
-  animation: recording-pulse 2s var(--ease-out-expo) 0.6s infinite;
-  pointer-events: none;
-  opacity: 0.6;
 }
 
 
@@ -309,7 +314,6 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  animation: fade-in var(--dur-3) var(--ease-out-expo) both;
   transition: background var(--dur-3) var(--ease-out-expo),
               border-color var(--dur-3) var(--ease-out-expo),
               box-shadow var(--dur-3) var(--ease-out-expo);
@@ -941,10 +945,6 @@
   color: var(--color-text-tertiary);
 }
 
-
-.chip-container {
-  min-height: 20px;
-}
 
 
 

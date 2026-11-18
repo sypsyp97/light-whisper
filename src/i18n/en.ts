@@ -24,6 +24,7 @@ const en: TranslationSchema = {
   app: {
     title: "Light Whisper",
     errorRestart: "An error occurred. Please restart the app.",
+    pageLoadFailed: "Couldn't open the page. Please try again.",
   },
   selection: {
     toolbarLabel: "Selection assistant actions",
@@ -108,6 +109,8 @@ const en: TranslationSchema = {
     connectingMicrophone: "Connecting to microphone...",
     listening: "Listening...",
     recognizing: "Recognizing...",
+    polishing: "Polishing…",
+    finishing: "Finishing…",
     clickToStart: "Click to start recording",
     downloadingModel: "Downloading model {{progress}}%",
     downloadPreparing: "Preparing model download...",
@@ -116,9 +119,6 @@ const en: TranslationSchema = {
     repairModels: "Repair models",
     modelLoading: "Loading model...",
     preparing: "Preparing...",
-    chipDownloading: "Downloading",
-    chipLoading: "Loading",
-    chipPreparing: "Preparing",
     startDownload: "Start Download",
     anotherDownloading: "Another model is downloading",
     cancelDownload: "Cancel Download",

@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
-import { Loader2, Mic, Undo2 } from "lucide-react";
+import { Loader2, Mic } from "lucide-react";
 
 const EQ_BAR_COUNT = 5;
 
@@ -11,11 +11,10 @@ interface RecordingButtonProps {
   isProcessing: boolean;
   isReady: boolean;
   onToggle: () => void;
-  onCancelProcessing?: () => void;
 }
 
 export default function RecordingButton({
-  isStarting, isRecording, isProcessing, isReady, onToggle, onCancelProcessing,
+  isStarting, isRecording, isProcessing, isReady, onToggle,
 }: RecordingButtonProps) {
   const { t } = useTranslation();
   const isActive = isStarting || isRecording;
@@ -41,29 +40,23 @@ export default function RecordingButton({
   }, [isRecording]);
 
   const isIdle = !isStarting && !isRecording && !isProcessing;
-  const canCancelProcessing = isProcessing && Boolean(onCancelProcessing);
   const label = isStarting
     ? t("recording.cancelStart")
     : isRecording
       ? t("recording.stop")
       : isProcessing
-        ? t(canCancelProcessing ? "recording.useOriginal" : "recording.processing")
+        ? t("recording.processing")
         : t("recording.start");
 
   return (
     <div className="record-btn-wrapper">
-      {isRecording && (
-        <>
-          <span className="recording-pulse-ring" />
-          <span className="recording-pulse-ring-outer" />
-        </>
-      )}
+      {isRecording && <span className="recording-pulse-ring" aria-hidden="true" />}
       <button
         className="record-btn"
         aria-label={label}
         aria-pressed={isActive}
-        disabled={!canCancelProcessing && (!isReady || isProcessing)}
-        onClick={canCancelProcessing ? onCancelProcessing : onToggle}
+        disabled={!isReady || isProcessing}
+        onClick={onToggle}
         title={label}
         style={{
           border: "1px solid",
@@ -71,8 +64,8 @@ export default function RecordingButton({
           background: isRecording ? "var(--color-accent)" : isProcessing ? "var(--color-bg-tertiary)" : "var(--color-bg-elevated)",
           color: isRecording ? "white" : isProcessing ? "var(--color-text-tertiary)" : "var(--color-accent)",
           boxShadow: isRecording ? "var(--shadow-record-ring), var(--shadow-lg)" : "var(--shadow-md)",
-          cursor: canCancelProcessing ? "pointer" : !isReady ? "not-allowed" : isProcessing ? "wait" : "pointer",
-          opacity: !isReady && !canCancelProcessing ? 0.4 : 1,
+          cursor: !isReady ? "not-allowed" : isProcessing ? "wait" : "pointer",
+          opacity: !isReady ? 0.4 : 1,
         }}
       >
         <span className="record-icon" data-visible={isRecording} aria-hidden="true">
@@ -84,7 +77,7 @@ export default function RecordingButton({
         </span>
         <span className="record-icon" data-visible={isIdle && isReady} aria-hidden="true"><Mic size={18} /></span>
         <span className="record-icon" data-visible={isStarting || isProcessing || (!isReady && isIdle)} aria-hidden="true">
-          {canCancelProcessing ? <Undo2 size={18} /> : <Loader2 size={18} className="animate-spin" />}
+          <Loader2 size={18} className="animate-spin" />
         </span>
       </button>
     </div>

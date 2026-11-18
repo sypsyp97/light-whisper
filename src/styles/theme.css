@@ -379,14 +379,6 @@ textarea,
 .animate-shake { animation: gentle-shake var(--dur-4) var(--ease-out-expo) both; }
 
 
-@keyframes text-swap {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.animate-text-swap { animation: text-swap var(--dur-3) var(--ease-out-expo); }
-
-
 @keyframes recording-pulse {
   0%   { transform: scale(1);    opacity: 0.50; }
   55%  {                          opacity: 0.14; }
@@ -430,36 +422,17 @@ textarea,
 
 
 @keyframes page-enter-from-right {
-  from { opacity: 0; transform: translate3d(28px, 0, 0); }
+  from { opacity: 0.72; transform: translate3d(6px, 0, 0); }
   to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 @keyframes page-enter-from-left {
-  from { opacity: 0; transform: translate3d(-28px, 0, 0); }
+  from { opacity: 0.72; transform: translate3d(-6px, 0, 0); }
   to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
-@keyframes page-exit-to-left {
-  from { opacity: 1; transform: translate3d(0, 0, 0); }
-  to   { opacity: 0.12; transform: translate3d(-18px, 0, 0); }
-}
-
-@keyframes page-exit-to-right {
-  from { opacity: 1; transform: translate3d(0, 0, 0); }
-  to   { opacity: 0.12; transform: translate3d(18px, 0, 0); }
-}
-
-.page-enter-right,
-.page-enter-left,
-.page-exit-left,
-.page-exit-right {
-  will-change: opacity, transform;
-}
-
-.page-enter-right { animation: page-enter-from-right 0.18s cubic-bezier(0, 0, 0.2, 1) forwards; }
-.page-enter-left  { animation: page-enter-from-left 0.18s cubic-bezier(0, 0, 0.2, 1) forwards; }
-.page-exit-left   { animation: page-exit-to-left 0.14s cubic-bezier(0.4, 0, 1, 1) forwards; }
-.page-exit-right  { animation: page-exit-to-right 0.14s cubic-bezier(0.4, 0, 1, 1) forwards; }
+.page-enter-right { animation: page-enter-from-right var(--dur-2) var(--ease-out-expo); }
+.page-enter-left  { animation: page-enter-from-left var(--dur-2) var(--ease-out-expo); }
 
 
 @keyframes skeleton-shimmer {
@@ -616,23 +589,6 @@ textarea,
 
 
 
-
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: var(--radius-full);
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border-subtle);
-  color: var(--color-text-tertiary);
-  font-family: var(--font-sans);
-  font-size: var(--text-2xs);
-  font-weight: 500;
-  letter-spacing: 0.025em;
-  text-transform: uppercase;
-}
 
 
 .btn-ghost {
@@ -806,6 +762,11 @@ textarea,
 .icon-btn:active {
   transform: scale(0.92);
   transition: transform var(--dur-1) var(--ease-micro);
+}
+
+.title-bar-cluster .icon-btn[aria-busy="true"] {
+  color: var(--color-accent);
+  cursor: progress;
 }
 
 .icon-btn-sm {

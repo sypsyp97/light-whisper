@@ -10,11 +10,14 @@ import type {
   TranscriptionTiming,
 } from "@/types";
 
+export type PolishStage = "polishing" | "finishing";
+
 interface UseRecordingReturn {
   polishAuditWarning: boolean;
   isStarting: boolean;
   isRecording: boolean;
   isProcessing: boolean;
+  polishStage: PolishStage | null;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   cancelPolish: () => Promise<void>;
@@ -83,6 +86,7 @@ export function useRecording(): UseRecordingReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [polishStage, setPolishStage] = useState<PolishStage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [transcriptionResult, setTranscriptionResult] = useState<string | null>(null);
   const [originalAsrText, setOriginalAsrText] = useState<string | null>(null);
@@ -95,6 +99,7 @@ export function useRecording(): UseRecordingReturn {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [resultMode, setResultMode] = useState<RecordingMode>("dictation");
   const latestSessionIdRef = useRef(0);
+  const processingDictationSession = useRef<number | null>(null);
   const pendingStopRef = useRef<{
     sessionId: number;
     promise: ReturnType<typeof invokeStopRecording>;
@@ -154,6 +159,12 @@ export function useRecording(): UseRecordingReturn {
     if (hasRevision && revision <= latestRecordingStateRevisionRef.current) return;
     if (!hasRevision && latestRecordingStateRevisionRef.current >= 0) return;
     if (hasRevision) latestRecordingStateRevisionRef.current = revision;
+    const processingSession = payload.isProcessing && (payload.mode ?? "dictation") === "dictation"
+      && Number.isSafeInteger(sessionId) && sessionId > 0 ? sessionId : null;
+    if (processingDictationSession.current !== processingSession) {
+      processingDictationSession.current = processingSession;
+      setPolishStage(null);
+    }
     setIsStarting(payload.isStarting ?? false);
     setIsRecording(payload.isRecording);
     setIsProcessing(payload.isProcessing);
@@ -204,6 +215,7 @@ export function useRecording(): UseRecordingReturn {
 
     if (!staleForDisplay && sessionId >= latestDisplayedFinalSessionIdRef.current) {
       latestDisplayedFinalSessionIdRef.current = sessionId;
+      setPolishStage((stage) => stage === "polishing" ? "finishing" : stage);
       setTranscriptionResult(text);
       setOriginalAsrText(rawText);
       setEditBaselineText(text);
@@ -239,7 +251,15 @@ export function useRecording(): UseRecordingReturn {
     toast.warning(message, { id: `api-warning-${sessionId ?? "global"}-${message}`, duration: 8000 });
   });
 
-  useTauriEvent<{ status: string; error?: string; message?: string }>("ai-polish-status", ({ status, error: errMsg, message }) => {
+  useTauriEvent<{ status: string; sessionId?: number; error?: string; message?: string }>("ai-polish-status", ({ status, sessionId, error: errMsg, message }) => {
+    if (sessionId === processingDictationSession.current && sessionId === latestSessionIdRef.current
+      && sessionId > latestDisplayedFinalSessionIdRef.current) {
+      if (status === "polishing" || status === "fallback") {
+        setPolishStage((stage) => stage === "finishing" ? stage : "polishing");
+      } else if (status === "applied" || status === "unchanged") {
+        setPolishStage("finishing");
+      }
+    }
     if (status === "applied") toast.success(i18n.t("toast.aiPolishApplied"), { duration: 1500 });
     else if (status === "error") toast.error(i18n.t("toast.aiPolishFailed", { error: errMsg || message }), { duration: 8000 });
   });
@@ -251,6 +271,8 @@ export function useRecording(): UseRecordingReturn {
       if (Number.isFinite(sessionId) && sessionId > latestSessionIdRef.current) {
         latestSessionIdRef.current = sessionId;
         latestRecordingStateRevisionRef.current = -1;
+        processingDictationSession.current = null;
+        setPolishStage(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -299,7 +321,7 @@ export function useRecording(): UseRecordingReturn {
 
   return {
     polishAuditWarning: auditWarningSession !== null && auditWarningSession === latestDisplayedFinalSessionIdRef.current,
-    isStarting, isRecording, isProcessing, startRecording, stopRecording, cancelPolish,
+    isStarting, isRecording, isProcessing, polishStage, startRecording, stopRecording, cancelPolish,
     error, transcriptionResult, setTranscriptionResult,
     originalAsrText, editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, history,

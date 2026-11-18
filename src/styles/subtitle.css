@@ -136,15 +136,6 @@ body,
 
 
 
-.stream-char {
-  animation: stream-char-in 260ms var(--ease-out-expo) both;
-}
-
-@keyframes stream-char-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
 
 
 .subtitle-text-streaming::after {
@@ -730,11 +721,11 @@ body,
 .subtitle-waveform-indicator-bar {
   width: 2px;
   flex: 0 0 2px;
-  min-height: 2px;
+  height: 16px;
   border-radius: 1px;
   background: var(--color-accent);
   opacity: 0.85;
-  transition: height 70ms var(--ease-out-expo);
+  transition: transform 70ms var(--ease-out-expo);
 }
 
 .subtitle-waveform-indicator.is-assistant .subtitle-waveform-indicator-bar {
@@ -819,11 +810,6 @@ body,
   .subtitle-hint {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-  }
-
-  .stream-char {
-    animation: none !important;
-    opacity: 1 !important;
   }
 
   .subtitle-text-streaming::after {

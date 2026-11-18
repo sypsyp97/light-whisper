@@ -53,18 +53,27 @@ function assertCssMotionContracts(): void {
 
   expect(themeCss).toContain("@keyframes fade-in");
   expect(themeCss).toMatch(/@keyframes fade-in\s*\{[\s\S]*?opacity:[\s\S]*?transform:/);
-  expect(historyRule).toMatch(/animation:\s*fade-in\s+var\(--dur-3\)/);
+  expect.soft(historyRule).not.toMatch(/animation(?:-delay)?:/);
   expect(historyRule).toMatch(/transition:/);
 
-  expect(cssRule(themeCss, ".page-enter-right"))
-    .toMatch(/animation:\s*page-enter-from-right\s+0\.18s/);
-  expect(cssRule(themeCss, ".page-exit-left"))
-    .toMatch(/animation:\s*page-exit-to-left\s+0\.14s/);
-  expect(themeCss).toMatch(/@keyframes page-enter-from-right\s*\{[\s\S]*?opacity:[\s\S]*?translate3d/);
+  const pageCss = themeCss + "\n" + pagesCss;
+  expect.soft(pageCss).toMatch(/--dur-2:\s*(?:140ms|0\.14s)\s*;/);
+  for (const direction of ["left", "right"]) {
+    expect.soft(cssRule(pageCss, `.page-enter-${direction}`))
+      .toMatch(/animation:\s*[a-z-]+\s+(?:var\(--dur-2\)|140ms|0\.14s)/);
+  }
+  expect.soft(pageCss).not.toMatch(/\.page-exit-(?:left|right)\b/);
+  expect(pageCss).toMatch(/@keyframes page-enter-from-right\s*\{[\s\S]*?opacity:[\s\S]*?translate/);
 
-  expect(cssRule(subtitleCss, ".stream-char"))
-    .toMatch(/animation:\s*stream-char-in\s+260ms/);
-  expect(subtitleCss).toMatch(/@keyframes stream-char-in\s*\{[\s\S]*?opacity:/);
+  const ringRule = cssRule(pagesCss, ".recording-pulse-ring");
+  expect.soft(ringRule).toMatch(/animation:\s*[a-z-]+\s+(?:[1-9][0-9]{1,2}ms|0\.\d+s|var\(--dur-[1-4]\))/);
+  expect.soft(ringRule).not.toMatch(/infinite/);
+  expect.soft(pagesCss).not.toContain(".recording-pulse-ring-outer");
+
+  const waveformBarRule = cssRule(subtitleCss, ".subtitle-waveform-indicator-bar");
+  expect.soft(waveformBarRule).toMatch(/(?:^|[;{\n])\s*height:\s*16px;/);
+  expect.soft(waveformBarRule).toMatch(/transition:\s*transform\b/);
+  expect.soft(subtitleCss).not.toMatch(/\.stream-char\b/);
   expect(cssRule(selectionCss, ".selection-loading svg"))
     .toMatch(/animation:\s*selection-spin\s+900ms/);
 }
@@ -152,10 +161,9 @@ function measureHistoryRendering() {
     const mountDuration = performance.now() - mountStarted;
 
     if (!motionContractChecked) {
-      const animatedItems = [...view.container.querySelectorAll<HTMLElement>(".history-item")];
-      expect(animatedItems).toHaveLength(HISTORY_ITEM_COUNT);
-      expect(animatedItems[0].style.animationDelay).toBe("0ms");
-      expect(animatedItems[animatedItems.length - 1].style.animationDelay).toBe("950ms");
+      const rows = [...view.container.querySelectorAll<HTMLElement>(".history-item")];
+      expect(rows).toHaveLength(HISTORY_ITEM_COUNT);
+      expect.soft(rows.every((row) => row.style.animationDelay === "")).toBe(true);
       motionContractChecked = true;
     }
 

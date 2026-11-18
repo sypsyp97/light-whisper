@@ -7,6 +7,7 @@ interface TranscriptionResultProps {
   text: string | null;
   originalText: string | null;
   isProcessing: boolean;
+  processingLabel?: string;
   copiedId: string | null;
   onCopy: (text: string, id: string) => void;
   onDraftChange?: (newText: string) => void;
@@ -22,6 +23,7 @@ export default function TranscriptionResult({
   text,
   originalText,
   isProcessing,
+  processingLabel,
   copiedId,
   onCopy,
   onDraftChange,
@@ -87,9 +89,9 @@ export default function TranscriptionResult({
               </button>
             </div>
             {isProcessing && (
-              <div className="result-processing" role="status">
+              <div className="result-processing">
                 <Loader2 size={12} className="animate-spin" />
-                <span>{t("result.recognizingSpeech")}</span>
+                <span>{processingLabel ?? t("result.recognizingSpeech")}</span>
                 <span className="skeleton-shimmer result-processing-line" />
               </div>
             )}
@@ -125,7 +127,7 @@ export default function TranscriptionResult({
           <div className="result-card result-card-skeleton">
             <div className="skeleton-card-header">
               <Loader2 size={12} className="animate-spin icon-tertiary" strokeWidth={1.75} />
-              <span>{t("result.recognizingSpeech")}</span>
+              <span>{processingLabel ?? t("result.recognizingSpeech")}</span>
             </div>
             <div className="skeleton-paragraph">
               <div className="skeleton-shimmer skeleton-line" style={{ width: "94%" }} />

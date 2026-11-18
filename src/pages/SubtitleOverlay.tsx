@@ -3,6 +3,7 @@ import {
   Suspense,
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   useCallback,
   type FormEvent,
@@ -30,6 +31,7 @@ import {
 import { readLocalStorage } from "@/lib/storage";
 import { THEME_STORAGE_KEY, LANGUAGE_STORAGE_KEY } from "@/lib/constants";
 import { useSmoothText, segmentGraphemes } from "@/hooks/useSmoothText";
+import { prefersReducedMotion } from "@/lib/motion";
 import "@/i18n";
 import "../styles/theme.css";
 import "../styles/subtitle.css";
@@ -59,6 +61,11 @@ interface TranscriptionResult {
 interface InterimSegments {
   stableText: string;
   tentativeText: string;
+}
+
+interface LiveInterimSegments extends InterimSegments {
+  sessionId: number;
+  legacy?: boolean;
 }
 
 interface RecordingOutcome {
@@ -131,6 +138,48 @@ function normalizeWaveformBars(bars: number[]): number[] {
   });
 }
 
+function SubtitleWaveform({ sessionId, assistant, acceptsSample }: {
+  sessionId: number;
+  assistant: boolean;
+  acceptsSample: (sessionId: number) => boolean;
+}) {
+  const [bars, setBars] = useState(EMPTY_WAVEFORM_BARS);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{ sessionId?: number; bars: number[] }>("waveform", ({ payload }) => {
+      if (!disposed && sessionId > 0 && payload.sessionId === sessionId && acceptsSample(sessionId)) {
+        setBars(normalizeWaveformBars(payload.bars));
+      }
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch(() => undefined);
+    return () => { disposed = true; unlisten?.(); };
+  }, [acceptsSample, sessionId]);
+
+  return (
+    <span className={`subtitle-waveform-indicator${assistant ? " is-assistant" : ""}`}>
+      {bars.map((level, index) => (
+        <span key={index} className="subtitle-waveform-indicator-bar" style={{ transform: `scaleY(${Math.max(0.125, level)})` }} />
+      ))}
+    </span>
+  );
+}
+
+function legacyInterimSegments(previousText: string, text: string): InterimSegments {
+  let boundary = 0;
+  if (previousText) {
+    const previous = segmentGraphemes(previousText);
+    for (const [index, grapheme] of segmentGraphemes(text).entries()) {
+      if (grapheme !== previous[index]) break;
+      boundary += grapheme.length;
+    }
+  }
+  return { stableText: text.slice(0, boundary), tentativeText: text.slice(boundary) };
+}
+
 function validInterimSegments(payload: TranscriptionResult): InterimSegments | null {
   const { stableText, tentativeText, text } = payload;
   if (typeof stableText !== "string" || typeof tentativeText !== "string") return null;
@@ -169,11 +218,10 @@ export default function SubtitleOverlay() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [text, setText] = useState("");
   const [polishFlash, setPolishFlash] = useState(false);
-  const [interimSegments, setInterimSegments] = useState<InterimSegments | null>(null);
+  const [interimSegments, setInterimSegments] = useState<LiveInterimSegments | null>(null);
   const [fadingOut, setFadingOut] = useState(false);
   const [outcome, setOutcome] = useState<RecordingOutcomeKind | null>(null);
   const [streamTokens, setStreamTokens] = useState(0);
-  const [waveformBars, setWaveformBars] = useState<number[]>(EMPTY_WAVEFORM_BARS);
   const [mode, setMode] = useState<"dictation" | "assistant">("dictation");
   const [capsuleSessionId, setCapsuleSessionId] = useState(0);
   const [assistantCopied, setAssistantCopied] = useState(false);
@@ -197,7 +245,10 @@ export default function SubtitleOverlay() {
 
 
 
-  const smoothText = useSmoothText(text, { enabled: !interimSegments && phase !== "result" });
+  const smoothText = useSmoothText(mode === "assistant" ? text : "", {
+    enabled: mode === "assistant" && !interimSegments && phase !== "result",
+  });
+  const tentativeRef = useRef<HTMLSpanElement>(null);
   const latestSessionIdRef = useRef(0);
   const finalTranscriptionSessionIdRef = useRef(0);
   const latestRevisionRef = useRef(-1);
@@ -234,6 +285,12 @@ export default function SubtitleOverlay() {
     phaseRef.current = nextPhase;
     setPhase(nextPhase);
   }, []);
+
+  const acceptsWaveformSample = useCallback((sessionId: number) => (
+    sessionId === latestSessionIdRef.current
+    && sessionId !== terminalSessionIdRef.current
+    && (phaseRef.current === "starting" || phaseRef.current === "recording")
+  ), []);
 
   const resetConversationState = useCallback(() => {
     conversationOpenRef.current = false;
@@ -325,7 +382,6 @@ export default function SubtitleOverlay() {
       updatePhase("idle");
       setFadingOut(false);
       setStreamTokens(0);
-      setWaveformBars(EMPTY_WAVEFORM_BARS);
       cleanupTimerRef.current = null;
     }, delay + 400);
   }, [clearFadeTimer, updatePhase]);
@@ -408,6 +464,8 @@ export default function SubtitleOverlay() {
 
     if (isStarting || isRecording) {
       if (liveEvent.revision !== null) latestRevisionRef.current = liveEvent.revision;
+      // Interim text can advance the session before the recording event arrives.
+      setCapsuleSessionId(liveEvent.sessionId);
       pairedOutcomeRevisionRef.current = null;
       terminalSessionIdRef.current = 0;
       clearFadeTimer();
@@ -415,7 +473,6 @@ export default function SubtitleOverlay() {
       setText("");
       setInterimSegments(null);
       setOutcome(null);
-      setWaveformBars(EMPTY_WAVEFORM_BARS);
       setStreamTokens(0);
       setAssistantCopied(false);
       shouldAutoScrollRef.current = true;
@@ -429,7 +486,6 @@ export default function SubtitleOverlay() {
       clearFadeTimer();
       setFadingOut(false);
       setOutcome(null);
-      setWaveformBars(EMPTY_WAVEFORM_BARS);
       updatePhase("processing");
       return;
     }
@@ -463,7 +519,6 @@ export default function SubtitleOverlay() {
       cleanupTimerRef.current = setTimeout(() => {
         if (latestSessionIdRef.current !== expectedSessionId) return;
         setOutcome(null);
-        setWaveformBars(EMPTY_WAVEFORM_BARS);
         updatePhase("idle");
         cleanupTimerRef.current = null;
       }, QUICK_CANCEL_CLEANUP_DELAY_MS);
@@ -492,7 +547,6 @@ export default function SubtitleOverlay() {
         : ""
     ));
     setInterimSegments(null);
-    setWaveformBars(EMPTY_WAVEFORM_BARS);
     setStreamTokens(0);
     setAssistantCopied(false);
     setOutcome(nextOutcome);
@@ -530,7 +584,6 @@ export default function SubtitleOverlay() {
       setText("");
       setInterimSegments(null);
       setOutcome(null);
-      setWaveformBars(EMPTY_WAVEFORM_BARS);
       setStreamTokens(0);
       setAssistantCopied(false);
       setFadingOut(true);
@@ -836,33 +889,6 @@ export default function SubtitleOverlay() {
 
 
   useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-
-    void (async () => {
-      try {
-        unlisten = await listen<{ sessionId?: number; bars: number[] }>("waveform", (event) => {
-          const { sessionId, bars } = event.payload;
-          if (!isValidSessionId(sessionId) || sessionId !== latestSessionIdRef.current) return;
-          if (phaseRef.current !== "starting" && phaseRef.current !== "recording") return;
-          setWaveformBars(normalizeWaveformBars(bars));
-        });
-        if (disposed && unlisten) {
-          unlisten();
-          unlisten = null;
-        }
-      } catch {
-
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-
-  useEffect(() => {
     if (!assistantPanelActive) {
       shouldAutoScrollRef.current = true;
       return;
@@ -922,12 +948,21 @@ export default function SubtitleOverlay() {
           const incomingText = event.payload.text || "";
           setOutcome(null);
           setText(incomingText);
-          setInterimSegments(interim ? validInterimSegments(event.payload) : null);
-
           if (interim) {
+            const owner = latestSessionIdRef.current;
+            const segments = validInterimSegments(event.payload);
+            setInterimSegments((previous) => {
+              if (segments) return { ...segments, sessionId: owner };
+              if (event.payload.mode === "assistant") return null;
+              const previousText = previous?.sessionId === owner
+                ? previous.stableText + previous.tentativeText : "";
+              if (previous?.legacy && previousText === incomingText) return previous;
+              return { ...legacyInterimSegments(previousText, incomingText), sessionId: owner, legacy: true };
+            });
             setFadingOut(false);
             return;
           }
+          setInterimSegments(null);
           if (typeof sessionId === "number") finalTranscriptionSessionIdRef.current = sessionId;
 
           const finalText = incomingText.trim();
@@ -971,9 +1006,18 @@ export default function SubtitleOverlay() {
     };
   }, [clearFadeTimer, scheduleResultFade, updatePhase]);
 
-  const isStreaming = !interimSegments && text.length > 0 && smoothText.length < text.length;
-  const hasText = (interimSegments ? text : smoothText).length > 0;
   const isAssistant = mode === "assistant";
+  const isStreaming = isAssistant && !interimSegments && text.length > 0 && smoothText.length < text.length;
+  const hasText = (isAssistant && !interimSegments ? smoothText : text).length > 0;
+
+  useLayoutEffect(() => {
+    if (!interimSegments?.legacy || !interimSegments.tentativeText || prefersReducedMotion()) return;
+    const animation = tentativeRef.current?.animate?.(
+      [{ opacity: 0.64 }, { opacity: 1 }],
+      { duration: 100, easing: "ease-out" },
+    );
+    return () => animation?.cancel();
+  }, [interimSegments]);
 
   let indicatorClass: string | null = null;
   switch (phase) {
@@ -1001,7 +1045,6 @@ export default function SubtitleOverlay() {
     setText("");
     setInterimSegments(null);
     setOutcome(null);
-    setWaveformBars(EMPTY_WAVEFORM_BARS);
     setAssistantCopied(false);
     resetConversationState();
     updatePhase("idle");
@@ -1395,15 +1438,7 @@ export default function SubtitleOverlay() {
             {(hasText || phase === "starting" || phase === "recording" || indicatorClass) && (
               <span className="subtitle-status-indicator" data-visible={phase === "starting" || phase === "recording" || !!indicatorClass} aria-hidden="true">
                 {(phase === "starting" || phase === "recording") ? (
-                  <span className={`subtitle-waveform-indicator${mode === "assistant" ? " is-assistant" : ""}`}>
-                    {waveformBars.map((h, i) => (
-                      <span
-                        key={i}
-                        className="subtitle-waveform-indicator-bar"
-                        style={{ height: `${Math.max(2, h * 16)}px` }}
-                      />
-                    ))}
-                  </span>
+                  <SubtitleWaveform sessionId={capsuleSessionId} assistant={isAssistant} acceptsSample={acceptsWaveformSample} />
                 ) : indicatorClass ? (
                   <span className={indicatorClass} />
                 ) : null}
@@ -1421,14 +1456,12 @@ export default function SubtitleOverlay() {
                 {interimSegments ? (
                   <>
                     <span className="subtitle-interim-stable">{interimSegments.stableText}</span>
-                    <span className="subtitle-interim-tentative">
+                    <span className="subtitle-interim-tentative" ref={tentativeRef}>
                       {interimSegments.tentativeText}
                     </span>
                   </>
                 ) : assistantPanelActive ? renderAssistantContent(phase === "result" ? text : smoothText, phase !== "result")
-                  : phase === "result" ? text : segmentGraphemes(smoothText).map((g, i) => (
-                  <span key={i} className="stream-char">{g}</span>
-                ))}
+                  : isAssistant ? smoothText : text}
               </div>
             )}
             {isAssistant && phase === "result" && renderSources(assistantSources)}

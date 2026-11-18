@@ -1,6 +1,7 @@
-import React, { Suspense, lazy, useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { flushSync } from "react-dom";
 import ReactDOM from "react-dom/client";
-import { Toaster } from "sonner";
+import { toast, Toaster } from "sonner";
 import { CircleCheck, CircleAlert, Info, TriangleAlert, LoaderCircle } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { RecordingProvider } from "./contexts/RecordingContext";
@@ -15,8 +16,19 @@ import "./styles/pages.css";
 type View = "main" | "settings" | "history";
 const loadSettingsPage = () => import("./pages/SettingsPage");
 const loadHistoryPage = () => import("./pages/HistoryPage");
-const SettingsPage = lazy(loadSettingsPage);
-const HistoryPage = lazy(loadHistoryPage);
+
+interface PageProps {
+  onNavigate: (target: View) => void;
+  animClass: string;
+  pendingView: View | null;
+  active: boolean;
+}
+
+interface Route {
+  view: View;
+  Page: React.ComponentType<PageProps>;
+  animClass: string;
+}
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -53,9 +65,9 @@ class ErrorBoundary extends React.Component<
 }
 
 export function App() {
-  const [view, setView] = useState<View>("main");
-  const [animClass, setAnimClass] = useState("");
-  const isTransitioning = useRef(false);
+  const [{ view, Page, animClass }, setRoute] = useState<Route>({ view: "main", Page: MainPage, animClass: "" });
+  const [pendingView, setPendingView] = useState<View | null>(null);
+  const pendingNavigation = useRef<{ target: View } | null>(null);
   useTheme();
   useProfileSaveNotifications();
 
@@ -69,64 +81,55 @@ export function App() {
       });
     }, 400);
 
-    return () => window.clearTimeout(preloadTimer);
+    return () => {
+      window.clearTimeout(preloadTimer);
+      pendingNavigation.current = null;
+    };
   }, []);
 
-
   const navigateTo = useCallback((target: View) => {
-    if (isTransitioning.current || target === view) return;
-    isTransitioning.current = true;
-
-    const startTransition = () => {
-      if (prefersReducedMotion()) {
-        setAnimClass("");
-        setView(target);
-        isTransitioning.current = false;
-        return;
-      }
-
-      const movingAwayFromMain = view === "main" && target !== "main";
-      const exitClass = movingAwayFromMain ? "page-exit-left" : "page-exit-right";
-      const enterClass = movingAwayFromMain ? "page-enter-right" : "page-enter-left";
-
-      setAnimClass(exitClass);
-      setTimeout(() => {
-        setView(target);
-        setAnimClass(enterClass);
-        setTimeout(() => {
-          setAnimClass("");
-          isTransitioning.current = false;
-        }, 180);
-      }, 140);
-    };
-
-    if (target !== "main") {
-      const loadTarget = target === "settings" ? loadSettingsPage : loadHistoryPage;
-      void loadTarget().then(startTransition).catch((error) => {
-        isTransitioning.current = false;
-        console.error(`${target} page load failed:`, error);
-      });
+    if (pendingNavigation.current?.target === target) return;
+    const request = { target };
+    pendingNavigation.current = null;
+    if (target === view) {
+      setPendingView(null);
       return;
     }
 
-    startTransition();
+    const showPage = (NextPage: Route["Page"]) => {
+      const entryClass = target === "main" ? "page-enter-left" : "page-enter-right";
+      setRoute({ view: target, Page: NextPage, animClass: prefersReducedMotion() ? "" : entryClass });
+    };
+
+    if (target === "main") {
+      setPendingView(null);
+      showPage(MainPage);
+      return;
+    }
+
+    pendingNavigation.current = request;
+    setPendingView(target);
+    const loadTarget = target === "settings" ? loadSettingsPage : loadHistoryPage;
+    void loadTarget().then(({ default: NextPage }) => {
+      if (pendingNavigation.current !== request) return;
+      pendingNavigation.current = null;
+      // Retire the old page before it can accept another navigation click.
+      flushSync(() => {
+        setPendingView(null);
+        showPage(NextPage);
+      });
+    }, (error) => {
+      if (pendingNavigation.current !== request) return;
+      pendingNavigation.current = null;
+      setPendingView(null);
+      console.error(`${target} page load failed:`, error);
+      toast.error(i18n.t("app.pageLoadFailed"));
+    });
   }, [view]);
 
   return (
     <RecordingProvider>
-      <div style={{ height: "100%", width: "100%" }}>
-        <div style={{ height: "100%", width: "100%" }}>
-          <Suspense fallback={<div style={{ height: "100%", width: "100%" }} />}>
-            {view === "main" ? (
-              <MainPage onNavigate={navigateTo} animClass={animClass} />
-            ) : view === "settings" ? (
-              <SettingsPage onNavigate={navigateTo} active animClass={animClass} />
-            ) : (
-              <HistoryPage onNavigate={navigateTo} animClass={animClass} />
-            )}
-          </Suspense>
-        </div>
-      </div>
+      <Page onNavigate={navigateTo} active animClass={animClass} pendingView={pendingView} />
       <Toaster
         className="app-toaster"
         position="bottom-right"
