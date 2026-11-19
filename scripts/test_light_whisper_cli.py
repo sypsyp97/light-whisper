@@ -20,6 +20,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = "scripts.light_whisper_cli"
 BACKEND_PYTHON = getattr(sys, "_base_executable", sys.executable)
+BACKEND_TIMEOUT = 5  # Allow real subprocess startup before testing shorter protocol deadlines.
 ENV_KEYS = (
     "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
     "HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "LIGHT_WHISPER_DATA_DIR",
@@ -110,7 +111,14 @@ def cleanup_fault_probe(mode, script, record, report):
     code = None
     output = io.StringIO()
     environment = {**os.environ, "CLI_TEST_MODE": "ignore_exit", "CLI_TEST_RECORD": record}
-    client = module.EngineClient([BACKEND_PYTHON, script], timeout=.3, env=environment)
+
+    class ProbeClient(module.EngineClient):
+        def __exit__(self, *args):
+            nonlocal start_time
+            start_time = time.monotonic()
+            return super().__exit__(*args)
+
+    client = ProbeClient([BACKEND_PYTHON, script], timeout=BACKEND_TIMEOUT, env=environment)
     log = Path(report + ".engine.log").open("ab")
 
     def capture(*args, **kwargs):
@@ -145,11 +153,10 @@ def cleanup_fault_probe(mode, script, record, report):
                 with mock.patch.object(original_popen, "wait", new=wait), \
                      mock.patch.object(module, "EngineClient", side_effect=launch), \
                      contextlib.redirect_stdout(output):
-                    code = module.main(["--python", BACKEND_PYTHON, "--timeout", ".3",
+                    code = module.main(["--python", BACKEND_PYTHON, "--timeout", str(BACKEND_TIMEOUT),
                                         "--data-dir", str(Path(report).parent / "probe-data"), "status"])
             else:
                 client.__enter__()
-                start_time = time.monotonic()
                 patch = (mock.patch.object(original_popen, "wait", new=wait)
                          if mode == "wait_interrupt" else
                          mock.patch.object(threading.Thread, "start", new=start))
@@ -226,7 +233,7 @@ class BackendCase(unittest.TestCase):
         return {**os.environ, "CLI_TEST_MODE": mode,
                 "CLI_TEST_RECORD": str(self.record)}
 
-    def client(self, mode="normal", timeout=.3):
+    def client(self, mode="normal", timeout=BACKEND_TIMEOUT):
         return cli.EngineClient([BACKEND_PYTHON, str(self.script)], timeout=timeout,
                                 env=self.environment(mode))
 
@@ -299,7 +306,7 @@ class EngineClientTests(BackendCase):
             worker = subprocess.Popen(command, stdout=log, stderr=log, cwd=ROOT,
                                       start_new_session=os.name != "nt")
             try:
-                worker.wait(timeout=3.5)
+                worker.wait(timeout=BACKEND_TIMEOUT + 3.5)
             except subprocess.TimeoutExpired:
                 if os.name == "nt":
                     taskkill = Path(os.environ["SystemRoot"]) / "System32" / "taskkill.exe"
@@ -364,7 +371,8 @@ class EngineClientTests(BackendCase):
 
     def test_request_identity_correlation_outlives_small_integer_cache(self):
         previous = 0
-        with self.client(timeout=1) as client:
+        with self.client() as client:
+            client.timeout = 1
             for index in range(260):
                 response = client.request("status", marker=str(index))
                 self.assertEqual(response["request"]["marker"], str(index))
@@ -386,7 +394,7 @@ class EngineClientTests(BackendCase):
     def test_completed_requests_release_the_sender_before_handoff_and_exit(self):
         for actions in (("status",), ("status", "stats")):
             with self.subTest(actions=actions):
-                client = self.client(timeout=1)
+                client = self.client()
                 original_put = queue.Queue.put
                 original_join = threading.Thread.join
                 tail_published = threading.Event()
@@ -415,6 +423,7 @@ class EngineClientTests(BackendCase):
                     with mock.patch.object(queue.Queue, "put", new=put), \
                          mock.patch.object(threading.Thread, "join", new=join):
                         with client:
+                            client.timeout = 1
                             for action in actions:
                                 response = client.request(action)
                                 self.assertTrue(response["success"])
@@ -437,7 +446,7 @@ class EngineClientTests(BackendCase):
     def test_sender_tail_timeout_uses_the_remaining_request_budget_and_reaps(self):
         for dispatch_delay in (.1, 1):
             with self.subTest(dispatch_delay=dispatch_delay):
-                client = self.client(timeout=.3)
+                client = self.client()
                 original_put = queue.Queue.put
                 original_get = queue.Queue.get
                 original_join = threading.Thread.join
@@ -478,6 +487,7 @@ class EngineClientTests(BackendCase):
                     with mock.patch.object(queue.Queue, "put", new=put), \
                          mock.patch.object(threading.Thread, "join", new=join):
                         with client:
+                            client.timeout = .3
                             with mock.patch.object(queue.Queue, "get", new=get), \
                                  mock.patch.object(time, "monotonic", side_effect=lambda: now[0]):
                                 requesting.set()
@@ -505,9 +515,9 @@ class EngineClientTests(BackendCase):
     def test_startup_failure_eof_and_timeout_reap_acquired_process(self):
         cases = (("startup_false", RuntimeError), ("startup_eof", EOFError),
                  ("startup_closed_stdout", EOFError), ("startup_timeout", TimeoutError))
-        timeout = .3
         for mode, expected in cases:
             with self.subTest(mode=mode):
+                timeout = .3 if mode == "startup_timeout" else BACKEND_TIMEOUT
                 client = None
                 entered = False
                 caught = None
@@ -535,14 +545,17 @@ class EngineClientTests(BackendCase):
                 client = None
                 returned = False
                 caught = None
-                start = time.monotonic()
+                start = None
                 try:
-                    client = self.client(mode, timeout=timeout)
+                    client = self.client(mode)
                     with client:
+                        client.timeout = timeout
+                        start = time.monotonic()
                         client.request("status")
                         returned = True
                 except Exception as error:
                     caught = error
+                self.assertIsNotNone(start, "backend did not reach the request phase")
                 elapsed = time.monotonic() - start
                 self.assertIs(type(caught), expected, f"wrong request error kind: {caught!r}")
                 self.assertTrue(str(caught).strip(), "request error lacks a useful message")
@@ -582,8 +595,9 @@ class EngineClientTests(BackendCase):
 
     def test_nonreading_stdin_obeys_request_deadline_and_reaps(self):
         timeout = .3
-        client = self.client("nonreading_stdin", timeout=timeout)
+        client = self.client("nonreading_stdin")
         with client:
+            client.timeout = timeout
             start = time.monotonic()
             with self.assertRaises(TimeoutError) as raised:
                 client.request("transcribe", options={"context": "x" * (1024 * 1024)})
@@ -593,7 +607,7 @@ class EngineClientTests(BackendCase):
 
     def test_matching_response_dequeued_after_deadline_is_rejected(self):
         timeout = .3
-        client = self.client(timeout=timeout)
+        client = self.client()
         expired = threading.Event()
         original_get = queue.Queue.get
         original_clock = time.monotonic
@@ -611,6 +625,7 @@ class EngineClientTests(BackendCase):
         def clock():
             return original_clock() + (timeout + 1 if expired.is_set() else 0)
         with client:
+            client.timeout = timeout
             with mock.patch.object(queue.Queue, "get", new=late_delivery), \
                  mock.patch.object(time, "monotonic", side_effect=clock):
                 with self.assertRaises(TimeoutError):
@@ -621,7 +636,7 @@ class EngineClientTests(BackendCase):
     def test_response_timeout_uses_only_the_remaining_request_budget(self):
         for dispatch_delay in (0, 1):
             with self.subTest(dispatch_delay=dispatch_delay):
-                client = self.client("request_timeout", timeout=.3)
+                client = self.client("request_timeout")
                 original_get = queue.Queue.get
                 now = [100.0]
 
@@ -637,6 +652,7 @@ class EngineClientTests(BackendCase):
                     return result
 
                 with client:
+                    client.timeout = .3
                     with mock.patch.object(queue.Queue, "get", new=scheduled_get), \
                          mock.patch.object(time, "monotonic", side_effect=lambda: now[0]):
                         with self.assertRaises(TimeoutError):
@@ -649,7 +665,7 @@ class EngineClientTests(BackendCase):
         for handoff_delay in (.125, 1):
             with self.subTest(handoff_delay=handoff_delay):
                 timeout = .3
-                client = self.client("request_timeout", timeout=timeout)
+                client = self.client("request_timeout")
                 original_get = queue.Queue.get
                 original_join = threading.Thread.join
                 now = [100.0]
@@ -677,6 +693,7 @@ class EngineClientTests(BackendCase):
                     return original_get(messages, *args, **kwargs)
 
                 with client:
+                    client.timeout = timeout
                     with mock.patch.object(threading.Thread, "join", new=join), \
                          mock.patch.object(queue.Queue, "get", new=scheduled_get), \
                          mock.patch.object(time, "monotonic", side_effect=lambda: now[0]):
@@ -697,7 +714,7 @@ class EngineClientTests(BackendCase):
     def test_blocked_sender_timeout_and_expired_deadline_are_timeout_errors(self):
         for dispatch_delay in (0, 1):
             with self.subTest(dispatch_delay=dispatch_delay):
-                client = self.client("nonreading_stdin", timeout=.3)
+                client = self.client("nonreading_stdin")
                 original_get = queue.Queue.get
                 original_start = threading.Thread.start
                 now = [100.0]
@@ -723,6 +740,7 @@ class EngineClientTests(BackendCase):
                         raise
 
                 with client:
+                    client.timeout = .3
                     with mock.patch.object(threading.Thread, "start", new=start), \
                          mock.patch.object(queue.Queue, "get", new=scheduled_get), \
                          mock.patch.object(time, "monotonic", side_effect=lambda: now[0]):
@@ -735,15 +753,19 @@ class EngineClientTests(BackendCase):
 
     def test_closed_backend_stdin_is_eof_and_reaps_the_live_process(self):
         client = self.client("startup_closed_stdin")
-        caught = None
-        try:
+        request_error = None
+        with self.assertRaises(EOFError) as caught:
             with client:
+                client.timeout = .3
                 self.assertIsNone(client.child.poll(), "backend must remain alive after closing stdin")
-                client.request("status")
-        except Exception as error:
-            caught = error
-        self.assertIs(type(caught), EOFError, f"wrong broken-stdin error kind: {caught!r}")
-        self.assertTrue(str(caught).strip())
+                try:
+                    client.request("status")
+                except EOFError as error:
+                    request_error = error
+                    raise
+        self.assertIs(caught.exception, request_error)
+        self.assertIsInstance(request_error.__cause__, OSError)
+        self.assertTrue(str(request_error).strip())
         self.assert_reaped(client)
 
     def test_cleanup_worker_wait_respects_total_and_exhausted_budget(self):
@@ -868,10 +890,10 @@ class EngineClientTests(BackendCase):
                 self.assertTrue(client.child.stdout.closed)
 
     def test_uncooperative_exit_is_killed_and_reaped_with_bounded_cleanup(self):
-        client = self.client("ignore_exit", timeout=.3)
-        start = time.monotonic()
+        client = self.client("ignore_exit")
         with client:
             self.assertTrue(client.request("status")["success"])
+            start = time.monotonic()
         self.assertLess(time.monotonic() - start, 3,
                         "cleanup must cap its own wait at <=2 seconds")
         self.assert_reaped(client)
@@ -1040,16 +1062,23 @@ class CliTests(BackendCase):
         for mode in ("startup_false", "startup_eof", "startup_closed_stdout", "startup_timeout",
                      "request_eof", "request_closed_stdout", "request_timeout"):
             with self.subTest(mode=mode), self.launch_fake(mode):
+                timeout = .3 if mode == "startup_timeout" else BACKEND_TIMEOUT
+                self.record = self.directory / f"{mode}.jsonl"
                 start = time.monotonic()
                 code, result = self.invoke(["--python", sys.executable,
-                                            "--timeout", ".3", "status"])
+                                            "--timeout", str(timeout), "status"])
                 elapsed = time.monotonic() - start
                 self.assertEqual(code, 1)
                 self.assertFalse(result["success"])
                 self.assertIsInstance(result.get("error"), str)
                 self.assertTrue(result["error"].strip())
-                self.assertLessEqual(elapsed, .3 + 2 + 1,
-                                     "CLI failure exceeded deadline plus bounded cleanup")
+                response_budget = timeout
+                if mode.startswith("request_"):
+                    response_budget += timeout  # The request gets its own deadline after startup.
+                    self.assertIn("status", [event["request"]["action"] for event in self.recorded()
+                                             if event["event"] == "request"])
+                self.assertLessEqual(elapsed, response_budget + 2 + 1,
+                                     "CLI failure exceeded response deadlines plus bounded cleanup")
                 self.assert_reaped(self.clients[0])
 
     def test_invalid_arguments_are_json_and_never_launch(self):
