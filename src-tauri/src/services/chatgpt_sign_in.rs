@@ -265,21 +265,80 @@ fn trusted_auth_url(url: &str) -> bool {
 }
 
 async fn discovery(client: &reqwest::Client) -> Result<Discovery, String> {
-    let data: Discovery = client
-        .get(DISCOVERY_URL)
+    discovery_at(client, DISCOVERY_URL).await
+}
+
+fn discovery_transport_reason(error: &reqwest::Error) -> &'static str {
+    use std::{error::Error, io};
+
+    if error.is_timeout() {
+        return "timeout";
+    }
+    if !error.is_connect() {
+        return "transport";
+    }
+    let mut source = error.source();
+    while let Some(cause) = source {
+        if cause.is::<rustls::Error>() {
+            return "tls";
+        }
+        // hyper-util's resolver error and tokio-rustls's handshake EOF use fixed labels.
+        match cause.to_string().as_str() {
+            "dns error" => return "dns",
+            "tls handshake eof" => return "tls",
+            _ => {}
+        }
+        if let Some(io_error) = cause.downcast_ref::<io::Error>() {
+            if io_error.kind() == io::ErrorKind::ConnectionRefused {
+                return "connection_refused";
+            }
+            // io::Error::source() can skip its wrapped error, including a TLS failure.
+            source = io_error.get_ref().map(|inner| inner as &dyn Error);
+        } else {
+            source = cause.source();
+        }
+    }
+    "connect"
+}
+
+async fn discovery_at(client: &reqwest::Client, url: &str) -> Result<Discovery, String> {
+    let response = client
+        .get(url)
         .timeout(HTTP_TIMEOUT)
         .send()
         .await
-        .map_err(|_| "获取 ChatGPT 授权元数据失败")?
-        .error_for_status()
-        .map_err(|_| "ChatGPT 授权元数据不可用")?
-        .json()
-        .await
-        .map_err(|_| "ChatGPT 授权元数据格式无效")?;
+        .map_err(|error| {
+            log::warn!(
+                "chatgpt_discovery reason={}",
+                discovery_transport_reason(&error)
+            );
+            "获取 ChatGPT 授权元数据失败"
+        })?;
+    response.error_for_status_ref().map_err(|_| {
+        log::warn!(
+            "chatgpt_discovery reason=http_status status={}",
+            response.status().as_u16()
+        );
+        "ChatGPT 授权元数据不可用"
+    })?;
+    let body = response.bytes().await.map_err(|error| {
+        let reason = if error.is_timeout() {
+            "timeout"
+        } else {
+            "response_read"
+        };
+        log::warn!("chatgpt_discovery stage=response_body reason={reason}");
+        "ChatGPT 授权元数据格式无效"
+    })?;
+    let data: Discovery = serde_json::from_slice(&body).map_err(|_| {
+        log::warn!("chatgpt_discovery reason=invalid_metadata");
+        "ChatGPT 授权元数据格式无效"
+    })?;
     if data.issuer != ISSUER
         || !trusted_auth_url(&data.jwks_uri)
         || !trusted_auth_url(&data.revocation_endpoint)
     {
+        log::warn!("chatgpt_discovery reason=untrusted_metadata");
         return Err("ChatGPT 授权元数据来源无效".into());
     }
     Ok(data)
@@ -1042,3 +1101,7 @@ mod tests {
         assert!(!session.registration.unwrap().plan_usage_enabled());
     }
 }
+
+#[cfg(test)]
+#[path = "chatgpt_discovery_diagnostic_tests.rs"]
+mod discovery_diagnostic_tests;

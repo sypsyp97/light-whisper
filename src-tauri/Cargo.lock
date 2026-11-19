@@ -3181,6 +3181,7 @@ dependencies = [
  "ring",
  "rubato",
  "rusqlite",
+ "rustls",
  "scraper",
  "semver",
  "serde",

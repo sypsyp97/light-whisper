@@ -305,15 +305,26 @@ pub async fn evaluate_with_warning(
     deadline: Duration,
     endpoint_override: Option<&str>,
 ) -> Result<Option<Value>, String> {
+    // Use only application-authored messages and numeric status/deadline values here.
+    let failure = |reason: std::fmt::Arguments<'_>| {
+        let message = reason.to_string();
+        log::warn!(
+            "decision_model provider={:?} reason={message}",
+            config.provider
+        );
+        message
+    };
     let requested = questions
         .as_object()
-        .ok_or_else(|| "决策请求格式无效，请检查配置后重试。".to_string())?
+        .ok_or_else(|| failure(format_args!("决策请求格式无效，请检查配置后重试。")))?
         .clone();
     if requested.is_empty() {
         return Ok(None);
     }
     if api_key.trim().is_empty() {
-        return Err("决策模型未配置 API Key，请在设置中补全后重试。".into());
+        return Err(failure(format_args!(
+            "决策模型未配置 API Key，请在设置中补全后重试。"
+        )));
     }
     let request = crate::services::jev_service::build_evaluation_request(
         client,
@@ -323,36 +334,43 @@ pub async fn evaluate_with_warning(
         questions,
         endpoint_override,
     )
-    .map_err(|_| "决策请求无法构建，请检查模型和 API 配置后重试。".to_string())?;
+    .map_err(|_| {
+        failure(format_args!(
+            "决策请求无法构建，请检查模型和 API 配置后重试。"
+        ))
+    })?;
 
     tokio::time::timeout(deadline, async {
-        let response = client
-            .execute(request)
-            .await
-            .map_err(|_| "决策服务连接失败，请检查网络和 API 地址后重试。".to_string())?;
+        let response = client.execute(request).await.map_err(|_| {
+            failure(format_args!(
+                "决策服务连接失败，请检查网络和 API 地址后重试。"
+            ))
+        })?;
         if !response.status().is_success() {
-            return Err(format!(
+            return Err(failure(format_args!(
                 "决策服务返回 HTTP {}，请检查 API Key、权限或服务状态后重试。",
                 response.status().as_u16()
-            ));
+            )));
         }
         let body = response
             .bytes()
             .await
-            .map_err(|_| "决策响应读取失败，请检查网络后重试。".to_string())?;
+            .map_err(|_| failure(format_args!("决策响应读取失败，请检查网络后重试。")))?;
         let payload: Value = serde_json::from_slice(&body)
-            .map_err(|_| "决策响应格式无效，请检查模型配置后重试。".to_string())?;
+            .map_err(|_| failure(format_args!("决策响应格式无效，请检查模型配置后重试。")))?;
         if !valid_answers(&payload, &requested) {
-            return Err("决策响应缺少有效的判断结果，请检查模型配置后重试。".into());
+            return Err(failure(format_args!(
+                "决策响应缺少有效的判断结果，请检查模型配置后重试。"
+            )));
         }
         Ok(Some(payload))
     })
     .await
     .map_err(|_| {
-        format!(
+        failure(format_args!(
             "决策服务响应超时（{} 秒），请检查网络或稍后重试。",
             deadline.as_secs_f64()
-        )
+        ))
     })?
 }
 
