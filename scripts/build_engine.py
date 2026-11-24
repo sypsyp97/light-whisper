@@ -1,632 +1,308 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-自动化 PyInstaller 构建脚本。
-
-流程：
-1. PyInstaller --onedir 构建 engine.exe
-2. 删除开发期库文件
-3. 压缩为 engine.tar.xz（适配 NSIS 2GB 限制）
-4. 输出到 src-tauri/resources/engine.tar.xz
-
-必须在项目 .venv 环境中运行。
-"""
-
-import filecmp
+"""Build and verify the native Windows x64 engine.tar.xz used by Tauri."""
+import argparse
 import hashlib
+import importlib.metadata
 import json
+import lzma
 import os
-import re
+from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tarfile
-import time
-from pathlib import Path
-from build_r2t2_runtime import BUILD_ID as R2T2_BUILD_ID, SOURCE_REVISION as R2T2_REVISION, PATCH as R2T2_PATCH
+import tempfile
+import urllib.request
+import zipfile
+
+from build_r2t2_runtime import BUILD_ID, PATCH, SOURCE_REVISION, SOURCE_URL
 from build_reuse_runtime import source_fingerprint as reuse_source_fingerprint
+from native_runtime_build import ROOT, build_binary, source_fingerprint, verify_image
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RESOURCES_DIR = PROJECT_ROOT / "src-tauri" / "resources"
-DIST_DIR = RESOURCES_DIR / "python-dist"
-ENTRY_SCRIPT = RESOURCES_DIR / "engine.py"
+RESOURCES_DIR = ROOT / "src-tauri/resources"
 OUTPUT_ARCHIVE = RESOURCES_DIR / "engine.tar.xz"
-WINDOWS_MANIFEST = PROJECT_ROOT / "src-tauri" / "windows-app-manifest.xml"
-
-# 同级 Python 脚本，打包到 _internal/
-ADD_DATA_FILES = [
-    "engine.py",
-    "qwen3_asr_server.py",
-    "qwen3_native.py",
-    "r2t2_asr_server.py",
-    "r2t2_native.py",
-    "r2t2_stream.py",
-    "r2t2_segmented.py",
-    "R2T2-MODEL-LICENSE.txt",
-    "R2T2-CODE-LICENSE.txt",
-    "firered_vad.py",
-    "fireredvad_vad.onnx",
-    "fireredvad_cmvn.json",
-    "FireRedVAD-LICENSE.txt",
-    "download_models.py",
-    "server_common.py",
-    "asr_stream_server.py",
-    "gpu_idle.py",
-    "reuse_enhancement.py",
-    "RE-USE-LICENSE.txt",
-    "Real-time-RE-USE-LICENSE.txt",
-    "hf_cache_utils.py",
-]
-
-HIDDEN_IMPORTS = [
-    "gpu_idle",
-    "reuse_enhancement",
-    "ctypes",
-    "requests",
-    "certifi",
-    "numpy",
-    "huggingface_hub",
-    "huggingface_hub.utils",
-    "kaldi_native_fbank",
-    "_kaldi_native_fbank",
-    "tqdm",
-    "soundfile",
-    "onnxruntime",
-]
-
-# 需要完整收集的包（子模块 + 数据文件）。
-COLLECT_ALL = [
-    "kaldi_native_fbank",
-]
-
-EXCLUDE_MODULES = [
-    # Qwen and R2T2 use the shared audio.cpp runtime, even when these retired
-    # packages remain installed in the build environment.
-    "transcribe_cpp",
-    "transcribe_cpp_native",
-    "transcribe_cpp_native_cu12",
-    "faster_whisper",
-    "ctranslate2",
-    "av",
-    "tokenizers",
-    "librosa",
-    "scipy",
-    "numba",
-    "llvmlite",
-    "matplotlib",
-    "tkinter",
-    "PyQt5",
-    "PyQt6",
-    "PySide2",
-    "PySide6",
-    "IPython",
-    "notebook",
-    "pytest",
-    "sphinx",
-    "docutils",
-    "tensorboard",
-    "triton",
-    # 当前产品固定使用 Hugging Face 模型仓库和推理路径。
-    "transformers",
-    "modelscope",
-    "datasets",
-    "pyarrow",
-    "pandas",
-    "onnx",
-    # 训练、评估、实验记录和说话人聚类依赖。
-    "wandb",
-    "lightning",
-    "pytorch_lightning",
-    "torchmetrics",
-    "sentry_sdk",
-    "umap",
-    "sklearn",
-    "aliyunsdkcore",
-    "oss2",
-]
+DISTRIBUTION = "engine-distribution.json"
+ORT_PACKAGE = "microsoft.ml.onnxruntime.1.24.1.nupkg"
+ORT_PACKAGE_SHA = "5fca4421974b450711520f17a27e527fec60a78c2b6f9db3b05c159d9b5a346d"
+BASE_ASSETS = ("fireredvad_vad.onnx", "fireredvad_cmvn.json", "FireRedVAD-LICENSE.txt",
+               "R2T2-MODEL-LICENSE.txt", "R2T2-CODE-LICENSE.txt", "RE-USE-LICENSE.txt",
+               "Real-time-RE-USE-LICENSE.txt")
+CRT = {"msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcomp140.dll"}
+CUDA = {"cublas64_12.dll", "cublasLt64_12.dll", "cudart64_12.dll"}
+NATIVE = {"audiocpp.dll", "reuse.dll", "audio.cpp-LICENSE.txt", "ggml-LICENSE.txt", "sentencepiece-LICENSE.txt"}
+REQUIRED_BACKENDS = ("cpu", "cuda")
+OPTIONAL_BACKENDS = ("vulkan",)
 
 
-# Windows 运行时不需要 .lib / .pdb；这些仅用于链接或调试。
-STRIP_DEV_ARTIFACT_PATTERNS = [
-    "*.lib",
-    "*.pdb",
-]
+def metadata(path):
+    with path.open("rb") as stream:
+        return {"size": path.stat().st_size, "sha256": hashlib.file_digest(stream, "sha256").hexdigest()}
 
 
-def find_7z_executable() -> str | None:
-    """返回可用的 7z 可执行文件路径。"""
-    candidates = [
-        os.environ.get("SEVEN_ZIP"),
-        shutil.which("7z"),
-        r"C:\Program Files\7-Zip\7z.exe",
-        r"C:\Program Files (x86)\7-Zip\7z.exe",
-    ]
-
-    for candidate in candidates:
-        if candidate and Path(candidate).is_file():
-            return str(candidate)
-
-    return None
+def static_sources():
+    sources = {f"_internal/{name}": RESOURCES_DIR / name for name in BASE_ASSETS}
+    for name in ("KissFFT-LICENSE.txt", "ONNXRuntime-LICENSE.txt"):
+        sources[f"_internal/licenses/{name}"] = ROOT / "docs/licenses" / name
+    for name in ("LICENSE-pocketfft.md", "LICENSE-numpy.txt"):
+        sources[f"_internal/licenses/{name}"] = ROOT / "rust-runtime/crates/reuse/native" / name
+    return sources
 
 
-def remove_tree(path: Path, *, warn_only: bool, retries: int = 5, delay: float = 1.0) -> None:
-    """删除目录；在 Windows 文件句柄尚未释放时做有限重试。"""
-    if not path.exists():
-        return
-
-    last_error: Exception | None = None
-    for attempt in range(1, retries + 1):
-        try:
-            shutil.rmtree(path)
-            return
-        except PermissionError as exc:
-            last_error = exc
-            if attempt == retries:
-                break
-            print(
-                f"警告: 删除 {path} 失败（文件占用），{delay:.0f} 秒后重试 "
-                f"{attempt}/{retries} ...",
-                file=sys.stderr,
-            )
-            time.sleep(delay)
-
-    message = f"清理目录失败: {path}\n{last_error}"
-    if warn_only:
-        print(f"警告: {message}", file=sys.stderr)
-        return
-    raise RuntimeError(message) from last_error
-
-
-def remove_file(path: Path, *, warn_only: bool, retries: int = 5, delay: float = 1.0) -> None:
-    """删除文件；在 Windows 文件句柄尚未释放时做有限重试。"""
-    if not path.exists():
-        return
-
-    last_error: Exception | None = None
-    for attempt in range(1, retries + 1):
-        try:
-            path.unlink(missing_ok=True)
-            return
-        except PermissionError as exc:
-            last_error = exc
-            if attempt == retries:
-                break
-            print(
-                f"警告: 删除 {path} 失败（文件占用），{delay:.0f} 秒后重试 "
-                f"{attempt}/{retries} ...",
-                file=sys.stderr,
-            )
-            time.sleep(delay)
-
-    message = f"清理文件失败: {path}\n{last_error}"
-    if warn_only:
-        print(f"警告: {message}", file=sys.stderr)
-        return
-    raise RuntimeError(message) from last_error
-
-
-def get_size_mb(path: Path) -> float:
-    total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
-    return total / (1024 * 1024)
-
-
-def strip_dev_artifacts(engine_dir: Path) -> float:
-    """删除链接/调试产物及退役的 Vulkan DLL，返回节省的 MB 数。"""
-    internal_dir = engine_dir / "_internal"
-    saved = 0.0
-    for pattern in STRIP_DEV_ARTIFACT_PATTERNS:
-        for match in internal_dir.rglob(pattern):
-            if not match.is_file():
-                continue
-            size = match.stat().st_size / (1024 * 1024)
-            print(f"  删除: {match.relative_to(engine_dir)} ({size:.0f} MB)")
-            match.unlink()
-            saved += size
-
-    for match in engine_dir.rglob("*"):
-        if not match.is_file() or match.name.casefold() not in {"ggml-vulkan.dll", "vulkan-1.dll"}:
-            continue
-        size = match.stat().st_size / (1024 * 1024)
-        print(f"  删除: {match.relative_to(engine_dir)} ({size:.0f} MB)")
-        match.unlink()
-        saved += size
-
-    return saved
-
-
-def share_native_runtime_dlls(engine_dir: Path) -> float:
-    """Share byte-identical dependencies already collected at the bundle root.
-
-    Source native packages stay standalone. Only the copied distribution and
-    its manifests change; model/backend DLLs must remain at their own paths.
-    """
-    internal = engine_dir / "_internal"
-    shared_names = {
-        "cublas64_12.dll", "cublasLt64_12.dll", "cudart64_12.dll",
-        "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcomp140.dll",
+def static_pins():
+    # Windows x64 binaries and notices from the pinned NuGet package and uv wheels.
+    return {
+        "onnxruntime.dll": "8a1aad8d59d02a5337d4e3f5bbd1158c3f7bf84fe3b3f0052f957dd3e75a91cb",
+        "_internal/licenses/ONNXRuntime-ThirdPartyNotices.txt": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866",
+        "kaldi-native-fbank-core.dll": "26445253459a25d06b1d07865f10127fb90705615f3cdea238790ee974e5ed91",
+        "_internal/licenses/kaldi-native-fbank-LICENSE.txt": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5",
+        "_internal/_soundfile_data/libsndfile_x64.dll": "22518c16f9d13eda5ae5adf999c4740d7d16cc2d6b178b36dd4ac2f759a38559",
+        "_internal/_soundfile_data/COPYING": "ad01ea5cd2755f6048383c8d54c88459cd6fcb17757c5c8892f8c5ea060f6140",
     }
-    saved = 0
-    local = internal / "kaldi_native_fbank" / "lib" / "kaldi-native-fbank-core.dll"
-    common = internal / "kaldi-native-fbank-core.dll"
-    if local.is_file() and common.is_file() and filecmp.cmp(local, common, shallow=False):
-        saved += local.stat().st_size
-        local.unlink()
-    for manifest_path in (internal / "r2t2-native").glob("*/runtime-manifest.json"):
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        shared = {}
-        for name in shared_names & manifest["files"].keys():
-            local = manifest_path.parent / name
-            common = internal / name
-            if not common.is_file() or not local.is_file():
-                continue
-            if common.stat().st_size != local.stat().st_size:
-                continue
-            with local.open("rb") as stream:
-                local_hash = hashlib.file_digest(stream, "sha256").hexdigest()
-            with common.open("rb") as stream:
-                common_hash = hashlib.file_digest(stream, "sha256").hexdigest()
-            if common_hash != local_hash:
-                continue
-            metadata = manifest["files"][name]
-            if metadata["sha256"] != local_hash or metadata["size"] != local.stat().st_size:
-                raise RuntimeError(f"Native dependency checksum mismatch: {local}")
-            shared[name] = metadata
-        for name in shared:
-            local = manifest_path.parent / name
-            saved += local.stat().st_size
-            local.unlink()
-            del manifest["files"][name]
-        if shared:
-            manifest.setdefault("shared_files", {}).update(shared)
-            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    return saved / (1024 * 1024)
 
 
-def create_tar_xz_with_python(engine_dir: Path, output: Path) -> float:
-    """使用 Python 标准库压缩为 tar.xz，返回压缩包大小 MB。"""
-    print(f"正在压缩到 {output.name} ...")
-    files = [f for f in engine_dir.rglob("*") if f.is_file()]
-    files.sort(key=lambda f: (-f.stat().st_size, f.relative_to(engine_dir).as_posix()))
-    total = len(files)
-
-    with tarfile.open(output, mode="w:xz", preset=9) as tf:
-        for i, filepath in enumerate(files, 1):
-            arcname = filepath.relative_to(engine_dir)
-            tf.add(filepath, arcname=str(arcname), recursive=False)
-            if i % 500 == 0 or i == total:
-                print(f"  压缩进度: {i}/{total} ({i * 100 // total}%)")
-
-    return output.stat().st_size / (1024 * 1024)
-
-
-def create_tar_xz_with_7z(engine_dir: Path, output: Path, seven_zip: str) -> float:
-    """使用 7-Zip 构建 tar.xz，返回压缩包大小 MB。
-
-    分两步：先打 tar，再用 7z 多线程压缩为 xz，避免 Windows 管道写入问题。
-    """
-    output = output.resolve()
-    tar_path = output.with_suffix("")  # engine.tar
-    files = [f for f in engine_dir.rglob("*") if f.is_file()]
-    files.sort(key=lambda f: (-f.stat().st_size, f.relative_to(engine_dir).as_posix()))
-    total = len(files)
-    if not files:
-        raise RuntimeError("engine 目录为空，无法创建归档")
-
-    print(f"正在用 7-Zip 构建 {output.name} ...")
-
-    # 阶段 1: 打 tar
-    print(f"  阶段 1/2: 打包 tar ({total} 文件)")
-    with tarfile.open(tar_path, mode="w") as tf:
-        for i, filepath in enumerate(files, 1):
-            arcname = filepath.relative_to(engine_dir)
-            tf.add(filepath, arcname=str(arcname), recursive=False)
-            if i % 500 == 0 or i == total:
-                print(f"  打包进度: {i}/{total} ({i * 100 // total}%)")
-
-    # 阶段 2: 用 7z 压缩为 xz
-    tar_mb = tar_path.stat().st_size / (1024 * 1024)
-    print(f"  阶段 2/2: 7-Zip 多线程压缩 xz ({tar_mb:.0f} MB)")
-    # Keep native libraries in one dictionary history; BCJ compresses x86 code.
-    cmd = [seven_zip, "a", "-txz", "-mx=9", "-mmt=2", "-ms=on", "-md=256m",
-           "-mf=BCJ", str(output), str(tar_path)]
-    try:
-        subprocess.run(cmd, check=True, cwd=output.parent)
-    finally:
-        # 7-Zip/antivirus indexing can retain a read handle briefly on Windows.
-        # Once compression succeeds, failure to delete this temporary tar must not
-        # invalidate the complete xz artifact; a later build can safely clean it.
-        remove_file(tar_path, warn_only=True)
-
-    return output.stat().st_size / (1024 * 1024)
+def prepare_ort():
+    if "LW_ORT_SDK" in os.environ:
+        return Path(os.environ["LW_ORT_SDK"]).resolve(strict=True)
+    cache = ROOT / "build/native-sdk"
+    sdk = cache / "onnxruntime-1.24.1"
+    if not sdk.is_dir():
+        cache.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=cache) as temporary:
+            stage = Path(temporary)
+            package = stage / ORT_PACKAGE
+            url = f"https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.24.1/{ORT_PACKAGE}"
+            with urllib.request.urlopen(url, timeout=90) as response, package.open("wb") as out:
+                shutil.copyfileobj(response, out)
+            if metadata(package)["sha256"] != ORT_PACKAGE_SHA:
+                raise ValueError("ONNX Runtime NuGet checksum mismatch")
+            with zipfile.ZipFile(package) as archive:
+                for name in archive.namelist():
+                    if (name.startswith("build/native/include/") or name in
+                        {"runtimes/win-x64/native/onnxruntime.lib", "runtimes/win-x64/native/onnxruntime.dll",
+                         "LICENSE", "ThirdPartyNotices.txt"}):
+                        archive.extract(name, stage / "sdk")
+            try:
+                (stage / "sdk").rename(sdk)
+            except FileExistsError:
+                if not sdk.is_dir():
+                    raise
+    return sdk
 
 
-def create_tar_xz(engine_dir: Path, output: Path) -> float:
-    """将 engine 目录压缩为 tar.xz，返回压缩包大小 MB。"""
-    seven_zip = find_7z_executable()
-    if seven_zip:
-        print(f"检测到 7-Zip: {seven_zip}")
-        return create_tar_xz_with_7z(engine_dir, output, seven_zip)
-
-    print("警告: 未找到 7-Zip，回退到 Python 单线程 tar.xz 压缩", file=sys.stderr)
-    return create_tar_xz_with_python(engine_dir, output)
+def verify_sdk(root, headers, library, expected):
+    paths = [p for p in (root / headers).rglob("*") if p.is_file()] + [root / library]
+    digest = hashlib.sha256()
+    for path in sorted(paths, key=lambda p: p.relative_to(root).as_posix()):
+        digest.update(path.relative_to(root).as_posix().encode() + b"\0" + bytes.fromhex(metadata(path)["sha256"]))
+    if digest.hexdigest() != expected:
+        raise ValueError(f"Native SDK headers/import library differ from release inputs: {root}")
 
 
-def native_backends():
-    """Native backends actually packaged in resources/r2t2-native."""
-    root = RESOURCES_DIR / "r2t2-native"
-    found = tuple(
-        backend
-        for backend in ("cpu", "cuda", "vulkan")
-        if (root / backend / "runtime-manifest.json").is_file()
-    )
-    return found or ("cpu",)
+def sdk_sources():
+    ort = prepare_ort()
+    wheel = importlib.metadata.distribution("kaldi-native-fbank")
+    if wheel.version != "1.22.3":
+        raise ValueError("Building requires the locked kaldi-native-fbank 1.22.3 Windows wheel")
+    kaldi = Path(os.environ.get("LW_KALDI_SDK", wheel.locate_file("kaldi_native_fbank"))).resolve(strict=True)
+    sound = Path(importlib.metadata.distribution("soundfile").locate_file("_soundfile_data"))
+    verify_sdk(ort, "build/native/include", "runtimes/win-x64/native/onnxruntime.lib",
+               "2cab0438770e82b8919fa7f62b5b24acddfba71931ecab42b9001e3e728dc852")
+    verify_sdk(kaldi, "include", "lib/kaldi-native-fbank-core.lib",
+               "ea7468d01a3613456df772059dee47153141d2d362dcebd443e862769de1fd57")
+    os.environ.update(LW_ORT_SDK=str(ort), LW_KALDI_SDK=str(kaldi))
+    return {
+        "onnxruntime.dll": ort / "runtimes/win-x64/native/onnxruntime.dll",
+        "_internal/licenses/ONNXRuntime-ThirdPartyNotices.txt": ort / "ThirdPartyNotices.txt",
+        "kaldi-native-fbank-core.dll": kaldi / "lib/kaldi-native-fbank-core.dll",
+        "_internal/licenses/kaldi-native-fbank-LICENSE.txt": Path(wheel.locate_file("kaldi_native_fbank-1.22.3.dist-info/LICENSE")),
+        "_internal/_soundfile_data/libsndfile_x64.dll": sound / "libsndfile_x64.dll",
+        "_internal/_soundfile_data/COPYING": sound / "COPYING",
+    }
 
 
-def validate_r2t2_runtime():
-    """Reject missing or modified native bundles before replacing engine output."""
-    root = RESOURCES_DIR / "r2t2-native"
-    for backend in native_backends():
-        directory = root / backend
-        manifest_path = directory / "runtime-manifest.json"
-        if not manifest_path.is_file():
-            raise RuntimeError(
-                f"R2T2 {backend} runtime missing; run scripts/build_r2t2_runtime.py --backend {backend}"
-            )
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        patch_sha = hashlib.sha256(R2T2_PATCH.read_bytes()).hexdigest()
-        expected_reuse = None if backend == "vulkan" else reuse_source_fingerprint()
-        if (manifest.get("build_id") != R2T2_BUILD_ID
-                or manifest.get("revision") != R2T2_REVISION
-                or manifest.get("patch_sha256") != patch_sha
-                or manifest.get("reuse_source_sha256") != expected_reuse):
-            raise RuntimeError(f"Stale R2T2 {backend} runtime; rebuild the native package")
-        files = manifest.get("files", {})
-        required = {"audiocpp.dll"} if backend == "vulkan" else {"audiocpp.dll", "reuse.dll"}
-        if manifest.get("backend") != backend or not required <= files.keys():
-            raise RuntimeError(f"Invalid R2T2 runtime manifest: {manifest_path}")
-        actual_names = {item.name for item in directory.iterdir()}
-        if actual_names != set(files) | {"runtime-manifest.json"}:
-            raise RuntimeError(f"Unexpected native runtime contents: {directory}")
+def native_root():
+    return Path(os.environ.get("LW_NATIVE_RESOURCES", RESOURCES_DIR)) / "r2t2-native"
+
+
+def native_layout(backend, manifest):
+    provenance = {"backend": backend, "source": SOURCE_URL, "build_id": BUILD_ID, "revision": SOURCE_REVISION,
+                  "patch_sha256": metadata(PATCH)["sha256"],
+                  "reuse_source_sha256": None if backend == "vulkan" else reuse_source_fingerprint()}
+    if any(manifest.get(key) != value for key, value in provenance.items()):
+        raise ValueError(f"Stale or invalid {backend} native runtime provenance")
+    files = manifest["files"]
+    shared = manifest.get("shared_files", {})
+    names = (NATIVE - {"reuse.dll"} if backend == "vulkan" else NATIVE) | CRT | (
+        CUDA | {"CUDA-LICENSE.txt"} if backend == "cuda" else set())
+    if files.keys() & shared.keys() or files.keys() | shared.keys() != names or shared.keys() - (CRT | CUDA):
+        raise ValueError(f"Unexpected {backend} native runtime file table")
+    for name, meta in (files | shared).items():
+        if (set(meta) != {"size", "sha256"} or type(meta["size"]) is not int or meta["size"] <= 0
+                or len(meta["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in meta["sha256"])):
+            raise ValueError(f"Invalid native metadata for {name}")
+    return files, shared
+
+
+def copy_native(engine_dir):
+    shared_files = {}
+    root = native_root()
+    optional = [backend for backend in OPTIONAL_BACKENDS
+                if (root / backend / "runtime-manifest.json").is_file()]
+    for backend in (*REQUIRED_BACKENDS, *optional):
+        source = native_root() / backend
+        manifest = json.loads((source / "runtime-manifest.json").read_bytes())
+        files, shared = native_layout(backend, manifest)
+        if shared or {p.name for p in source.iterdir()} != set(files) | {"runtime-manifest.json"}:
+            raise ValueError(f"Unexpected source package contents in {source}")
+        package = engine_dir / "_internal/r2t2-native" / backend
+        package.mkdir(parents=True)
+        local, common = {}, {}
         for name, expected in files.items():
-            if Path(name).name != name:
-                raise RuntimeError(f"Invalid native runtime filename: {name}")
-            path = directory / name
-            if not path.is_file() or path.stat().st_size != expected["size"]:
-                raise RuntimeError(f"Missing or incomplete native runtime file: {path}")
-            with path.open("rb") as source:
-                actual = hashlib.file_digest(source, "sha256").hexdigest()
-            if actual != expected["sha256"]:
-                raise RuntimeError(f"Native runtime checksum mismatch: {path}")
-    return root
+            previous = shared_files.get(name)
+            use_root = name in (CRT | CUDA) and (previous is None or previous == expected)
+            target = (engine_dir if use_root else package) / name
+            if not use_root or previous is None:
+                shutil.copyfile(source / name, target)
+                actual = metadata(target)
+            else:
+                actual = metadata(source / name)
+            if actual != expected:
+                raise ValueError(f"Native dependency checksum mismatch: {source / name}")
+            (common if use_root else local)[name] = expected
+            if use_root:
+                shared_files[name] = expected
+        (package / "runtime-manifest.json").write_text(json.dumps({**manifest, "files":local, "shared_files":common},
+                                                                 indent=2) + "\n", encoding="utf-8")
 
 
-def verify_archive_sources(archive: Path) -> None:
-    """Reject stale Python sources and R2T2 native builds in reused archives."""
-    expected = {
-        f"_internal/{name}": (RESOURCES_DIR / name).read_bytes().replace(b"\r\n", b"\n")
-        for name in ADD_DATA_FILES if name.endswith(".py")
-    }
+def stage_engine(engine_dir):
+    engine_dir.mkdir(parents=True, exist_ok=True)
+    sources = static_sources() | sdk_sources()
+    pins = static_pins()
+    for name, source in sources.items():
+        target = engine_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        if name in pins and metadata(target)["sha256"] != pins[name]:
+            raise ValueError(f"Unexpected vendor file: {source}")
+    build_binary("engine", engine_dir)
+    copy_native(engine_dir)
+    files = {p.relative_to(engine_dir).as_posix(): metadata(p) for p in sorted(engine_dir.rglob("*")) if p.is_file()}
+    (engine_dir / DISTRIBUTION).write_text(json.dumps({"format":1, "source_sha256":source_fingerprint("engine"),
+                                                       "files":files}, indent=2) + "\n", encoding="utf-8")
+
+
+def verify_archive_sources(archive):
+    fingerprint = source_fingerprint("engine")
+    actual, documents = {}, {}
     seen = set()
-    supported_backends = ("cpu", "cuda", "vulkan")
-    native_prefixes = tuple(f"_internal/r2t2-native/{backend}/" for backend in supported_backends)
-    native = {}
-    native_names = set()
-    retired_packages = {"transcribe_cpp", "transcribe_cpp_native", "transcribe_cpp_native_cu12"}
-    with tarfile.open(archive, mode="r|xz") as packaged:
-        for member in packaged:
-            name = member.name.removeprefix("./")
-            normalized = member.name.replace("\\", "/").casefold().lstrip("./")
-            for component in normalized.split("/"):
-                distribution = component.removesuffix(".dist-info").rsplit("-", 1)[0].replace("-", "_")
-                if (component in retired_packages
-                        or component.endswith(".dist-info") and distribution in retired_packages):
-                    raise RuntimeError(f"Retired transcribe.cpp package in bundled archive: {name}; rebuild the engine")
-            if normalized.rsplit("/", 1)[-1] in {"ggml-vulkan.dll", "vulkan-1.dll"}:
-                raise RuntimeError(f"Retired Vulkan runtime in bundled archive: {name}; rebuild the engine")
-            native_name = name.casefold()
-            if (native_name.startswith(native_prefixes)
-                    or native_name.startswith("_internal/") and name.count("/") == 1
-                    and name not in expected):
-                if native_name in native_names:
-                    raise RuntimeError(f"Invalid bundled native file: {name}; rebuild the engine")
-                native_names.add(native_name)
-                if member.isdir():
-                    continue
-                if not member.isfile():
-                    raise RuntimeError(f"Invalid bundled native file: {name}; rebuild the engine")
-                with packaged.extractfile(member) as stream:
-                    if native_name.endswith("runtime-manifest.json"):
-                        # Dependency metadata is small; never buffer a DLL-sized manifest.
-                        if member.size > 64 * 1024:
-                            raise RuntimeError(f"Invalid bundled native manifest: {name}")
-                        try:
-                            native[native_name] = json.load(stream)
-                        except (ValueError, UnicodeError) as error:
-                            raise RuntimeError(f"Invalid bundled native manifest: {name}") from error
-                    else:
-                        native[native_name] = {"size": member.size,
-                                               "sha256": hashlib.file_digest(stream, "sha256").hexdigest()}
-                continue
-            if name not in expected:
-                continue
-            source = expected[name]
-            # CRLF can at most double the size of the normalized LF source.
-            if name in seen or not member.isfile() or member.size > len(source) * 2:
-                raise RuntimeError(f"Invalid bundled source: {name}; rebuild the engine")
-            seen.add(name)
-            with packaged.extractfile(member) as stream:
-                if stream.read().replace(b"\r\n", b"\n") != source:
-                    raise RuntimeError(f"Stale bundled source: {name}; rebuild the engine")
-    missing = expected.keys() - seen
-    if missing:
-        raise RuntimeError(f"Missing bundled sources: {', '.join(sorted(missing))}; rebuild the engine")
-    # Which backends an archive carries is decided by the archive, not by this
-    # checkout: a reused archive may legitimately contain more or fewer packages.
-    archived_backends = [
-        backend for backend in supported_backends
-        if any(name.startswith(f"_internal/r2t2-native/{backend}/") for name in native_names)
-    ]
-    missing_native = [
-        f"_internal/r2t2-native/{backend}/runtime-manifest.json"
-        for backend in archived_backends
-        if f"_internal/r2t2-native/{backend}/runtime-manifest.json" not in native
-    ]
-    if missing_native:
-        raise RuntimeError(f"Missing bundled native files: {', '.join(sorted(missing_native))}; rebuild the engine")
-    provenance = {"build_id": R2T2_BUILD_ID, "revision": R2T2_REVISION,
-                  "patch_sha256": hashlib.sha256(R2T2_PATCH.read_bytes()).hexdigest(),
-                  "reuse_source_sha256": reuse_source_fingerprint()}
-    for backend in archived_backends:
-        prefix = f"_internal/r2t2-native/{backend}"
-        manifest = native[f"{prefix}/runtime-manifest.json"]
-        expected_provenance = dict(provenance)
-        if backend == "vulkan":
-            expected_provenance["reuse_source_sha256"] = None
-        if (not isinstance(manifest, dict)
-                or manifest.get("backend") != backend
-                or any(manifest.get(key) != value for key, value in expected_provenance.items())):
-            raise RuntimeError(f"Stale bundled R2T2 {backend} runtime; rebuild the engine")
-        files = manifest.get("files")
-        required = {"audiocpp.dll"} if backend == "vulkan" else {"audiocpp.dll", "reuse.dll"}
-        if not isinstance(files, dict) or not required <= files.keys():
-            raise RuntimeError(f"Invalid bundled R2T2 {backend} file table; rebuild the engine")
-        for directory, entries in ((prefix, files), ("_internal", manifest.get("shared_files", {}))):
-            if not isinstance(entries, dict):
-                raise RuntimeError(f"Invalid bundled R2T2 {backend} file table; rebuild the engine")
-            for filename, metadata in entries.items():
-                if (not filename or filename in {".", ".."}
-                        or any(character in filename for character in "/\\:\0")
-                        or not isinstance(metadata, dict)
-                        or type(metadata.get("size")) is not int or metadata["size"] < 0
-                        or not isinstance(metadata.get("sha256"), str)
-                        or not re.fullmatch(r"[0-9a-f]{64}", metadata["sha256"])):
-                    raise RuntimeError(f"Invalid bundled native metadata: {filename!r}; rebuild the engine")
-                name = f"{directory}/{filename}"
-                actual = native.get(name.casefold())
-                if actual is None or any(actual.get(key) != metadata[key] for key in ("size", "sha256")):
-                    raise RuntimeError(f"Bundled native dependency missing or checksum/size mismatch: {name}; rebuild the engine")
+    with lzma.open(archive, "rb") as payload, tarfile.open(fileobj=payload, mode="r|") as tar:
+        for item in tar:
+            name = item.name
+            if (not item.isfile() or "\\" in name or ":" in name or any(p in ("", ".", "..") for p in name.split("/"))
+                    or name.casefold() in seen):
+                raise ValueError(f"Invalid or duplicate archive entry: {name}")
+            seen.add(name.casefold())
+            name = name.casefold()
+            with tar.extractfile(item) as src:
+                if name == DISTRIBUTION or name.endswith("/runtime-manifest.json"):
+                    if item.size > 128 * 1024:
+                        raise ValueError(f"Invalid manifest size: {name}")
+                    data = src.read()
+                    documents[name] = json.loads(data)
+                    actual[name] = {"size":len(data), "sha256":hashlib.sha256(data).hexdigest()}
+                elif name == "engine.exe":
+                    if item.size > 256 * 1024 * 1024:
+                        raise ValueError("Unexpected engine.exe size")
+                    actual[name] = verify_image(src.read(), "engine", fingerprint)
+                else:
+                    actual[name] = {"size":item.size, "sha256":hashlib.file_digest(src, "sha256").hexdigest()}
+        # TAR's end marker precedes the XZ footer. Read through it so a torn
+        # final compressed block cannot pass an otherwise complete manifest.
+        while tail := payload.read(1024 * 1024):
+            if any(tail):
+                raise ValueError("Unexpected data after the end of the engine TAR")
+    manifest = documents[DISTRIBUTION]
+    del actual[DISTRIBUTION]
+    declared = manifest["files"]
+    if (set(manifest) != {"format", "source_sha256", "files"} or type(manifest["format"]) is not int
+            or manifest["format"] != 1 or manifest["source_sha256"] != fingerprint
+            or len(declared) != len(actual) or {k.casefold(): v for k, v in declared.items()} != actual):
+        raise ValueError("Engine archive payload hashes or release sources disagree with distribution manifest")
+    sources, pins = static_sources(), static_pins()
+    required = {"engine.exe"} | {k.casefold() for k in sources.keys() | pins.keys()}
+    for name, path in sources.items():
+        if actual.get(name.casefold()) != metadata(path):
+            raise ValueError(f"Missing or stale bundled resource: {name}")
+    for name, sha in pins.items():
+        if actual.get(name.casefold(), {}).get("sha256") != sha:
+            raise ValueError(f"Missing or corrupt vendor asset: {name}")
+    for backend in (*REQUIRED_BACKENDS, *OPTIONAL_BACKENDS):
+        prefix = f"_internal/r2t2-native/{backend}/"
+        manifest_path = prefix + "runtime-manifest.json"
+        if backend in OPTIONAL_BACKENDS and manifest_path not in documents:
+            continue
+        if manifest_path not in documents:
+            raise ValueError(f"Missing bundled {backend} runtime manifest")
+        native = documents[manifest_path]
+        files, shared = native_layout(backend, native)
+        reference = native_root() / backend / "runtime-manifest.json"
+        if reference.exists():
+            original = json.loads(reference.read_bytes())
+            merged = {k:v for k,v in native.items() if k != "shared_files"}
+            if original != {**merged, "files":files | shared}:
+                raise ValueError(f"Packaged {backend} manifest differs from the selected build")
+        required.add(manifest_path)
+        expected = {prefix + name: meta for name, meta in files.items()} | shared
+        for name, meta in expected.items():
+            if actual.get(name.casefold()) != meta:
+                raise ValueError(f"Native dependency missing or corrupt: {name}")
+        required.update(k.casefold() for k in expected)
+    if set(actual) != required or not {k.casefold() for k in CUDA} <= set(actual):
+        raise ValueError("Engine archive contains missing, extra or misplaced runtime files")
+
+
+def create_tar_xz(engine_dir, output):
+    files = sorted((p for p in engine_dir.rglob("*") if p.is_file()),
+                   key=lambda p: (-p.stat().st_size, p.relative_to(engine_dir).as_posix()))
+    seven_zip = os.environ.get("SEVEN_ZIP") or shutil.which("7z")
+    if not seven_zip and Path(r"C:\Program Files\7-Zip\7z.exe").is_file():
+        seven_zip = r"C:\Program Files\7-Zip\7z.exe"
+    tar_path = output.with_suffix(".tar") if seven_zip else output
+    kwargs = {} if seven_zip else {"preset": 6}
+    with tarfile.open(tar_path, "w" if seven_zip else "w:xz", **kwargs) as archive:
+        for path in files:
+            archive.add(path, arcname=path.relative_to(engine_dir).as_posix(), recursive=False)
+    if seven_zip:
+        subprocess.run([seven_zip, "a", "-txz", "-mx=9", "-mmt=2", "-md=256m", "-mf=BCJ",
+                        str(output.resolve()), str(tar_path.resolve())], check=True)
+    return output.stat().st_size / (1024 * 1024)
 
 
 def main():
-    if not ENTRY_SCRIPT.exists():
-        print(f"错误: 入口脚本不存在: {ENTRY_SCRIPT}", file=sys.stderr)
-        sys.exit(1)
-
-    native_runtime = validate_r2t2_runtime()
-
-    # 清理旧构建
-    if DIST_DIR.exists():
-        print(f"清理旧构建: {DIST_DIR}")
-        remove_tree(DIST_DIR, warn_only=False)
-
-    work_dir = PROJECT_ROOT / "build" / "pyinstaller"
-    spec_dir = PROJECT_ROOT / "build"
-
-    # 构建 PyInstaller 命令
-    cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--onedir",
-        "--name", "engine",
-        "--distpath", str(DIST_DIR),
-        "--workpath", str(work_dir),
-        "--specpath", str(spec_dir),
-        "--additional-hooks-dir", str(PROJECT_ROOT / "scripts" / "pyinstaller_hooks"),
-    ]
-
-    if WINDOWS_MANIFEST.exists():
-        cmd.extend(["--manifest", str(WINDOWS_MANIFEST)])
-
-    for backend in native_backends():
-        cmd.extend(["--add-data", f"{native_runtime / backend}{os.pathsep}r2t2-native/{backend}"])
-
-    for filename in ADD_DATA_FILES:
-        src = RESOURCES_DIR / filename
-        if not src.exists():
-            print(f"警告: 数据文件不存在，跳过: {src}", file=sys.stderr)
-            continue
-        cmd.extend(["--add-data", f"{src}{os.pathsep}."])
-
-    for mod in HIDDEN_IMPORTS:
-        cmd.extend(["--hidden-import", mod])
-
-    for pkg in COLLECT_ALL:
-        cmd.extend(["--collect-all", pkg])
-
-    for mod in EXCLUDE_MODULES:
-        cmd.extend(["--exclude-module", mod])
-
-    cmd.append(str(ENTRY_SCRIPT))
-
-    print("=" * 60)
-    print("步骤 1/3: PyInstaller 构建")
-    print(f"入口: {ENTRY_SCRIPT}")
-    print("=" * 60)
-
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        print("PyInstaller 构建失败！", file=sys.stderr)
-        sys.exit(result.returncode)
-
-    engine_dir = DIST_DIR / "engine"
-    if not engine_dir.exists():
-        print("错误: 构建输出目录不存在", file=sys.stderr)
-        sys.exit(1)
-
-    raw_size = get_size_mb(engine_dir)
-    print(f"\nPyInstaller 输出: {raw_size:.0f} MB")
-
-    # 瘦身：删除开发期库文件
-    print("=" * 60)
-    print("步骤 2/3: 瘦身（删除开发期库文件）")
-    print("=" * 60)
-
-    saved = 0.0
-    saved += strip_dev_artifacts(engine_dir)
-    saved += share_native_runtime_dlls(engine_dir)
-    stripped_size = get_size_mb(engine_dir)
-    print(f"节省: {saved:.0f} MB, 瘦身后: {stripped_size:.0f} MB")
-
-    # 压缩
-    print("=" * 60)
-    print("步骤 3/3: 压缩为 engine.tar.xz")
-    print("=" * 60)
-
-    staging_archive = OUTPUT_ARCHIVE.with_name(
-        f".{OUTPUT_ARCHIVE.name}.{os.getpid()}.{time.time_ns()}.tmp"
-    )
-    try:
-        archive_size = create_tar_xz(engine_dir, staging_archive)
-        if not staging_archive.is_file() or staging_archive.stat().st_size == 0:
-            raise RuntimeError("引擎归档构建结果为空")
-        os.replace(staging_archive, OUTPUT_ARCHIVE)
-    finally:
-        remove_file(staging_archive, warn_only=True)
-
-    # 清理未压缩目录
-    remove_tree(DIST_DIR, warn_only=True)
-
-    print("=" * 60)
-    print("构建完成！")
-    print(f"  原始大小:   {raw_size:.0f} MB")
-    print(f"  瘦身后:     {stripped_size:.0f} MB")
-    print(f"  压缩包:     {archive_size:.0f} MB → {OUTPUT_ARCHIVE.name}")
-    print(f"  输出路径:   {OUTPUT_ARCHIVE}")
-    print("=" * 60)
-
-    if archive_size > 1800:
-        print(f"警告: 压缩包 {archive_size:.0f} MB 接近 NSIS 2GB 限制！", file=sys.stderr)
+    fingerprint = source_fingerprint("engine")
+    OUTPUT_ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".engine-build-", dir=OUTPUT_ARCHIVE.parent) as temporary:
+        stage = Path(temporary)
+        engine_dir = stage / "engine"
+        engine_dir.mkdir()
+        stage_engine(engine_dir)
+        archive = stage / "engine.tar.xz"
+        create_tar_xz(engine_dir, archive)
+        verify_archive_sources(archive)
+        if source_fingerprint("engine") != fingerprint:
+            raise ValueError("Engine inputs changed during the build")
+        os.replace(archive, OUTPUT_ARCHIVE)
+    print(f"Built {OUTPUT_ARCHIVE} ({OUTPUT_ARCHIVE.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify-archive", type=Path)
     args = parser.parse_args()
-    if args.verify_archive is not None:
-        try:
+    try:
+        if args.verify_archive is None:
+            main()
+        else:
             verify_archive_sources(args.verify_archive)
-        except (OSError, RuntimeError, tarfile.TarError, EOFError) as error:
-            parser.exit(1, f"{error}\nRun: uv run --locked python scripts/build_engine.py\n")
-    else:
-        main()
+    except Exception as error:
+        parser.exit(1, f"Engine build or verification failed: {error}\n")
