@@ -466,6 +466,15 @@
     "commands::funasr::set_gpu_idle_seconds": [
       "gpu-idle"
     ],
+    "commands::funasr::get_gpu_backend": [
+      "preferences"
+    ],
+    "commands::funasr::set_gpu_backend": [
+      "preferences"
+    ],
+    "commands::funasr::list_gpu_backends": [
+      "preferences"
+    ],
     "commands::funasr::get_audio_processing_enabled": [
       "engine"
     ],
@@ -1277,7 +1286,8 @@
         "src-tauri/src/commands/profile.rs",
         "src-tauri/src/commands/jev_tests.rs",
         "src/components/settings/__tests__/P0SettingsSections.test.tsx",
-        "src/pages/__tests__/SettingsPageProfileLoad.test.tsx"
+        "src/pages/__tests__/SettingsPageProfileLoad.test.tsx",
+        "src/components/settings/GpuBackendControl.test.tsx"
       ],
       "assumptions": "The valid/invalid abstraction is instantiated by actual validators and unit partitions; it is not a proof of every Rust string/parser branch. The UI workload uses one representative History field, two profile reads, and success/failure inputs; other command workloads start ready and retain the full field partition."
     },
@@ -4684,6 +4694,9 @@
     "commands::history::reprocess_transcription_history": "src-tauri/src/commands/history.rs#fn reprocess_transcription_history(",
     "commands::funasr::get_gpu_idle_seconds": "src-tauri/src/commands/funasr.rs#fn get_gpu_idle_seconds(",
     "commands::funasr::set_gpu_idle_seconds": "src-tauri/src/commands/funasr.rs#fn set_gpu_idle_seconds(",
+    "commands::funasr::get_gpu_backend": "src-tauri/src/commands/funasr.rs#fn get_gpu_backend(",
+    "commands::funasr::set_gpu_backend": "src-tauri/src/commands/funasr.rs#fn set_gpu_backend(",
+    "commands::funasr::list_gpu_backends": "src-tauri/src/commands/funasr.rs#fn list_gpu_backends(",
     "commands::funasr::get_audio_processing_enabled": "src-tauri/src/commands/funasr.rs#fn get_audio_processing_enabled(",
     "commands::funasr::set_audio_processing_enabled": "src-tauri/src/commands/funasr.rs#fn set_audio_processing_enabled(",
     "commands::profile::get_profile_save_status": "src-tauri/src/commands/profile.rs#pub fn get_profile_save_status",
