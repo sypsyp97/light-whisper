@@ -129,7 +129,10 @@ class CpuCudaAbiTests(unittest.TestCase):
         self.addCleanup(runtime.close)
         self.assertEqual(runtime.backend, "vulkan")
         self.load_library.assert_called_once()
-        self.add_directory.assert_called_once()
+        if os.name == "nt":
+            self.add_directory.assert_called_once()
+        else:
+            self.add_directory.assert_not_called()
 
     def test_cpu_cuda_qwen_preserve_c_abi_exact_audio_tail_options_output_and_ownership(self):
         pcm = np.linspace(-0.8, 0.8, 12813, dtype=np.float32)

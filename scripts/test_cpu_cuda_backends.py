@@ -37,16 +37,20 @@ class WindowsBuildEnvironmentTests(unittest.TestCase):
             vcvars = installation / "VC/Auxiliary/Build/vcvars64.bat"
             vcvars.parent.mkdir(parents=True)
             vcvars.write_text("@echo off\n", encoding="utf-8")
+            bundled_ninja = installation / "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
+            bundled_ninja.parent.mkdir(parents=True)
+            bundled_ninja.touch()
             responses = [
                 SimpleNamespace(stdout=str(installation) + "\n"),
                 SimpleNamespace(stdout="\n".join(f"{key}={value}" for key, value in vcvars_values.items())),
             ]
 
-            with mock.patch.object(builder, "os", SimpleNamespace(name="nt", environ=inherited)), \
+            with mock.patch.dict(os.environ, {"PATH": str(installation)}), \
+                 mock.patch.object(builder, "os", SimpleNamespace(name="nt", environ=inherited)), \
                  mock.patch.object(builder.subprocess, "run", side_effect=responses):
                 environment, ninja = builder.build_environment()
 
-        self.assertEqual(ninja, installation / "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe")
+        self.assertEqual(ninja, bundled_ninja)
         self.assertEqual(inherited, inherited_before)
         self.assertEqual(dict(os.environ), global_before)
         self.assertEqual(environment["CALLER_ONLY"], "retained=value")
@@ -380,8 +384,17 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
         self.subprocess.assert_not_called()
         self.assertFalse(self.output.exists())
 
-    def test_vulkan_backend_rejects_before_source_or_build_work(self):
-        self.assert_cli_rejected("vulkan")
+    def test_vulkan_backend_configures_vulkan_and_publishes_without_reuse(self):
+        self.invoke("vulkan")
+        self.prepare.assert_called_once_with(self.source)
+        configure = self.subprocess.call_args_list[0].args[0]
+        self.assertIn("-DENGINE_ENABLE_VULKAN=ON", configure)
+        directory = self.output / "vulkan"
+        manifest = json.loads((directory / "runtime-manifest.json").read_bytes())
+        self.assertEqual(manifest["backend"], "vulkan")
+        self.assertIsNone(manifest["reuse_source_sha256"])
+        self.assertNotIn("reuse.dll", manifest["files"])
+        self.assertFalse((directory / "reuse.dll").exists())
 
     def test_auto_backend_rejects_before_source_or_build_work(self):
         self.assert_cli_rejected("auto")
@@ -413,6 +426,20 @@ class CpuCudaPackageTests(unittest.TestCase):
         self.module.copy_native(stage)
         self.assertEqual({p.name for p in (stage/"_internal/r2t2-native").iterdir()},{"cpu","cuda"})
 
+    def test_copy_native_stages_all_three_backends_when_vulkan_has_a_manifest(self):
+        self.native_members("vulkan", write_source=True)
+        stage = self.root / "stage"
+        self.module.copy_native(stage)
+        native = stage / "_internal/r2t2-native"
+        self.assertEqual({p.name for p in native.iterdir()}, {"cpu", "cuda", "vulkan"})
+        for backend in ("cpu", "cuda", "vulkan"):
+            with self.subTest(backend=backend):
+                package = native / backend
+                self.assertTrue((package / "runtime-manifest.json").is_file())
+                self.assertEqual((package / "audiocpp.dll").read_bytes(),
+                                 (self.resources / "r2t2-native" / backend / "audiocpp.dll").read_bytes())
+                self.assertEqual((package / "reuse.dll").is_file(), backend != "vulkan")
+
     def test_unselected_stale_local_vulkan_tree_is_neither_published_nor_mutated(self):
         old=self.resources/"r2t2-native/vulkan/retired.dll"
         old.parent.mkdir()
@@ -423,17 +450,55 @@ class CpuCudaPackageTests(unittest.TestCase):
         self.assertEqual(old.read_bytes(),b"old independent payload")
         self.assertTrue(all((stage/"_internal/r2t2-native"/b/"audiocpp.dll").is_file() for b in ("cpu","cuda")))
 
-    def test_current_cpu_cuda_archive_passes_without_retired_backend(self):
+    def test_current_cpu_cuda_archive_passes_without_vulkan(self):
         self.package()
         try:
             self.module.verify_archive_sources(self.archive)
         except RuntimeError as error:
             self.fail(f"Current CPU/CUDA-only archive rejected: {error}")
 
-    def test_old_three_backend_archive_is_rejected_even_with_valid_vulkan_manifest(self):
-        self.package({**self.members, **self.native_members("vulkan")})
-        with self.assertRaises((RuntimeError,ValueError)):
+    def test_archive_accepts_all_three_backends(self):
+        self.package(self.members | self.native_members("vulkan"))
+        self.module.verify_archive_sources(self.archive)
+
+    def test_archive_requires_cpu_and_cuda_manifests(self):
+        for backend in ("cpu", "cuda"):
+            with self.subTest(backend=backend):
+                members = self.members | self.native_members("vulkan")
+                del members[f"_internal/r2t2-native/{backend}/runtime-manifest.json"]
+                self.package(members)
+                with self.assertRaisesRegex(ValueError, f"Missing bundled {backend} runtime manifest"):
+                    self.module.verify_archive_sources(self.archive)
+
+    def test_archive_rejects_vulkan_files_without_manifest(self):
+        members = self.members | self.native_members("vulkan")
+        del members["_internal/r2t2-native/vulkan/runtime-manifest.json"]
+        self.package(members)
+        with self.assertRaises(ValueError):
             self.module.verify_archive_sources(self.archive)
+
+    def test_archive_rejects_stale_vulkan_provenance(self):
+        members = self.members | self.native_members("vulkan")
+        path = "_internal/r2t2-native/vulkan/runtime-manifest.json"
+        valid = json.loads(members[path])
+        for field, value in (("reuse_source_sha256", source_fingerprint()), ("backend", "cpu"),
+                             ("build_id", "previous"), ("revision", "0" * 40), ("patch_sha256", "0" * 64)):
+            with self.subTest(field=field):
+                self.package(members | {path: json.dumps(valid | {field: value}).encode()})
+                with self.assertRaises(ValueError):
+                    self.module.verify_archive_sources(self.archive)
+
+    def test_vulkan_native_layout_excludes_reuse(self):
+        members = self.native_members("vulkan")
+        manifest = json.loads(members["_internal/r2t2-native/vulkan/runtime-manifest.json"])
+        self.assertIsNone(manifest["reuse_source_sha256"])
+        self.assertNotIn("reuse.dll", manifest["files"])
+        self.assertEqual(self.module.native_layout("vulkan", manifest), (manifest["files"], manifest["shared_files"]))
+
+        cpu = json.loads(self.members["_internal/r2t2-native/cpu/runtime-manifest.json"])
+        manifest["files"]["reuse.dll"] = cpu["files"]["reuse.dll"]
+        with self.assertRaises(ValueError):
+            self.module.native_layout("vulkan", manifest)
 
     def test_retired_subtrees_and_dlls_are_rejected_with_normalized_slashes_and_case(self):
         self.package()

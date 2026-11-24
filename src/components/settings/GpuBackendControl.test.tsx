@@ -20,6 +20,8 @@ const messages: Record<string, string> = {
   "settings.gpuBackendCpu": "CPU",
   "settings.gpuBackendCpuDesc": "cpu description",
   "settings.gpuBackendUnavailable": "not included in this build",
+  "settings.gpuBackendLoadFailed": "could not load GPU backends",
+  "common.retry": "Retry",
   "settings.gpuBackendSaveFailed": "save failed",
   "settings.gpuBackendRestart": "applies on next start",
 };
@@ -43,8 +45,9 @@ describe("GpuBackendControl", () => {
   });
 
   it("loads the stored backend and disables packages this build does not include", async () => {
+    api.getGpuBackend.mockResolvedValueOnce("vulkan");
     render(<GpuBackendControl />);
-    await waitFor(() => expect(option("Automatic")).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(option("AMD")).toHaveAttribute("aria-pressed", "true"));
     expect(option("NVIDIA")).toBeDisabled();
     expect(option("AMD")).not.toBeDisabled();
     expect(option("CPU")).not.toBeDisabled();
@@ -52,18 +55,44 @@ describe("GpuBackendControl", () => {
 
   it("saves the selected backend", async () => {
     render(<GpuBackendControl />);
-    await waitFor(() => expect(api.listGpuBackends).toHaveBeenCalled());
+    await waitFor(() => expect(option("AMD")).toBeEnabled());
     fireEvent.click(option("AMD"));
-    await waitFor(() => expect(api.setGpuBackend).toHaveBeenCalledWith("vulkan"));
-    expect(option("AMD")).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(option("AMD")).toHaveAttribute("aria-pressed", "true"));
+    expect(api.setGpuBackend).toHaveBeenCalledWith("vulkan");
   });
 
   it("keeps the previous value and reports a failed save", async () => {
     api.setGpuBackend.mockRejectedValueOnce(new Error("nope"));
     render(<GpuBackendControl />);
-    await waitFor(() => expect(api.getGpuBackend).toHaveBeenCalled());
+    await waitFor(() => expect(option("CPU")).toBeEnabled());
     fireEvent.click(option("CPU"));
     await waitFor(() => expect(notifications.error).toHaveBeenCalled());
     expect(option("Automatic")).toHaveAttribute("aria-pressed", "true");
   });
+
+  it.each(["getGpuBackend", "listGpuBackends"] as const)(
+    "hides the picker when %s fails and reloads both values on retry",
+    async (failedCall) => {
+      api[failedCall].mockRejectedValueOnce(new Error("load failed"));
+      render(<GpuBackendControl />);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("could not load GPU backends");
+      const retry = screen.getByRole("button", { name: "Retry" });
+      expect(screen.getAllByRole("button")).toEqual([retry]);
+      expect(api.getGpuBackend).toHaveBeenCalledTimes(1);
+      expect(api.listGpuBackends).toHaveBeenCalledTimes(1);
+
+      api.getGpuBackend.mockResolvedValueOnce("cuda");
+      api.listGpuBackends.mockResolvedValueOnce(["cuda", "cpu"]);
+      fireEvent.click(retry);
+      await waitFor(() => expect(option("NVIDIA")).toBeEnabled());
+      expect(option("NVIDIA")).toHaveAttribute("aria-pressed", "true");
+      expect(option("AMD")).toBeDisabled();
+      expect(option("Automatic")).toBeEnabled();
+      expect(option("CPU")).toBeEnabled();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(api.getGpuBackend).toHaveBeenCalledTimes(2);
+      expect(api.listGpuBackends).toHaveBeenCalledTimes(2);
+    },
+  );
 });

@@ -622,3 +622,44 @@ pub fn run(name: &str, family: Family) -> R<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Backend, gpu_backend_choice};
+    use std::{env, sync::Mutex};
+
+    static BACKEND_ENV: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn gpu_backend_environment_selects_candidates_and_forced_flag() {
+        use Backend::{Cpu, Cuda, Vulkan};
+
+        const KEY: &str = "LIGHT_WHISPER_GPU_BACKEND";
+        let _guard = BACKEND_ENV.lock().unwrap();
+        let previous = env::var_os(KEY);
+        for (value, candidates, forced) in [
+            (None, vec![Cuda, Vulkan, Cpu], false),
+            (Some("auto"), vec![Cuda, Vulkan, Cpu], false),
+            (Some("unknown"), vec![Cuda, Vulkan, Cpu], false),
+            (Some("vulkan"), vec![Vulkan, Cpu], true),
+            (Some("cuda"), vec![Cuda, Cpu], true),
+            (Some("cpu"), vec![Cpu], false),
+        ] {
+            // Windows supports concurrent environment access. Serialize test overrides.
+            unsafe {
+                match value {
+                    Some(value) => env::set_var(KEY, value),
+                    None => env::remove_var(KEY),
+                }
+            }
+            let actual = gpu_backend_choice();
+            unsafe {
+                match &previous {
+                    Some(value) => env::set_var(KEY, value),
+                    None => env::remove_var(KEY),
+                }
+            }
+            assert_eq!(actual, (candidates, forced), "{KEY}={value:?}");
+        }
+    }
+}
