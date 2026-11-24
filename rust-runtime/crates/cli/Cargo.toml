@@ -1,0 +1,17 @@
+[package]
+name = "light-whisper-cli"
+version = "1.8.1"
+edition = "2024"
+publish = false
+
+[dependencies]
+dunce = "1"
+memchr = "2"
+serde = "1"
+serde_json = { version = "1", features = ["arbitrary_precision", "raw_value"] }
+tempfile = "3"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "process", "rt", "signal", "time"] }
+
+sha2 = "0.10"
+tar = "0.4"
+xz2 = "0.1"

@@ -245,6 +245,11 @@ class NativeConstructorGapTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assert_invalid({"rolling": value})
 
+    def test_nonboolean_adaptive_cadence_is_rejected_before_native_allocation(self):
+        for value in (0, 1, None, "false", [], {}):
+            with self.subTest(value=value):
+                self.assert_invalid({"adaptive_cadence": value})
+
     def test_invalid_chunk_duration_is_rejected_before_native_allocation(self):
         for value in (None, True, False, 79, 2001, 0, -1, 1.5, "320", [], {}):
             with self.subTest(value=value):

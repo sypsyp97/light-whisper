@@ -1,29 +1,8 @@
 use crate::state::AppState;
 use crate::utils::{paths, AppError};
-use std::path::PathBuf;
 use tauri::Emitter;
-use tokio::process::Command;
 
 use super::{now_unix_ms, EngineProgressGate, ENGINE_ARCHIVE_FINGERPRINT};
-
-pub enum EngineRuntime {
-    Bundled { exe_path: String },
-
-    Development { python_path: String },
-}
-
-fn to_normalized_path(path: &std::path::Path) -> String {
-    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    paths::strip_win_prefix(&canonical)
-}
-
-fn expected_engine_install_fingerprint(app_handle: &tauri::AppHandle) -> String {
-    if paths::get_engine_archive_path(app_handle).is_some() {
-        ENGINE_ARCHIVE_FINGERPRINT.to_string()
-    } else {
-        env!("CARGO_PKG_VERSION").to_string()
-    }
-}
 
 pub(super) fn engine_install_fingerprint_matches(installed: &str, expected: &str) -> bool {
     let installed = installed.trim();
@@ -38,7 +17,7 @@ pub async fn find_engine(
     app_handle: &tauri::AppHandle,
     state: &AppState,
     expected_generation: u64,
-) -> Result<EngineRuntime, AppError> {
+) -> Result<String, AppError> {
     let progress_gate = EngineProgressGate {
         generation: state.engine.funasr_generation.clone(),
         status_commit: state.engine.funasr_status_commit.clone(),
@@ -48,16 +27,16 @@ pub async fn find_engine(
     if !progress_gate.is_current() {
         return Err(AppError::Asr("引擎查找已被取消".to_string()));
     }
-    let expected_fingerprint = expected_engine_install_fingerprint(app_handle);
+    let expected_fingerprint = ENGINE_ARCHIVE_FINGERPRINT;
 
     if let Some(engine_path) = paths::get_engine_exe_path(app_handle) {
         let version_file = paths::get_engine_dir().join(".version");
         let installed_version = std::fs::read_to_string(&version_file).unwrap_or_default();
 
-        if engine_install_fingerprint_matches(&installed_version, &expected_fingerprint) {
+        if engine_install_fingerprint_matches(&installed_version, expected_fingerprint) {
             let path_str = paths::strip_win_prefix(&engine_path);
             log::info!("找到引擎: {} ({})", path_str, expected_fingerprint);
-            return Ok(EngineRuntime::Bundled { exe_path: path_str });
+            return Ok(path_str);
         }
 
         log::info!(
@@ -72,17 +51,18 @@ pub async fn find_engine(
         let engine_exe = extract_engine_archive(&archive_path, app_handle, &progress_gate).await?;
         let path_str = paths::strip_win_prefix(&engine_exe);
         log::info!("引擎解压完成: {}", path_str);
-        return Ok(EngineRuntime::Bundled { exe_path: path_str });
+        return Ok(path_str);
     }
 
     if let Some(engine_path) = paths::get_resource_engine_exe_path(app_handle) {
         let path_str = paths::strip_win_prefix(&engine_path);
         log::info!("找到资源目录引擎: {}", path_str);
-        return Ok(EngineRuntime::Bundled { exe_path: path_str });
+        return Ok(path_str);
     }
 
-    let python_path = find_python().await?;
-    Ok(EngineRuntime::Development { python_path })
+    Err(AppError::Asr(
+        "缺少本地语音引擎，请重新安装轻语 Whisper。".into(),
+    ))
 }
 
 async fn extract_engine_archive(
@@ -143,7 +123,7 @@ async fn extract_engine_archive(
                 return Err(AppError::Asr("引擎归档缺少 engine.exe".to_string()));
             }
 
-            let fingerprint = expected_engine_install_fingerprint(&handle);
+            let fingerprint = ENGINE_ARCHIVE_FINGERPRINT;
             paths::atomic_write(
                 staging_dir.join(".version").as_path(),
                 fingerprint.as_bytes(),
@@ -319,65 +299,4 @@ fn report_extract_progress(
             );
         }
     });
-}
-
-async fn find_python() -> Result<String, AppError> {
-    let mut venv_candidates = vec![PathBuf::from(".venv"), PathBuf::from("..").join(".venv")];
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            venv_candidates.push(exe_dir.join("..").join("..").join("..").join(".venv"));
-            venv_candidates.push(
-                exe_dir
-                    .join("..")
-                    .join("..")
-                    .join("..")
-                    .join("..")
-                    .join(".venv"),
-            );
-        }
-    }
-
-    for venv_dir in &venv_candidates {
-        let venv_python = venv_dir.join("Scripts").join("python.exe");
-
-        if tokio::fs::try_exists(&venv_python).await.unwrap_or(false) {
-            let path_str = to_normalized_path(&venv_python);
-            log::info!("找到虚拟环境 Python: {}", path_str);
-            return Ok(path_str);
-        }
-    }
-
-    let python_names = vec!["python.exe", "python3.exe", "python"];
-
-    for name in &python_names {
-        let check_cmd = Command::new("where").arg(name).output().await;
-
-        if let Ok(output) = check_cmd {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-
-                if !path.is_empty() {
-                    let version_check = Command::new(&path).arg("--version").output().await;
-
-                    if let Ok(ver_output) = version_check {
-                        if ver_output.status.success() {
-                            let version = String::from_utf8_lossy(&ver_output.stdout);
-                            log::info!("找到系统 Python: {} ({})", path, version.trim());
-                            return Ok(path);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Err(AppError::Asr(
-        "未找到可用的 Python 解释器。请安装 Python 3.8+ 或在项目目录创建 .venv 虚拟环境（推荐使用 uv）。"
-            .to_string(),
-    ))
 }

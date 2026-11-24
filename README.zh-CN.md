@@ -89,6 +89,7 @@ light-whisper transcribe "sample.wav"
 
 [构建与排障](docs/development.md) · [发版流程](docs/releasing.md) · [R2T2 后端](docs/r2t2-native.md) · [形式验证](formal/README.md) · [更新记录](CHANGELOG.md)
 
-应用使用 Tauri、React 和 Rust，两个本地识别引擎均使用 audio.cpp。
+应用使用 Tauri、React 和 Rust。Rust 引擎通过 audio.cpp 运行两个本地识别模型，
+使用 ONNX Runtime 检测语音活动。独立 CLI 也是原生 Rust 可执行文件。
 
 Light-Whisper 是采用 [GPL-3.0-only](LICENSE) 许可证的开源软件。第三方代码与模型继续适用各自条款，详见 [NOTICE](NOTICE) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

@@ -178,7 +178,7 @@ class NativeStartupTests(unittest.TestCase):
                 "model.gguf",
                 "audiocpp.dll",
                 backend="cuda",
-                chunk_ms=160,
+                chunk_ms=320,
                 rolling=True,
             )
 
@@ -293,10 +293,11 @@ class NativeStartupTests(unittest.TestCase):
 
 
 class TypedWarmupRuntime:
-    def __init__(self, server, backend, fail_stage=None):
+    def __init__(self, server, backend, chunk_ms=320, fail_stage=None):
         self.server = server
         self.backend = backend
-        self.chunk_samples = 2560 if backend == "cuda" else 5120
+        self.chunk_ms = chunk_ms
+        self.chunk_samples = chunk_ms * 16
         self.fail_stage = fail_stage
         self.events = []
         self.closed = False
@@ -333,10 +334,11 @@ class ServerWarmupTests(unittest.TestCase):
 
     @staticmethod
     def _factory(server, instances, fail_stage=None):
-        def construct(_model_path, _library_path, *, backend, **_kwargs):
+        def construct(_model_path, _library_path, *, backend, chunk_ms=320, **_kwargs):
             runtime = TypedWarmupRuntime(
                 server,
                 backend,
+                chunk_ms=chunk_ms,
                 fail_stage=fail_stage if backend == "cuda" else None,
             )
             instances.append(runtime)
@@ -357,11 +359,12 @@ class ServerWarmupTests(unittest.TestCase):
         self.assertEqual(len(instances), 1)
         runtime = instances[0]
         self.assertEqual(runtime.backend, "cuda")
+        self.assertEqual(runtime.chunk_ms, 160)
         self.assertEqual([event[0] for event in runtime.events], ["start", "feed", "reset"])
         self.assertTrue(all(event[1] is None for event in runtime.events))
         feed = runtime.events[1][2]
         self.assertEqual(feed.dtype, np.dtype(np.float32))
-        self.assertEqual(feed.shape, (runtime.chunk_samples,))
+        self.assertEqual(feed.shape, (2560,))
         np.testing.assert_array_equal(feed, np.zeros(runtime.chunk_samples, dtype=np.float32))
         self.assertIs(server.native, runtime)
         self.assertFalse(runtime.closed)

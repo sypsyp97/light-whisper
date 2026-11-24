@@ -1,6 +1,5 @@
-"""Measured artifact-verification gap through a real readable CArchive."""
+"""Artifact verification boundaries and CLI regressions."""
 
-import marshal
 import struct
 import unittest
 
@@ -82,61 +81,36 @@ runpy.run_path(str(script), run_name="__main__")
 
 
 class ArtifactSignatureTests(unittest.TestCase):
-    def test_readable_archive_with_invalid_pe_signature_is_rejected(self):
-        fixture = packaging.CliArtifactTests("runTest")
-        self.addCleanup(fixture.doCleanups)
-        fixture.setUp()
-        fixture.archive()
-        original = fixture.output.read_bytes()
-        offset = struct.unpack_from("<I", original, 0x3C)[0]
-        for signature in (b"PX\0\0", b"NE\0\0", b"PE\1\0", b"\0\0\0\0"):
-            with self.subTest(signature=signature):
-                fixture.output.write_bytes(original[:offset] + signature + original[offset + 4:])
-                reader = packaging.CArchiveReader(str(fixture.output))
-                self.assertEqual(reader.extract("package.json"), fixture.package.read_bytes())
-                with self.assertRaises(ValueError) as raised:
-                    fixture.module.verify_cli(fixture.output)
-                self.assertTrue(str(raised.exception))
+    def setUp(self):
+        self.fixture=packaging.CliArtifactTests("runTest")
+        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.setUp()
 
+    def verify(self,payload):
+        self.fixture.exe.write_bytes(packaging.executable("cli",packaging.FIRST,payload))
+        return self.fixture.builder.verify_cli(self.fixture.exe)
 
-    def test_readable_archive_with_low_pe_offset_is_rejected(self):
-        fixture = packaging.CliArtifactTests("runTest")
-        self.addCleanup(fixture.doCleanups)
-        fixture.setUp()
-        fixture.archive()
-        original = fixture.output.read_bytes()
-        for offset in (0, 1, 63):
-            with self.subTest(offset=offset):
-                artifact = bytearray(original)
-                struct.pack_into("<I", artifact, 0x3C, offset)
-                fixture.output.write_bytes(artifact)
-                reader = packaging.CArchiveReader(str(fixture.output))
-                self.assertEqual(reader.extract("package.json"), fixture.package.read_bytes())
-                self.assertEqual(marshal.loads(reader.extract(packaging.ENTRY_NAME)),
-                                 compile(packaging.SOURCE, "light_whisper_cli.py", "exec", optimize=0))
-                with self.assertRaisesRegex(ValueError, "invalid PE header"):
-                    fixture.module.verify_cli(fixture.output)
+    def test_stamped_image_with_invalid_pe_signature_is_rejected(self):
+        payload=bytearray(packaging.pe_image())
+        offset=struct.unpack_from("<I",payload,0x3c)[0]
+        for signature in (b"PX\0\0",b"NE\0\0",b"PE\1\0",b"\0"*4):
+            with self.subTest(signature=signature),self.assertRaises(ValueError):
+                payload[offset:offset+4]=signature
+                self.verify(payload)
 
-    def test_readable_archive_with_boundary_pe_offset_is_accepted(self):
-        fixture = packaging.CliArtifactTests("runTest")
-        self.addCleanup(fixture.doCleanups)
-        fixture.setUp()
-        fixture.archive()
-        original = fixture.output.read_bytes()
-        header = bytearray(68)
-        header[:2] = b"MZ"
-        struct.pack_into("<I", header, 0x3C, 64)
-        header[64:68] = b"PE\0\0"
-        fixture.output.write_bytes(bytes(header) + original[132:])
-        reader = packaging.CArchiveReader(str(fixture.output))
-        self.assertEqual(reader.extract("package.json"), fixture.package.read_bytes())
-        self.assertEqual(marshal.loads(reader.extract(packaging.ENTRY_NAME)),
-                         compile(packaging.SOURCE, "light_whisper_cli.py", "exec", optimize=0))
-        try:
-            report = fixture.module.verify_cli(fixture.output)
-        except ValueError as error:
-            self.fail(f"Valid PE offset 64 was rejected: {error}")
-        fixture.report(report, fixture.output)
+    def test_stamped_image_with_low_pe_offset_is_rejected(self):
+        for offset in (0,1,63):
+            with self.subTest(offset=offset),self.assertRaises(ValueError):
+                payload=bytearray(packaging.pe_image())
+                struct.pack_into("<I",payload,0x3c,offset)
+                self.verify(payload)
+
+    def test_stamped_image_with_boundary_pe_offset_is_accepted(self):
+        original=packaging.pe_image()
+        payload=bytearray(original[:64]+original[128:])
+        struct.pack_into("<I",payload,0x3c,64)
+        report=self.verify(payload)
+        self.assertEqual(report["size"],self.fixture.exe.stat().st_size)
 
 
 class PublicCliGapTests(support.BackendCase):

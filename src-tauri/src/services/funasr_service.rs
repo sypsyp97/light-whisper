@@ -28,9 +28,9 @@ pub(crate) mod ipc_recovery_tests;
 #[cfg(all(test, target_os = "windows"))]
 mod audio_processing_start_tests;
 
+pub use installation::find_engine;
 #[cfg(test)]
 use installation::{engine_install_fingerprint_matches, replace_engine_dir};
-pub use installation::{find_engine, EngineRuntime};
 pub use protocol::ServerCommand;
 use protocol::{read_json_response, read_json_response_matching, ServerResponse};
 
@@ -259,9 +259,7 @@ fn report_model_repo_file_state(
 fn configure_server_environment(cmd: &mut Command, engine: &str, gpu_idle_seconds: u64) {
     let data_dir = paths::strip_win_prefix(paths::get_data_dir());
     let models_dir = paths::strip_win_prefix(&paths::get_effective_models_dir());
-    cmd.env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUTF8", "1")
-        .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
+    cmd.env("LIGHT_WHISPER_DATA_DIR", &data_dir)
         .env("LIGHT_WHISPER_ASR_ENGINE", engine)
         .env(
             "LIGHT_WHISPER_AUDIO_PROCESSING",
@@ -344,42 +342,9 @@ pub async fn start_server(app_handle: &tauri::AppHandle, state: &AppState) -> Re
     }
 
     let gpu_idle_at_spawn = paths::read_gpu_idle_seconds();
-    let mut cmd = match &runtime {
-        EngineRuntime::Bundled { exe_path } => {
-            log::info!("使用打包引擎: {} (engine={})", exe_path, ticket.engine);
-            let mut c = Command::new(exe_path);
-            c.arg("serve").arg("--engine").arg(&ticket.engine);
-            c
-        }
-        EngineRuntime::Development { python_path } => {
-            log::info!("使用开发模式 Python: {}", python_path);
-            let server_script = match ticket.engine.as_str() {
-                "confucius4-r2t2" => paths::get_r2t2_asr_server_path(app_handle),
-                engine if engine.starts_with("qwen3-asr-") => {
-                    paths::get_qwen3_asr_server_path(app_handle)
-                }
-                engine => return Err(AppError::Asr(format!("不支持的本地 ASR 引擎: {engine}"))),
-            };
-            let server_script_str = paths::strip_win_prefix(&server_script);
-            log::info!(
-                "语音识别脚本路径 (engine={}): {}",
-                ticket.engine,
-                server_script_str
-            );
-
-            if !server_script.exists() {
-                return Err(AppError::Asr(format!(
-                    "FunASR 服务器脚本不存在: {}",
-                    server_script_str
-                )));
-            }
-
-            let mut c = Command::new(python_path);
-            c.arg("-X").arg("utf8").arg("-u").arg(&server_script_str);
-            c
-        }
-    };
-
+    log::info!("使用本地语音引擎: {} (engine={})", runtime, ticket.engine);
+    let mut cmd = Command::new(runtime);
+    cmd.arg("serve").arg("--engine").arg(&ticket.engine);
     configure_server_environment(&mut cmd, &ticket.engine, gpu_idle_at_spawn);
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

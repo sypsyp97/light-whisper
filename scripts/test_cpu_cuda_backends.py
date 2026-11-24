@@ -392,74 +392,36 @@ class CpuCudaNativeBuildTests(unittest.TestCase):
 
 class CpuCudaPackageTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
-        self.resources = self.root / "resources"
-        self.resources.mkdir()
-        self.module = load_build_engine_module()
-        self.module.PROJECT_ROOT = self.root
-        self.module.RESOURCES_DIR = self.resources
-        self.module.ADD_DATA_FILES = ["engine.py"]
-        self.module.ENTRY_SCRIPT = self.resources / "engine.py"
-        self.module.ENTRY_SCRIPT.write_bytes(b"# synthetic engine\n")
-        self.module.DIST_DIR = self.root / "dist"
-        self.module.OUTPUT_ARCHIVE = self.resources / "engine.tar.xz"
-        self.module.WINDOWS_MANIFEST = self.root / "missing-manifest.xml"
-        self.archive = self.root / "reused.tar.xz"
-        self.members = {"_internal/engine.py": self.module.ENTRY_SCRIPT.read_bytes()}
-        for backend in ("cpu", "cuda"):
-            self.members.update(self.native_members(backend, write_source=True))
-        self.enterContext(mock.patch.object(importlib.metadata, "version", return_value="0.1.3"))
-        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
-        self.enterContext(contextlib.redirect_stderr(io.StringIO()))
+        from native_package_fixture import EngineFixture
+        tmp=tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root=Path(tmp.name)
+        self.module=load_build_engine_module()
+        self.fixture=EngineFixture(self,self.module,self.root)
+        self.resources=self.fixture.resources
+        self.archive=self.fixture.archive
+        self.members=self.fixture.sources|self.fixture.native
 
-    def native_members(self, backend, *, write_source=False):
-        library = f"synthetic {backend} library".encode()
-        reuse_library = f"synthetic {backend} enhancement library".encode()
-        manifest = {
-            "backend": backend, "build_id": self.module.R2T2_BUILD_ID,
-            "revision": self.module.R2T2_REVISION,
-            "patch_sha256": hashlib.sha256(self.module.R2T2_PATCH.read_bytes()).hexdigest(),
-            "reuse_source_sha256": source_fingerprint(),
-            "files": {
-                "audiocpp.dll": {"size": len(library), "sha256": hashlib.sha256(library).hexdigest()},
-                "reuse.dll": {"size": len(reuse_library), "sha256": hashlib.sha256(reuse_library).hexdigest()},
-            },
-        }
-        files = {"audiocpp.dll": library, "reuse.dll": reuse_library,
-                 "runtime-manifest.json": json.dumps(manifest).encode()}
-        if write_source:
-            directory = self.resources / "r2t2-native" / backend
-            directory.mkdir(parents=True)
-            for name, data in files.items():
-                (directory / name).write_bytes(data)
-        return {f"_internal/r2t2-native/{backend}/{name}": data for name, data in files.items()}
+    def native_members(self,backend,*,write_source=False):
+        return self.fixture.make_backend(backend,write_source)
 
-    def package(self, members=None):
-        with tarfile.open(self.archive, "w:xz") as archive:
-            for name, data in (self.members if members is None else members).items():
-                member = tarfile.TarInfo(name)
-                member.size = len(data)
-                archive.addfile(member, io.BytesIO(data))
+    def package(self,members=None):
+        self.fixture.package(self.members if members is None else members)
 
     def test_cpu_cuda_sources_validate_without_vulkan(self):
-        try:
-            actual = self.module.validate_r2t2_runtime()
-        except RuntimeError as error:
-            self.fail(f"Current CPU/CUDA-only source package rejected: {error}")
-        self.assertEqual(actual, self.resources / "r2t2-native")
+        stage=self.root/"stage"
+        self.module.copy_native(stage)
+        self.assertEqual({p.name for p in (stage/"_internal/r2t2-native").iterdir()},{"cpu","cuda"})
 
-    def test_stale_extra_local_vulkan_directory_does_not_block_cpu_cuda_validation(self):
-        directory = self.resources / "r2t2-native/vulkan"
-        directory.mkdir()
-        (directory / "runtime-manifest.json").write_text('{"backend":"retired"}', encoding="utf-8")
-        (directory / "audiocpp.dll").write_bytes(b"old local native package")
-        try:
-            actual = self.module.validate_r2t2_runtime()
-        except RuntimeError as error:
-            self.fail(f"Unselected retired local package blocked CPU/CUDA: {error}")
-        self.assertEqual(actual, directory.parent)
+    def test_unselected_stale_local_vulkan_tree_is_neither_published_nor_mutated(self):
+        old=self.resources/"r2t2-native/vulkan/retired.dll"
+        old.parent.mkdir()
+        old.write_bytes(b"old independent payload")
+        stage=self.root/"stage"
+        self.module.stage_engine(stage)
+        self.assertFalse((stage/"_internal/r2t2-native/vulkan").exists())
+        self.assertEqual(old.read_bytes(),b"old independent payload")
+        self.assertTrue(all((stage/"_internal/r2t2-native"/b/"audiocpp.dll").is_file() for b in ("cpu","cuda")))
 
     def test_current_cpu_cuda_archive_passes_without_retired_backend(self):
         self.package()
@@ -470,7 +432,7 @@ class CpuCudaPackageTests(unittest.TestCase):
 
     def test_old_three_backend_archive_is_rejected_even_with_valid_vulkan_manifest(self):
         self.package({**self.members, **self.native_members("vulkan")})
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises((RuntimeError,ValueError)):
             self.module.verify_archive_sources(self.archive)
 
     def test_retired_subtrees_and_dlls_are_rejected_with_normalized_slashes_and_case(self):
@@ -488,73 +450,18 @@ class CpuCudaPackageTests(unittest.TestCase):
         ):
             with self.subTest(member=name):
                 self.package({**self.members, name: b"retired library"})
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises((RuntimeError,ValueError)):
                     self.module.verify_archive_sources(self.archive)
 
-    def test_main_selects_each_backend_directory_without_collecting_stale_vulkan_tree(self):
-
-        self.native_members("vulkan", write_source=True)
-        with mock.patch.object(self.module.subprocess, "run", return_value=SimpleNamespace(returncode=23)) as run:
-            with self.assertRaises(SystemExit) as stopped:
-                self.module.main()
-        self.assertEqual(stopped.exception.code, 23)
-        command = run.call_args.args[0]
-        selected = [command[index + 1] for index, arg in enumerate(command) if arg == "--add-data"]
-        native = [(Path(source), destination.replace("\\", "/"))
-                  for value in selected if "r2t2-native" in value
-                  for source, destination in [value.rsplit(os.pathsep, 1)]]
-        self.assertCountEqual(native, [
-            (self.resources / "r2t2-native" / backend, f"r2t2-native/{backend}")
-            for backend in ("cpu", "cuda")
-        ])
-
-    def test_main_prunes_only_retired_collected_dlls_before_compression_preserving_source_wheel(self):
-
-        self.native_members("vulkan", write_source=True)
-        wheel = self.root / "source-wheel"
-        retained = {
-            "engine.exe": b"synthetic executable",
-            "_internal/r2t2-native/cpu/audiocpp.dll": b"CPU library",
-            "_internal/r2t2-native/cuda/audiocpp.dll": b"CUDA library",
-            "_internal/onnxruntime/capi/onnxruntime_pybind11_state.pyd": b"ORT pybind",
-            "_internal/onnxruntime/capi/onnxruntime_providers_shared.dll": b"ORT shared provider",
-            "_internal/onnxruntime/capi/onnxruntime_providers_future.dll": b"future ORT provider",
-            "_internal/kaldi_native_fbank/LICENSE": b"Kaldi license",
-            "_internal/data/vulkan_settings.json": b"ordinary data",
-        }
-        retired = {
-            "_internal/plugins/ggml-vulkan.dll": b"retired Vulkan",
-            "_internal/plugins/VULKAN-1.DLL": b"retired Vulkan loader",
-            "_internal/plugins/nested/GGML-VULKAN.DLL": b"nested retired copy",
-            "_internal/vulkan-1.dll": b"root retired loader",
-        }
-        for relative, data in {**retained, **retired}.items():
-            path = wheel / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
-
-        def snapshot(directory):
-            return {path.relative_to(directory).as_posix(): path.read_bytes()
-                    for path in directory.rglob("*") if path.is_file()}
-
-        before = snapshot(wheel)
-        captured = {}
-
-        def fake_collect(_command):
-            shutil.copytree(wheel, self.module.DIST_DIR / "engine")
-            return SimpleNamespace(returncode=0)
-
-        def capture_compression(directory, output):
-            captured.update(snapshot(directory))
-            output.write_bytes(b"synthetic nonempty archive")
-            return 1.0
-
-        with mock.patch.object(self.module.subprocess, "run", side_effect=fake_collect), \
-             mock.patch.object(self.module, "create_tar_xz", side_effect=capture_compression):
-            self.module.main()
-        self.assertEqual(captured, retained)
-        self.assertEqual(snapshot(wheel), before, "package pruning modified source wheel files")
+    def test_native_assembly_leaves_source_packages_intact(self):
+        snapshot=lambda:{p.relative_to(self.resources):p.read_bytes() for p in self.resources.rglob("*") if p.is_file()}
+        before=snapshot()
+        stage=self.root/"stage"
+        self.module.stage_engine(stage)
+        self.assertEqual(snapshot(),before)
+        self.assertTrue((stage/"engine.exe").is_file())
+        self.assertFalse(any(p.suffix in (".py",".pyd") for p in stage.rglob("*")))
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
     unittest.main()

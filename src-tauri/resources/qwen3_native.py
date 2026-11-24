@@ -64,6 +64,9 @@ class QwenPreviewRuntime:
 
     supports_preview_suppression = True
 
+    PREVIEW_CADENCE_GROWTH_SAMPLES = 4 * NativeRuntime.SAMPLE_RATE
+    PREVIEW_CADENCE_GROWTH = (8, 5)
+
     def __init__(self, transcribe, *, sample_rate=16000, preview_samples=3200,
                  window_samples=192000):
         for name, value in (('sample_rate', sample_rate),
@@ -112,8 +115,16 @@ class QwenPreviewRuntime:
         window = np.concatenate((self._window, captured[-self._window_samples:]))
         self._window = window[-self._window_samples:].copy()
         self._new_samples += len(captured)
-        threshold = self._preview_samples if self._has_preview else self._startup_preview_samples
+        threshold = self._preview_threshold()
         return preview and self._new_samples >= threshold
+
+    def _preview_threshold(self):
+        if not self._has_preview:
+            return self._startup_preview_samples
+        if self._sample_count < self.PREVIEW_CADENCE_GROWTH_SAMPLES:
+            return self._preview_samples
+        numerator, denominator = self.PREVIEW_CADENCE_GROWTH
+        return self._preview_samples * numerator // denominator
 
     def _publish_preview(self, result, sample_count):
         self._preview_text = result.text

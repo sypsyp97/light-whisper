@@ -21,8 +21,30 @@ Model files are downloaded separately and
 remain subject to the terms published by their respective upstream providers.
 
 Package-manager dependencies may carry additional licenses. Their inclusion in
-the source tree, Python engine, or application bundle does not change those
+the source tree, native engine, or application bundle does not change those
 licenses.
+
+## Native VAD and audio decoding
+
+The engine uses the Microsoft.ML.OnnxRuntime 1.24.1 Windows x64 C API for
+FireRedVAD. The package includes Microsoft's MIT license and the NuGet
+package's ThirdPartyNotices.txt in `_internal/licenses/`.
+[ONNX Runtime license](docs/licenses/ONNXRuntime-LICENSE.txt)
+
+The bundled kaldi-native-fbank 1.22.3 core uses Apache-2.0. Its Windows
+wheel supplies the distributed DLL and license. Its statically linked KissFFT
+dependency is copyright Mark Borgerding and distributed under BSD-3-Clause.
+The engine archive includes both notices.
+[KissFFT notice](docs/licenses/KissFFT-LICENSE.txt)
+
+The libsndfile DLL used for file decoding comes from the locked Windows
+SoundFile wheel. Its LGPL license accompanies the DLL in
+`_internal/_soundfile_data/COPYING`.
+
+The RE-USE audio processing crate uses the pocketfft implementation from
+NumPy. Its source tree and the engine archive carry both the pocketfft and
+NumPy notices. [pocketfft license](rust-runtime/crates/reuse/native/LICENSE-pocketfft.md)
+[NumPy license](rust-runtime/crates/reuse/native/LICENSE-numpy.txt)
 
 ## NVIDIA RE-USE audio processing
 

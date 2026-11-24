@@ -22,6 +22,19 @@ from server_common import (
 
 logger = setup_rotating_logger(__name__, "r2t2_asr_server.log", "R2T2服务器")
 
+
+def open_r2t2_runtime(model_path, library_path, *, backend, dll_directories=(), threads=None):
+    cuda = backend == "cuda"
+    return NativeRuntime(model_path, library_path, backend=backend, rolling=True,
+                         chunk_ms=160 if cuda else 320, adaptive_cadence=cuda,
+                         dll_directories=dll_directories, threads=threads)
+
+
+def make_r2t2_segmented(native, vad):
+    return SegmentedR2T2(native, vad, chunk_samples=getattr(native, "chunk_samples", 5120),
+                         max_segment_samples=None)
+
+
 class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
 
 
@@ -111,16 +124,10 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
             try:
                 logger.info("R2T2 %s 后端开始加载与预热", backend)
                 backend_root = runtime_root / backend
-                candidate = NativeRuntime(
+                candidate = open_r2t2_runtime(
                     model_path,
                     backend_root / "audiocpp.dll",
                     backend=backend,
-
-
-                    chunk_ms=160 if backend == "cuda" else 320,
-                    rolling=True,
-
-
                     dll_directories=(runtime_root.parent,),
                 )
                 if backend == "cuda":
@@ -183,12 +190,7 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
                 self._load_runtime(model_path)
                 if self.vad_model is None:
                     self.vad_model = FireRedVad()
-                self.segmented = SegmentedR2T2(
-                    self.native,
-                    self.vad_model,
-                    chunk_samples=getattr(self.native, "chunk_samples", 5120),
-                    max_segment_samples=None,
-                )
+                self.segmented = make_r2t2_segmented(self.native, self.vad_model)
                 self._load_audio_processor()
                 self.stream = R2T2StreamSession(
                     self.segmented, audio_processor=getattr(self, "_audio_processor", None)
@@ -284,12 +286,7 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
             if processor is not None:
                 audio = processor.enhance(audio)
 
-            segmented = SegmentedR2T2(
-                self.native,
-                self.vad_model,
-                chunk_samples=max(1, int(getattr(self.native, "chunk_samples", 5120))),
-                max_segment_samples=None,
-            )
+            segmented = make_r2t2_segmented(self.native, self.vad_model)
             started = time.perf_counter()
             with self.stdout_suppressor.suppress():
                 segmented.start(context=context, language=language)

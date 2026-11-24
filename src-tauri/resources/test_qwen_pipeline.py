@@ -8,6 +8,7 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 import weakref
 
 import numpy as np
@@ -231,10 +232,20 @@ class QwenPipelineTests(unittest.TestCase):
         self.assertEqual(len(native.calls), 2)
         self.assert_native(native.calls[0], pcm[:3200])
         self.assert_native(native.calls[1], pcm)
-        final = self.caller.submit(runtime.finish)
-        self.assertFalse(final.done.is_set(), "finish must wait for its exact active preview")
-        native.release[2].set()
-        self.assertEqual(final.result(), ("latest draft", "Chinese"))
+        finish_waiting = threading.Event()
+        condition_wait = runtime._condition.wait
+
+        def observe_wait(timeout=None):
+            if threading.current_thread() is self.caller.thread:
+                finish_waiting.set()
+            return condition_wait(timeout)
+
+        with mock.patch.object(runtime._condition, "wait", new=observe_wait):
+            final = self.caller.submit(runtime.finish)
+            self.assertTrue(finish_waiting.wait(TIMEOUT),
+                            "finish must reach its wait while the exact preview is running")
+            native.release[2].set()
+            self.assertEqual(final.result(), ("latest draft", "Chinese"))
         self.assertEqual(len(native.calls), 2, "exact full preview should be reused")
         self.assertEqual(native.max_active, 1)
         self.assertEqual(len({call[2] for call in native.calls}), 1,

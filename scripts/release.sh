@@ -167,11 +167,11 @@ run_local_checks() {
 }
 
 prepare_engine() {
-    echo "[3/9] 准备 Python 引擎"
+    echo "[3/9] 准备 Rust 引擎"
     if [[ "$ENGINE_MODE" == "--rebuild-engine" ]]; then
         uv run --locked python scripts/build_engine.py
     else
-        echo "复用现有引擎归档；仅适用于 Python ASR 运行时代码未变化的补丁版本。"
+        echo "复用现有引擎归档；构建将校验 Rust 源码指纹、运行库和模型资源。"
     fi
 }
 

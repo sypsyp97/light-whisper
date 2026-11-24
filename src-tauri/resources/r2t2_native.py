@@ -26,13 +26,15 @@ class NativeRuntime:
     FINISH_CONTEXT_SAMPLES = SAMPLE_RATE * 320 // 1000
 
     def __init__(self, model_path, library_path, *, backend='cuda', chunk_ms=320,
-                 threads=None, dll_directories=(), rolling=False,
+                 threads=None, dll_directories=(), rolling=False, adaptive_cadence=False,
                  family='confucius4_r2t2', mode='streaming'):
         self._display_name = 'R2T2' if family == 'confucius4_r2t2' else 'Qwen3-ASR'
         if backend not in ('cpu', 'cuda'):
             raise ValueError(f'Unsupported {self._display_name} backend')
         if not isinstance(rolling, bool):
             raise ValueError('rolling must be a boolean')
+        if not isinstance(adaptive_cadence, bool):
+            raise ValueError('adaptive_cadence must be a boolean')
         if threads is None:
             try:
                 threads = int(os.environ.get('LIGHT_WHISPER_NATIVE_THREADS', '4'))
@@ -46,6 +48,7 @@ class NativeRuntime:
         if not isinstance(chunk_ms, int) or isinstance(chunk_ms, bool) or not 80 <= chunk_ms <= 2000:
             raise ValueError('chunk_ms must be an integer from 80 to 2000')
         self.chunk_samples = chunk_ms * 16
+        self.steady_chunk_samples = self.chunk_samples
         self.registry = ct.c_void_p()
         self.model = ct.c_void_p()
         self.session = ct.c_void_p()
@@ -90,6 +93,9 @@ class NativeRuntime:
                         self._call('options_set', options, b'confucius4_r2t2.rollback_punctuation', b'true')
                     if coalesced_finish:
                         self._call('options_set', options, b'confucius4_r2t2.coalesced_finish', b'true')
+                        if adaptive_cadence and chunk_ms == 160 and self._supports_adaptive_cadence:
+                            self._call('options_set', options, b'confucius4_r2t2.adaptive_cadence', b'true')
+                            self.steady_chunk_samples = 2 * self.chunk_samples
                 self._call('session_create', self.model, b'asr', mode.encode('utf-8'),
                            ct.byref(_BackendConfig(backend.encode(), 0, threads)), options,
                            ct.byref(self.session))
@@ -113,6 +119,7 @@ class NativeRuntime:
             and (abi >> 8) & 0xff >= 4
         )
         self._supports_coalesced_finish = (abi >> 8) & 0xff >= 5
+        self._supports_adaptive_cadence = (abi >> 8) & 0xff >= 6
         signatures = {
             'abi_version': (ct.c_uint32, []),
             'last_error': (S, []),

@@ -80,7 +80,7 @@ function Invoke-CapturedProcess {
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-            # Stop only this owned process tree, including a frozen CLI's extraction child.
+            # Stop only this owned process tree, including any child it started.
             & (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $process.Id /T /F *> $null
             if (-not $process.WaitForExit(5000)) { throw 'An owned smoke-test process could not be stopped.' }
             throw 'A smoke-test process exceeded its deadline.'
@@ -130,11 +130,11 @@ function Assert-InstalledCommands {
         $result = Invoke-ShellCommand $shell 'light-whisper doctor' ($prefix + '-doctor')
         if ($result.Code -ne 0) { throw 'The installed plain command doctor failed.' }
         $doctor = $result.Output | ConvertFrom-Json
-        if ($doctor.success -ne $true -or $doctor.frozen -ne $true -or
+        if ($doctor.success -ne $true -or $doctor.cli_runtime -cne 'rust' -or $doctor.frozen -ne $false -or
             $doctor.version -cne $ExpectedVersion -or $doctor.target -cne 'app' -or
             $doctor.runtime -ine $desktop -or $doctor.runtime_present -ne $true -or
             $doctor.app_protocol_supported -ne $true -or $doctor.model_load_checked -ne $false) {
-            throw 'The frozen CLI version or actual desktop discovery contract failed.'
+            throw 'The native CLI version or actual desktop discovery contract failed.'
         }
         $help = Invoke-ShellCommand $shell 'light-whisper --help' ($prefix + '-help')
         if ($help.Code -ne 0 -or [string]::IsNullOrWhiteSpace($help.Output)) { throw 'Plain command help failed.' }

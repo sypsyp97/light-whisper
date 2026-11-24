@@ -18,7 +18,7 @@ light-whisper doctor
 The installed CLI does not need Python or Node.js.
 Uninstalling the application removes its command entry. Other PATH entries,
 settings and history are preserved.
-For a source checkout, use `pnpm --silent cli` or `python scripts/light_whisper_cli.py`.
+From a source checkout, use `pnpm --silent cli` to run the Rust CLI.
 Put global options before the command.
 
 ## Select a target
@@ -26,10 +26,10 @@ Put global options before the command.
 | Target | Behavior | Requirements |
 | --- | --- | --- |
 | `app` | Connect to the current desktop instance. | A compatible desktop application must be in operation. |
-| `engine` | Start and own a separate local engine process. | An installed engine or a prepared source environment and local model files. |
+| `engine` | Start and own a separate local engine process. | A native engine executable, its runtime libraries and local model files. |
 
 The default target is `app`.
-The options `--engine`, `--python`, `--engine-exe` and `--data-dir` select `engine`.
+The options `--engine`, `--engine-exe` and `--data-dir` select `engine`.
 Use `--app-exe` to select a desktop executable.
 Incompatible target options produce an error before a process starts.
 
@@ -138,11 +138,11 @@ An admitted desktop operation can finish after its client disconnects.
 ```powershell
 $engineExe = Join-Path $env:APPDATA 'com.light-whisper.app\engine\engine.exe'
 light-whisper --engine-exe $engineExe --timeout 120 --threads 2 status
-pnpm --silent cli --python .venv/Scripts/python.exe --engine confucius4-r2t2 status
+pnpm --silent cli --engine-exe $engineExe --engine confucius4-r2t2 status
 ```
 
-Run the Python command from a prepared source checkout. The installed CLI uses
-an engine executable; it does not include the Python engine source files.
+The source and installed CLI both launch the native engine executable. To use a
+development build, point `--engine-exe` to the executable in its staged runtime directory.
 
 Independent mode sets the native inference thread budget to two by default.
 `--threads` changes this budget. It does not select CPU or GPU execution.
@@ -150,7 +150,7 @@ The bundled engine selects an available backend.
 It also uses offline model access.
 It does not download model files.
 It uses the saved model directory, then `HF_HOME/hub`, then the default Hugging Face cache.
-An explicit runtime path takes priority over automatic discovery.
+An explicit runtime path takes priority over automatic discovery. On first use, the installed CLI checks the desktop's cached native engine against the packaged archive. If the cache is missing or belongs to an older installation, the CLI extracts the archive under `cli-engines/<archive SHA-256>` in the app data directory. This also works while the older desktop engine is running. The `doctor` command only reports the available runtime.
 
 By default, each independent run uses a temporary data directory.
 The CLI removes that directory after its child exits.

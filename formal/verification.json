@@ -2415,6 +2415,121 @@
         "formal/cli-command-entry/README.md"
       ],
       "assumptions": "Two serialized install/uninstall calls, initially empty command ownership, representative ordered foreign tokens including empty and expandable entries, and a fixed preexisting reparse-point choice. Normal, missing-source, copy-error and registry-write-error outcomes and caller process-close admission/denial are bounded inputs. Admission remains valid until cleanup; an external desktop restart between the hook and template's repeated guard is excluded. Weak fairness assumes synchronous OS calls return. Uncooperative external concurrent PATH/filesystem writers, process crashes, permanently blocked OS calls, native PE/argument/stdio behavior, remaining NSIS wiring and environment broadcast are outside this finite model. Real PowerShell tests exercise owned temporary registry keys/files, not the real HKCU Environment entrypoint; Python discovery tests use a synthetic broker. The fresh-VM native installer smoke and hook source-order regression are distinct evidence and do not execute the interactive cancellation prompt. PowerShell/NSIS/native branch coverage and source mutation remain unmeasured. This is reviewed source/model correspondence, not compiler refinement or a whole-installer proof."
+    },
+    "r2t2-chunk-cadence": {
+      "obligation": "CPU uses fixed 320 ms, CUDA uses a fixed 160 ms Python input grain. ABI 0.6+ opted-in rolling CUDA doubles the native decode grain only after the first visible preview and keeps it until the segment ends. Reset or a new segment starts at 160 ms. Finish drains both Python and native real-audio remainders once. Rolling coalesced finish pads the frontend's private input to the smallest complete configured block after trimming, capping the block at 320 ms. Public and logical sample counts exclude this model-only padding.",
+      "models": {
+        "R2T2FinalAcousticWindow": [
+          "Drain",
+          "Prepare",
+          "CountConservation",
+          "MinimalFrontendWindow"
+        ],
+        "R2T2ChunkCadence": [
+          "TypeOK",
+          "CadenceMatchesPreviewHistory",
+          "SampleConservation",
+          "OnlyFullBlocksProcessed",
+          "FinishFlushesPendingOnce",
+          "PreviewExtendsCommitted",
+          "Load",
+          "Start",
+          "Feed",
+          "Pause",
+          "Reset",
+          "Finish"
+        ]
+      },
+      "implementation": [
+        "src-tauri/resources/r2t2_asr_server.py#def _load_runtime(",
+        "src-tauri/resources/r2t2_asr_server.py#def open_r2t2_runtime(",
+        "src-tauri/resources/r2t2_asr_server.py#def make_r2t2_segmented(",
+        "src-tauri/resources/r2t2_asr_server.py#def transcribe_audio(",
+        "src-tauri/resources/r2t2_segmented.py#def feed(",
+        "src-tauri/resources/r2t2_segmented.py#def finish(",
+        "src-tauri/resources/r2t2_segmented.py#def _process_block(",
+        "src-tauri/resources/r2t2_segmented.py#def _finish_segment(",
+        "src-tauri/resources/r2t2_native.py#class NativeRuntime:",
+        "src-tauri/resources/r2t2_native.py#def __init__(self, model_path, library_path,",
+        "src-tauri/resources/r2t2_native.py#def _bind(",
+        "scripts/patches/audio-cpp-r2t2-windows-streaming.patch#R2T2ASRSession::process_audio_chunk",
+        "scripts/patches/audio-cpp-r2t2-windows-streaming.patch#if (stream_config_.adaptive_cadence && !event.partial_text->preview_text.empty())",
+        "scripts/patches/audio-cpp-r2t2-windows-streaming.patch#R2T2ASRSession::decode_rolling_stream_chunk(bool final_flush)",
+        "scripts/patches/audio-cpp-r2t2-windows-streaming.patch#R2T2ASRSession::reset()",
+        "scripts/patches/audio-cpp-r2t2-windows-streaming.patch#R2T2ASRSession::finalize()"
+      ],
+      "evidence": [
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_cuda_runtime_requests_adaptive_160ms_input",
+        "src-tauri/resources/test_r2t2_stop_tail.py#test_rolling_stop_retains_last_spoken_word",
+        "scripts/test_r2t2_final_window.py",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_cpu_fallback_runtime_is_constructed_with_320ms_chunks",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_exact_chunk_is_processed_immediately_and_pending_is_empty",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_sub_chunk_feed_is_held_until_finish",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_three_collector_chunks_process_one_block_then_flush_remainder",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_five_collector_chunks_process_two_blocks_then_flush_remainder",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_one_and_a_half_blocks_process_one_block_and_flush_2560",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_8080_samples_process_one_block_and_flush_2960",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_finish_flushes_pending_exactly_once",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_submitted_text_is_append_only_across_collector_chunks",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_initialize_hands_cuda_input_grain_to_segmented_stream",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_cuda_collector_chunks_reach_native_individually",
+        "src-tauri/resources/test_r2t2_segmented.py#test_pause_splits_segments_preserves_context_and_joins_without_rewriting",
+        "src-tauri/resources/test_r2t2_finish_context.py#test_adaptive_cadence_negotiates_native_option_and_preserves_input_grain",
+        "src-tauri/resources/test_r2t2_chunk_cadence.py#test_real_cuda_decodes_startup_grains_then_pairs_until_segment_end"
+      ],
+      "assumptions": "One model unit is 80 ms. Up to ten units arrive, one Python input grain or less per Feed, for already admitted speech. The decoder may publish or retract speculative text. Reset represents cancellation followed by a new start. The live and file server paths disable the maximum segment limit. Pause abstracts a silence-triggered segment finish followed by the next admitted segment; final synthetic context is excluded from real-sample accounting. The opt-in CUDA test observes actual native partial-result availability at each 160 ms push. Oversized VAD pre-roll, acoustic content, decoder quality, device timing and failing DLL calls are outside the bounded model. The final-window model separately covers empty and small inputs and both sides of the 16 s rolling-window limit. It assumes a synchronous successful decode with a retained commit boundary at or before the 8 s trim target. Base grains span 80, 160, 240, 320 and 640 ms. The model checks frame accounting. The native source fixture checks interleaved PCM values, configured durations and nearest-frame rounding."
+    },
+    "qwen-preview-cadence": {
+      "obligation": "The Qwen3-ASR preview cadence adapts to the capture length: 1920 samples for the first preview, 3200 below 64000 samples (4 s) and 5120 from 64000 samples on, decided at the end of every _accept_pcm from the sample count that accept produced - never from the previous block's count. A replaced or cancelled preview job never publishes, finish() reuses the published text only when it covers the whole capture and the capture fits window_samples, otherwise the full capture is decoded, and reset() returns the startup state.",
+      "models": {
+        "QwenPreviewCadence": [
+          "TypeOK",
+          "PublicationIsCurrent",
+          "PreviewTextMatchesSampleCount",
+          "FinishReuseRequiresFullCoverage",
+          "ThresholdTracksSamples",
+          "GateObservesLatestCapture",
+          "ResetRestoresStartup",
+          "Start",
+          "AcceptPcm",
+          "Launch",
+          "Prepare",
+          "Run",
+          "Complete",
+          "Publish",
+          "Cancel",
+          "Finish",
+          "Reset"
+        ]
+      },
+      "implementation": [
+        "src-tauri/resources/qwen3_native.py#def _accept_pcm(",
+        "src-tauri/resources/qwen3_native.py#def feed(",
+        "src-tauri/resources/qwen3_native.py#def finish(",
+        "src-tauri/resources/qwen3_native.py#def reset(",
+        "src-tauri/resources/qwen3_native.py#def _submit(",
+        "src-tauri/resources/qwen3_native.py#def _collect_previews(",
+        "src-tauri/resources/qwen3_native.py#def _prepare_loop(",
+        "src-tauri/resources/qwen3_native.py#def _worker_loop("
+      ],
+      "evidence": [
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_startup_preview_still_fires_at_1920_samples",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_first_four_seconds_keep_the_3200_sample_cadence",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_cadence_relaxes_to_5120_samples_after_four_seconds",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_boundary_at_64000_switches_the_interval_inside_that_accept",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_reset_restores_startup_then_the_adaptive_cadence",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_finish_reuses_a_covering_preview_and_still_decodes_stale_tails",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_preview_window_is_still_the_last_192000_samples",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_final_decode_keeps_the_full_capture_and_sample_count",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_production_640_sample_chunks_fire_every_5_then_every_8_blocks",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_pipeline_cadence_after_four_seconds_matches_the_preview_runtime",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_pipeline_finish_reuses_the_covering_preview",
+        "src-tauri/resources/test_qwen_preview_cadence.py#test_pipeline_finish_decodes_the_full_capture_for_a_stale_tail",
+        "src-tauri/resources/test_qwen_pipeline.py#test_feed_acknowledges_during_native_and_only_latest_pending_runs",
+        "src-tauri/resources/test_qwen_preview_backlog.py#test_cancel_and_replacement_isolate_suppressed_audio_context_and_language",
+        "src-tauri/resources/test_qwen_preview_final_reuse.py#test_start_and_reset_discard_old_preview_before_a_new_short_capture"
+      ],
+      "assumptions": "Thresholds 1/2/3 and cutoff 4 preserve production ordering without a fixed samples-per-unit ratio. Each capture step adds one or two units, up to ten, with an eight-unit window. One live job and nonempty publications are modelled. Launch abstracts replacement of a queued snapshot in _submit or a prepared snapshot when the next preparation completes. The model omits overlapping jobs, suppression and thread scheduling. The base-class finish rule reuses published text covering the capture inside the window. The pipeline can also reuse an exact in-flight job, exercised by test_qwen_pipeline.py#test_feed_acknowledges_during_native_and_only_latest_pending_runs. Five safety controls cover stale publication, incomplete or out-of-window finish reuse, frozen thresholds and lagged threshold decisions. The separate witness requires a new queued job to identify the earlier job it replaced. These finite checks do not establish runtime latency."
     }
   },
   "runs": {
@@ -2628,6 +2743,15 @@
     ],
     "CatalogBodyRetry": [
       "CatalogBodyRetry.cfg"
+    ],
+    "R2T2ChunkCadence": [
+      "R2T2ChunkCadence.cfg"
+    ],
+    "R2T2FinalAcousticWindow": [
+      "R2T2FinalAcousticWindow.cfg"
+    ],
+    "QwenPreviewCadence": [
+      "QwenPreviewCadence.cfg"
     ]
   },
   "actions": {
@@ -2919,9 +3043,69 @@
     ],
     "CatalogBodyRetry": [
       "Read"
+    ],
+    "R2T2ChunkCadence": [
+      "Load",
+      "Start",
+      "Feed",
+      "Pause",
+      "Reset",
+      "Finish"
+    ],
+    "R2T2FinalAcousticWindow": [
+      "Drain",
+      "Prepare"
+    ],
+    "QwenPreviewCadence": [
+      "Start",
+      "AcceptPcm",
+      "Launch",
+      "Prepare",
+      "Run",
+      "Complete",
+      "Publish",
+      "Cancel",
+      "Finish",
+      "Reset"
     ]
   },
   "negative": [
+    {
+      "name": "r2t2-final-unpadded",
+      "model": "R2T2FinalAcousticWindow",
+      "replace": ["!.model = window + extra", "!.model = window"],
+      "invariant": "MinimalFrontendWindow"
+    },
+    {
+      "name": "r2t2-final-aligned-adds-block",
+      "model": "R2T2FinalAcousticWindow",
+      "replace": ["(block - (window % block)) % block", "(block - (window % block))"],
+      "invariant": "MinimalFrontendWindow"
+    },
+    {
+      "name": "r2t2-final-captured-padding",
+      "model": "R2T2FinalAcousticWindow",
+      "replace": ["!.model = window + extra", "!.model = window + extra, !.public = @ + extra"],
+      "invariant": "CountConservation"
+    },
+    {
+      "name": "r2t2-final-preview-padding",
+      "model": "R2T2FinalAcousticWindow",
+      "replace": ["extra == IF s.mode = \"finish\" THEN", "extra == IF TRUE THEN"],
+      "invariant": "MinimalFrontendWindow"
+    },
+    {
+      "name": "r2t2-final-pretrim-remainder",
+      "model": "R2T2FinalAcousticWindow",
+      "replace": ["(block - (window % block)) % block", "(block - (s.logical % block)) % block"],
+      "invariant": "MinimalFrontendWindow"
+    },
+    {
+      "name": "r2t2-final-uncapped-grain",
+      "model": "R2T2FinalAcousticWindow",
+      "replace": ["block == Cap(s.base)\n         extra", "block == s.base\n         extra"],
+      "invariant": "MinimalFrontendWindow"
+    },
     {
       "name": "cuda-architecture-omit-native",
       "model": "CudaArchitectureSelection",
@@ -4272,6 +4456,104 @@
         ""
       ],
       "property": "Finishes"
+    },
+    {
+      "name": "r2t2-chunk-cuda-320",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadenceCuda320Negative.cfg",
+      "invariant": "CadenceMatchesPreviewHistory"
+    },
+    {
+      "name": "r2t2-chunk-early-steady",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadenceEarlySteadyNegative.cfg",
+      "invariant": "CadenceMatchesPreviewHistory"
+    },
+    {
+      "name": "r2t2-chunk-never-steady",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadenceNeverSteadyNegative.cfg",
+      "invariant": "CadenceMatchesPreviewHistory"
+    },
+    {
+      "name": "r2t2-chunk-preview-unlatch",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadencePreviewUnlatchNegative.cfg",
+      "invariant": "CadenceMatchesPreviewHistory"
+    },
+    {
+      "name": "r2t2-chunk-restart-leak",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadenceRestartLeakNegative.cfg",
+      "invariant": "CadenceMatchesPreviewHistory"
+    },
+    {
+      "name": "r2t2-chunk-reset-leak",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadenceResetLeakNegative.cfg",
+      "invariant": "CadenceMatchesPreviewHistory"
+    },
+    {
+      "name": "r2t2-chunk-early-block",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadenceEarlyBlockNegative.cfg",
+      "invariant": "OnlyFullBlocksProcessed"
+    },
+    {
+      "name": "r2t2-chunk-finish-drops-pending",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadenceFinishPendingNegative.cfg",
+      "invariant": "SampleConservation"
+    },
+    {
+      "name": "r2t2-chunk-preview-regress",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadencePreviewRegressNegative.cfg",
+      "invariant": "PreviewExtendsCommitted"
+    },
+    {
+      "name": "r2t2-chunk-finish-pending-reachability",
+      "model": "R2T2ChunkCadence",
+      "config": "R2T2ChunkCadenceFinishPendingWitness.cfg",
+      "invariant": "FinishWithoutPendingNotReached",
+      "purpose": "Reach a CUDA finish with a retained 160 ms DLL half-grain and an 80 ms Python remainder after a visible preview."
+    },
+    {
+      "name": "qwen-preview-stale-publication",
+      "model": "QwenPreviewCadence",
+      "config": "QwenPreviewCadenceStalePublishNegative.cfg",
+      "invariant": "PublicationIsCurrent"
+    },
+    {
+      "name": "qwen-preview-finish-incomplete-reuse",
+      "model": "QwenPreviewCadence",
+      "config": "QwenPreviewCadenceFinishCoverageNegative.cfg",
+      "invariant": "FinishReuseRequiresFullCoverage"
+    },
+    {
+      "name": "qwen-preview-finish-window-reuse",
+      "model": "QwenPreviewCadence",
+      "config": "QwenPreviewCadenceFinishWindowNegative.cfg",
+      "invariant": "FinishReuseRequiresFullCoverage"
+    },
+    {
+      "name": "qwen-preview-fixed-threshold",
+      "model": "QwenPreviewCadence",
+      "config": "QwenPreviewCadenceThresholdNegative.cfg",
+      "invariant": "ThresholdTracksSamples"
+    },
+    {
+      "name": "qwen-preview-gate-lagged",
+      "model": "QwenPreviewCadence",
+      "config": "QwenPreviewCadenceGateLaggedNegative.cfg",
+      "invariant": "GateObservesLatestCapture"
+    },
+    {
+      "name": "qwen-preview-pending-replacement-reachability",
+      "model": "QwenPreviewCadence",
+      "config": "QwenPreviewCadenceCancelWitness.cfg",
+      "invariant": "PendingReplacementNotReached",
+      "purpose": "Reachability witness for launching a new preview while the previous job is still in the queue or prepared, which is the replacement the runtime must discard; it is not a safety negative."
     }
   ],
   "command_implementation": {

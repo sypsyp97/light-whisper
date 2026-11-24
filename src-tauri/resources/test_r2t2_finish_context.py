@@ -83,6 +83,34 @@ class FinishContextTests(unittest.TestCase):
         self.addCleanup(runtime.close)
         return runtime, library
 
+    def test_adaptive_cadence_negotiates_native_option_and_preserves_input_grain(self):
+        cases = (
+            (0x00000600, {"adaptive_cadence": True}, True),
+            (0x00000700, {"adaptive_cadence": True}, True),
+            (0x00000500, {"adaptive_cadence": True}, False),
+            (0x00000600, {}, False),
+            (0x00000600, {"adaptive_cadence": False}, False),
+            (0x00000600, {"adaptive_cadence": True, "backend": "cpu"}, False),
+            (0x00000600, {"adaptive_cadence": True, "rolling": False}, False),
+            (0x00000600, {"adaptive_cadence": True, "family": "qwen3_asr"}, False),
+            (0x00000600, {"adaptive_cadence": True, "mode": "offline"}, False),
+            (0x00000600, {"adaptive_cadence": True, "chunk_ms": 320}, False),
+        )
+        key = b"confucius4_r2t2.adaptive_cadence"
+        for abi, kwargs, enabled in cases:
+            with self.subTest(abi=hex(abi), kwargs=kwargs):
+                runtime, library = self.runtime(abi=abi, **kwargs)
+                options = library.session_options
+                if enabled:
+                    self.assertEqual(options.get(key), b"true")
+                else:
+                    self.assertNotIn(key, options)
+                chunk_ms = kwargs.get("chunk_ms", 160)
+                if kwargs.get("family", "confucius4_r2t2") == "confucius4_r2t2":
+                    self.assertEqual(options[b"confucius4_r2t2.chunk_size_ms"], str(chunk_ms).encode())
+                self.assertEqual(runtime.chunk_samples, chunk_ms * 16)
+                self.assertEqual(runtime.steady_chunk_samples, 5120 if enabled else runtime.chunk_samples)
+
     def test_negotiates_only_supported_family_backend_and_streaming_policy(self):
         matrix = (
             (0x00000500, {}, True),
