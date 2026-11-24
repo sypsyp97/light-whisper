@@ -6,13 +6,35 @@ import base64
 import numpy as np
 from r2t2_asr_server import R2T2ASRServer
 
+class ChunkDerivedRuntime:
+    """chunk_samples 由生产传入的 chunk_ms 派生，避免自证式断言。"""
+
+    def __init__(self, _model_path, _library_path, *, backend, chunk_ms, **_kwargs):
+        self.backend = backend
+        self.chunk_ms = chunk_ms
+        self.chunk_samples = chunk_ms * 16
+
+    def start(self):
+        pass
+
+    def feed(self, _pcm):
+        pass
+
+    def reset(self):
+        pass
+
+    def close(self):
+        pass
+
+
 class StreamWiringTests(unittest.TestCase):
-    def test_cuda_uses_measured_160ms_chunks_and_shared_dll_directory(self):
+    def test_cuda_uses_160ms_chunks_and_shared_dll_directory(self):
         server = R2T2ASRServer.__new__(R2T2ASRServer)
-        with patch('r2t2_asr_server.NativeRuntime') as runtime:
-            runtime.return_value.chunk_samples = 2560
+        with patch('r2t2_asr_server.NativeRuntime', side_effect=ChunkDerivedRuntime) as runtime:
             server._load_runtime('verified-model')
         self.assertEqual(runtime.call_args.kwargs.get('chunk_ms'), 160)
+        self.assertEqual(server.native.chunk_ms, 160)
+        self.assertEqual(server.native.chunk_samples, 2560)
         from pathlib import Path
         self.assertIn(Path(__file__).resolve().parent, runtime.call_args.kwargs['dll_directories'])
 

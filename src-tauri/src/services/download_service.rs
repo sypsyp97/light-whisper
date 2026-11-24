@@ -85,22 +85,10 @@ pub async fn run_download(
     request_id: Option<String>,
 ) -> Result<String, AppError> {
     let preparation = async {
-        let download_script = paths::get_download_script_path(app_handle);
-        let download_script_str = paths::strip_win_prefix(&download_script);
-
         let data_dir = paths::strip_win_prefix(paths::get_data_dir());
 
         let generation = state.engine.funasr_generation.load(Ordering::SeqCst);
         let runtime = funasr_service::find_engine(app_handle, state, generation).await?;
-
-        if matches!(runtime, funasr_service::EngineRuntime::Development { .. })
-            && !download_script.exists()
-        {
-            return Err(AppError::Download(format!(
-                "模型下载脚本不存在: {}",
-                download_script_str
-            )));
-        }
 
         let engine = paths::read_engine_config();
         let engine_arg = match engine.as_str() {
@@ -108,28 +96,11 @@ pub async fn run_download(
             _ => "qwen3-asr-0.6b",
         };
 
-        let mut cmd = match &runtime {
-            funasr_service::EngineRuntime::Bundled { exe_path } => {
-                let mut c = Command::new(exe_path);
-                c.arg("download").arg("--engine").arg(engine_arg);
-                c
-            }
-            funasr_service::EngineRuntime::Development { python_path } => {
-                let mut c = Command::new(python_path);
-                c.arg("-X")
-                    .arg("utf8")
-                    .arg("-u")
-                    .arg(&download_script_str)
-                    .arg("--engine")
-                    .arg(engine_arg);
-                c
-            }
-        };
+        let mut cmd = Command::new(runtime);
+        cmd.arg("download").arg("--engine").arg(engine_arg);
 
         let models_dir = paths::strip_win_prefix(&paths::get_effective_models_dir());
-        cmd.env("PYTHONIOENCODING", "utf-8")
-            .env("PYTHONUTF8", "1")
-            .env("LIGHT_WHISPER_DATA_DIR", &data_dir)
+        cmd.env("LIGHT_WHISPER_DATA_DIR", &data_dir)
             .env("HF_HUB_CACHE", &models_dir)
             .stdout(Stdio::piped())
             .stderr({

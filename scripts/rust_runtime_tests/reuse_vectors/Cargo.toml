@@ -1,0 +1,15 @@
+[package]
+name = "light-whisper-reuse-vectors"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[test]]
+name = "reuse_vectors"
+path = "../reuse_vectors.rs"
+
+[dependencies]
+light-whisper-native-asr = { path = "../../../rust-runtime/crates/native-asr" }
+light-whisper-reuse = { path = "../../../rust-runtime/crates/reuse" }

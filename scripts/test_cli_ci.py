@@ -47,6 +47,26 @@ def commands(job):
     return re.sub(r"[`\\]\s*\n\s*", " ", job)
 
 
+class NativeProductCiTests(unittest.TestCase):
+    def test_windows_workspace_tests_load_the_pinned_dlls(self):
+        job = commands(workflow_job("CLI contracts"))
+        cargo = next((m for m in re.finditer(r"(?m)^\s*cargo test [^\n]+", job)
+                      if "--workspace" in m[0] and "--locked" in m[0] and "rust-runtime/Cargo.toml" in m[0]), None)
+        self.assertIsNotNone(cargo, "run the locked native workspace test suite on Windows")
+        setup = job[:cargo.start()].lower().replace("\\", "/")
+        for filename in ("onnxruntime.dll", "kaldi-native-fbank-core.dll"):
+            self.assertIn(filename, setup, f"make {filename} loadable before starting workspace tests")
+        self.assertIn("debug/deps", setup, "place the pinned libraries next to Cargo's test binaries")
+
+    def test_native_formal_matrix_executes_with_existing_pinned_tools(self):
+        job = commands(workflow_job("CLI contracts"))
+        invocation = next((line for line in job.splitlines()
+                           if re.search(r"\bpython\s+formal/rust-runtime/check_models\.py\b",line)), None)
+        self.assertIsNotNone(invocation, "execute the full native runtime model matrix")
+        for argument in ("--jar", "--output"):
+            self.assertIn(argument, invocation)
+        self.assertIn(JAR_SHA256, job[:job.index(invocation)])
+
 class CliCiTests(unittest.TestCase):
     def test_cli_contracts_is_required_windows_job(self):
         job = workflow_job("CLI contracts")

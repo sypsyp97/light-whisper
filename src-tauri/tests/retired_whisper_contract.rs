@@ -16,14 +16,14 @@ fn read(relative: &str) -> String {
 #[test]
 fn whisper_engine_is_retired_from_runtime_and_ui() {
     let settings = read("src/pages/SettingsPage.tsx");
-    let engine_cli = read("src-tauri/resources/engine.py");
+    let engine_cli = read("rust-runtime/crates/engine/src/main.rs");
     let rust_paths = read("src-tauri/src/utils/paths.rs");
     let rust_commands = read("src-tauri/src/commands/funasr.rs");
     let rust_runtime = read("src-tauri/src/services/funasr_service.rs");
     let tauri_config = read("src-tauri/tauri.conf.json");
 
     assert!(!settings.contains("key: \"whisper\""));
-    assert!(!engine_cli.contains("choices=[\"whisper\""));
+    assert!(!engine_cli.contains("\"whisper\""));
     assert!(!rust_paths.contains("\"whisper\""));
     assert!(!rust_paths.contains("get_whisper_server_path"));
     assert!(!rust_commands.contains("\"whisper\","));
@@ -36,9 +36,9 @@ fn whisper_engine_is_retired_from_runtime_and_ui() {
 
 #[test]
 fn bundled_qwen_runtime_uses_firered_vad_without_whisper_dependencies() {
-    let project = read("pyproject.toml");
+    let project = read("rust-runtime/crates/vad/build.rs");
     let build = read("scripts/build_engine.py");
-    let qwen_server = read("src-tauri/resources/qwen3_asr_server.py");
+    let qwen_server = read("rust-runtime/crates/engine/src/recognition.rs");
 
     assert!(project.contains("kaldi-native-fbank"));
     assert!(project.contains("onnxruntime"));

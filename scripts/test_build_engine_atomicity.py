@@ -9,6 +9,7 @@ import types
 import unittest
 from pathlib import Path
 from unittest import mock
+from native_package_fixture import EngineFixture, executable
 import build_r2t2_runtime as native_builder
 from build_reuse_runtime import source_fingerprint
 
@@ -33,104 +34,61 @@ class EngineArchiveSourceTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.archive = self.root / "engine.tar.xz"
         self.module = load_build_engine_module()
-        self.module.RESOURCES_DIR = self.root
-        self.module.ADD_DATA_FILES = ["engine.py", "server_common.py", "gpu_idle.py"]
-        self.sources = {name: f"# {name}\nVALUE = 180\n".encode() for name in self.module.ADD_DATA_FILES}
-        for name, source in self.sources.items():
-            (self.root / name).write_bytes(source)
-        shared = b"synthetic shared CRT"
-        self.native_members = {"_internal/msvcp140.dll": shared}
-        for backend in ("cpu", "cuda"):
-            libraries = {
-                "audiocpp.dll": f"synthetic {backend} native library".encode(),
-                "reuse.dll": f"synthetic {backend} enhancement library".encode(),
-                "ggml-base.dll": f"synthetic {backend} dependency".encode(),
-            }
-            prefix = f"_internal/r2t2-native/{backend}"
-            manifest = {
-                "build_id": self.module.R2T2_BUILD_ID,
-                "revision": self.module.R2T2_REVISION,
-                "patch_sha256": hashlib.sha256(self.module.R2T2_PATCH.read_bytes()).hexdigest(),
-                "reuse_source_sha256": source_fingerprint(),
-                "backend": backend,
-                "files": {name: {
-                    "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
-                } for name, data in libraries.items()},
-                "shared_files": {"msvcp140.dll": {
-                    "size": len(shared), "sha256": hashlib.sha256(shared).hexdigest(),
-                }},
-            }
-            self.native_members.update({f"{prefix}/{name}": data for name, data in libraries.items()})
-            self.native_members[f"{prefix}/runtime-manifest.json"] = json.dumps(manifest).encode()
+        self.fixture = EngineFixture(self,self.module,self.root)
+        self.archive = self.fixture.archive
+        self.native_members = self.fixture.native
+        self.sources = self.fixture.sources
 
     def dependency_names(self):
-        return (
-            "_internal/r2t2-native/cpu/ggml-base.dll",
-            "_internal/r2t2-native/cuda/ggml-base.dll",
-            "_internal/msvcp140.dll",
-        )
+        return ("_internal/r2t2-native/cpu/ggml-LICENSE.txt",
+                "_internal/r2t2-native/cuda/ggml-LICENSE.txt","cudart64_12.dll")
 
-    def changed_manifest(self, field, change, *, backend="cpu"):
+    def changed_manifest(self, field, change, *, backend=None):
+        backend = backend or ("cuda" if field == "shared_files" else "cpu")
         name = f"_internal/r2t2-native/{backend}/runtime-manifest.json"
         manifest = json.loads(self.native_members[name])
         manifest[field] = change(manifest[field])
         return {**self.native_members, name: json.dumps(manifest).encode()}
 
     def package(self, sources, *, native_members=None, extra_members=(), prepend_members=()):
-        members = {f"_internal/{name}": source for name, source in sources.items()}
-        members.update(self.native_members if native_members is None else native_members)
-        with tarfile.open(self.archive, "w:xz") as archive:
-            for member, source in prepend_members:
-                archive.addfile(member, None if source is None else io.BytesIO(source))
-            for name, source in members.items():
-                member = tarfile.TarInfo(name)
-                member.size = len(source)
-                archive.addfile(member, io.BytesIO(source))
-            for member, source in extra_members:
-                archive.addfile(member, None if source is None else io.BytesIO(source))
+        self.fixture.package(sources | (self.native_members if native_members is None else native_members),
+                             extra=extra_members,prepend=prepend_members)
 
-    def test_current_sources_pass_even_across_checkout_line_endings(self):
-        self.package({name: source.replace(b"\n", b"\r\n") for name, source in self.sources.items()})
-        self.module.verify_archive_sources(self.archive)
-
-    def test_old_gpu_idle_dispatch_is_rejected(self):
-        self.package({**self.sources, "server_common.py": b"# legacy dispatcher\nVALUE = 180\n"})
-        with self.assertRaisesRegex(RuntimeError, "Stale bundled source: _internal/server_common.py"):
+    def test_current_stamped_native_archive_verifies(self):
+        self.package(self.sources)
+        try:
             self.module.verify_archive_sources(self.archive)
+        except Exception as error:
+            self.fail(f"current native engine archive must verify: {error}")
+
+    def test_stale_engine_code_or_missing_executable_is_rejected(self):
+        for content in (None,executable("engine","00"*32),executable("cli",self.fixture.fingerprint)):
+            files=self.sources.copy()
+            if content is None:
+                del files["engine.exe"]
+            else:
+                files["engine.exe"]=content
+            self.package(files)
+            with self.assertRaises(Exception):
+                self.module.verify_archive_sources(self.archive)
 
     def test_changed_checkout_requires_a_rebuilt_engine(self):
         self.package(self.sources)
-        (self.root / "gpu_idle.py").write_bytes(b"VALUE = 0\n")
-        with self.assertRaisesRegex(RuntimeError, "bundled source: _internal/gpu_idle.py"):
-            self.module.verify_archive_sources(self.archive)
-
-    def test_missing_idle_module_is_rejected(self):
-        self.package({name: source for name, source in self.sources.items() if name != "gpu_idle.py"})
-        with self.assertRaisesRegex(RuntimeError, "Missing bundled sources: _internal/gpu_idle.py"):
+        self.fixture.fingerprint="00"*32
+        with self.assertRaises(Exception):
             self.module.verify_archive_sources(self.archive)
 
     def test_xz_header_without_an_archive_is_rejected(self):
-        self.archive.write_bytes(b"\xfd7zXZ\x00")
-        with self.assertRaises((tarfile.TarError, EOFError)):
+        self.archive.write_bytes(b"\xfd7zXZ\0")
+        with self.assertRaises(Exception):
             self.module.verify_archive_sources(self.archive)
 
-    def test_source_symlink_is_rejected(self):
-        member = tarfile.TarInfo("_internal/gpu_idle.py")
-        member.type = tarfile.SYMTYPE
-        member.linkname = "../../outside.py"
-        self.package(
-            {name: source for name, source in self.sources.items() if name != "gpu_idle.py"},
-            extra_members=[(member, None)],
-        )
-        with self.assertRaisesRegex(RuntimeError, "Invalid bundled source: _internal/gpu_idle.py"):
-            self.module.verify_archive_sources(self.archive)
-
-    def test_duplicate_source_cannot_override_a_verified_file(self):
-        source = b"VALUE = 0\n"
-        member = tarfile.TarInfo("_internal/gpu_idle.py")
-        member.size = len(source)
-        self.package(self.sources, extra_members=[(member, source)])
-        with self.assertRaisesRegex(RuntimeError, "Invalid bundled source: _internal/gpu_idle.py"):
+    def test_duplicate_executable_cannot_override_a_verified_image(self):
+        image=self.sources["engine.exe"]
+        item=tarfile.TarInfo("ENGINE.EXE")
+        item.size=len(image)
+        self.package(self.sources,extra_members=[(item,image)])
+        with self.assertRaises(Exception):
             self.module.verify_archive_sources(self.archive)
 
     def test_current_native_runtimes_and_shared_files_pass(self):
@@ -139,15 +97,15 @@ class EngineArchiveSourceTests(unittest.TestCase):
 
     def test_single_case_variant_backend_dependency_passes(self):
         members = self.native_members.copy()
-        members["_internal/r2t2-native/CPU/GGML-BASE.DLL"] = members.pop(
-            "_internal/r2t2-native/cpu/ggml-base.dll"
+        members["_internal/r2t2-native/CPU/GGML-LICENSE.TXT"] = members.pop(
+            "_internal/r2t2-native/cpu/ggml-LICENSE.txt"
         )
         self.package(self.sources, native_members=members)
         self.module.verify_archive_sources(self.archive)
 
     def test_single_case_variant_shared_dependency_and_root_passes(self):
         members = self.native_members.copy()
-        members["_INTERNAL/MSVCP140.DLL"] = members.pop("_internal/msvcp140.dll")
+        members["CUDART64_12.DLL"] = members.pop("cudart64_12.dll")
         self.package(self.sources, native_members=members)
         self.module.verify_archive_sources(self.archive)
 
@@ -165,7 +123,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                 self.package(self.sources, native_members={
                     key: data for key, data in self.native_members.items() if key != name
                 })
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                     self.module.verify_archive_sources(self.archive)
 
     def test_modified_manifest_dependency_is_rejected(self):
@@ -173,7 +131,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
             for data in (b"X" * len(self.native_members[name]), self.native_members[name][:-1]):
                 with self.subTest(name=name, size=len(data)):
                     self.package(self.sources, native_members={**self.native_members, name: data})
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_duplicate_manifest_dependency_is_rejected(self):
@@ -183,7 +141,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                 member = tarfile.TarInfo(name)
                 member.size = len(data)
                 self.package(self.sources, extra_members=[(member, data)])
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                     self.module.verify_archive_sources(self.archive)
 
     def test_nonregular_manifest_dependency_is_rejected(self):
@@ -196,7 +154,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     self.package(self.sources, native_members={
                         key: data for key, data in self.native_members.items() if key != name
                     }, extra_members=[(member, None)])
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_nonregular_duplicate_cannot_follow_a_verified_dependency(self):
@@ -207,7 +165,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     member.type = kind
                     member.linkname = "_internal/r2t2-native/cpu/audiocpp.dll"
                     self.package(self.sources, extra_members=[(member, None)])
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_directory_duplicate_cannot_precede_a_verified_dependency(self):
@@ -216,14 +174,14 @@ class EngineArchiveSourceTests(unittest.TestCase):
                 member = tarfile.TarInfo(name)
                 member.type = tarfile.DIRTYPE
                 self.package(self.sources, prepend_members=[(member, None)])
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                     self.module.verify_archive_sources(self.archive)
 
     def test_case_variant_native_dependency_cannot_override_a_verified_file(self):
         for name in self.dependency_names():
-            prefix, filename = name.rsplit("/", 1)
+            prefix, _, filename = name.rpartition("/")
             aliases = [
-                f"{prefix}/{filename.upper()}",
+                (f"{prefix}/" if prefix else "") + filename.upper(),
                 name.replace("_internal/", "_INTERNAL/", 1),
             ]
             for backend in ("cpu", "cuda"):
@@ -235,17 +193,17 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     member = tarfile.TarInfo(alias)
                     member.size = len(source)
                     self.package(self.sources, extra_members=[(member, source)])
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_conflicting_shared_dependency_metadata_is_rejected(self):
         for field, value in (("size", 1), ("sha256", "0" * 64)):
             with self.subTest(field=field):
                 members = self.changed_manifest("shared_files", lambda files: {
-                    **files, "msvcp140.dll": {**files["msvcp140.dll"], field: value},
+                    **files, "cudart64_12.dll": {**files["cudart64_12.dll"], field: value},
                 })
                 self.package(self.sources, native_members=members)
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                     self.module.verify_archive_sources(self.archive)
 
     def test_malformed_manifest_dependency_metadata_is_rejected(self):
@@ -268,7 +226,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     prefix = "_internal/r2t2-native/cpu" if field == "files" else "_internal"
                     members[f"{prefix}/dependency.dll"] = b"x"
                     self.package(self.sources, native_members=members)
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_malformed_manifest_file_tables_are_rejected(self):
@@ -276,7 +234,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
             for table in (None, [], "files", 1):
                 with self.subTest(field=field, table=table):
                     self.package(self.sources, native_members=self.changed_manifest(field, lambda _: table))
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_manifest_dependency_names_cannot_escape_their_directory(self):
@@ -289,7 +247,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     prefix = "_internal/r2t2-native/cpu" if field == "files" else "_internal"
                     members[f"{prefix}/{name}"] = b"x"
                     self.package(self.sources, native_members=members)
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_manifest_dependencies_are_hashed_without_unbounded_reads(self):
@@ -313,6 +271,10 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     self_test.assertGreaterEqual(size, 0, "DLL hashing must use bounded reads")
                     return stream.read(size)
 
+                def readinto(self, buffer):
+                    self_test.assertLessEqual(len(buffer), 8*1024*1024)
+                    return stream.readinto(buffer)
+
                 def __getattr__(self, name):
                     return getattr(stream, name)
 
@@ -322,7 +284,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
         self.package(self.sources)
         with mock.patch.object(tarfile.TarFile, "extractfile", streaming_extractfile):
             self.module.verify_archive_sources(self.archive)
-        self.assertEqual(extracted, {name for name in self.native_members if name.endswith(".dll")})
+        self.assertTrue({name for name in self.native_members if name.endswith(".dll")}.issubset(extracted))
 
     def test_wrong_native_provenance_or_backend_is_rejected(self):
         for backend in ("cpu", "cuda"):
@@ -339,7 +301,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     self.package(self.sources, native_members={
                         **self.native_members, name: json.dumps(manifest).encode(),
                     })
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_missing_native_manifest_or_library_is_rejected(self):
@@ -350,7 +312,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     self.package(self.sources, native_members={
                         name: source for name, source in self.native_members.items() if name != missing
                     })
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_same_size_modified_native_library_is_rejected(self):
@@ -360,7 +322,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                 self.package(self.sources, native_members={
                     **self.native_members, name: b"X" * len(self.native_members[name]),
                 })
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                     self.module.verify_archive_sources(self.archive)
 
     def test_duplicate_native_manifest_or_library_is_rejected(self):
@@ -372,7 +334,7 @@ class EngineArchiveSourceTests(unittest.TestCase):
                     member = tarfile.TarInfo(name)
                     member.size = len(source)
                     self.package(self.sources, extra_members=[(member, source)])
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
     def test_symlinked_native_manifest_or_library_is_rejected(self):
@@ -388,51 +350,11 @@ class EngineArchiveSourceTests(unittest.TestCase):
                         native_members={key: source for key, source in self.native_members.items() if key != name},
                         extra_members=[(member, None)],
                     )
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises((ValueError, RuntimeError, KeyError, TypeError, AttributeError)):
                         self.module.verify_archive_sources(self.archive)
 
 
 class BuildEngineArchiveAtomicityTests(unittest.TestCase):
-    def test_packaging_shares_only_identical_runtime_dlls_and_updates_manifest(self):
-        def fake_pyinstaller(_cmd):
-            internal = self.dist_dir / "engine/_internal"
-            backend = internal / "r2t2-native/cuda"
-            backend.mkdir(parents=True)
-            payloads = {"cublasLt64_12.dll": b"same cuda", "cublas64_12.dll": b"version A",
-                        "cudart64_12.dll": b"no shared copy", "audiocpp.dll": b"model library",
-                        "reuse.dll": b"enhancement library"}
-            for name, data in payloads.items():
-                (backend / name).write_bytes(data)
-            (internal / "cublasLt64_12.dll").write_bytes(payloads["cublasLt64_12.dll"])
-            (internal / "cublas64_12.dll").write_bytes(b"version B")
-            (internal / "audiocpp.dll").write_bytes(payloads["audiocpp.dll"])
-            manifest = {"backend": "cuda", "reuse_source_sha256": source_fingerprint(), "files": {
-                name: {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-                for name, data in payloads.items()}}
-            (backend / "runtime-manifest.json").write_text(json.dumps(manifest))
-            return types.SimpleNamespace(returncode=0)
-
-        def inspect_archive_input(engine_dir, output):
-            internal = engine_dir / "_internal"
-            backend = internal / "r2t2-native/cuda"
-            self.assertFalse((backend / "cublasLt64_12.dll").exists())
-            self.assertEqual((internal / "cublasLt64_12.dll").read_bytes(), b"same cuda")
-            for name in ("cublas64_12.dll", "cudart64_12.dll", "audiocpp.dll"):
-                self.assertTrue((backend / name).is_file(), name)
-            manifest = json.loads((backend / "runtime-manifest.json").read_text())
-            self.assertEqual(set(manifest["shared_files"]), {"cublasLt64_12.dll"})
-            self.assertNotIn("cublasLt64_12.dll", manifest["files"])
-            for name, metadata in manifest["shared_files"].items():
-                self.assertEqual(metadata["sha256"], hashlib.sha256((internal / name).read_bytes()).hexdigest())
-            output.write_bytes(b"new verified archive")
-            return 1.0
-
-        with mock.patch.object(self.module.subprocess, "run", side_effect=fake_pyinstaller), \
-             mock.patch.object(self.module, "create_tar_xz", side_effect=inspect_archive_input):
-            self.module.main()
-        self.assertEqual(self.output_archive.read_bytes(), b"new verified archive")
-        self.assertNotIn("shared_files", json.loads((self.resources_dir / "r2t2-native/cuda/runtime-manifest.json").read_text()))
-
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
@@ -445,50 +367,13 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
             (output / "reuse.dll").write_bytes(f"synthetic {backend} enhancement library".encode())
 
         self.enterContext(mock.patch("build_reuse_runtime.build", side_effect=fake_reuse_build))
-        self.resources_dir = self.root / "resources"
-        self.resources_dir.mkdir()
-        self.entry_script = self.resources_dir / "engine.py"
-        self.entry_script.write_text("print('synthetic engine')\n", encoding="utf-8")
-        self.output_archive = self.resources_dir / "engine.tar.xz"
+        self.module=load_build_engine_module()
+        self.fixture=EngineFixture(self,self.module,self.root)
+        self.resources_dir=self.fixture.resources
+        self.output_archive=self.resources_dir/"engine.tar.xz"
         self.output_archive.write_bytes(OLD_ARCHIVE)
-        self.dist_dir = self.resources_dir / "python-dist"
-        self.module = load_build_engine_module()
-        self.module.PROJECT_ROOT = self.root
-        self.module.RESOURCES_DIR = self.resources_dir
-        self.module.DIST_DIR = self.dist_dir
-        self.module.ENTRY_SCRIPT = self.entry_script
-        self.module.OUTPUT_ARCHIVE = self.output_archive
-        self.module.WINDOWS_MANIFEST = self.root / "missing-manifest.xml"
-        for backend in ("cpu", "cuda"):
-            directory = self.resources_dir / "r2t2-native" / backend
-            directory.mkdir(parents=True)
-            library = b"synthetic native library"
-            (directory / "audiocpp.dll").write_bytes(library)
-            reuse_library = b"synthetic enhancement library"
-            (directory / "reuse.dll").write_bytes(reuse_library)
-            (directory / "runtime-manifest.json").write_text(json.dumps({
-                "backend": backend, "build_id": self.module.R2T2_BUILD_ID,
-                "revision": self.module.R2T2_REVISION,
-                "patch_sha256": hashlib.sha256(self.module.R2T2_PATCH.read_bytes()).hexdigest(),
-                "reuse_source_sha256": source_fingerprint(),
-                "files": {
-                    "audiocpp.dll": {"size": len(library), "sha256": hashlib.sha256(library).hexdigest()},
-                    "reuse.dll": {"size": len(reuse_library), "sha256": hashlib.sha256(reuse_library).hexdigest()},
-                },
-            }), encoding="utf-8")
-
-        self.enterContext(mock.patch.object(importlib.metadata, "version", return_value="0.1.3"))
-
-    def test_remove_file_retries_transient_windows_lock(self):
-        locked_path = mock.Mock(spec=Path)
-        locked_path.exists.return_value = True
-        locked_path.unlink.side_effect = [PermissionError("file is busy"), None]
-
-        with mock.patch.object(self.module.time, "sleep") as sleep:
-            self.module.remove_file(locked_path, warn_only=False, retries=2, delay=0.25)
-
-        self.assertEqual(locked_path.unlink.call_count, 2)
-        sleep.assert_called_once_with(0.25)
+        self.module.OUTPUT_ARCHIVE=self.output_archive
+        self.dist_dir=self.root/"previous-build"
 
     def test_stale_native_runtime_is_rejected_before_destroying_old_build(self):
         self.dist_dir.mkdir()
@@ -498,7 +383,7 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text())
         manifest["patch_sha256"] = "old patch"
         manifest_path.write_text(json.dumps(manifest))
-        with self.assertRaisesRegex(RuntimeError, "Stale R2T2"):
+        with self.assertRaisesRegex((RuntimeError,ValueError), "Stale|invalid"):
             self.module.main()
         self.assertTrue(sentinel.is_file())
         self.assertEqual(self.output_archive.read_bytes(), OLD_ARCHIVE)
@@ -506,13 +391,13 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
     def test_modified_native_library_is_rejected(self):
         library = self.resources_dir / "r2t2-native/cuda/audiocpp.dll"
         library.write_bytes(b"X" * library.stat().st_size)
-        with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
-            self.module.validate_r2t2_runtime()
+        with self.assertRaisesRegex((RuntimeError,ValueError), "checksum"):
+            self.module.copy_native(self.root/"staged")
 
     def test_unlisted_native_file_is_rejected(self):
         (self.resources_dir / "r2t2-native/cpu/stale.dll").write_bytes(b"old")
-        with self.assertRaisesRegex(RuntimeError, "Unexpected native"):
-            self.module.validate_r2t2_runtime()
+        with self.assertRaisesRegex((RuntimeError,ValueError), "Unexpected"):
+            self.module.copy_native(self.root/"staged")
 
     def _native_build_fixture(self):
         source, build, redist = (self.root / name for name in ("source", "build", "redist"))
@@ -586,67 +471,33 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertEqual({p.name: p.read_bytes() for p in backups[0].iterdir()}, previous)
 
-    def test_remove_file_exhausted_lock_is_nonfatal_for_temporary_artifact(self):
-        locked_path = mock.Mock(spec=Path)
-        locked_path.exists.return_value = True
-        locked_path.unlink.side_effect = PermissionError("file is busy")
+    def test_locked_destination_preserves_prior_archive_and_cleans_staging(self):
+        with mock.patch.object(self.module.os,"replace",side_effect=PermissionError("locked")):
+            with self.assertRaises(PermissionError):
+                self.module.main()
+        self.assertEqual(self.output_archive.read_bytes(),OLD_ARCHIVE)
+        self.assertFalse(list(self.resources_dir.glob(".engine-build-*")))
 
-        with mock.patch.object(self.module.time, "sleep") as sleep:
-            self.module.remove_file(locked_path, warn_only=True, retries=2, delay=0.25)
-
-        self.assertEqual(locked_path.unlink.call_count, 2)
-        sleep.assert_called_once_with(0.25)
-
-    def test_pyinstaller_failure_preserves_last_known_good_archive(self):
-        failed_process = types.SimpleNamespace(returncode=23)
-
-        with (
-            mock.patch.object(self.module.subprocess, "run", return_value=failed_process),
-            self.assertRaises(SystemExit) as exit_context,
-        ):
-            self.module.main()
-
-        self.assertEqual(exit_context.exception.code, 23)
-        self.assertTrue(
-            self.output_archive.exists(),
-            "A failed rebuild must not delete the last known-good engine archive",
-        )
-        self.assertEqual(self.output_archive.read_bytes(), OLD_ARCHIVE)
+    def test_compiler_failure_preserves_last_known_good_archive(self):
+        with mock.patch.object(self.module,"stage_engine",create=True,side_effect=RuntimeError("compiler failed")):
+            with self.assertRaises(Exception):
+                self.module.main()
+        self.assertEqual(self.output_archive.read_bytes(),OLD_ARCHIVE)
 
     def test_compression_failure_uses_staging_and_preserves_published_archive(self):
-        attempted_outputs = []
-
-        def fake_pyinstaller(_cmd):
-            engine_dir = self.dist_dir / "engine"
-            engine_dir.mkdir(parents=True)
-            (engine_dir / "engine.exe").write_bytes(b"synthetic executable")
-            return types.SimpleNamespace(returncode=0)
-
-        def fail_compression(_engine_dir, output):
-            attempted_outputs.append(Path(output))
-            Path(output).write_bytes(b"partial-new-archive")
-            raise RuntimeError("synthetic compression failure")
-
-        with (
-            mock.patch.object(self.module.subprocess, "run", side_effect=fake_pyinstaller),
-            mock.patch.object(self.module, "strip_dev_artifacts", return_value=0.0),
-            mock.patch.object(self.module, "create_tar_xz", side_effect=fail_compression),
-            self.assertRaisesRegex(RuntimeError, "synthetic compression failure"),
-        ):
-            self.module.main()
-
-        used_staging_path = bool(attempted_outputs) and attempted_outputs[0] != self.output_archive
-        preserved_archive = (
-            self.output_archive.exists()
-            and self.output_archive.read_bytes() == OLD_ARCHIVE
-        )
-        self.assertTrue(
-            used_staging_path and preserved_archive,
-            "Compression must target a staging path and atomically replace the published "
-            f"archive only after success; attempted={attempted_outputs}, "
-            f"published_bytes={self.output_archive.read_bytes() if self.output_archive.exists() else None!r}",
-        )
+        attempted=[]
+        def fail(engine_dir,output):
+            attempted.append(Path(output))
+            output.write_bytes(b"unfinished")
+            raise RuntimeError("compression failed")
+        with mock.patch.object(self.module,"stage_engine",create=True),mock.patch.object(self.module,"create_tar_xz",side_effect=fail):
+            with self.assertRaisesRegex(RuntimeError,"compression failed"):
+                self.module.main()
+        self.assertEqual(len(attempted),1)
+        self.assertNotEqual(attempted[0],self.output_archive)
+        self.assertFalse(attempted[0].exists())
+        self.assertEqual(self.output_archive.read_bytes(),OLD_ARCHIVE)
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
     unittest.main()

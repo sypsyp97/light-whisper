@@ -90,6 +90,8 @@ for commands and session examples.
 
 [Development](docs/development.md) · [Release procedure](docs/releasing.md) · [R2T2 backend](docs/r2t2-native.md) · [Formal verification](formal/README.md) · [Changelog](CHANGELOG.md)
 
-Light-Whisper uses Tauri, React, and Rust. The local recognition engines use audio.cpp.
+Light-Whisper uses Tauri, React, and Rust. The Rust engine runs both local
+recognizers through audio.cpp and uses ONNX Runtime for voice activity detection.
+The standalone CLI is also a native Rust executable.
 
 Light-Whisper is open-source software. It uses the [GPL-3.0-only](LICENSE) license. For third-party license terms, see [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

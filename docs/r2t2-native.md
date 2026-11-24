@@ -97,7 +97,7 @@ Qwen 0.6B and R2T2 share a resident audio.cpp C ABI runtime and the same capture
 
 Qwen 0.6B now uses `audio-cpp/audio.cpp-gguf`, revision `f861648c0c1f4da9f18e9a0ce5e217b0679bb2f5`, file `Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf` (1,151,272,416 bytes, SHA-256 `6c44ec2fb4cee513892d7863c1fcc3ea6b699ffa4d899b0ef4ab19956d9544f7`). This download is separate from the former transcribe.cpp model; the original cache is preserved.
 
-Qwen capture polls every 40 ms. Its first nonempty preview is attempted at 120-ms audio intervals, then previews use 200-ms intervals and at most the latest 12 seconds. When inference falls behind, the capture task combines the waiting audio into one latest preview. On CPU, a worker runs VAD and decoding in sequence while the server continues accepting audio. Pending previews can be replaced by newer audio. Transport packets remain bounded to 5,120 samples; earlier packets append audio without decoding. Hypotheses remain revisable. The shared protocol rejects stale session IDs and discontinuous sample offsets.
+Qwen capture polls every 40 ms. Its first nonempty preview is attempted at 120-ms audio intervals. Previews then use 200-ms intervals for the first four seconds of captured audio, and 320-ms intervals after that, with at most the latest 12 seconds. When inference falls behind, the capture task combines the waiting audio into one latest preview. On CPU, a worker runs VAD and decoding in sequence while the server continues accepting audio. Pending previews can be replaced by newer audio. Transport packets remain bounded to 5,120 samples; earlier packets append audio without decoding. Hypotheses remain revisable. The shared protocol rejects stale session IDs and discontinuous sample offsets.
 
 Stop appends all pending audio and the resampler tail with previews disabled, then recognizes the complete recording. A native call already in progress can finish first. The final result never substitutes the latest window for the full recording. Preview suppression is restricted to Qwen; R2T2 retains its streaming chunk order and complete 320-ms acoustic finish context.
 
@@ -118,7 +118,9 @@ in [R2T2-MODEL-LICENSE.txt](../src-tauri/resources/R2T2-MODEL-LICENSE.txt).
 
 ## Streaming
 
-- Capture resamples once and polls every 40 ms, sending complete 160-ms blocks instead of partial requests or merged 320-ms updates. CUDA decodes 160-ms chunks; CPU uses 320 ms. Finish flushes all real samples and the resampler tail; cancellation resets the session.
+- Capture polls every 40 ms and sends 160-ms R2T2 blocks. On CUDA, each admitted speech segment starts with 160-ms decode intervals. With native ABI 0.6 or later, the first nonempty preview switches that segment to 320-ms intervals. A later preview revision keeps that interval. Each new segment starts at 160 ms. Earlier CUDA libraries keep the fixed 160-ms cadence. CPU uses fixed 320-ms blocks. Stop flushes the real audio remainder and resampler tail. Cancellation resets the session.
+- On 2026-11-20, two RTX 4070 SUPER replays per policy compared fixed 160 ms, adaptive cadence and fixed 320 ms. Four short ASCEND clips paced at recording speed produced their first captions at 480, 640, 800 and 480 ms of input with both fixed 160 ms and adaptive cadence. Fixed 320 ms needed another 160 ms of input on three clips. For five unpaced 4.2–36 s recordings, adaptive cadence reduced total processing time by 34–41% against fixed 160 ms, using the median for each clip. All nine clips produced identical final text across all three policies. These measurements cover the Python stream, VAD and native decoder on this GPU.
+- Qwen keeps its 120/200-ms startup cadence and relaxes to 320 ms after four seconds of captured audio. On the same GPU, one 10-second dictation used 36 preview calls and 2,063 ms of native time instead of 48 calls and 3,057 ms, with identical final text.
 - CUDA initialization decodes one silent chunk and resets the session before reporting ready. With native ABI 0.4+, the first aligned VAD prefix (at most one second) is decoded once instead of replaying each chunk. Later audio keeps normal chunk boundaries; ABI 0.3 and CPU retain chunk-by-chunk feeds.
 - A 16-second rolling window advances by 8 seconds. Committed text is append-only; the visible preview can change. There is no fixed 30-second recording reset.
 - The encoder recomputes the current window. This is not an incremental encoder/KV-cache implementation.
@@ -126,14 +128,15 @@ in [R2T2-MODEL-LICENSE.txt](../src-tauri/resources/R2T2-MODEL-LICENSE.txt).
 - Language, topic hints and hotwords are fixed for each recording. They are separate from AI polish.
 - Profiles retain at most 300 hotwords; ASR selects at most 100 by weight and usage. The Python request boundary also keeps at most 100 unique hotwords, normalizes whitespace and ignores case when deduplicating. Empty entries and entries longer than 80 Unicode characters are skipped without shortening words. Streaming and offline requests use the same normalization.
 - VAD retains its trailing audio window but skips inference while an active segment is too short to end. Native captions render directly, without running an unused character-reveal animation.
-- Stop flushes 320 ms of acoustic silence inside the native decoder before collecting the final result. This is inference input, with no timer or extra microphone recording. Paired CUDA checks recovered the missing Chinese tails “带” and “喝” and English sentence tails; 80/160 ms remained insufficient on the Chinese clips. Captured sample counts and the live-feed schedule are unchanged; ending a segment adds bounded decoder work. The opt-in Rust test `real_native_stop_before_caption_refresh_keeps_sentence_tail` covers immediate Stop through the actual server and checks sample accounting.
+- Stop supplies 320 ms of acoustic right context to the decoder. On the CUDA rolling path with coalesced finish, the final encoder input also rounds up to a whole input block after rolling-window trimming. The alignment uses the configured input interval, capped at 320 ms. The current CUDA configuration adds less than 160 ms of zeros for alignment. These zeros exist only in the final encoder input. Stop still runs one final decode and returns the real captured sample count without waiting for microphone silence.
+- The opt-in Rust test `real_native_stop_before_caption_refresh_keeps_sentence_tail` checks the Chinese endings “带” and “喝”. The real-server regression in `test_r2t2_stop_tail.py` uses the same public restaurant recording repeated three times followed by its first 38,400 samples. At immediate Stop, all 361,920 captured samples had previously reached the stream but the final word “带” was missing. The test also covers delayed Stop and silence.
 - With native ABI 0.5+, CUDA rolling sessions append that complete context to the pending audio and decode it once in the final flush. The adapter enables `confucius4_r2t2.coalesced_finish` before session creation; the native option defaults to false. ABI 0.3/0.4, CPU, Qwen and nonrolling sessions retain their previous finish path. Empty recordings add no context.
 
 ## Build and packaging
 
 Follow [Development](development.md) to build the two native packages and the installer. Native builds require Visual Studio 2022 C++ tools, CMake and Ninja; CUDA builds were validated with CUDA 12.9 and MSVC 14.44.
 
-The build pins audio.cpp revision `6c70f32d0d90a29a9863e556bd9712ce622f868b` and requires an exact match to `scripts/patches/audio-cpp-r2t2-windows-streaming.patch`. Build `light-whisper-asr-14` writes libraries, licenses and SHA-256 manifests to ignored `src-tauri/resources/r2t2-native/{cpu,cuda}/`.
+The build pins audio.cpp revision `6c70f32d0d90a29a9863e556bd9712ce622f868b` and requires an exact match to `scripts/patches/audio-cpp-r2t2-windows-streaming.patch`. Build `light-whisper-asr-16` writes libraries, licenses and SHA-256 manifests to ignored `src-tauri/resources/r2t2-native/{cpu,cuda}/`.
 
 CUDA builds default to the pinned engine's portable architecture selection for the installed toolkit, independent of the build machine's GPU. CUDA 12 includes legacy PTX targets; newer targets are added when the toolkit supports them. CUDA 13 excludes Maxwell, Pascal and Volta. The builder clears stale architecture settings from its build cache and child environment, and records the concrete configured targets in `runtime-manifest.json`. An explicit `--cuda-architectures` overrides this default for experiments. A successful build establishes compiled coverage; performance and driver compatibility still need validation on the target hardware.
 
@@ -547,6 +550,10 @@ keeps the manifest and provisioning script under
 `tmp/asr-opt-20261025/natural-quality/`. Run `--self-test` without models first.
 The helper reports human-reference character errors separately from exact
 before/after parity and does not turn unchanged model mistakes into successes.
+R2T2 uses the server's runtime and VAD segmentation settings. Its report records
+the collector packet size, the negotiated startup and steady decode sizes, and
+the audio and finish context processed by each native segment. Reference checks
+require matching recognition policies.
 
 `scripts/benchmark_asr_resources.py` takes `--family qwen|r2t2`, `--model`,
 `--library`, `--dependencies`, an explicit matching `--cudart`, and a new

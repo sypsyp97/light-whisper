@@ -253,6 +253,19 @@ jobs:
             throw 'Packaged CLI doctor failed'
           }
 
+      - name: Build locked native engine
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:LW_ORT_SDK = uv run --no-sync python -c "import sys; sys.path.insert(0,'scripts'); from build_engine import prepare_ort; print(prepare_ort())"
+          $env:LW_KALDI_SDK = uv run --no-sync python -c "from importlib.metadata import distribution; print(distribution('kaldi-native-fbank').locate_file('kaldi_native_fbank'))"
+          cargo build --manifest-path rust-runtime/Cargo.toml --package light-whisper-engine --bin engine --release --locked
+          $nativeTests = Join-Path $PWD "rust-runtime/target/debug/deps"
+          New-Item -ItemType Directory -Force $nativeTests | Out-Null
+          Copy-Item (Join-Path $env:LW_ORT_SDK "runtimes/win-x64/native/onnxruntime.dll") $nativeTests
+          Copy-Item (Join-Path $env:LW_KALDI_SDK "lib/kaldi-native-fbank-core.dll") $nativeTests
+          cargo test --manifest-path rust-runtime/Cargo.toml --workspace --locked
+
       - name: Run native CLI contracts
         run: |
           $ErrorActionPreference = 'Stop'
@@ -294,6 +307,7 @@ jobs:
           uv run --no-sync python formal/agent-api-host/check_model.py --java $java --jar $jar --output (Join-Path $receipts 'native-host')
           uv run --no-sync python formal/agent-api-host/admission/check_model.py --java $java --jar $jar --output (Join-Path $receipts 'native-admission')
           uv run --no-sync python formal/cli-ci/check_model.py --java $java --jar $jar --output (Join-Path $receipts 'ci-gates')
+          uv run --no-sync python formal/rust-runtime/check_models.py --java $java --jar $jar --output (Join-Path $receipts 'rust-runtime')
           uv run --no-sync python formal/asr-subscription-bootstrap/verify.py --java $java --jar $jar --output (Join-Path $receipts 'asr-subscription-bootstrap')
           pwsh -NoProfile -File formal/asr-agent-settings/run_checks.ps1 -Java $java -Jar $jar -OutputDirectory (Join-Path $receipts 'asr-agent-settings')
 

@@ -10,20 +10,20 @@
     "src-tauri/src/agent_api/mod.rs": "b1e7048f949951f341179918c36fe732ab80c9079a963050c282911eb986a9bf",
     "src-tauri/src/lib.rs": "6be5037b0b08894a4b0bcd2e87d95cbd719de201bfaa1c148349f1197b541085",
     "src-tauri/src/commands/funasr.rs": "2aeaf87634db346bfdd59cfc5cea57226bf199d29a58ecd9bf9f59053115bd21",
-    "src-tauri/src/services/funasr_service.rs": "0075b7919660f0159bd2c6a7b6e9a696bb237c83a8d21efda4234b43550866b9",
+    "src-tauri/src/services/funasr_service.rs": "425922bc3adeea970cbc8cbf8cd2d6abacbc1afa3f52f339c89bbb2a68c4ab94",
     "src-tauri/src/services/funasr_service/protocol.rs": "56b564c3bfb772d35f5cb99737a28923bd83ff3df58ced45c4fc7c2f9d4f3b7d",
     "src-tauri/build_support.rs": "c688c3db7cf7e3584fdb8c3627d67cfcfcb0ab60101666234d03cb636c28f159",
     "formal/agent-api-security/tests/private_files.rs": "76c48186ddd28ab05475983674186d04d11f8a876477bf854a395d8fab4710cb",
     "formal/agent-api-transport/tests/transport.rs": "924b12ecb19e011955606ce4cae73f00a849ffe95096b4ea18910d7c72102bce",
     "src-tauri/src/agent_api/tests.rs": "cd83679507d9148514b5cca2e9f868fd372a9d3975e7f9a4087f6d0edb407809",
-    "formal/agent-api-host/run.py": "d10f7d4c9ad175abb6bd4bd40fc207837e8a25aa21e0acb89acf59752143a3d7",
+    "formal/agent-api-host/run.py": "0f2ec038d259dadd2d16b0ed265b70ac78f148c43934c1e82f418cd55a414b25",
     "formal/cli-packaging/selector_tests.rs": "4040cad210229bb0fbd3c5592aee6737bf8663d633149422b6adf153c9220824",
-    "src-tauri/src/utils/paths.rs": "daf66c7ac40ffe35fc2ac09eaaec97ccdcb6597288c97a3520a8ffa4105295ed",
+    "src-tauri/src/utils/paths.rs": "0b2b1725cce5a19775b67f6e0d57d0262c1453f4c8394f715fd1e93f4c375e36",
     "src-tauri/src/main.rs": "530c9fdd99977abe280ab19d9df64c7ac7b9ce38702cbd63f91e42a4b5c66670",
     "formal/agent-api-measurements/native_measurement.rs": "1d9ae04914f979aaf150082dd374cb83430949e3424207d0760a4d558bac514b",
     "formal/agent-api-measurements/prepare.py": "1d02f9472f7bc7d2d0476e4ae1c376b41ae9013b23cedd5b21230ef59bea3bc7",
     "formal/agent-api-measurements/profile_flush.py": "c4cfdd292343bf2ec22361125c9e91becb219c03bec84a57267d5615a46bd672",
-    "formal/agent-api-measurements/cohort.json": "522a95b47d8c7783efcf0f083bc04727a3b62c177c6821d30233e0e4c3f17b8a"
+    "formal/agent-api-measurements/cohort.json": "e95bb113951c27ce97be9e81d801af45e8f55169ed6851d05733abc660bf43e6"
   },
   "variants": [
     {

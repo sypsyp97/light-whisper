@@ -1,5 +1,4 @@
-"""CLI artifact contracts. Synthetic PE/CArchives are not executable-runtime proof."""
-
+"""Verify native CLI identity, source drift, atomic publication and distribution wiring."""
 import contextlib
 import hashlib
 import importlib.util
@@ -8,30 +7,24 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
-import struct
 import subprocess
 import sys
 import tempfile
-import types
 import unittest
 from unittest import mock
 
-from PyInstaller.archive.readers import CArchiveReader
-from PyInstaller.archive.writers import CArchiveWriter
-import PyInstaller.archive.writers as archive_writers
-
+if __package__:
+    from .native_package_fixture import executable, pe_image
+else:
+    from native_package_fixture import executable, pe_image
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_SCRIPT = ROOT / "scripts/build_cli.py"
-ENTRY_NAME = "light_whisper_cli"
-OLD_EXE = b"previous verified artifact: preserve byte for byte"
-SOURCE = b'''"""Optimization and nested-filename fixture."""
-def command(value):
-    """Keep this docstring at optimize=0."""
-    assert value is not None
-    return [item for item in (value,)]
-'''
+BUILD_SCRIPT = ROOT/"scripts/build_cli.py"
+FIRST = "3a"*32
+SECOND = "17"*32
+OLD = b"previous verified executable"
 
 
 def load_builder():
@@ -41,435 +34,172 @@ def load_builder():
     return module
 
 
-def synthetic_archive(destination, source, package, *, entry=True, metadata=True,
-                      optimize="s", private_filename=None):
-    """Real CArchiveWriter output behind a synthetic, non-runnable PE header."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as temporary:
-        archive = Path(temporary) / "fixture.pkg"
-        entries = []
-        if entry:
-            entries.append((ENTRY_NAME, str(source), True, optimize))
-        if metadata:
-            entries.append(("package.json", str(package), True, "x"))
-        original = archive_writers.replace_filename_in_code_object
-
-        def filenames(code, filename):
-            code = original(code, filename)
-            if private_filename == "root":
-                return code.replace(co_filename=r"C:\private-build\user\light_whisper_cli.py")
-            if private_filename == "nested":
-                constants = tuple(value.replace(co_filename=r"C:\private-build\nested.py")
-                                  if isinstance(value, types.CodeType) else value
-                                  for value in code.co_consts)
-                return code.replace(co_consts=constants)
-            return code
-
-        with mock.patch.object(archive_writers, "replace_filename_in_code_object", filenames):
-            CArchiveWriter(str(archive), entries, "python311.dll")
-        header = bytearray(132)
-        header[:2] = b"MZ"
-        struct.pack_into("<I", header, 0x3C, 128)
-        header[128:132] = b"PE\0\0"
-        destination.write_bytes(bytes(header) + archive.read_bytes())
-    return destination
-
-
 class CliArtifactTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="cli-package-test-")
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
-        self.source = self.root / "scripts/light_whisper_cli.py"
-        self.source.parent.mkdir()
-        self.source.write_bytes(SOURCE)
-        self.package = self.root / "package.json"
-        self.package.write_bytes(b'{"name":"light-whisper","version":"1.8.0"}\n')
-        self.output = self.root / "src-tauri/resources/light-whisper-cli.exe"
-        self.output.parent.mkdir(parents=True)
-        self.module = load_builder()
-        self.module.PROJECT_ROOT = self.root
-        self.module.ENTRY_SCRIPT = self.source
-        self.module.PACKAGE_JSON = self.package
-        self.module.OUTPUT_EXE = self.output
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.exe = self.root/"light-whisper-cli.exe"
+        self.exe.write_bytes(OLD)
+        self.package = self.root/"package.json"
+        self.package.write_text('{"version":"1.8.1"}')
+        self.builder = load_builder()
+        self.builder.OUTPUT_EXE = self.exe
+        self.builder.PACKAGE_JSON = self.package
+        self.current = FIRST
+        self.enterContext(mock.patch.object(self.builder,"source_fingerprint",create=True,
+                                           side_effect=lambda component:self.current))
 
-    def invoke(self, function, *args):
+    def test_native_artifact_is_verified_without_a_sidecar(self):
+        self.exe.write_bytes(executable("cli",FIRST))
         try:
-            return function(*args)
-        except NotImplementedError as error:
-            self.fail(f"Declared CLI packaging contract remains unimplemented: {error}")
+            report=self.builder.verify_cli()
+        except Exception as error:
+            self.fail(f"current stamped AMD64 native CLI must verify: {error}")
+        self.assertEqual(report["sha256"],hashlib.sha256(self.exe.read_bytes()).hexdigest())
+        self.assertEqual(report["size"],self.exe.stat().st_size)
+        self.assertEqual(report["version"],"1.8.1")
+        self.assertEqual(Path(report["path"]),self.exe.resolve())
 
-    def archive(self, path=None, **kwargs):
-        return synthetic_archive(path or self.output, self.source, self.package, **kwargs)
+    def test_rejects_missing_invalid_stale_and_tampered_artifacts(self):
+        other=self.root/"target.exe"
+        payload=bytearray(pe_image())
+        damaged=bytearray(executable("cli",FIRST))
+        damaged[512]^=1
+        x86=bytearray(payload)
+        x86[132:134]=b"\x4c\x01"
+        for data in (None,b"",b"bad",pe_image(),executable("cli",SECOND),executable("engine",FIRST),
+                     executable("cli",FIRST,payload=b"MZ"),executable("cli",FIRST,payload=x86),
+                     executable("cli",FIRST)[:-1],damaged):
+            with self.subTest(kind=None if data is None else (len(data),hashlib.sha256(data).hexdigest()[:12])):
+                if data is not None:
+                    other.write_bytes(data)
+                with self.assertRaises(Exception):
+                    self.builder.verify_cli(other)
+        self.assertEqual(self.exe.read_bytes(),OLD)
 
-    def rejected(self, path=None):
-        with self.assertRaises(Exception) as raised:
-            self.module.verify_cli(path or self.output)
-        self.assertNotIsInstance(raised.exception, NotImplementedError,
-                                 "declaration-only failure is not artifact rejection")
-        self.assertTrue(str(raised.exception).strip(), "artifact failure must explain its cause")
+    def staged(self, component, staging):
+        self.assertEqual(component,"cli")
+        self.assertNotEqual(staging,self.exe)
+        out=Path(staging)/"light-whisper-cli.exe"
+        out.parent.mkdir(parents=True,exist_ok=True)
+        out.write_bytes(executable(component,self.current))
+        return out
 
-    def report(self, value, path):
-        self.assertIsInstance(value, dict)
-        self.assertEqual(value["version"], "1.8.0")
-        self.assertEqual(value["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
-        self.assertEqual(value["size"], path.stat().st_size)
-        self.assertEqual(Path(value["path"]).resolve(), path.resolve())
+    def build(self,effect):
+        with mock.patch.object(self.builder,"build_binary",create=True,side_effect=effect):
+            return self.builder.build_cli()
 
-    def test_fixture_is_an_actual_readable_carchive(self):
-        self.archive()
-        reader = CArchiveReader(str(self.output))
-        self.assertEqual(reader.extract("package.json"), self.package.read_bytes())
-        import marshal
-        code = marshal.loads(reader.extract(ENTRY_NAME))
-        self.assertIsInstance(code, types.CodeType)
-        self.assertEqual(code.co_filename, "light_whisper_cli.py")
+    def test_atomic_publish_reverifies_actual_staged_image(self):
+        untouched=self.root/"keep.txt"
+        untouched.write_bytes(b"keep")
+        self.assertEqual(self.build(self.staged),self.exe)
+        self.assertEqual(self.exe.read_bytes(),executable("cli",FIRST))
+        self.assertEqual(untouched.read_bytes(),b"keep")
 
-    def test_verify_current_archive_without_external_manifest(self):
-        self.archive()
-        self.report(self.invoke(self.module.verify_cli), self.output)
-        self.assertEqual([path.name for path in self.output.parent.iterdir()], [self.output.name])
+    def test_failed_build_or_bad_stage_preserves_existing_artifact(self):
+        def invalid(component,stage):
+            path=self.staged(component,stage)
+            path.write_bytes(b"broken")
+            return path
+        for effect in (subprocess.CalledProcessError(23,["cargo","build"]),invalid):
+            with self.subTest(case=str(effect)):
+                with self.assertRaises(Exception):
+                    self.build(effect)
+                self.assertEqual(self.exe.read_bytes(),OLD)
+                self.assertEqual(set(self.root.iterdir()),{self.exe,self.package})
 
-    def test_verify_explicit_path_reads_that_artifact(self):
-        custom = self.archive(self.root / "custom.exe")
-        self.output.write_bytes(b"invalid default artifact")
-        self.report(self.invoke(self.module.verify_cli, custom), custom)
+    def test_changed_inputs_cannot_publish_even_matching_new_stage(self):
+        def changed(component,stage):
+            self.current=SECOND
+            return self.staged(component,stage)
+        with self.assertRaises(Exception):
+            self.build(changed)
+        self.assertEqual(self.exe.read_bytes(),OLD)
 
-    def test_missing_empty_non_pe_and_corrupt_archive_are_rejected(self):
-        self.rejected()
-        for data in (b"", b"not a PE", b"MZ" + b"corrupt archive" * 20):
-            with self.subTest(data=data[:20]):
-                self.output.write_bytes(data)
-                self.rejected()
-        self.archive()
-        self.output.write_bytes(b"NO" + self.output.read_bytes()[2:])
-        self.rejected()
+    def test_changed_inputs_after_verification_or_replace_error_keep_last_version(self):
+        verify=self.builder.verify_cli
+        def drift(path=None):
+            result=verify(path)
+            self.current=SECOND
+            return result
+        with mock.patch.object(self.builder,"verify_cli",side_effect=drift), self.assertRaises(Exception):
+            self.build(self.staged)
+        self.assertEqual(self.exe.read_bytes(),OLD)
+        self.current=FIRST
+        with mock.patch.object(os,"replace",side_effect=PermissionError("locked")),self.assertRaises(Exception):
+            self.build(self.staged)
+        self.assertEqual(self.exe.read_bytes(),OLD)
+        self.assertEqual(set(self.root.iterdir()),{self.exe,self.package})
 
-    def test_missing_entry_or_package_are_rejected(self):
-        for option in ({"entry": False}, {"metadata": False}):
-            with self.subTest(option=option):
-                self.archive(**option)
-                self.rejected()
+    def test_cli_status_json_for_build_verify_and_failure(self):
+        self.exe.write_bytes(executable("cli",FIRST))
+        for argv in ([],["--verify"],["--verify",str(self.exe)]):
+            buf=io.StringIO()
+            with contextlib.redirect_stdout(buf),mock.patch.object(self.builder,"build_cli",return_value=self.exe):
+                self.assertEqual(self.builder.main(argv),0)
+            self.assertEqual(json.loads(buf.getvalue())["sha256"],hashlib.sha256(self.exe.read_bytes()).hexdigest())
+        self.exe.write_bytes(b"invalid native binary")
+        out,err=io.StringIO(),io.StringIO()
+        with contextlib.redirect_stdout(out),contextlib.redirect_stderr(err):
+            self.assertNotEqual(self.builder.main(["--verify"]),0)
+        self.assertEqual(out.getvalue(),"")
+        self.assertTrue(err.getvalue().strip())
 
-    def test_stale_entry_code_is_rejected(self):
-        self.archive()
-        self.source.write_bytes(SOURCE + b"\nSTALE_CHECK = 1\n")
-        self.rejected()
 
-    def test_optimized_entry_is_rejected(self):
-        for level in ("s1", "s2"):
-            with self.subTest(level=level):
-                self.archive(optimize=level)
-                self.rejected()
+class SourceFingerprintTests(unittest.TestCase):
+    def test_loading_builder_through_equivalent_paths_preserves_fingerprint(self):
+        script = ROOT / "scripts/native_runtime_build.py"
+        alias = ROOT / "scripts" / ".." / "scripts/native_runtime_build.py"
+        self.assertTrue(alias.samefile(script))
+        canonical = runpy.run_path(str(script))["source_fingerprint"]
+        aliased = runpy.run_path(str(alias))["source_fingerprint"]
+        for component in ("cli", "engine"):
+            with self.subTest(component=component):
+                self.assertEqual(aliased(component), canonical(component))
 
-    def test_package_requires_exact_bytes_even_when_version_matches(self):
-        self.archive()
-        self.package.write_bytes(b'{ "name": "light-whisper", "version": "1.8.0" }\n')
-        self.rejected()
-
-    def test_old_packaged_version_is_rejected(self):
-        self.archive()
-        self.package.write_bytes(b'{"name":"light-whisper","version":"1.8.1"}\n')
-        self.rejected()
-
-    def test_root_and_nested_private_code_filenames_are_rejected(self):
-        for location in ("root", "nested"):
-            with self.subTest(location=location):
-                self.archive(private_filename=location)
-                self.rejected()
-
-    @staticmethod
-    def option(command, flag):
-        for index, argument in enumerate(command):
-            if argument == flag:
-                return command[index + 1]
-            if str(argument).startswith(flag + "="):
-                return str(argument).split("=", 1)[1]
-        raise AssertionError(f"PyInstaller command missing {flag}: {command}")
-
-    def build_boundary(self, *, failure=None, invalid=False, change=None, logs=False):
-        self.commands = []
-
-        def run(command, **kwargs):
-            command = list(map(str, command))
-            self.commands.append(command)
-            self.assertEqual(command[:3], [sys.executable, "-m", "PyInstaller"])
-            self.assertIn("--onefile", command)
-            self.assertIn("--console", command)
-            self.assertIn(str(self.source), command)
-            self.assertIn(str(self.package), " ".join(command))
-            self.assertNotIn("--windowed", command)
-            directory = Path(self.option(command, "--distpath")).resolve()
-            self.assertTrue(directory.is_relative_to(self.output.parent.resolve()),
-                            "build staging belongs beneath resources")
-            name = self.option(command, "--name")
-            staged = directory / (name if name.endswith(".exe") else name + ".exe")
-            self.assertNotEqual(staged, self.output)
-            if logs:
-                sink = kwargs.get("stdout")
-                if sink not in (subprocess.PIPE, subprocess.DEVNULL):
-                    print("synthetic PyInstaller build log", file=sink or sys.stdout)
-            if failure:
-                raise failure
-            if change:
-                change()
-            if invalid:
-                staged.parent.mkdir(parents=True, exist_ok=True)
-                staged.write_bytes(b"MZ-incomplete")
-            else:
-                self.archive(staged)
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-
-        return mock.patch("subprocess.run", side_effect=run)
-
-    def prepare_existing(self):
-        self.output.write_bytes(OLD_EXE)
-        self.unrelated = self.output.parent / "unrelated-build"
-        self.unrelated.mkdir()
-        (self.unrelated / "keep.txt").write_bytes(b"user-owned unrelated build state")
-
-    def assert_clean(self, *, old=True):
-        if old:
-            self.assertEqual(self.output.read_bytes(), OLD_EXE)
-        self.assertEqual((self.unrelated / "keep.txt").read_bytes(),
-                         b"user-owned unrelated build state")
-        self.assertEqual({path.name for path in self.output.parent.iterdir()},
-                         {self.output.name, self.unrelated.name}, "owned stages must be removed")
-
-    def build_rejected(self):
-        with self.assertRaises(Exception) as raised:
-            self.module.build_cli()
-        self.assertNotIsInstance(raised.exception, NotImplementedError,
-                                 "declaration-only failure is not build-failure handling")
-        self.assertNotIsInstance(raised.exception, AssertionError,
-                                 "fixture/command assertion is not production-failure handling")
-        self.assertEqual(len(self.commands), 1, "exercise the actual build subprocess boundary")
-        self.assertTrue(str(raised.exception).strip())
-        self.assert_clean()
-
-    def test_build_verifies_real_staged_archive_then_atomically_replaces(self):
-        self.prepare_existing()
-        original_replace = os.replace
-        publications = []
-
-        def replace(source, destination):
-            self.assertEqual(Path(destination), self.output)
-            self.assertEqual(self.output.read_bytes(), OLD_EXE)
-            self.report(self.module.verify_cli(Path(source)), Path(source))
-            publications.append(Path(source))
-            return original_replace(source, destination)
-
-        with self.build_boundary(), mock.patch("os.replace", side_effect=replace):
-            self.assertEqual(self.invoke(self.module.build_cli), self.output)
-        self.assertEqual(len(self.commands), 1)
-        self.assertEqual(len(publications), 1)
-        self.report(self.module.verify_cli(), self.output)
-        self.assert_clean(old=False)
-
-    def test_subprocess_failure_preserves_old_executable_and_unrelated_paths(self):
-        self.prepare_existing()
-        with self.build_boundary(failure=subprocess.CalledProcessError(3, "PyInstaller")):
-            self.build_rejected()
-
-    def test_incomplete_staged_artifact_preserves_old_executable(self):
-        self.prepare_existing()
-        with self.build_boundary(invalid=True):
-            self.build_rejected()
-
-    def test_entry_changed_during_build_rejects_even_matching_new_archive(self):
-        self.prepare_existing()
-        with self.build_boundary(change=lambda: self.source.write_bytes(SOURCE + b"CHANGED=1\n")):
-            self.build_rejected()
-
-    def test_package_changed_during_build_rejects_even_matching_new_archive(self):
-        self.prepare_existing()
-        with self.build_boundary(change=lambda: self.package.write_bytes(self.package.read_bytes() + b" \n")):
-            self.build_rejected()
-
-    def test_inputs_changed_after_verification_cannot_publish(self):
-        self.prepare_existing()
-        verify = self.module.verify_cli
-
-        def changed_after_verify(path=None):
-            report = verify(path)
-            self.source.write_bytes(SOURCE + b"CHANGED_AFTER_VERIFY=1\n")
-            return report
-
-        with self.build_boundary(), mock.patch.object(self.module, "verify_cli", changed_after_verify):
-            self.build_rejected()
-
-    def test_atomic_replace_failure_preserves_old_executable_and_cleans_stage(self):
-        self.prepare_existing()
-        with self.build_boundary(), mock.patch("os.replace", side_effect=PermissionError("replace denied")):
-            self.build_rejected()
-
-    def test_main_verify_optional_path_and_bare_flag_print_one_json_report(self):
-        for explicit in (False, True):
-            with self.subTest(explicit=explicit):
-                path = self.archive(self.root / "custom.exe" if explicit else None)
-                stdout, stderr = io.StringIO(), io.StringIO()
-                argv = ["--verify", str(path)] if explicit else ["--verify"]
-                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                    code = self.invoke(self.module.main, argv)
-                self.assertEqual(code, 0, stderr.getvalue())
-                self.report(json.loads(stdout.getvalue()), path)
-
-    def test_main_default_build_stdout_contains_only_json(self):
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with self.build_boundary(logs=True), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            code = self.invoke(self.module.main, [])
-        self.assertEqual(code, 0, stderr.getvalue())
-        self.report(json.loads(stdout.getvalue()), self.output)
-        self.assertIn("synthetic PyInstaller build log", stderr.getvalue())
-
-    def test_main_failure_nonzero_clear_stderr_and_no_success_json(self):
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            code = self.invoke(self.module.main, ["--verify"])
-        self.assertNotEqual(code, 0)
-        self.assertTrue(stderr.getvalue().strip())
-        self.assertNotIn("Traceback", stderr.getvalue())
-        self.assertEqual(stdout.getvalue(), "")
-
-    def test_readable_archive_with_prefix_below_mz_is_rejected(self):
-        self.prepare_existing()
-        candidate = self.archive(self.root / "lower-prefix.exe")
-        self.report(self.module.verify_cli(candidate), candidate)
-        damaged = b"AA" + candidate.read_bytes()[2:]
-        self.assertLess(damaged[:2], b"MZ")
-        candidate.write_bytes(damaged)
-        reader = CArchiveReader(str(candidate))
-        self.assertEqual(reader.extract("package.json"), self.package.read_bytes())
-        self.assertTrue(reader.extract(ENTRY_NAME))
-        self.rejected(candidate)
-        self.assertEqual(candidate.read_bytes(), damaged)
-        self.assert_clean()
-
-    def test_source_and_package_changes_after_verification_in_either_direction_cannot_publish(self):
-        self.prepare_existing()
-        package = self.package.read_bytes()
-        verify = self.module.verify_cli
-        cases = (
-            ("source", "decreasing", self.source, b"\n" + SOURCE),
-            ("source", "increasing", self.source, SOURCE + b"CHANGED_AFTER_VERIFY=1\n"),
-            ("package", "decreasing", self.package, package.replace(b"{", b"{ ", 1)),
-            ("package", "increasing", self.package, package + b" \n"),
-        )
-        for name, direction, target, changed in cases:
-            with self.subTest(input=name, direction=direction):
-                self.source.write_bytes(SOURCE)
-                self.package.write_bytes(package)
-                self.output.write_bytes(OLD_EXE)
-                before = target.read_bytes()
-                if direction == "decreasing":
-                    self.assertLess(changed, before)
-                else:
-                    self.assertGreater(changed, before)
-                verified = []
-
-                def changed_after_verify(path=None):
-                    report = verify(path)
-                    self.report(report, Path(path))
-                    verified.append(report)
-                    target.write_bytes(changed)
-                    return report
-
-                with self.build_boundary(), mock.patch.object(self.module, "verify_cli", changed_after_verify):
-                    self.build_rejected()
-                self.assertEqual(len(verified), 1, "change inputs only after actual staged verification")
-                self.assertEqual(target.read_bytes(), changed)
-
-    def test_higher_root_and_nested_private_code_filenames_are_rejected(self):
-        import marshal
-
-        self.prepare_existing()
-        private = r"z:\private-build\user\light_whisper_cli.py"
-        self.assertGreater(private, "light_whisper_cli.py")
-        original = archive_writers.replace_filename_in_code_object
-        for location in ("root", "nested"):
-            with self.subTest(location=location):
-                def filenames(code, filename):
-                    code = original(code, filename)
-                    if location == "root":
-                        return code.replace(co_filename=private)
-                    constants = tuple(value.replace(co_filename=private)
-                                      if isinstance(value, types.CodeType) else value
-                                      for value in code.co_consts)
-                    return code.replace(co_consts=constants)
-
-                with mock.patch.object(archive_writers, "replace_filename_in_code_object", filenames):
-                    candidate = self.archive(self.root / f"higher-{location}.exe")
-                reader = CArchiveReader(str(candidate))
-                self.assertEqual(reader.extract("package.json"), self.package.read_bytes())
-                code = marshal.loads(reader.extract(ENTRY_NAME))
-                exposed = ([code] if location == "root" else
-                           [value for value in code.co_consts if isinstance(value, types.CodeType)])
-                self.assertTrue(exposed)
-                self.assertTrue(all(value.co_filename == private for value in exposed))
-                self.rejected(candidate)
-                self.assert_clean()
-
-    def test_nonzero_builder_exit_rejects_even_a_valid_staged_archive(self):
-        self.prepare_existing()
-        with self.build_boundary() as builder:
-            build = builder.side_effect
-
-            def failed_after_staging(command, **kwargs):
-                build(command, **kwargs)
-                staged = Path(self.option(command, "--distpath")) / "light-whisper-cli.exe"
-                self.report(self.module.verify_cli(staged), staged)
-                completed = subprocess.CompletedProcess(command, 3)
-                if kwargs.get("check", False):
-                    completed.check_returncode()
-                return completed
-
-            builder.side_effect = failed_after_staging
-            self.build_rejected()
-
-    def test_verify_unicode_path_can_print_json_to_strict_cp1252_stdout(self):
-        self.prepare_existing()
-        candidate = self.archive(self.root / "\u4e2d\u6587" / "cli.exe")
-        stderr = io.StringIO()
-        with io.BytesIO() as raw_stdout:
-            with io.TextIOWrapper(raw_stdout, encoding="cp1252", errors="strict", write_through=True) as stdout:
-                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                    code = self.invoke(self.module.main, ["--verify", str(candidate)])
-                stdout.flush()
-                payload = raw_stdout.getvalue()
-        self.assertEqual(code, 0, stderr.getvalue())
-        self.assertEqual(stderr.getvalue(), "")
-        self.assertEqual(len(payload.splitlines()), 1)
-        self.report(json.loads(payload.decode("cp1252", "strict")), candidate)
-        self.assert_clean()
-
-    def test_main_archive_failure_preserves_the_missing_member_cause(self):
-        self.prepare_existing()
-        for missing, options in ((ENTRY_NAME, {"entry": False}), ("package.json", {"metadata": False})):
-            with self.subTest(missing=missing):
-                candidate = self.archive(self.root / "missing-member.exe", **options)
-                archive_bytes = candidate.read_bytes()
-                stdout, stderr = io.StringIO(), io.StringIO()
-                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                    code = self.invoke(self.module.main, ["--verify", str(candidate)])
-                self.assertNotEqual(code, 0)
-                self.assertEqual(stdout.getvalue(), "")
-                self.assertNotIn("Traceback", stderr.getvalue())
-                self.assertIn(missing, stderr.getvalue(), "retain the actual missing archive member cause")
-                self.assertEqual(candidate.read_bytes(), archive_bytes)
-                self.assert_clean()
-
+    def test_source_drift_and_line_endings_across_every_runtime_dependency(self):
+        import native_runtime_build
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            script=root/"scripts/native_runtime_build.py"
+            script.parent.mkdir()
+            shutil.copy2(native_runtime_build.__file__,script)
+            spec=importlib.util.spec_from_file_location("isolated_native_build",script)
+            native=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(native)
+            common=["rust-runtime/Cargo.toml","rust-runtime/Cargo.lock"]
+            engine=["src-tauri/windows-app-manifest.xml","scripts/build_engine.py"]
+            cli=["package.json","scripts/build_cli.py"]
+            for crate in ("cli","engine","native-asr","reuse","vad"):
+                paths=cli if crate=="cli" else engine
+                for name in ("Cargo.toml","src/lib.rs","build.rs"):
+                    paths.append(f"rust-runtime/crates/{crate}/{name}")
+            for path in common+engine+cli:
+                dest=root/path
+                dest.parent.mkdir(parents=True,exist_ok=True)
+                dest.write_bytes(b"baseline\n")
+            for component,inputs in (("engine",engine),("cli",cli)):
+                initial=native.source_fingerprint(component)
+                for path in common+inputs:
+                    dest=root/path
+                    with self.subTest(component=component,path=path):
+                        dest.write_bytes(b"baseline\r\n")
+                        self.assertEqual(native.source_fingerprint(component),initial)
+                        dest.write_bytes(b"changed\n")
+                        self.assertNotEqual(native.source_fingerprint(component),initial)
+                        dest.write_bytes(b"baseline\n")
 
 class CliDeliveryWiringTests(unittest.TestCase):
-    def test_real_script_verify_entrypoint_uses_real_archive_reader(self):
-        with tempfile.TemporaryDirectory() as directory:
-            artifact = synthetic_archive(Path(directory) / "cli.exe",
-                                         ROOT / "scripts/light_whisper_cli.py", ROOT / "package.json")
-            result = subprocess.run([sys.executable, str(BUILD_SCRIPT), "--verify", str(artifact)],
-                                    capture_output=True, text=True, encoding="utf-8", timeout=15)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            report = json.loads(result.stdout)
-            self.assertEqual(report["version"], json.loads((ROOT / "package.json").read_bytes())["version"])
-            self.assertEqual(report["sha256"], hashlib.sha256(artifact.read_bytes()).hexdigest())
+    def test_script_verify_cli_entrypoint_and_unicode_stdout(self):
+        from native_runtime_build import source_fingerprint
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"语音-command.exe"
+            path.write_bytes(executable("cli",source_fingerprint("cli")))
+            completed=subprocess.run([sys.executable,str(BUILD_SCRIPT),"--verify",str(path)],capture_output=True,
+                                     env=dict(os.environ,PYTHONIOENCODING="cp1252:strict"),timeout=20)
+            self.assertEqual(completed.returncode,0,completed.stderr)
+            self.assertEqual(Path(json.loads(completed.stdout)["path"]),path.resolve())
 
     def test_tauri_installs_cli_beside_application(self):
         config = json.loads((ROOT / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))

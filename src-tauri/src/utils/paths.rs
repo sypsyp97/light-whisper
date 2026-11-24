@@ -24,36 +24,6 @@ pub fn get_data_dir() -> &'static PathBuf {
     })
 }
 
-fn get_resource_script_path(app: &tauri::AppHandle, filename: &str) -> PathBuf {
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let script_path = resource_dir.join("resources").join(filename);
-        if script_path.exists() {
-            return script_path;
-        }
-    }
-
-    PathBuf::from("resources").join(filename)
-}
-
-pub fn get_qwen3_asr_server_path(app: &tauri::AppHandle) -> PathBuf {
-    get_resource_script_path(app, "qwen3_asr_server.py")
-}
-
-pub fn get_r2t2_asr_server_path(app: &tauri::AppHandle) -> PathBuf {
-    #[cfg(debug_assertions)]
-    {
-        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/r2t2_asr_server.py");
-        if source.is_file() {
-            return source;
-        }
-    }
-    get_resource_script_path(app, "r2t2_asr_server.py")
-}
-
-pub fn get_download_script_path(app: &tauri::AppHandle) -> PathBuf {
-    get_resource_script_path(app, "download_models.py")
-}
-
 pub fn strip_win_prefix(path: &std::path::Path) -> String {
     let s = path.to_string_lossy().to_string();
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
@@ -330,7 +300,6 @@ pub fn get_resource_engine_exe_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     if let Ok(resource_dir) = app.path().resource_dir() {
         let resource_engine = resource_dir
             .join("resources")
-            .join("python-dist")
             .join("engine")
             .join("engine.exe");
         if resource_engine.exists() {

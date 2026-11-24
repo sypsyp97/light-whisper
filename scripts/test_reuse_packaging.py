@@ -18,49 +18,38 @@ class ReusePackagingTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.resources = self.root / "resources"
-        self.resources.mkdir()
-
-        for name in build_engine.ADD_DATA_FILES:
-            if name.endswith(".py"):
-                (self.resources / name).write_bytes((build_engine.RESOURCES_DIR / name).read_bytes())
-        self.enterContext(mock.patch.object(build_engine, "RESOURCES_DIR", self.resources))
-        self.archive = self.root / "engine.tar.xz"
-        self.manifests = {}
-        for backend in ("cpu", "cuda"):
-            directory = self.resources / "r2t2-native" / backend
-            directory.mkdir(parents=True)
-            payloads = {name: f"synthetic {backend} {name}".encode() for name in ("audiocpp.dll", "reuse.dll")}
-            for name, data in payloads.items():
-                (directory / name).write_bytes(data)
-            manifest = {
-                "source": build_r2t2_runtime.SOURCE_URL,
-                "build_id": build_engine.R2T2_BUILD_ID,
-                "revision": build_engine.R2T2_REVISION,
-                "patch_sha256": hashlib.sha256(build_engine.R2T2_PATCH.read_bytes()).hexdigest(),
-                "backend": backend,
-                "reuse_source_sha256": build_reuse_runtime.source_fingerprint(),
-                "files": {name: {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-                          for name, data in payloads.items()},
-            }
-            self.manifests[backend] = manifest
-            self.write_manifest(backend, manifest)
+        from native_package_fixture import EngineFixture
+        self.fixture=EngineFixture(self,build_engine,self.root)
+        self.resources=self.fixture.resources
+        self.archive=self.fixture.archive
+        self.manifests={b:json.loads((self.resources/"r2t2-native"/b/"runtime-manifest.json").read_bytes())
+                        for b in ("cpu","cuda")}
 
     def write_manifest(self, backend, manifest):
         path = self.resources / "r2t2-native" / backend / "runtime-manifest.json"
         path.write_text(json.dumps(manifest), encoding="utf-8")
 
     def package(self):
-        with tarfile.open(self.archive, "w:xz") as archive:
-            for path in sorted(self.resources.rglob("*")):
-                if path.is_file():
-                    archive.add(path, arcname=f"_internal/{path.relative_to(self.resources).as_posix()}")
+        members=self.fixture.native.copy()
+        for backend in ("cpu","cuda"):
+            directory=self.resources/"r2t2-native"/backend
+            prefix=f"_internal/r2t2-native/{backend}/"
+            original=json.loads((directory/"runtime-manifest.json").read_bytes())
+            bundled=json.loads(members[prefix+"runtime-manifest.json"])
+            bundled={**original,"files":dict(original["files"]),"shared_files":bundled["shared_files"]}
+            for name in bundled["shared_files"]:
+                bundled["files"].pop(name,None)
+            members[prefix+"runtime-manifest.json"]=json.dumps(bundled).encode()
+            if not (directory/"reuse.dll").is_file():
+                members.pop(prefix+"reuse.dll")
+        self.fixture.package(self.fixture.sources|members)
 
     def assert_rejected_locally_and_in_archive(self):
-        with self.subTest(validator="local"), self.assertRaises(RuntimeError):
-            build_engine.validate_r2t2_runtime()
+        with tempfile.TemporaryDirectory(dir=self.root) as tmp:
+            with self.subTest(validator="local"),self.assertRaises((ValueError,RuntimeError)):
+                build_engine.copy_native(Path(tmp))
         self.package()
-        with self.subTest(validator="archive"), self.assertRaises(RuntimeError):
+        with self.subTest(validator="archive"),self.assertRaises((ValueError,RuntimeError)):
             build_engine.verify_archive_sources(self.archive)
 
     def test_valid_cpu_cuda_reuse_packs_and_archive_are_accepted(self):
@@ -69,7 +58,9 @@ class ReusePackagingTests(unittest.TestCase):
                      Path(build_reuse_runtime.__file__)):
             expected_hash.update(path.read_bytes().replace(b"\r\n", b"\n"))
         self.assertEqual(build_reuse_runtime.source_fingerprint(), expected_hash.hexdigest())
-        self.assertEqual(build_engine.validate_r2t2_runtime(), self.resources / "r2t2-native")
+        stage=self.root/"stage"
+        build_engine.stage_engine(stage)
+        self.assertTrue(all((stage/"_internal/r2t2-native"/b/"reuse.dll").is_file() for b in ("cpu","cuda")))
         self.package()
         build_engine.verify_archive_sources(self.archive)
 

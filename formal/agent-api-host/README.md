@@ -19,7 +19,7 @@ capture, paid APIs, model download, credentials or user profile data are involve
 | Native argument dispatch before plugins | `src-tauri/src/lib.rs::run` | Compiled marker; client ready/exit/EOF with no endpoint; explicit host data directory; window count from actual Wry app, tests 01–06 |
 | Host `AppHandle`, managed `AppState`, endpoint lease | `lib.rs` host setup; `agent_api/transport.rs::AgentServer` | Ready only after endpoint publication, distinct data isolation, duplicate refusal, local host exit/EOF, tests 06–10 |
 | Saved configuration / observed native identity | `utils/paths.rs`, `agent_api/controller.rs::query` | Saved `configured_engine`; no fake observed identity; engine switch stops old native without autostart, tests 06,11 |
-| Installed engine fingerprint and native child | `funasr_service/installation.rs::find_engine`, `funasr_service.rs::start_server` | Own engine `.version` follows real archive/version fallback; actual `serve --engine` arguments, tests 07–13 |
+| Bundled engine discovery and native child | `funasr_service/installation.rs::find_engine`, `funasr_service.rs::start_server` | Isolated resource directory exercises native sidecar discovery and actual `serve --engine` arguments, tests 07–13 |
 | Start ticket, generation, starting child, native ASR lease | `EngineState`, `start_server`, `commands/funasr.rs::lock_idle_asr`, controller dispatch | Startup barrier holds owner, competing controls have no effects; quit reaps child; test 18 and direct Rust STARTING test |
 | Admitted operation lifetime vs client lifetime | Transport worker -> controller query -> native JSONL | Python CLI timeout disconnects broker, accepted transcription stays running; second client sees busy and cannot mutate; completion once, test 16 |
 | Owned audio copy and original file | `controller.rs::OwnedQueryAudio`, `read_audio` | Real native IPC reads owned copy; original unchanged; cleanup after completion or owner quit; no profile/history writes, tests 13,16,17 |
@@ -54,7 +54,7 @@ engine. The headless result does not establish that the full GUI remains stopped
 ## Deterministic synthetic native fixture
 
 `native-fixture` is a tiny Rust executable installed as **only this test's**
-`data/engine/engine.exe`. It implements production JSONL startup and the actual
+`resources/engine/engine.exe` beside the temporary host copy. It implements production JSONL startup and the actual
 status/stats/transcribe/settings/exit protocol. It records its actual PID,
 arguments, input audio bytes and native commands under the test-owned control
 directory. It never infers text; its fixed transcript is explicitly synthetic.

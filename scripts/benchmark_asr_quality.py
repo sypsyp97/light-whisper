@@ -3,7 +3,7 @@
 Run baseline and candidate separately with --family, --model, --library,
 --dependencies, --source-dir and --output; add --reference BASELINE_JSON to the
 candidate. Qwen uses the production full-clip FireRedVAD callback. R2T2 uses the
-production rolling 160 ms stream and retains its 320 ms finish context. The last
+the production segmented stream and records the negotiated native cadence. The last
 feed contains exactly 13 original samples: no trimming, padding or resampling.
 --self-test needs only the standard library and never imports native wrappers.
 """
@@ -168,8 +168,7 @@ def run(args, report):
             "dependencies": dependencies, "dependency_identity": dependency_identity,
             "script_sha256": sha256(__file__)}
         report["fixtures"] = fixture_data
-        if args.family == "qwen":
-            report["inputs"].update(vad_model=sha256(args.vad_model), vad_cmvn=sha256(args.vad_cmvn))
+        report["inputs"].update(vad_model=sha256(args.vad_model), vad_cmvn=sha256(args.vad_cmvn))
         save(args.output, report)
         for directory in dict.fromkeys([args.library.parent, *args.dependencies]):
             directories.append(os.add_dll_directory(str(directory)))
@@ -181,9 +180,8 @@ def run(args, report):
         os.environ["OMP_NUM_THREADS"] = "1"
         sys.path.insert(0, str(args.source_dir))
         import numpy as np
-        names = ["r2t2_native", "qwen3_native", "r2t2_stream"]
-        if args.family == "qwen":
-            names += ["qwen3_asr_server", "firered_vad", "asr_stream_server", "server_common", "hf_cache_utils"]
+        names = ["r2t2_native", "r2t2_stream", "firered_vad", "asr_stream_server", "server_common", "hf_cache_utils"]
+        names += ["qwen3_native", "qwen3_asr_server"] if args.family == "qwen" else ["r2t2_segmented", "r2t2_asr_server"]
         modules = {name: importlib.import_module(name) for name in names}
         report["modules"] = {name: str(Path(module.__file__).resolve()) for name, module in modules.items()}
         for name, path in report["modules"].items():
@@ -191,21 +189,32 @@ def run(args, report):
         before = time.perf_counter()
         options = {"backend": "cuda", "threads": 1, "dll_directories": args.dependencies}
         native = (modules["qwen3_native"].QwenNativeRuntime(args.model, args.library, **options)
-                  if args.family == "qwen" else modules["r2t2_native"].NativeRuntime(
-                      args.model, args.library, rolling=True, chunk_ms=160, **options))
+                  if args.family == "qwen" else modules["r2t2_asr_server"].open_r2t2_runtime(
+                      args.model, args.library, **options))
         report.update(model_load_ms=(time.perf_counter() - before) * 1000,
                       abi_version=native.functions["abi_version"]())
         handle = native.session.value
         current = None
+        vad_model = modules["firered_vad"].FireRedVad(args.vad_model, args.vad_cmvn)
+        timestamps = vad_model.speech_timestamps
+
+        def vad(pcm):
+            event = {"samples": len(pcm), "status": "running"}
+            current["vad_calls"].append(event)
+            segments = timestamps(pcm)
+            event.update(status="completed", segments=segments)
+            return segments
+
+        vad_model.speech_timestamps = vad
         if args.family == "qwen":
             server_type = modules["qwen3_asr_server"].Qwen3ASRServer
             server = server_type.__new__(server_type)
             server.session = native
-            server.vad_model = modules["firered_vad"].FireRedVad(args.vad_model, args.vad_cmvn)
+            server.vad_model = vad_model
             server.stdout_suppressor = SimpleNamespace(suppress=nullcontext)
             server._vad_calls = server._vad_rejected = 0
             server._total_vad_ms = 0
-            native_run, timestamps = native.run, server.vad_model.speech_timestamps
+            native_run = native.run
 
             def decode(pcm, **kwargs):
                 event = {"samples": len(pcm), "pcm32_sha256": hashlib.sha256(pcm.tobytes()).hexdigest(), "status": "running"}
@@ -214,22 +223,35 @@ def run(args, report):
                 event["status"] = "completed"
                 return result
 
-            def vad(pcm):
-                event = {"samples": len(pcm), "status": "running"}
-                current["vad_calls"].append(event)
-                segments = timestamps(pcm)
-                event.update(status="completed", segments=segments)
-                return segments
-
-            native.run, server.vad_model.speech_timestamps = decode, vad
+            native.run = decode
         else:
-            require(native.FINISH_CONTEXT_SAMPLES == FINISH and native.chunk_samples == CHUNK,
-                    "R2T2 160 ms chunks / 320 ms finish context changed")
-            session = modules["r2t2_stream"].R2T2StreamSession(native)
+            require(native.FINISH_CONTEXT_SAMPLES == FINISH, "R2T2 finish context changed")
+            report["config"].update(r2t2_startup_chunk_samples=native.chunk_samples,
+                                    r2t2_steady_chunk_samples=native.steady_chunk_samples)
+            native_feed, native_finish = native.feed, native.finish
+
+            def feed_segment(pcm):
+                expected = native._offset + len(pcm)
+                result = native_feed(pcm)
+                require(native._offset == expected, "R2T2 native feed lost segment samples")
+                return result
+
+            def finish_segment():
+                count = native._offset
+                result = native_finish()
+                require(native._offset == count + FINISH, "R2T2 segment finish lost acoustic context")
+                current["native_segments"].append({"audio_samples": count, "final_samples": native._offset})
+                return result
+
+            native.feed, native.finish = feed_segment, finish_segment
+            segmented = modules["r2t2_asr_server"].make_r2t2_segmented(native, vad_model)
+            session = modules["r2t2_stream"].R2T2StreamSession(segmented)
         for serial, (fixture, raw) in enumerate(clips, 1):
             current = {"id": fixture["id"], "reference": fixture["reference"], "status": "running",
                        "feeds": [], "native_decodes": [], "vad_calls": []}
             report["rows"].append(current)
+            if session is not None:
+                current["native_segments"] = []
             save(args.output, report)
             before = time.perf_counter()
             try:
@@ -243,9 +265,11 @@ def run(args, report):
                     if session is not None:
                         pcm = np.frombuffer(chunk, dtype="<i2").astype(np.float32) / np.float32(32768)
                         feed["response"] = session.feed(serial, pcm, offset=offset)
-                        feed["native_samples"] = native._offset
-                        require(feed["response"]["sample_count"] == offset + len(chunk) // 2
-                                and native._offset == offset + len(chunk) // 2, "R2T2 feed dropped samples")
+                        feed["native_samples"] = sum(s["audio_samples"] for s in current["native_segments"])
+                        if native._active:
+                            feed["native_samples"] += native._offset
+                        require(feed["response"]["sample_count"] == offset + len(chunk) // 2,
+                                "R2T2 stream feed lost captured samples")
                     accepted.append((offset, chunk))
                 current["accepted_pcm"] = account_pcm(raw, accepted)
                 count = current["accepted_pcm"]["samples"]
@@ -253,8 +277,7 @@ def run(args, report):
                 if session is not None:
                     final = session.finish(serial)
                     current["finish_response"] = final
-                    require(final["sample_count"] == count and native._offset == count + FINISH,
-                            "R2T2 finish lost captured samples or 320 ms context")
+                    require(final["sample_count"] == count, "R2T2 finish lost captured samples")
                     require(not session.active and not native._active and native.preview_text == "",
                             "R2T2 finish retained active state")
                 else:
@@ -265,8 +288,8 @@ def run(args, report):
                     final = {"text": result.text, "language": result.language, "sample_count": count}
                 current.update(final={key: final[key] for key in ("text", "language", "sample_count")},
                     sample_accounting={"captured_samples": count, "final_samples": final["sample_count"],
-                        "native_final_samples": native._offset if session is not None else None,
-                        "finish_context_samples": FINISH if session is not None else 0,
+                        "native_final_samples": sum(s["final_samples"] for s in current["native_segments"]) if session is not None else None,
+                        "finish_context_samples": FINISH * len(current["native_segments"]) if session is not None else 0,
                         "count_origin": "R2T2StreamSession result" if session is not None else "captured byte accounting; Qwen callback returns no sample count"},
                     accuracy=accuracy(fixture["reference"], final["text"]), status="completed",
                     finish_ms=(time.perf_counter() - finish_started) * 1000,
@@ -378,6 +401,7 @@ def main():
               "limitations": ["Six fixed clips are coverage observations, not a corpus accuracy estimate; four mixed clips share ASCEND speaker 17.",
                   "Character distance does not equate number words with digits or perform lexical tokenization; no WER is reported.",
                   "Qwen sample count is byte-accounted capture input; VAD may trim the separate native decode input.",
+                  "R2T2 captured counts include silence; native sample totals reflect VAD-admitted segments and their finish context.",
                   "Python file replay excludes microphone, Rust IPC and UI; model close does not unload the CUDA process context."]}
     with args.output.open("x", encoding="utf-8") as output:
         json.dump(report, output)

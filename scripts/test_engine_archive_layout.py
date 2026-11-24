@@ -1,3 +1,5 @@
+import os
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -57,13 +59,23 @@ class EngineArchiveLayoutTests(unittest.TestCase):
             self.assertEqual(names, self.expected_order)
 
     def test_python_preserves_contents_in_size_then_path_order(self):
-        self.assert_round_trip(build_engine.create_tar_xz_with_python)
+        fallback = Path(r"C:\Program Files\7-Zip\7z.exe")
+        original = Path.is_file
+        def without_seven_zip(path):
+            return False if path == fallback else original(path)
+        with mock.patch.dict(os.environ, SEVEN_ZIP=""), mock.patch.object(shutil, "which", return_value=None), \
+                mock.patch.object(Path, "is_file", without_seven_zip):
+            self.assert_round_trip(build_engine.create_tar_xz)
 
     def test_7z_preserves_contents_in_size_then_path_order(self):
-        seven_zip = build_engine.find_7z_executable()
+        seven_zip = os.environ.get("SEVEN_ZIP") or shutil.which("7z")
+        fallback = Path(r"C:\Program Files\7-Zip\7z.exe")
+        if not seven_zip and fallback.is_file():
+            seven_zip = str(fallback)
         if seven_zip is None:
             self.skipTest("7-Zip is not installed")
-        self.assert_round_trip(build_engine.create_tar_xz_with_7z, seven_zip)
+        with mock.patch.dict(os.environ, SEVEN_ZIP=seven_zip):
+            self.assert_round_trip(build_engine.create_tar_xz)
 
 
 if __name__ == "__main__":

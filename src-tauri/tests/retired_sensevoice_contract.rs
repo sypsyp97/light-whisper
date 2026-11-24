@@ -16,7 +16,7 @@ fn read(path: impl AsRef<Path>) -> String {
 fn sensevoice_is_not_a_selectable_or_runnable_engine() {
     let root = repo_root();
     let settings = read(root.join("src/pages/SettingsPage.tsx"));
-    let engine_entry = read(root.join("src-tauri/resources/engine.py"));
+    let engine_entry = read(root.join("rust-runtime/crates/engine/src/main.rs"));
     let rust_paths = read(root.join("src-tauri/src/utils/paths.rs"));
 
     assert!(!settings.contains("key: \"sensevoice\""));

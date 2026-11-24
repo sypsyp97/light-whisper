@@ -1,11 +1,11 @@
 {
   "name": "light-whisper",
   "private": true,
-  "version": "1.8.1",
+  "version": "1.8.2",
   "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
-    "cli": "python scripts/light_whisper_cli.py",
+    "cli": "cargo run --quiet --locked --manifest-path rust-runtime/Cargo.toml -p light-whisper-cli --",
     "dev": "vite",
     "build": "tsc && vite build",
     "build:distribution": "node scripts/verify_engine_archive.mjs && uv run --locked python scripts/build_cli.py --verify && pnpm build",

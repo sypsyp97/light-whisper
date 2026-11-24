@@ -1,0 +1,13 @@
+[package]
+name = "light-whisper-reuse"
+version = "1.8.2"
+edition = "2024"
+publish = false
+
+[dependencies]
+light-whisper-native-asr = {path="../native-asr"}
+libloading = "0.8.9"
+sha2 = "0.10"
+
+[build-dependencies]
+cc = "1"

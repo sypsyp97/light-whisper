@@ -2,7 +2,7 @@
 
 Only accepts an explicitly named, separately built debug executable whose owning
 source has the early agent flag guard. Never discovers or launches installed apps.
-The installed synthetic Rust engine tests IPC/lifecycle, never model inference.
+The bundled synthetic Rust engine tests IPC/lifecycle, never model inference.
 """
 import argparse
 import ctypes
@@ -167,17 +167,6 @@ class NativeHost(unittest.TestCase):
         self.evidence.mkdir(parents=True, exist_ok=True)
         for path in (self.data, self.control, self.temp, self.cache):
             path.mkdir()
-        engine_dir = self.data / "engine"
-        engine_dir.mkdir()
-        shutil.copy2(OPTIONS.fixture_exe, engine_dir / "engine.exe")
-        # Source build's debug resource directory has no nonempty archive: the
-        # real installation fallback expects CARGO_PKG_VERSION, not a fake stamp.
-        resource_archives = [OPTIONS.app_exe.parent / "resources" / filename
-                             for filename in ("engine.tar.xz", "engine.zip")]
-        selected = next((p for p in resource_archives if p.is_file() and p.stat().st_size), None)
-        stamp = ("sha256:" + hashlib.sha256(selected.read_bytes()).hexdigest() if selected else
-                 json.loads((REPO / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))["version"])
-        (engine_dir / ".version").write_text(stamp, encoding="utf-8")
         self.config = {"engine": LOCAL[0], "models_dir": str(self.cache), "gpu_idle_seconds": 0,
                        "unrelated_test_setting": "preserve"}
         (self.data / "engine.json").write_text(json.dumps(self.config), encoding="utf-8")
@@ -678,7 +667,14 @@ def main():
     (OPTIONS.evidence / "identity.json").write_text(json.dumps(identity, indent=2), encoding="utf-8")
     names = OPTIONS.case or unittest.defaultTestLoader.getTestCaseNames(NativeHost)
     suite = unittest.TestSuite(NativeHost(name) for name in names)
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    # Give this host its own resource tree. A developer build may contain a real
+    # engine archive, which the installer would select before an unpacked engine.
+    with tempfile.TemporaryDirectory(prefix="lw-native-bundle-") as bundle:
+        engine_dir = Path(bundle) / "resources" / "engine"
+        engine_dir.mkdir(parents=True)
+        shutil.copy2(OPTIONS.fixture_exe, engine_dir / "engine.exe")
+        OPTIONS.app_exe = Path(shutil.copy2(OPTIONS.app_exe, bundle))
+        result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 
 

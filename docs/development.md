@@ -4,11 +4,11 @@ Build on Windows 10/11 x64:
 
 | Tool | Version | Purpose |
 |:--|:--|:--|
-| [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) | 2022 (MSVC 14.44 validated) | Rust and shared ASR C++ toolchain |
-| [Rust](https://www.rust-lang.org/tools/install) | 1.93.0 (CI) | Tauri backend |
+| [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) | 2022 (MSVC 14.44 validated) | Rust and native ASR/VAD C++ toolchain |
+| [Rust](https://www.rust-lang.org/tools/install) | 1.93.0 (CI) | Engine, CLI and Tauri desktop |
 | [Node.js](https://nodejs.org/) | 22.14.0 (CI) | Frontend build |
 | [pnpm](https://pnpm.io/) | 10.28.2 (CI) | Frontend packages |
-| [uv](https://docs.astral.sh/uv/) | 0.11.30 (CI) | Python environment for local ASR |
+| [uv](https://docs.astral.sh/uv/) | 0.11.30 (CI) | Build-time tooling, locked native SDK wheels and reference tests |
 
 Python 3.11 is selected by `.python-version`; the project supports Python 3.11–3.12. `uv` manages this environment.
 
@@ -23,13 +23,12 @@ pnpm tauri dev
 
 For Qwen 0.6B and R2T2 development, first build the shared native runtimes with the
 commands below. Qwen and R2T2 support CPU and NVIDIA CUDA.
-The development server loads DLLs beside its source script;
-the installed application uses the self-contained engine archive.
+The CPU and CUDA runtimes live in `src-tauri/resources/r2t2-native/`.
+The Windows distribution contains a Rust engine and a standalone Rust CLI.
 
-Build a distributable installer. The bundled Python engine archive is intentionally
-not stored in Git, so build it first:
+Build the runtime packages and installer from the repository root:
 
-```bash
+```powershell
 uv run --locked python scripts/build_r2t2_runtime.py --backend cpu
 uv run --locked python scripts/build_r2t2_runtime.py --backend cuda --cuda-root "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.9"
 uv run --locked python scripts/build_engine.py
@@ -37,30 +36,34 @@ uv run --locked python scripts/build_cli.py
 pnpm tauri build
 ```
 
+The build scripts compile the `rust-runtime` workspace in release mode with
+the locked Cargo dependencies. The engine build obtains the Microsoft.ML.OnnxRuntime
+1.24.1 Windows x64 SDK from NuGet and checks its package SHA-256
+(`5fca4421974b450711520f17a27e527fec60a78c2b6f9db3b05c159d9b5a346d`).
+The SDK cache is `build/native-sdk/onnxruntime-1.24.1`. For an offline build,
+set `LW_ORT_SDK` to an extracted copy of that package. The build reads the
+kaldi-native-fbank 1.22.3 SDK and libsndfile from the locked Windows wheels.
+`LW_KALDI_SDK` can point to a matching directory containing `include/` and
+`lib/`. `LW_NATIVE_RESOURCES` can point to an external resources directory
+containing both validated `r2t2-native` backend builds. `CARGO_TARGET_DIR`
+controls the Cargo artifact cache.
+
+The engine archive contains `engine.exe`, its native libraries and notices,
+FireRedVAD assets, and backend file manifests. Its distribution manifest
+records the size and SHA-256 of every payload file. Verification also checks
+the executable's AMD64 PE header, release source fingerprint and image hash.
+The CLI carries its own executable and source hashes. The build publishes each
+artifact by atomic replacement after verification. To check existing artifacts:
+
+```powershell
+uv run --locked python scripts/build_engine.py --verify-archive src-tauri/resources/engine.tar.xz
+uv run --locked python scripts/build_cli.py --verify
+```
+
+7-Zip compresses the engine tar with XZ and x86 BCJ filtering when available.
 The NSIS installer is written to `src-tauri/target/release/bundle/nsis/`.
-Installation registers `light-whisper` on the current user's PATH.
-Open a new terminal after installation to use the command.
-The standalone CLI is installed beside the desktop executable.
-Distribution builds verify its embedded entry code and package metadata against the checkout.
-Run `uv run --locked python scripts/build_cli.py --verify` to repeat this check.
-7-Zip uses a solid XZ archive, a 256 MiB dictionary and x86 BCJ filtering.
-Files are ordered by size so large native libraries can share dictionary history.
-The NSIS wrapper uses zlib around the precompressed engine.
-The ONNX Runtime hook omits its standalone C API DLL while retaining the Python
-binding and provider libraries. Normal dependency analysis still includes the C
-API DLL if a collected binary imports it. Packaging also removes the nested Kaldi
-core DLL only when its bytes match the copy at the bundle root.
-The copied distribution excludes the retired transcribe.cpp packages and Vulkan
-backend DLLs. Qwen 0.6B and R2T2 use only the shared audio.cpp runtime. CUDA/CRT
-dependencies stay beside their native library unless an identical copy exists
-at the bundle root; source native packages and their licenses stay intact.
-`pnpm tauri build` rejects a missing, empty, or non-XZ engine archive instead of
-producing an installer without local ASR. Reuse a verified archive only if its
-Python code, native libraries and dependencies are unchanged. Distribution builds
-compare the bundled Python sources and shared native build manifests with the
-checkout, verify the native DLL sizes and hashes, and reject stale archives or
-retired transcribe.cpp/Vulkan payloads;
-rebuild the native packages and engine when this check fails.
+Installation registers `light-whisper` on the current user's PATH. Open a new
+terminal after installation to use the command.
 
 Optional local-model prefetch:
 
@@ -86,8 +89,8 @@ pnpm --silent cli --engine confucius4-r2t2 transcribe sample.wav --language en
 python -m unittest discover -s scripts -p "test_*cli*.py" -v
 ```
 
-Source inference requires the Python environment, native runtimes and existing
-model files described above. `doctor` checks configuration and file presence.
+Independent inference requires a native engine, its shared libraries and local model files.
+Use `--engine-exe` to select a staged executable. `doctor` checks configuration and file presence.
 It does not load a model. Capture command output, stderr and exit codes outside
 runtime directories. Confirm that owned children exit after a test.
 A separate engine run does not verify the desktop connection or the installed CLI.

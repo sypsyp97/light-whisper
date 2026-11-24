@@ -41,10 +41,10 @@ effects; this does not claim an actual engine start/restart in those cases.
 
 The supplementary admission model passes all 32 outcomes. Its positive run
 generates 51,448 states, finds 20,476 distinct states and reaches depth 19 with
-an empty queue. All 17 current source bindings remain unchanged. The earlier
-28-case run, including its 37,376/14,092 positive counts, is historical. The
-32-case result is independent of the later CLI input-validation change and is
-retained without a redundant CLI replay.
+an empty queue. The native-runtime migration changed three of the 17 source
+bindings. The replay uses the new bindings for the engine service, download
+service and path resolver. The earlier 28-case run and its 37,376/14,092
+positive counts remain historical.
 
 The security addition calls actual private-file creation after an independently
 observed restricted-token denial. An error-code control produces the intended
