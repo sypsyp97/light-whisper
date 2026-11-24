@@ -36,9 +36,13 @@ staged filenames and contents plus the active author and committer identities.
 To flag an address anywhere in outgoing files, run
 `git config --local --add privacy.privateEmail "YOUR_PRIVATE_ADDRESS"` once for
 each private address. These entries stay in the clone's local configuration.
+Before Git creates or replaces a local tag, the reference-transaction hook
+checks its name and any annotated tag objects it points to. It rejects non-noreply
+emails in tagger identities and notes, profile paths and recognized credentials.
+Lightweight tags have no tagger or annotation. Existing tags keep their targets.
 The push hook reads the destination's advertised refs and checks new Git objects,
 including intermediate commits, messages, filenames, annotated tags and destination
-ref names. Both hooks check for local profile paths and common credential patterns.
+ref names. The hooks check for local profile paths and common credential patterns.
 Diagnostics give the category without printing matched values. The push hook runs
 after Git connects to the destination, so configure a credential-free remote URL.
 

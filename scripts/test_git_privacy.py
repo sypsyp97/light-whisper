@@ -40,7 +40,8 @@ class GitPrivacyTests(unittest.TestCase):
         self.git("config", "core.autocrlf", "false")
         self.git("remote", "add", "origin", str(self.remote))
         self.git("config", "core.hooksPath", ".githooks")
-        for relative in (".githooks/pre-commit", ".githooks/pre-push", "scripts/git_privacy.py"):
+        for relative in (".githooks/pre-commit", ".githooks/pre-push",
+                         ".githooks/reference-transaction", "scripts/git_privacy.py"):
             source = ROOT / relative
             if source.is_file():
                 destination = self.repo / relative
@@ -131,7 +132,8 @@ class GitPrivacyTests(unittest.TestCase):
     def test_annotated_tag_on_published_commit_checks_its_own_tagger(self):
         self.git("commit", "--allow-empty", "-qm", "public")
         self.git("push", "-q", "origin", "main")
-        self.git("tag", "-am", "annotation", "version", env={"GIT_COMMITTER_EMAIL": PRIVATE_EMAIL})
+        self.git("-c", "core.hooksPath=disabled", "tag", "-am", "annotation", "version",
+                 env={"GIT_COMMITTER_EMAIL": PRIVATE_EMAIL})
         self.denied(self.git("push", "-q", "origin", "refs/tags/version", check=False),
                     PRIVATE_EMAIL)
         self.assert_unpublished("refs/tags/version")
@@ -193,8 +195,9 @@ class GitPrivacyTests(unittest.TestCase):
     def test_nested_annotation_checks_inner_unpublished_tagger(self):
         self.git("commit", "--allow-empty", "-qm", "public")
         self.git("push", "-q", "origin", "main")
-        self.git("tag", "-am", "inner", "first", env={"GIT_COMMITTER_EMAIL": PRIVATE_EMAIL})
-        self.git("tag", "-am", "outer", "second", "first")
+        self.git("-c", "core.hooksPath=disabled", "tag", "-am", "inner", "first",
+                 env={"GIT_COMMITTER_EMAIL": PRIVATE_EMAIL})
+        self.git("-c", "core.hooksPath=disabled", "tag", "-am", "outer", "second", "first")
         self.denied(self.git("push", "-q", "origin", "refs/tags/second", check=False),
                     PRIVATE_EMAIL)
         self.assert_unpublished("refs/tags/second")
@@ -248,6 +251,96 @@ class GitPrivacyTests(unittest.TestCase):
         credential = "https://" + "fixture:" + password + "@example.invalid/"
         self.stage(credential.encode("utf-16-le"))
         self.denied(self.git("commit", "-qm", "wide URL", check=False), password)
+
+    def historical_commit(self):
+        tree = self.git("mktree", stdin=b"").stdout.strip().decode()
+        return self.git("commit-tree", tree, "-m", "historical",
+                        env={"GIT_AUTHOR_EMAIL": PRIVATE_EMAIL}).stdout.strip().decode()
+
+    def test_local_tag_rejects_private_metadata_before_creating_ref(self):
+        target = self.historical_commit()
+        profile = self.env["USERPROFILE"]
+        for name, message, env, secret in (
+            ("tagger", "release", {"GIT_COMMITTER_EMAIL": PRIVATE_EMAIL}, PRIVATE_EMAIL),
+            ("contact", "Contact " + PRIVATE_EMAIL, {}, PRIVATE_EMAIL),
+            ("path", "Built at " + profile, {}, profile),
+            ("token", "Build " + TOKEN, {}, TOKEN),
+        ):
+            with self.subTest(name=name):
+                result = self.git("tag", "-am", message, name, target, check=False, env=env)
+                self.denied(result, secret)
+                self.assertEqual(self.git("tag", "--list", name).stdout, b"")
+
+    def test_local_tag_accepts_clean_annotations_and_lightweight_history(self):
+        target = self.historical_commit()
+        self.git("tag", "light", target, env={"GIT_COMMITTER_EMAIL": PRIVATE_EMAIL})
+        note = "Docs https://docs.example.invalid/users/guide\n\ntagger examples follow\n\nRelease notes"
+        self.git("tag", "-am", note, "annotated", target)
+        self.git("tag", "-am", "release notes", "outer", "annotated")
+        for name, kind in (("light", b"commit"), ("annotated", b"tag"), ("outer", b"tag")):
+            with self.subTest(name=name):
+                self.assertEqual(self.git("cat-file", "-t", name).stdout.strip(), kind)
+                self.assertEqual(self.git("rev-parse", name + "^{}").stdout.strip().decode(), target)
+
+    def test_local_tag_rejects_other_machines_profile_paths_in_annotation(self):
+        target = self.historical_commit()
+        for name, path in (("windows", "C:/Users/AnotherFixture/source"),
+                           ("linux", "/home/AnotherFixture/work"),
+                           ("mac", "/Users/AnotherFixture/work")):
+            with self.subTest(name=name):
+                self.denied(self.git("tag", "-am", "Built at " + path + "\n\nRelease notes", name, target,
+                                     check=False), path)
+                self.assertEqual(self.git("tag", "--list", name).stdout, b"")
+
+    def test_local_tag_rejects_private_names_on_lightweight_tags(self):
+        target = self.historical_commit()
+        for name in (PRIVATE_EMAIL, TOKEN):
+            with self.subTest(category="contact" if name == PRIVATE_EMAIL else "token"):
+                self.denied(self.git("tag", name, target, check=False), name)
+                self.assertEqual(self.git("tag", "--list", name).stdout, b"")
+
+    def test_local_tag_missing_verifier_blocks_tag_and_allows_branch(self):
+        target = self.historical_commit()
+        (self.repo / "scripts" / "git_privacy.py").unlink()
+        self.git("branch", "fixture-topic", target)
+        self.assertEqual(self.git("rev-parse", "fixture-topic").stdout.strip().decode(), target)
+        self.denied(self.git("tag", "clean", target, check=False))
+        self.assertEqual(self.git("tag", "--list", "clean").stdout, b"")
+
+    def test_local_tag_rejects_private_inner_annotation(self):
+        target = self.historical_commit()
+        self.git("-c", "core.hooksPath=disabled", "tag", "-am", TOKEN, "legacy", target)
+        previous = self.git("rev-parse", "refs/tags/legacy").stdout
+        result = self.git("tag", "-am", "public outer", "outer", "legacy", check=False)
+        self.denied(result, TOKEN)
+        self.assertEqual(self.git("tag", "--list", "outer").stdout, b"")
+        self.assertEqual(self.git("rev-parse", "refs/tags/legacy").stdout, previous)
+
+    def test_local_tag_transaction_rejection_preserves_all_refs(self):
+        target = self.historical_commit()
+        self.git("tag", "stable", target)
+        self.git("-c", "core.hooksPath=disabled", "tag", "-am", TOKEN, "legacy", target)
+        private_oid = self.git("rev-parse", "refs/tags/legacy").stdout.strip().decode()
+        updates = (f"create refs/tags/companion {target}\n"
+                   f"update refs/tags/stable {private_oid} {target}\n").encode()
+        self.denied(self.git("update-ref", "--stdin", stdin=updates, check=False), TOKEN)
+        self.assertEqual(self.git("tag", "--list", "companion").stdout, b"")
+        self.assertEqual(self.git("rev-parse", "refs/tags/stable").stdout.strip().decode(), target)
+
+    def test_local_tag_ignores_unrelated_verification_deletion_and_other_refs(self):
+        target = self.historical_commit()
+        self.git("-c", "core.hooksPath=disabled", "tag", "-am", TOKEN, "legacy", target)
+        old = self.git("rev-parse", "refs/tags/legacy").stdout.strip().decode()
+        updates = (f"verify refs/tags/legacy {old}\n"
+                   f"create refs/fixture/import {old}\n"
+                   f"create refs/tags/clean {target}\n").encode()
+        self.git("update-ref", "--stdin", stdin=updates)
+        self.assertEqual(self.git("rev-parse", "refs/fixture/import").stdout.strip().decode(), old)
+        self.assertEqual(self.git("rev-parse", "refs/tags/clean").stdout.strip().decode(), target)
+        self.git("pack-refs", "--all")
+        self.assertEqual(self.git("rev-parse", "refs/tags/legacy").stdout.strip().decode(), old)
+        self.git("tag", "-d", "legacy")
+        self.assertEqual(self.git("tag", "--list", "legacy").stdout, b"")
 
 
 if __name__ == "__main__":

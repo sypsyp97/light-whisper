@@ -1,0 +1,24 @@
+#!/bin/sh
+[ "$1" = prepared ] || exit 0
+
+while read -r old new ref; do
+    case "$ref" in refs/tags/*) ;; *) continue ;; esac
+    [ "$old" != "$new" ] || continue
+    case "$new" in *[!0]*) ;; *) continue ;; esac
+    # pack-refs may prepare a packed copy of an existing loose tag.
+    if [ "$(git show-ref --verify --hash "$ref" 2>/dev/null)" = "$new" ]; then
+        continue
+    fi
+
+    verifier="$(dirname "$0")/../scripts/git_privacy.py"
+    if ! test -r "$verifier"; then
+        echo 'Privacy verifier missing; tag update blocked.' >&2
+        exit 1
+    fi
+    if command -v python >/dev/null 2>&1; then
+        python "$verifier" check-tag "$new" "$ref" || exit 1
+    else
+        python3 "$verifier" check-tag "$new" "$ref" || exit 1
+    fi
+done
+exit 0

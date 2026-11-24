@@ -1,4 +1,4 @@
-"""Local pre-commit and pre-push checks for Light Whisper contributors."""
+"""Local checks for Light Whisper commits, tags and pushes."""
 
 import os
 import re
@@ -24,6 +24,8 @@ CREDENTIAL_URL = re.compile(rb"https?://(?:" + AUTH_CHAR + rb"{0,1024}@|" + AUTH
 NOREPLY = re.compile(rb"[^<>\s@]+@users\.noreply\.github\.com", re.I)
 EMAIL = re.compile(rb"[\w.+%'-]+@[\w.-]+\.[A-Za-z]{2,}\b")
 OID = re.compile(rb"(?:[0-9a-f]{40}|[0-9a-f]{64})")
+WINDOWS_PROFILE = re.compile(rb"[a-z]:[\\/]+(?:users|documents and settings)[\\/]+[^\s\\/:*?\"<>|]", re.I)
+POSIX_PROFILE = re.compile(rb"(?:^|[\s=(`'\"\[])/(?:home|Users)/[^/\s]+")
 
 
 def markers_for(value):
@@ -74,6 +76,19 @@ def check_identity(line):
         raise Blocked("use a GitHub noreply email for Git identities")
 
 
+def check_emails(data):
+    if any(not NOREPLY.fullmatch(email) for email in EMAIL.findall(data)):
+        raise Blocked("private email in commit or tag")
+
+
+def check_metadata(metadata, paths):
+    check_content(metadata, paths)
+    for line in metadata.partition(b"\n\n")[0].splitlines():
+        if line.startswith((b"author ", b"committer ", b"tagger ")):
+            check_identity(line)
+    check_emails(metadata)
+
+
 def git(*args, data=b""):
     return subprocess.run(
         ["git", "--no-replace-objects", *args], input=data,
@@ -108,13 +123,7 @@ def check_objects(oids, paths):
                 metadata = process.stdout.read(remaining)
                 if len(metadata) != remaining:
                     raise ValueError
-                check_content(metadata, paths)
-                header = metadata.partition(b"\n\n")[0].split(b"\n")
-                for line in header:
-                    if line.startswith((b"author ", b"committer ", b"tagger ")):
-                        check_identity(line)
-                if any(not NOREPLY.fullmatch(email) for email in EMAIL.findall(metadata)):
-                    raise Blocked("private email in outgoing commit or tag")
+                check_metadata(metadata, paths)
             else:
                 tail = b""
                 while remaining:
@@ -149,6 +158,23 @@ def pre_commit(paths):
             if mode != b"160000":  # Gitlinks identify commits in another repository.
                 blobs.add(oid)
     check_objects(blobs, paths)
+
+
+def check_tag(ref, oid, paths):
+    check_content(ref, paths)
+    check_emails(ref)
+    # Nested annotated tags carry their own metadata. Stop at the target
+    # commit/tree/blob: creating a tag does not change its existing contents.
+    while OID.fullmatch(oid):
+        if git("cat-file", "-t", oid.decode("ascii")).strip() != b"tag":
+            return
+        tag = git("cat-file", "tag", oid.decode("ascii"))
+        check_metadata(tag, paths)
+        note = tag.partition(b"\n\n")[2]
+        if WINDOWS_PROFILE.search(note) or POSIX_PROFILE.search(note):
+            raise Blocked("user profile path in tag annotation")
+        oid = tag.partition(b"\n")[0].removeprefix(b"object ")
+    raise ValueError("invalid tag target")
 
 
 def pre_push(url, paths):
@@ -188,6 +214,8 @@ def main():
         paths = repository_markers()
         if sys.argv[1:] == ["pre-commit"]:
             pre_commit(paths)
+        elif len(sys.argv) == 4 and sys.argv[1] == "check-tag":
+            check_tag(os.fsencode(sys.argv[3]), os.fsencode(sys.argv[2]), paths)
         elif len(sys.argv) == 4 and sys.argv[1] == "pre-push":
             pre_push(sys.argv[3], paths)
         else:

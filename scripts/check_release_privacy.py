@@ -3,7 +3,6 @@
 import lzma
 import os
 from pathlib import Path
-import re
 import shutil
 import struct
 import subprocess
@@ -12,17 +11,16 @@ import tarfile
 import tempfile
 import zlib
 
-from git_privacy import Blocked, check_content, repository_markers
+from git_privacy import Blocked, WINDOWS_PROFILE, check_content, repository_markers
 
 
-PROFILE = re.compile(rb"[a-z]:[\\/]+(?:users|documents and settings)[\\/]+[^\s\\/:*?\"<>|]", re.I)
 ENGINE = "resources/engine.tar.xz"
 
 
 def check_bytes(data, markers):
     check_content(data, markers)
     plain = data.replace(b"\0", b"").lower()
-    if (b"users" in plain or b"documents and settings" in plain) and PROFILE.search(plain):
+    if (b"users" in plain or b"documents and settings" in plain) and WINDOWS_PROFILE.search(plain):
         raise Blocked("Windows user profile path")
 
 
