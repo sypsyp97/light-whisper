@@ -19,6 +19,7 @@ pub enum Family {
 pub enum Backend {
     Cpu,
     Cuda,
+    Vulkan,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -120,7 +121,12 @@ impl NativeAsr {
                 }
             }
             let backend_cfg = BackendConfig {
-                backend: if cuda { c"cuda" } else { c"cpu" }.as_ptr(),
+                backend: match backend {
+                    Backend::Cuda => c"cuda",
+                    Backend::Vulkan => c"vulkan",
+                    Backend::Cpu => c"cpu",
+                }
+                .as_ptr(),
                 device: 0,
                 threads,
             };
@@ -146,7 +152,7 @@ impl NativeAsr {
                 family,
                 chunk: if cuda { 2560 } else { 5120 },
                 coalesced_finish,
-                batch_first: cuda && minor >= 4,
+                batch_first: backend != Backend::Cpu && minor >= 4,
                 stream: None,
             })
         }

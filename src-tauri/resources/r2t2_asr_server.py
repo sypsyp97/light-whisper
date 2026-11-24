@@ -117,7 +117,15 @@ class R2T2ASRServer(ASRStreamServerMixin, BaseASRServer):
     def _load_runtime(self, model_path):
         self._gpu_device_info_cache = None
         runtime_root = Path(__file__).resolve().with_name("r2t2-native")
-        preferred = ["cuda", "cpu"]
+        forced = os.environ.get("LIGHT_WHISPER_GPU_BACKEND", "auto").strip().lower()
+        if forced in ("cuda", "vulkan", "cpu"):
+            preferred = [forced] if forced == "cpu" else [forced, "cpu"]
+        elif self.device == "vulkan":
+            preferred = ["vulkan", "cpu"]
+        elif self.device == "cuda":
+            preferred = ["cuda", "vulkan", "cpu"]
+        else:
+            preferred = ["cpu"]
         self.native = None
         for backend in preferred:
             candidate = None

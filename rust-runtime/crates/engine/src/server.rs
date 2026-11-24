@@ -85,6 +85,8 @@ struct Server<'a> {
     enhance_enabled: bool,
     enhancer: Option<light_whisper_reuse::RealtimeEnhancer>,
     backend: Backend,
+    candidates: Vec<Backend>,
+    forced_gpu: bool,
     device: V,
     last_id: u64,
     active: Option<Session>,
@@ -98,12 +100,15 @@ impl Server<'_> {
     fn qwen(&self) -> bool {
         self.family == Family::Qwen
     }
-    fn backend(&self) -> &str {
-        if self.backend == Backend::Cuda {
-            "cuda"
-        } else {
-            "cpu"
+    fn name_of(&self, b: Backend) -> &'static str {
+        match b {
+            Backend::Cuda => "cuda",
+            Backend::Vulkan => "vulkan",
+            Backend::Cpu => "cpu",
         }
+    }
+    fn backend(&self) -> &str {
+        self.name_of(self.backend)
     }
     fn loaded(&self) -> bool {
         self.runtime.is_some() && !self.suspended
@@ -132,7 +137,8 @@ impl Server<'_> {
             .filter(|n| *n > 0)
             .ok_or_else(|| self.err("init_error", "invalid native thread count"))?;
         let mut reasons = Vec::new();
-        for (name, b) in [("cuda", Backend::Cuda), ("cpu", Backend::Cpu)] {
+        for &b in &self.candidates {
+            let name = self.name_of(b);
             if !self
                 .assets
                 .join("r2t2-native")
@@ -140,6 +146,9 @@ impl Server<'_> {
                 .join("audiocpp.dll")
                 .is_file()
             {
+                if self.forced_gpu {
+                    eprintln!("{name}: native package is not installed");
+                }
                 continue;
             }
             let attempt = if self.suspended
@@ -178,7 +187,7 @@ impl Server<'_> {
                 self.past_vad.2 += ms;
             }
             self.backend = b;
-            self.device = device::describe(b == Backend::Cuda, self.qwen());
+            self.device = device::describe(b, self.qwen());
             self.suspended = false;
             self.last_id = 0;
             return Ok(());
@@ -192,7 +201,7 @@ impl Server<'_> {
         let live = self.loaded();
         let mut v = merge(
             merge(
-                json!({"success":true,"installed":live || self.qwen() && ["cuda","cpu"].iter().any(|b|self.assets.join("r2t2-native").join(b).join("audiocpp.dll").is_file()),"initialized":live,"model_loaded":live,"native_streaming":live,"models":{"asr":live,"vad":self.runtime.is_some()}}),
+                json!({"success":true,"installed":live || self.qwen() && ["cuda","vulkan","cpu"].iter().any(|b|self.assets.join("r2t2-native").join(b).join("audiocpp.dll").is_file()),"initialized":live,"model_loaded":live,"native_streaming":live,"models":{"asr":live,"vad":self.runtime.is_some()}}),
                 &self.base(),
             ),
             &self.device,
@@ -503,12 +512,25 @@ impl Server<'_> {
         }
     }
 }
+fn gpu_backend_choice() -> (Vec<Backend>, bool) {
+    let forced = std::env::var("LIGHT_WHISPER_GPU_BACKEND")
+        .unwrap_or_else(|_| "auto".into())
+        .trim()
+        .to_lowercase();
+    match forced.as_str() {
+        "cuda" => (vec![Backend::Cuda, Backend::Cpu], true),
+        "vulkan" => (vec![Backend::Vulkan, Backend::Cpu], true),
+        "cpu" => (vec![Backend::Cpu], false),
+        _ => (vec![Backend::Cuda, Backend::Vulkan, Backend::Cpu], false),
+    }
+}
 pub fn run(name: &str, family: Family) -> R<()> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let assets = exe
         .parent()
         .ok_or("missing executable directory")?
         .join("_internal");
+    let (candidates, forced_gpu) = gpu_backend_choice();
     let mut server = Server {
         name,
         family,
@@ -520,7 +542,9 @@ pub fn run(name: &str, family: Family) -> R<()> {
         suspended: false,
         past_vad: (0, 0, 0.),
         backend: Backend::Cpu,
-        device: device::describe(false, family == Family::Qwen),
+        candidates,
+        forced_gpu,
+        device: device::describe(Backend::Cpu, family == Family::Qwen),
         active: None,
         last_id: 0,
         count: 0,
