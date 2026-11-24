@@ -300,6 +300,7 @@ const en: TranslationSchema = {
     gpuBackendCpu: "CPU",
     gpuBackendCpuDesc: "Do not use a GPU",
     gpuBackendUnavailable: "This build does not include that backend",
+    gpuBackendLoadFailed: "Could not load the GPU backend settings.",
     gpuBackendSaveFailed: "Saving the GPU backend failed",
     gpuBackendRestart: "Applies the next time the local engine starts.",
     gpuIdleTitle: "Unload GPU when idle",

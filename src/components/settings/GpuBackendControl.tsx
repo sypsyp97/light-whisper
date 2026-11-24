@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { AlertTriangle } from "lucide-react";
 import { getGpuBackend, listGpuBackends, setGpuBackend } from "@/api/tauri";
 
 const OPTIONS = ["auto", "cuda", "vulkan", "cpu"] as const;
@@ -28,33 +29,46 @@ export default function GpuBackendControl() {
   const [backend, setBackend] = useState<Backend>("auto");
   const [installed, setInstalled] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
   const mounted = useRef(true);
 
-  useEffect(() => {
-    mounted.current = true;
-    let cancelled = false;
+  const generation = useRef(0);
+
+  const load = useCallback(() => {
+    const gen = ++generation.current;
+    setLoading(true);
+    setLoadError(false);
     Promise.all([getGpuBackend(), listGpuBackends()])
       .then(([value, list]) => {
-        if (cancelled) return;
+        if (gen !== generation.current) return;
         setBackend(isBackend(value) ? value : "auto");
         setInstalled(Array.isArray(list) ? list : []);
       })
       .catch(() => {
-        // Missing config reads as auto, matching an engine.json without the key.
+        if (gen === generation.current) setLoadError(true);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (gen === generation.current) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-      mounted.current = false;
-    };
   }, []);
 
+  useEffect(() => {
+    mounted.current = true;
+    load();
+    return () => {
+      mounted.current = false;
+      generation.current += 1;
+    };
+  }, [load]);
+
+  const retry = () => {
+    if (!loading) load();
+  };
+
   const choose = async (next: Backend) => {
-    if (pending.current || saving || next === backend) return;
+    if (pending.current || saving || loadError || next === backend) return;
     pending.current = true;
     setSaving(true);
     try {
@@ -78,28 +92,40 @@ export default function GpuBackendControl() {
           <span className="permission-label">{t("settings.gpuBackendTitle")}</span>
           <span className="settings-hint" style={{ margin: 0 }}>{t("settings.gpuBackendDesc")}</span>
         </div>
-        <div className="settings-column" style={{ gap: 4 }} role="group" aria-label={t("settings.gpuBackendTitle")}>
-          {OPTIONS.map((option) => {
-            const enabled = available(option);
-            return (
-              <button
-                key={option}
-                type="button"
-                className="picker-option"
-                data-active={backend === option}
-                aria-pressed={backend === option}
-                disabled={loading || saving || !enabled}
-                title={enabled ? undefined : t("settings.gpuBackendUnavailable")}
-                onClick={() => { void choose(option); }}
-              >
-                <span className="picker-option-copy">
-                  <strong>{t(LABEL[option])}</strong>
-                  <span>{enabled ? t(DESCRIPTION[option]) : t("settings.gpuBackendUnavailable")}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {loadError ? (
+          <div className="settings-row" role="alert" style={{ gap: 8, alignItems: "center" }}>
+            <AlertTriangle size={16} aria-hidden="true" />
+            <span className="settings-hint" style={{ margin: 0, flex: 1 }}>
+              {t("settings.gpuBackendLoadFailed")}
+            </span>
+            <button className="btn-ghost" type="button" disabled={loading} onClick={retry}>
+              {t("common.retry")}
+            </button>
+          </div>
+        ) : (
+          <div className="settings-column" style={{ gap: 4 }} role="group" aria-label={t("settings.gpuBackendTitle")}>
+            {OPTIONS.map((option) => {
+              const enabled = available(option);
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  className="picker-option"
+                  data-active={backend === option}
+                  aria-pressed={backend === option}
+                  disabled={loading || saving || !enabled}
+                  title={enabled ? undefined : t("settings.gpuBackendUnavailable")}
+                  onClick={() => { void choose(option); }}
+                >
+                  <span className="picker-option-copy">
+                    <strong>{t(LABEL[option])}</strong>
+                    <span>{enabled ? t(DESCRIPTION[option]) : t("settings.gpuBackendUnavailable")}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <span className="settings-hint" style={{ margin: 0 }}>{t("settings.gpuBackendRestart")}</span>
       </div>
     </div>

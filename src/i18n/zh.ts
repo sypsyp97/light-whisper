@@ -298,6 +298,7 @@ const zh = {
     gpuBackendCpu: "CPU",
     gpuBackendCpuDesc: "不使用 GPU",
     gpuBackendUnavailable: "当前安装包未包含此后端",
+    gpuBackendLoadFailed: "无法读取 GPU 后端设置",
     gpuBackendSaveFailed: "保存 GPU 后端设置失败",
     gpuBackendRestart: "改动在本地引擎下次启动时生效。",
     gpuIdleTitle: "GPU 空闲卸载",
