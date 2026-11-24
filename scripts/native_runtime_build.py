@@ -16,7 +16,7 @@ STAMP = b"LIGHT_WHISPER_RUST_BUILD_V1\0"
 
 def source_fingerprint(component):
     crates = ["cli"] if component == "cli" else ["engine", "native-asr", "reuse", "vad"]
-    files = [WORKSPACE / "Cargo.toml", WORKSPACE / "Cargo.lock", Path(__file__),
+    files = [WORKSPACE / "Cargo.toml", WORKSPACE / "Cargo.lock", Path(__file__).resolve(),
              ROOT / f"scripts/build_{component}.py"]
     if component == "cli":
         files.append(ROOT / "package.json")

@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -58,7 +59,7 @@ class CliArtifactTests(unittest.TestCase):
         self.assertEqual(report["sha256"],hashlib.sha256(self.exe.read_bytes()).hexdigest())
         self.assertEqual(report["size"],self.exe.stat().st_size)
         self.assertEqual(report["version"],"1.8.1")
-        self.assertEqual(Path(report["path"]),self.exe)
+        self.assertEqual(Path(report["path"]),self.exe.resolve())
 
     def test_rejects_missing_invalid_stale_and_tampered_artifacts(self):
         other=self.root/"target.exe"
@@ -147,6 +148,16 @@ class CliArtifactTests(unittest.TestCase):
 
 
 class SourceFingerprintTests(unittest.TestCase):
+    def test_loading_builder_through_equivalent_paths_preserves_fingerprint(self):
+        script = ROOT / "scripts/native_runtime_build.py"
+        alias = ROOT / "scripts" / ".." / "scripts/native_runtime_build.py"
+        self.assertTrue(alias.samefile(script))
+        canonical = runpy.run_path(str(script))["source_fingerprint"]
+        aliased = runpy.run_path(str(alias))["source_fingerprint"]
+        for component in ("cli", "engine"):
+            with self.subTest(component=component):
+                self.assertEqual(aliased(component), canonical(component))
+
     def test_source_drift_and_line_endings_across_every_runtime_dependency(self):
         import native_runtime_build
         with tempfile.TemporaryDirectory() as tmp:
@@ -188,7 +199,7 @@ class CliDeliveryWiringTests(unittest.TestCase):
             completed=subprocess.run([sys.executable,str(BUILD_SCRIPT),"--verify",str(path)],capture_output=True,
                                      env=dict(os.environ,PYTHONIOENCODING="cp1252:strict"),timeout=20)
             self.assertEqual(completed.returncode,0,completed.stderr)
-            self.assertEqual(Path(json.loads(completed.stdout)["path"]),path)
+            self.assertEqual(Path(json.loads(completed.stdout)["path"]),path.resolve())
 
     def test_tauri_installs_cli_beside_application(self):
         config = json.loads((ROOT / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
