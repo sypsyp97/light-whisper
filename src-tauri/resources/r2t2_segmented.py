@@ -101,14 +101,18 @@ class SegmentedR2T2:
     def _refresh_preview(self):
         self.preview_text = self._joined_text(current_text=self._segment_preview)
 
+    @property
+    def _vad_window_limit(self):
+        if self.max_segment_samples is None:
+            return self.window_samples
+        return min(self.window_samples, self.max_segment_samples)
+
     def _vad_window(self, block):
         if self._vad_tail.size:
             observed = np.concatenate((self._vad_tail, block))
         else:
             observed = np.array(block, copy=True)
-        window_limit = self.window_samples
-        if self.max_segment_samples is not None:
-            window_limit = min(window_limit, self.max_segment_samples)
+        window_limit = self._vad_window_limit
         if observed.size > window_limit:
             observed = observed[-window_limit:]
         return np.array(observed, copy=True)
@@ -184,14 +188,8 @@ class SegmentedR2T2:
         self._refresh_preview()
 
     def _process_block(self, block):
-        if self._native_active and self._segment_samples + block.size < self.min_segment_samples:
-
-
-            self._vad_tail = self._vad_window(block)
-            observed, regions, trailing_silence = self._vad_tail, [], 0
-        else:
-            observed, regions, trailing_silence = self._observe(block)
         if not self._native_active:
+            observed, regions, trailing_silence = self._observe(block)
             if not regions:
                 return
             initial_pcm = observed
@@ -199,8 +197,17 @@ class SegmentedR2T2:
                 initial_pcm = initial_pcm[-self.max_segment_samples:]
             self._start_segment(initial_pcm)
         else:
+            segment_end = self._segment_samples + int(block.size)
+            trailing_silence = 0
+            if segment_end >= self.min_segment_samples:
+                _, _, trailing_silence = self._observe(block)
+            else:
+                # Only the last window before pause detection can still be observed.
+                limit = self._vad_window_limit
+                if limit <= 0 or segment_end + limit > self.min_segment_samples:
+                    self._vad_tail = self._vad_window(block)
             self._native_feed(block)
-            self._segment_samples += int(block.size)
+            self._segment_samples = segment_end
 
         if (
             self.max_segment_samples is not None

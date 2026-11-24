@@ -16,8 +16,10 @@ import numpy as np
 
 
 SAMPLE_RATE = 16_000
-FRAME_SHIFT_SAMPLES = 160
-FRAME_LENGTH_SAMPLES = 400
+FRAME_SHIFT_MS = 10
+FRAME_LENGTH_MS = 25
+FRAME_SHIFT_SAMPLES = SAMPLE_RATE * FRAME_SHIFT_MS // 1000
+FRAME_LENGTH_SAMPLES = SAMPLE_RATE * FRAME_LENGTH_MS // 1000
 MODEL_FILENAME = "fireredvad_vad.onnx"
 CMVN_FILENAME = "fireredvad_cmvn.json"
 
@@ -64,8 +66,8 @@ class FireRedVad:
 
         fbank_options = knf.FbankOptions()
         fbank_options.frame_opts.samp_freq = SAMPLE_RATE
-        fbank_options.frame_opts.frame_length_ms = 25
-        fbank_options.frame_opts.frame_shift_ms = 10
+        fbank_options.frame_opts.frame_length_ms = FRAME_LENGTH_MS
+        fbank_options.frame_opts.frame_shift_ms = FRAME_SHIFT_MS
         fbank_options.frame_opts.dither = 0
         fbank_options.frame_opts.snip_edges = True
         fbank_options.mel_opts.num_bins = 80
@@ -137,8 +139,16 @@ class FireRedVad:
     def warmup(self) -> None:
         self.probabilities(np.zeros(SAMPLE_RATE, dtype=np.float32))
 
+    @property
+    def _min_speech_frames(self):
+        return max(1, self.options.min_speech_duration_ms // FRAME_SHIFT_MS)
+
     def speech_timestamps(self, audio: np.ndarray) -> list[dict[str, int]]:
         samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+        # With snip_edges, even continuous speech needs this many real samples.
+        if samples.size < FRAME_LENGTH_SAMPLES + (self._min_speech_frames - 1) * FRAME_SHIFT_SAMPLES:
+            self._feature_cache = None
+            return []
         probabilities = self.probabilities(samples)
         return self._timestamps_from_probabilities(probabilities, len(samples))
 
@@ -161,7 +171,7 @@ class FireRedVad:
             smoothed = probabilities
 
         speech_flags = smoothed >= self.options.threshold
-        min_speech_frames = max(1, self.options.min_speech_duration_ms // 10)
+        min_speech_frames = self._min_speech_frames
         min_silence_frames = max(1, self.options.min_silence_duration_ms // 10)
         pad_samples = max(0, self.options.speech_pad_ms * SAMPLE_RATE // 1000)
 
