@@ -19,7 +19,7 @@ SECRET = re.compile(
 API_KEY = re.compile(rb"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20}")
 # Limit literal authority length so a huge userinfo field cannot straddle the
 # scanner's windows unchecked. Valid DNS names and ports fit well within this.
-AUTH_CHAR = rb"[^/\s?#@<>{}\"\\]"
+AUTH_CHAR = rb"[^/\x00-\x20\x7f?#@<>{}\"\\]"
 CREDENTIAL_URL = re.compile(rb"https?://(?:" + AUTH_CHAR + rb"{0,1024}@|" + AUTH_CHAR + rb"{1025})")
 NOREPLY = re.compile(rb"[^<>\s@]+@users\.noreply\.github\.com", re.I)
 EMAIL = re.compile(rb"[\w.+%'-]+@[\w.-]+\.[A-Za-z]{2,}\b")

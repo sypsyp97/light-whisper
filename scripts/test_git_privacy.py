@@ -240,6 +240,15 @@ class GitPrivacyTests(unittest.TestCase):
         self.assertEqual(self.git("ls-remote", "origin", "refs/heads/main").stdout.split()[0],
                          self.git("rev-parse", "HEAD").stdout.strip())
 
+    def test_binary_bytes_after_http_prefix_are_not_url_authority(self):
+        self.stage(b"\x7fPE\0http://" + b"\x01\xff\x02" * 80 + b"@\x80\x03")
+        self.git("commit", "-qm", "public binary")
+        self.git("push", "-q", "origin", "main")
+        password = "synthetic-url-password"
+        credential = "https://" + "fixture:" + password + "@example.invalid/"
+        self.stage(credential.encode("utf-16-le"))
+        self.denied(self.git("commit", "-qm", "wide URL", check=False), password)
+
 
 if __name__ == "__main__":
     unittest.main()

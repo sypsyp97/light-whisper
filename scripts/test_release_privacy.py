@@ -84,6 +84,15 @@ class ReleasePrivacyTests(unittest.TestCase):
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_binary_http_prefix_and_real_wide_url_credentials(self):
+        self.build(engine=b"\x7fPE\0http://" + b"\x01\xff\x02" * 80 + b"@\x80\x03")
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        password = "synthetic-url-password"
+        credential = "https://" + "fixture:" + password + "@example.invalid/"
+        self.build(engine=credential.encode("utf-16-le"))
+        self.rejected(password)
+
     def test_compressed_installer_instructions_are_checked(self):
         foreign_path = r"Y:\Users\HeaderOnlyFixture\build"
         self.build(detail="Public installer message")
