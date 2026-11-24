@@ -252,7 +252,7 @@ function resetTauriMocks(exportPath: string | null = null) {
   });
   tauriMock.getModelsDir.mockResolvedValue({
     is_custom: false,
-    path: "C:\\Users\\sun\\.cache\\light-whisper-models",
+    path: "C:\\Users\\test-user\\.cache\\light-whisper-models",
   });
   tauriMock.getOnlineAsrApiKey.mockResolvedValue("");
   tauriMock.getOnlineAsrEndpoint.mockResolvedValue({
@@ -475,7 +475,7 @@ describe("SettingsPage config export path", () => {
   });
 
   it("shows the saved export path and copies it from the small copy button", async () => {
-    const exportPath = "C:\\Users\\sun\\Downloads\\light-whisper-profile.json";
+    const exportPath = "C:\\Users\\test-user\\Downloads\\light-whisper-profile.json";
     resetTauriMocks(exportPath);
 
     const { default: SettingsPage } = await import("@/pages/SettingsPage");
@@ -523,7 +523,7 @@ describe("SettingsPage config export path", () => {
   });
 
   it("reports a copy failure after an export path has been shown", async () => {
-    const exportPath = "C:\\Users\\sun\\Downloads\\light-whisper-profile.json";
+    const exportPath = "C:\\Users\\test-user\\Downloads\\light-whisper-profile.json";
     tauriMock.exportUserProfile.mockResolvedValueOnce(exportPath);
     tauriMock.copyToClipboard.mockRejectedValueOnce(new Error("copy failed"));
 

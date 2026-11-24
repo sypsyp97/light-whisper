@@ -59,6 +59,10 @@ preflight() {
         require_command "$command_name"
     done
     find_seven_zip >/dev/null
+    [[ "$(git rev-parse --path-format=absolute --git-path hooks)" -ef .githooks ]] || {
+        fail "请先在本仓库启用 .githooks"
+    }
+    python scripts/git_privacy.py pre-commit
 
     gh auth status >/dev/null
 
@@ -143,6 +147,7 @@ run_local_checks() {
     uv lock --check
     uv sync --frozen
     uv run --no-sync python -m compileall -q scripts src-tauri/resources
+    uv run --no-sync python -m unittest scripts.test_git_privacy scripts.test_release_privacy
     uv run --no-sync python -m unittest discover -s src-tauri/resources -p "test_*.py"
     uv run --no-sync python scripts/test_build_engine_atomicity.py
     uv run --no-sync python scripts/test_cpu_cuda_backends.py
@@ -207,7 +212,10 @@ verify_installer() {
     local seven_zip
     seven_zip="$(find_seven_zip)"
     "$seven_zip" t "$INSTALLER"
-    sha256sum "$INSTALLER"
+    VERIFIED_INSTALLER_SUM="$(sha256sum "$INSTALLER")"
+    python scripts/check_release_privacy.py "$INSTALLER"
+    sha256sum --check --status <<< "$VERIFIED_INSTALLER_SUM" || fail "安装包在验证期间发生变化"
+    printf '%s\n' "$VERIFIED_INSTALLER_SUM"
 }
 
 assert_expected_release_diff() {
@@ -310,22 +318,25 @@ publish_release() {
     [[ "$(git rev-parse HEAD)" == "$candidate_sha" ]] || fail "HEAD 已离开候选提交"
     [[ -z "$(git status --porcelain)" ]] || fail "打 tag 前工作区不干净"
 
-    git tag -a "$TAG" "$candidate_sha" -m "Release $TAG"
-    git push origin "refs/tags/$TAG"
+    sha256sum --check --status <<< "$VERIFIED_INSTALLER_SUM" || fail "安装包已变化，请重新验证"
+    (
+        local directory asset snapshot_sum
+        directory="$(mktemp -d)"
+        asset="$directory/${INSTALLER##*/}"
+        trap 'rm -f -- "$asset"; rmdir -- "$directory"' EXIT
+        cp -- "$INSTALLER" "$asset"
+        snapshot_sum="$(sha256sum < "$asset")"
+        [[ "${snapshot_sum%% *}" == "${VERIFIED_INSTALLER_SUM%% *}" ]] || fail "发布副本未通过校验"
 
-    if [[ "$RELEASE_NOTES" == "--generate-notes" ]]; then
-        gh release create "$TAG" "$INSTALLER" \
-            --title "$TAG" \
-            --generate-notes \
-            --verify-tag \
-            --fail-on-no-commits
-    else
-        gh release create "$TAG" "$INSTALLER" \
-            --title "$TAG" \
-            --notes "$RELEASE_NOTES" \
-            --verify-tag \
-            --fail-on-no-commits
-    fi
+        git tag -a "$TAG" "$candidate_sha" -m "Release $TAG"
+        git push origin "refs/tags/$TAG"
+
+        local -a notes=(--generate-notes)
+        if [[ "$RELEASE_NOTES" != "--generate-notes" ]]; then
+            notes=(--notes "$RELEASE_NOTES")
+        fi
+        gh release create "$TAG" "$asset" --title "$TAG" "${notes[@]}" --verify-tag --fail-on-no-commits
+    )
 }
 
 main() {

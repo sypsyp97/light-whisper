@@ -21,6 +21,30 @@ uv sync --frozen
 pnpm tauri dev
 ```
 
+### Enable Git privacy checks
+
+In each clone, put Python 3 on PATH and enable the versioned Git hooks:
+
+```bash
+git config --local core.hooksPath .githooks
+git config --local user.name "YOUR_PUBLIC_GITHUB_USERNAME"
+git config --local user.email "YOUR_GITHUB_NOREPLY_ADDRESS"
+```
+
+Copy your noreply address from GitHub email settings. The commit hook checks the
+staged filenames and contents plus the active author and committer identities.
+To flag an address anywhere in outgoing files, run
+`git config --local --add privacy.privateEmail "YOUR_PRIVATE_ADDRESS"` once for
+each private address. These entries stay in the clone's local configuration.
+The push hook reads the destination's advertised refs and checks new Git objects,
+including intermediate commits, messages, filenames, annotated tags and destination
+ref names. Both hooks check for local profile paths and common credential patterns.
+Diagnostics give the category without printing matched values. The push hook runs
+after Git connects to the destination, so configure a credential-free remote URL.
+
+Before uploading an installer, run `python scripts/check_release_privacy.py <installer>`.
+The Git hooks inspect Git objects and cannot see inside compressed installer payloads.
+
 For Qwen 0.6B and R2T2 development, first build the shared native runtimes with the
 commands below. Qwen and R2T2 support CPU and NVIDIA CUDA.
 The CPU and CUDA runtimes live in `src-tauri/resources/r2t2-native/`.

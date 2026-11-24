@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,7 +27,8 @@ set -euo pipefail
 RELEASE_BRANCH=main
 TAG=v1.8.0
 RELEASE_NOTES=--generate-notes
-INSTALLER=synthetic-installer.exe
+INSTALLER="$2"
+VERIFIED_INSTALLER_SUM="$(sha256sum "$INSTALLER")"
 CURRENT_HEAD="$1"
 REMOTE_HEAD="$1"
 CURRENT_DIRTY=''
@@ -58,9 +60,12 @@ gh() {
 }
 '''
         environment = dict(os.environ, TEST_FETCH_CHANGE=fetch_change, TEST_OTHER_SHA="b" * 40)
-        return subprocess.run([str(bash), "-c", harness + function[0] + '\npublish_release "$1"',
-                               "publication-test", CANDIDATE], env=environment, text=True,
-                              encoding="utf-8", capture_output=True, timeout=15)
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Path(directory) / "synthetic-installer.exe"
+            installer.write_bytes(b"verified fixture")
+            return subprocess.run([str(bash), "-c", harness + function[0] + '\npublish_release "$1"',
+                                   "publication-test", CANDIDATE, installer.as_posix()],
+                                  env=environment, text=True, encoding="utf-8", capture_output=True, timeout=15)
 
     def assert_no_publication_effects(self, result):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)

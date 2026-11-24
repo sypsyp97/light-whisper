@@ -1,0 +1,9 @@
+#!/bin/sh
+if ! test -r scripts/git_privacy.py; then
+    echo 'Privacy verifier missing; commit blocked.' >&2
+    exit 1
+fi
+if command -v python >/dev/null 2>&1; then
+    exec python scripts/git_privacy.py pre-commit
+fi
+exec python3 scripts/git_privacy.py pre-commit

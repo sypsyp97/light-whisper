@@ -261,7 +261,7 @@ function resetMocks(profile: UserProfile = baseProfile) {
   });
   tauriMock.getModelsDir.mockResolvedValue({
     is_custom: false,
-    path: "C:\\Users\\sun\\.cache\\light-whisper-models",
+    path: "C:\\Users\\test-user\\.cache\\light-whisper-models",
   });
   tauriMock.getOnlineAsrApiKey.mockResolvedValue("");
   tauriMock.getOnlineAsrEndpoint.mockResolvedValue({

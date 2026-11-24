@@ -8,6 +8,7 @@ Write documentation and release notes in concise English. Keep only `README.zh-C
 - Commit reviewed changes to `main` and synchronize it with `origin/main`.
 - Keep the working tree clean. Confirm the target version and tag do not exist.
 - Install the [development tools](development.md), GitHub CLI, Git Bash and 7-Zip.
+- Enable the repository Git hooks and configure a public author name and GitHub noreply email as described in the development guide.
 - Authenticate with `gh auth status`.
 - If the R2T2 source, patch or native dependencies changed, rebuild both native packages first; see [R2T2](r2t2-native.md).
 
@@ -21,7 +22,7 @@ bash scripts/release.sh 1.8.1 "Concise English release notes." --rebuild-engine
 
 The script updates all six version files and runs the local checks.
 It builds the engine, standalone CLI and installer, then validates the artifacts.
-It prints the installer SHA-256.
+Before uploading, it unpacks the installer and checks its files and the nested engine archive for user paths and credentials. It prints the installer SHA-256 after verification.
 It then pushes a candidate commit and waits for that exact commit's `Frontend`, `Python`, `Rust`, `Application formal contracts`, `Verus implementation proofs` and `CLI contracts` CI jobs.
 Every job must exist and succeed; skipped jobs block publication.
 After these checks pass and `origin/main` still matches, it publishes the annotated tag and GitHub Release.
@@ -36,7 +37,7 @@ For a manual release, follow the same gates: [local checks](development.md#check
 
 Use the manual release path when command registration or installer hooks change. The release script does not run the following native installer check.
 
-1. Build the installer and review the source, commit metadata and packaged files for private data. Record the installer SHA-256.
+1. Build the installer and review the source and commit metadata for private data. Run `python scripts/check_release_privacy.py "<installer>"` on the final installer and record its SHA-256 before uploading it.
 2. Push the reviewed candidate to `main`. Wait for all six CI jobs listed above to succeed for that exact commit.
 3. Create a draft Release with the candidate commit as its target. Upload the reviewed installer to the draft. Keep the Release unpublished while testing.
 4. Run the `Installed command smoke` workflow from `main`. Supply the uploaded `asset_id`, installer `sha256`, full `candidate_sha` and `expected_version`. The workflow checks out that commit and verifies the downloaded bytes before installation.

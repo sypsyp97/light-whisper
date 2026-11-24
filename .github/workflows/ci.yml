@@ -32,6 +32,14 @@ jobs:
         with:
           python-version-file: .python-version
 
+      - name: Test Git hooks and installer privacy
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends nsis p7zip-full
+          command -v makensis
+          command -v 7z
+          python -m unittest scripts.test_git_privacy scripts.test_release_privacy
+
       - name: Set up Java
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:

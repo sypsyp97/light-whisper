@@ -1,5 +1,6 @@
 
 *.sh text eol=lf
+.githooks/* text eol=lf
 
 formal/*.tla text eol=lf
 formal/*.cfg text eol=lf
