@@ -34,7 +34,7 @@ the pending gate and checks released request ownership. The recording actor uses
 the actual `RecordingSlot::Starting` plus snapshot publication under the real
 recording/lifecycle mutexes, matching audio.rs 103–159. It is an explicitly
 controlled state-publication seam, not microphone capture or live GUI evidence.
-The startup actor uses `try_begin_funasr_start`, matching start_server 285–328.
+The startup actor uses `try_begin_funasr_start`, matching start_server 283–326.
 The recording cases retain an actual owned synthetic native child.
 
 Before releasing lifecycle, each claim test holds the actual process mutex as a
@@ -71,10 +71,10 @@ sticky observations and rejection effects while avoiding TLC comparisons between
 strings and Booleans. `observed.changed` remains an actual Boolean accumulated by
 the watch poll.
 
-`ChangeDownload` binds to `download_service.rs`: task publication at 171–183,
-clearing at 71–75 and the clear call at 315. These writers use the same
+`ChangeDownload` binds to `download_service.rs`: task publication at 142–154,
+clearing at 71–75 and the clear call at 286. These writers use the same
 `download_task` mutex that the controller later reads. The source SHA256 is
-`bb5e52bb61863b45f530f7e98f3d692a047d55acd17264ac5ae537809a967f6e`.
+`781d29dc25582ca45c67f7f0addadb3a7b4580584b855a9dd9957a6bbefcab21`.
 This freezes an environmental-input dependency; it adds no mutation-cohort file.
 
 The real ASR-free startup partition has a nonzero startup owner, no accepted or
@@ -236,11 +236,11 @@ and fourteen reachability witnesses. The positive run exhausts its queue with
 51,448 generated states, 20,476 distinct states and depth 19. Witness
 counterexamples establish reachability and are not mutation kills. All seventeen
 source bindings match the current files, including the real audio claim writer.
-The raw receipt SHA256 is
+The native-runtime replay receipt SHA256 is
+`a391e4a28ffa2d096c095a0c46e36c7d59c18de7f6bd0569bba67408e2bbaefb`.
+The pre-migration 32-case receipt SHA256 was
 `2a730cb603aa1d8e8e5c6a442fcc037af00a5c9f373def2333f5f1e8a1fbdbbb`.
-The owned outer run exits zero without timeout or cleanup error, with its root
-process reaped. This unchanged native matrix is independent of the later CLI
-input-validation change; its receipt remains valid without a redundant CLI replay.
+The earlier run recorded a zero exit and reaped its owned root process.
 
 The historical 28-case run remains bound to its earlier model and inputs. Its
 positive generated 37,376 states, found 14,092 distinct states and reached depth
