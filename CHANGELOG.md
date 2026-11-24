@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.8.2 — 2026-11-24
+
+- Ship native Rust speech and command-line runtimes on Windows. Local Qwen and R2T2 transcription, voice detection, noise reduction and model downloads work without Python.
+- Preserve existing models and settings on upgrade. If CUDA becomes unavailable after the engine goes idle, local transcription can resume on CPU.
 
 - Discover new OpenAI models available to the signed-in account when Settings opens. The catalog now follows stable Codex releases and preserves the selected model.
 - Retry incomplete ChatGPT model catalog downloads once and distinguish timeouts, interrupted transfers and invalid JSON in Settings.
