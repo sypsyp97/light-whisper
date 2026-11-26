@@ -11,6 +11,7 @@ import type {
 } from "@/types";
 
 export type PolishStage = "polishing" | "finishing";
+const pasteRecoveryPrefix = "paste-recovery-";
 
 interface UseRecordingReturn {
   polishAuditWarning: boolean;
@@ -115,8 +116,8 @@ export function useRecording(): UseRecordingReturn {
     if (!Number.isSafeInteger(payload.sessionId) || payload.sessionId <= 0
       || typeof payload.text !== "string" || payload.text.length === 0) return;
     toast.warning(i18n.t("toast.pasteRecovery"), {
-      id: `paste-recovery-${payload.sessionId}`,
-      duration: Infinity,
+      id: `${pasteRecoveryPrefix}${payload.sessionId}`,
+      duration: 8000,
       action: {
         label: i18n.t("common.copy"),
         onClick: async () => {
@@ -182,6 +183,13 @@ export function useRecording(): UseRecordingReturn {
   useTauriEvent<{ sessionId: number; totalMs: number }>("transcription-timing", ({ sessionId, totalMs }) => {
     if (!Number.isSafeInteger(sessionId) || sessionId <= 0
       || !Number.isSafeInteger(totalMs) || totalMs < 0) return;
+    for (const { id } of toast.getToasts()) {
+      if (typeof id === "string" && id.startsWith(pasteRecoveryPrefix)
+        && Number(id.slice(pasteRecoveryPrefix.length)) < sessionId) {
+        // Sonner queues insertion, so a recovery issued this tick must mount first.
+        setTimeout(() => toast.dismiss(id), 0);
+      }
+    }
     const timings = outputTimingBySessionRef.current;
     timings.delete(sessionId);
     timings.set(sessionId, totalMs);

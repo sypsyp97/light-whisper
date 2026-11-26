@@ -15,7 +15,7 @@ vi.mock("@/api/tauri", () => ({
   startRecording: vi.fn(), stopRecording: vi.fn(), copyToClipboard: vi.fn(),
 }));
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), getToasts: () => [] },
 }));
 vi.mock("@/i18n", () => ({
   default: { t: (key: string) => key, language: "en" },

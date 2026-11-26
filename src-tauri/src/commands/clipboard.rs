@@ -284,6 +284,23 @@ pub fn should_restore_clipboard_after_paste(
     current_clipboard_text == Some(paste_text)
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn finish_clipboard_paste(
+    paste_result: Result<(), AppError>,
+    current_text: Option<&str>,
+    text: &str,
+    restore: impl FnOnce() -> Result<(), AppError>,
+) -> Result<(), AppError> {
+    if should_restore_clipboard_after_paste(current_text, text) {
+        if let Err(error) = restore() {
+            log::warn!("{}", error);
+        }
+    } else {
+        log::debug!("剪贴板内容已变化，跳过恢复以保留用户的新剪贴板内容");
+    }
+    paste_result
+}
+
 #[tauri::command]
 pub async fn paste_text(
     app_handle: tauri::AppHandle,
@@ -354,18 +371,12 @@ pub(crate) async fn paste_text_to_target(
             }
 
             let current_clipboard_text = app_handle.clipboard().read_text().ok();
-            if should_restore_clipboard_after_paste(current_clipboard_text.as_deref(), text) {
-                if let Err(e) = restore_clipboard_snapshot(clipboard_snapshot) {
-                    log::warn!("{}", e);
-                    if paste_result.is_ok() {
-                        return Err(e);
-                    }
-                }
-            } else {
-                log::debug!("剪贴板内容已变化，跳过恢复以保留用户的新剪贴板内容");
-            }
-
-            paste_result?;
+            finish_clipboard_paste(
+                paste_result,
+                current_clipboard_text.as_deref(),
+                text,
+                || restore_clipboard_snapshot(clipboard_snapshot),
+            )?;
         } else {
             use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SendMessageW};
 
@@ -458,7 +469,10 @@ pub(crate) async fn paste_text_to_target(
 
 #[cfg(test)]
 mod tests {
-    use super::{should_restore_clipboard_after_paste, try_all_then_standard};
+    use super::{
+        finish_clipboard_paste, should_restore_clipboard_after_paste, try_all_then_standard,
+    };
+    use crate::utils::AppError;
 
     #[test]
     fn clipboard_snapshot_keeps_full_formats_when_they_are_readable() {
@@ -562,6 +576,36 @@ mod tests {
     }
 
     #[test]
+    fn clipboard_cleanup_preserves_the_send_result() {
+        for sent in [true, false] {
+            for current in [Some("dictation"), Some("user copy"), None] {
+                for restore_fails in [false, true] {
+                    let send_result = if sent {
+                        Ok(())
+                    } else {
+                        Err(AppError::Other("send fault".into()))
+                    };
+                    let mut restores = 0;
+                    let result = finish_clipboard_paste(send_result, current, "dictation", || {
+                        restores += 1;
+                        if restore_fails {
+                            Err(AppError::Other("restore fault".into()))
+                        } else {
+                            Ok(())
+                        }
+                    });
+                    assert_eq!(restores, usize::from(current == Some("dictation")));
+                    assert_eq!(
+                        result.err().map(|error| error.to_string()).as_deref(),
+                        if sent { None } else { Some("send fault") },
+                        "sent={sent}, current={current:?}, restore_fails={restore_fails}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn clipboard_mode_snapshots_before_write_and_restores_after_paste_attempt() {
         let (source, _) = include_str!("clipboard.rs")
             .split_once("#[cfg(test)]")
@@ -585,9 +629,12 @@ mod tests {
         let paste_attempt_pos = clipboard_branch
             .find("send_inputs_to_target(&inputs, target)")
             .expect("clipboard mode must attempt Ctrl+V paste");
-        let restore_guard_pos = clipboard_branch
-            .find("should_restore_clipboard_after_paste")
-            .expect("clipboard mode restore must be guarded by the current clipboard value");
+        let clipboard_read_pos = clipboard_branch
+            .find("read_text()")
+            .expect("clipboard mode must read the clipboard before deciding whether to restore");
+        let finish_pos = clipboard_branch
+            .find("finish_clipboard_paste(")
+            .expect("clipboard mode must pass the send result to guarded cleanup");
         let restore_delay_pos = clipboard_branch
             .find("CLIPBOARD_RESTORE_DELAY_MS")
             .expect("clipboard mode must delay restore long enough for Ctrl+V to consume text");
@@ -596,8 +643,9 @@ mod tests {
             .expect("clipboard mode must restore the previous clipboard snapshot");
         assert!(
             paste_attempt_pos < restore_delay_pos
-                && restore_delay_pos < restore_guard_pos
-                && restore_guard_pos < restore_pos,
+                && restore_delay_pos < clipboard_read_pos
+                && clipboard_read_pos < finish_pos
+                && finish_pos < restore_pos,
             "clipboard restore must wait after the Ctrl+V paste attempt, then run through the restore guard"
         );
     }
