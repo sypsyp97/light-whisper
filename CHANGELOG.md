@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.3 — 2026-11-26
+
+- Dismiss older paste warnings when a later dictation is sent successfully. Failed dictations still offer a Copy action for eight seconds.
+- In Windows clipboard mode, a failure to restore the previous clipboard contents no longer reports an already dispatched paste as failed.
+
 ## 1.8.2 — 2026-11-24
 
 - Ship native Rust speech and command-line runtimes on Windows. Local Qwen and R2T2 transcription, voice detection, noise reduction and model downloads work without Python.
