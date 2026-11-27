@@ -1,5 +1,9 @@
 # CLI artifact delivery verification
 
+The PyInstaller and CArchive results below describe the 1.8.0 CLI. Since 1.8.2,
+the build packages a Rust executable. See the [development guide](../../docs/development.md)
+for the current build and verification commands.
+
 The implemented `scripts/build_cli.py` verifies embedded CLI code and metadata,
 then publishes a completed build atomically. `build_support::select_cli_executable`
 provides the Cargo resource selection contract. Their initial declaration-only

@@ -27,7 +27,7 @@ It then pushes a candidate commit and waits for that exact commit's `Frontend`, 
 Every job must exist and succeed; skipped jobs block publication.
 After these checks pass and `origin/main` still matches, it publishes the annotated tag and GitHub Release.
 
-Use `--reuse-engine` only when the packaged Python code, native libraries and dependencies are unchanged and the existing archive has been verified. Release builds reject missing or invalid engine archives. Development/debug builds can use a placeholder.
+Use `--reuse-engine` when the existing archive passes verification against the current Rust engine sources, build inputs, native libraries and bundled assets. Release builds reject missing or invalid engine archives. Development/debug builds can use a placeholder.
 Both engine modes rebuild the CLI from the current checkout.
 The CLI checks include its packaged executable and an isolated native host with no application windows. The host tests use a synthetic engine to verify the real application protocol and lifecycle. They do not run model inference.
 

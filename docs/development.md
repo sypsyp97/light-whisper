@@ -10,7 +10,10 @@ Build on Windows 10/11 x64:
 | [pnpm](https://pnpm.io/) | 10.28.2 (CI) | Frontend packages |
 | [uv](https://docs.astral.sh/uv/) | 0.11.30 (CI) | Build-time tooling, locked native SDK wheels and reference tests |
 
-Python 3.11 is selected by `.python-version`; the project supports Python 3.11–3.12. `uv` manages this environment.
+The development tools support Python 3.11–3.12. `uv` selects 3.11 from `.python-version`.
+The build scripts invoke Cargo and select native libraries. The tests also use
+Python implementations of the engine and CLI as references. The installed
+application runs the Rust executables without a Python interpreter.
 
 ```bash
 git clone https://github.com/sypsyp97/light-whisper.git
@@ -93,7 +96,7 @@ The NSIS installer is written to `src-tauri/target/release/bundle/nsis/`.
 Installation registers `light-whisper` on the current user's PATH. Open a new
 terminal after installation to use the command.
 
-Optional local-model prefetch:
+To prefetch a model from a source checkout, run the reference downloader:
 
 ```bash
 uv run python src-tauri/resources/download_models.py --engine qwen3-asr-0.6b
@@ -177,16 +180,17 @@ use OS, compiler, lockfile and source hashes; cache hits still run every check.
 
 **Hotkey not working**: the current default dictation hotkey is `F2`. Change it in Settings if another app owns it.
 
-**GPU not detected**: run `nvidia-smi`. Qwen3-ASR records its selected device/backend in `qwen3_asr_server.log`.
+**GPU not detected**: run `nvidia-smi`. Run `light-whisper --target engine status`
+to see which backend a separate local engine selects.
 
 **Log locations**:
 
 - App log: `%LOCALAPPDATA%\com.light-whisper.desktop\logs\app.log`
-- ASR logs: `%APPDATA%\com.light-whisper.app\logs\{qwen3_asr_server,r2t2_asr_server}.log`
-- Python stderr fallback: `%APPDATA%\com.light-whisper.app\funasr_stderr.log`
+- Desktop engine stderr: `%APPDATA%\com.light-whisper.app\funasr_stderr.log`
 
-`LIGHT_WHISPER_DATA_DIR` overrides the ASR data directory. Standalone Python
-servers use `%TEMP%\light_whisper_logs\` when it is unset.
+`LIGHT_WHISPER_DATA_DIR` overrides the ASR data directory. The Python reference
+servers write `qwen3_asr_server.log` or `r2t2_asr_server.log` under its `logs`
+directory, or under `%TEMP%\light_whisper_logs\` when it is unset.
 
 **Automatic decisions**: `app.log` records the selected decision provider,
 validated route/screen choices, probabilities and whether polishing was skipped.
@@ -214,7 +218,8 @@ Describe current features in the README files. Put version history in `CHANGELOG
 |:--|:--|
 | `src/` | React UI, translations and frontend tests |
 | `src-tauri/src/` | Rust capture, IPC, settings and service integrations |
-| `src-tauri/resources/` | Python ASR servers, bundled VAD and runtime licenses |
+| `rust-runtime/` | Rust speech engine, CLI and native inference bindings |
+| `src-tauri/resources/` | Bundled assets and licenses, plus the Python reference engine and its tests |
 | `scripts/` | Builds, release gates, benchmarks and pinned native patches |
 | `formal/` | Versioned TLA+/Lean specifications, coverage registry and regression replay fixtures |
 | `docs/` | Development, releases and R2T2 implementation details |

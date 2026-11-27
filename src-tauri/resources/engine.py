@@ -1,25 +1,7 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""Run the Python reference engine for development and parity tests."""
 
-
-
-
-
-
-
-
-import sys
-import os
 import argparse
-
-
-def _setup_frozen_paths():
-
-    if getattr(sys, "frozen", False):
-        base = os.path.dirname(sys.executable)
-        internal = os.path.join(base, "_internal")
-        if os.path.isdir(internal) and internal not in sys.path:
-            sys.path.insert(0, internal)
 
 
 def cmd_serve(engine: str):
@@ -40,8 +22,6 @@ def cmd_download(engine: str):
 
 
 def main():
-    _setup_frozen_paths()
-
     parser = argparse.ArgumentParser(prog="engine")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -56,7 +36,7 @@ def main():
 
     if args.command == "serve":
         cmd_serve(args.engine)
-    elif args.command == "download":
+    else:
         cmd_download(args.engine)
 
 
