@@ -152,6 +152,14 @@ export function setGpuIdleSeconds(seconds: number, timeoutSeconds?: number): Pro
   return invokeCommand<number>("set_gpu_idle_seconds", timeoutSeconds === undefined ? { seconds } : { seconds, timeoutSeconds });
 }
 
+export const getGpuBackend = createNoArgCommand<string>("get_gpu_backend");
+
+export function setGpuBackend(backend: string): Promise<string> {
+  return invokeCommand<string>("set_gpu_backend", { backend });
+}
+
+export const listGpuBackends = createNoArgCommand<string[]>("list_gpu_backends");
+
 export const getAudioProcessingEnabled = createNoArgCommand<boolean>("get_audio_processing_enabled");
 
 export function setAudioProcessingEnabled(enabled: boolean): Promise<boolean> {

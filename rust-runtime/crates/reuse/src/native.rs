@@ -45,6 +45,7 @@ impl Native {
     pub fn open(resources: &Path, model: &Path, b: Backend, threads: i32) -> Result<Self, String> {
         let backend = match b {
             Backend::Cuda => "cuda",
+            Backend::Vulkan => "vulkan",
             Backend::Cpu => "cpu",
         };
         let dll = resources

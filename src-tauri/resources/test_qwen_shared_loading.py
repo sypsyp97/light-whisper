@@ -181,9 +181,9 @@ class QwenSharedLoadingTests(unittest.TestCase):
 
         server._load_runtime(self.model_path)
 
-        self.assertEqual(self.native_factory.call_count, 2)
+        self.assertEqual(self.native_factory.call_count, 3)
         resources = Path(qwen3_asr_server.__file__).resolve().parent
-        for call, backend in zip(self.native_factory.call_args_list, ("cuda", "cpu")):
+        for call, backend in zip(self.native_factory.call_args_list, ("cuda", "vulkan", "cpu")):
             self.assertEqual(call.kwargs["backend"], backend)
             self.assertEqual(Path(call.args[1]), resources / "r2t2-native" / backend / "audiocpp.dll")
         self.assertIs(server.session, self.native)
@@ -269,7 +269,7 @@ class QwenSharedLoadingTests(unittest.TestCase):
         self.assertIsNone(server.session)
         self.assertIsNone(server.stream)
         self.assertIsNone(server.vad_model)
-        self.assertEqual(self.native_factory.call_count, 2)
+        self.assertEqual(self.native_factory.call_count, 3)
         self.native_factory.side_effect = None
 
         retried = self.initialize(server)

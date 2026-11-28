@@ -85,8 +85,10 @@ class EngineFixture:
         prefix=f"_internal/r2t2-native/{backend}/"
         from build_r2t2_runtime import BUILD_ID, SOURCE_REVISION, PATCH
         crt=["msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll","vcomp140.dll"]
-        library_names=["audiocpp.dll","reuse.dll","audio.cpp-LICENSE.txt","ggml-LICENSE.txt",
+        library_names=["audiocpp.dll","audio.cpp-LICENSE.txt","ggml-LICENSE.txt",
                        "sentencepiece-LICENSE.txt",*crt]
+        if backend!="vulkan":
+            library_names.append("reuse.dll")
         if backend=="cuda":
             library_names += ["cublas64_12.dll","cublasLt64_12.dll","cudart64_12.dll","CUDA-LICENSE.txt"]
         blobs={name:pe_image()+f"fixture {backend}/{name}".encode() for name in library_names}
@@ -95,7 +97,8 @@ class EngineFixture:
         manifest={"source":"https://github.com/0xShug0/audio.cpp.git","backend":backend,
                   "build_id":BUILD_ID,"revision":SOURCE_REVISION,
                   "patch_sha256":hashlib.sha256(PATCH.read_bytes()).hexdigest(),
-                  "reuse_source_sha256":source_fingerprint(),"files":{n:metadata(v) for n,v in blobs.items()}}
+                  "reuse_source_sha256":None if backend=="vulkan" else source_fingerprint(),
+                  "files":{n:metadata(v) for n,v in blobs.items()}}
         if write_source:
             directory=self.resources/"r2t2-native"/backend
             directory.mkdir(parents=True,exist_ok=True)

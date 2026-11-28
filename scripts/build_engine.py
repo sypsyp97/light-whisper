@@ -29,6 +29,8 @@ BASE_ASSETS = ("fireredvad_vad.onnx", "fireredvad_cmvn.json", "FireRedVAD-LICENS
 CRT = {"msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcomp140.dll"}
 CUDA = {"cublas64_12.dll", "cublasLt64_12.dll", "cudart64_12.dll"}
 NATIVE = {"audiocpp.dll", "reuse.dll", "audio.cpp-LICENSE.txt", "ggml-LICENSE.txt", "sentencepiece-LICENSE.txt"}
+REQUIRED_BACKENDS = ("cpu", "cuda")
+OPTIONAL_BACKENDS = ("vulkan",)
 
 
 def metadata(path):
@@ -123,12 +125,14 @@ def native_root():
 
 def native_layout(backend, manifest):
     provenance = {"backend": backend, "source": SOURCE_URL, "build_id": BUILD_ID, "revision": SOURCE_REVISION,
-                  "patch_sha256": metadata(PATCH)["sha256"], "reuse_source_sha256": reuse_source_fingerprint()}
+                  "patch_sha256": metadata(PATCH)["sha256"],
+                  "reuse_source_sha256": None if backend == "vulkan" else reuse_source_fingerprint()}
     if any(manifest.get(key) != value for key, value in provenance.items()):
         raise ValueError(f"Stale or invalid {backend} native runtime provenance")
     files = manifest["files"]
     shared = manifest.get("shared_files", {})
-    names = NATIVE | CRT | (CUDA | {"CUDA-LICENSE.txt"} if backend == "cuda" else set())
+    names = (NATIVE - {"reuse.dll"} if backend == "vulkan" else NATIVE) | CRT | (
+        CUDA | {"CUDA-LICENSE.txt"} if backend == "cuda" else set())
     if files.keys() & shared.keys() or files.keys() | shared.keys() != names or shared.keys() - (CRT | CUDA):
         raise ValueError(f"Unexpected {backend} native runtime file table")
     for name, meta in (files | shared).items():
@@ -140,7 +144,10 @@ def native_layout(backend, manifest):
 
 def copy_native(engine_dir):
     shared_files = {}
-    for backend in ("cpu", "cuda"):
+    root = native_root()
+    optional = [backend for backend in OPTIONAL_BACKENDS
+                if (root / backend / "runtime-manifest.json").is_file()]
+    for backend in (*REQUIRED_BACKENDS, *optional):
         source = native_root() / backend
         manifest = json.loads((source / "runtime-manifest.json").read_bytes())
         files, shared = native_layout(backend, manifest)
@@ -229,9 +236,13 @@ def verify_archive_sources(archive):
     for name, sha in pins.items():
         if actual.get(name.casefold(), {}).get("sha256") != sha:
             raise ValueError(f"Missing or corrupt vendor asset: {name}")
-    for backend in ("cpu", "cuda"):
+    for backend in (*REQUIRED_BACKENDS, *OPTIONAL_BACKENDS):
         prefix = f"_internal/r2t2-native/{backend}/"
         manifest_path = prefix + "runtime-manifest.json"
+        if backend in OPTIONAL_BACKENDS and manifest_path not in documents:
+            continue
+        if manifest_path not in documents:
+            raise ValueError(f"Missing bundled {backend} runtime manifest")
         native = documents[manifest_path]
         files, shared = native_layout(backend, native)
         reference = native_root() / backend / "runtime-manifest.json"

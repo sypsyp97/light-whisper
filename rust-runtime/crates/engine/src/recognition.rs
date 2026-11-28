@@ -35,10 +35,10 @@ struct Spec {
 }
 impl Spec {
     fn open(&self) -> R<NativeAsr> {
-        let directory = if self.backend == Backend::Cuda {
-            "cuda"
-        } else {
-            "cpu"
+        let directory = match self.backend {
+            Backend::Cuda => "cuda",
+            Backend::Vulkan => "vulkan",
+            Backend::Cpu => "cpu",
         };
         let dll = self
             .resources
@@ -296,19 +296,19 @@ fn open_qwen_vad(resources: &Path) -> R<FireRedVad> {
 
 impl Qwen {
     fn open(spec: &Spec) -> R<Self> {
-        let cuda = spec.backend == Backend::Cuda;
+        let gpu = spec.backend != Backend::Cpu;
         let resources = spec.resources.clone();
         let owned = spec.clone();
         let decoder = Worker::new("qwen3-asr-native", move || {
             let native = Some(owned.open()?);
-            let cpu_vad = if cuda {
+            let cpu_vad = if gpu {
                 None
             } else {
                 Some(open_qwen_vad(&owned.resources)?)
             };
             Ok(QwenModel { native, cpu_vad })
         })?;
-        let prepare = if cuda {
+        let prepare = if gpu {
             Some(Worker::new("qwen3-asr-prepare", move || {
                 open_qwen_vad(&resources)
             })?)
